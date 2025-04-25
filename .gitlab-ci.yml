@@ -1,0 +1,36 @@
+image: nixos/nix:latest
+
+stages:
+  - check
+  - build
+  - test
+  - lint
+
+variables:
+  # Speeds up evaluation by using flakes and experimental features
+  NIX_CONFIG: "experimental-features = nix-command flakes"
+
+before_script:
+  - nix --version
+  - nix flake metadata # sanity check
+
+check:
+  stage: check
+  script:
+    - nix flake check
+
+build:
+  stage: build
+  script:
+    - nix build .#default
+
+test:
+  stage: test
+  script:
+    - nix develop .#default --command cargo test
+
+lint:
+  stage: lint
+  script:
+    - nix develop .#default --command cargo clippy --all-targets --all-features -- -D warnings
+    - nix develop .#default --command cargo fmt -- --check
