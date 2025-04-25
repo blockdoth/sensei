@@ -1,4 +1,3 @@
-
-pub fn get_message() -> String{
-  return "Hello Nix flake!".to_string();
+pub fn get_message() -> String {
+    "Hello Nix flake!".to_string()
 }

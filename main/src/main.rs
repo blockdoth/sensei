@@ -1,17 +1,15 @@
-use std::io;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
-    backend::CrosstermBackend,
     Terminal,
+    backend::CrosstermBackend,
+    style::{Color, Style},
     widgets::{Block, Borders},
-    style::{Style, Color},
 };
-
-use test_lib;
+use std::io;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Terminal setup
