@@ -1,0 +1,10 @@
+[package]
+name = "main"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+colored = "2.0.4"
+ratatui = "0.28.1"
+crossterm = "0.28.1"
+test_lib = { version = "0.1.0", path = "../lib" }

@@ -1,0 +1,9 @@
+.idea
+.envrc
+.direnv/
+ 
+/lib/target
+/target
+result
+
+
