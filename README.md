@@ -1,12 +1,10 @@
 # Sensei
----
 
 
 
 
 
 # Building and development
----
 Sensei uses nix flakes for setting up a declarative development environment and achieving reproducible builds.   
 
 ## Installing Nix

@@ -7,9 +7,10 @@ cargo clippy --all-targets --all-features -- -D warnings
 echo "Running rustfmt..."
 cargo fmt --all -- 
 
-echo "Running ruff..."
+echo "Running ruff fmt..."
 ruff format
-ruff linter
+echo "Running ruff lint..."
+ruff check
 
 echo "Running shellcheck..."
 find . -name "*.sh" -print0 | xargs -0 shellcheck
