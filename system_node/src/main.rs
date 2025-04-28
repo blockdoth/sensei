@@ -6,6 +6,8 @@ struct SystemNode {
     //For each device spawn a raw source task
 }
 
+impl SystemNode {}
+
 #[async_trait]
 trait WifiController {
     async fn apply(&self, cfg: RadioConfig) -> anyhow::Result<()>;
@@ -14,4 +16,8 @@ trait WifiController {
 #[async_trait]
 trait DataPipeline {
     async fn subscribe(&self, mode: AdapterMode) -> anyhow::Result<FrameStream>;
+}
+
+fn main() {
+    println!("Hello, world!");
 }

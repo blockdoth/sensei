@@ -34,4 +34,3 @@ pub enum DataMsg {
     RawFrame { ts: u64, bytes: Vec<u8> }, // raw bytestream, requires decoding adapter
     CsiFrame { ts: u64, csi: Vec<Complex<f32>> }, // This would contain a proper deserialized CSI
 }
-

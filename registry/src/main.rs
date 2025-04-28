@@ -1,4 +1,3 @@
-use crate::rpc_envelope;
 use std::collections::HashMap;
 
 #[derive(Clone, Eq, Hash, PartialEq)]
@@ -33,11 +32,15 @@ impl Registry {
         Ok(())
     }
 
-    fn handle_message(&self, msg: rpc_envelope::RpcEnvelope) ->  anyhow::Result<()> {
+    fn handle_message(&self, msg: common::rpc_envelope::RpcEnvelope) ->  anyhow::Result<()> {
         Ok(())
     }
 
-    async fn check_for_heartbeat(&self, msg: CtrlMsg, host: HostId) -> anyhow::Result<()> {
-
+    async fn check_for_heartbeat(&self, msg: common::rpc_envelope::CtrlMsg, host: HostId) -> anyhow::Result<()> {
+        Ok(())
     }
+}
+
+fn main() {
+    println!("Hello, world!");
 }
