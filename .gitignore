@@ -1,0 +1,25 @@
+# ================================
+# Rust build artifacts
+# ================================
+target/
+**/*.rs.bk
+
+# ================================
+# Cargo package manager files
+# ================================
+/Cargo.lock
+/.cargo/
+
+# ================================
+# RustRover / JetBrains IDE files
+# ================================
+.idea/
+*.iml
+
+# ================================
+# Miscellaneous OS / Editor files
+# ================================
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
