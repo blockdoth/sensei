@@ -1,38 +1,30 @@
-image: nixos/nix:latest
+image: nixos/nix:2.28.2
 
 stages:
-  - lint
+  - checks
   - buildandtest
 
 variables:
-  # Speeds up evaluation by using flakes and experimental features
   NIX_CONFIG: "experimental-features = nix-command flakes"
-  
-cache:
-  # Cache for Cargo (target and .cargo)
-  paths:
-    - .cargo
-    - target
 
 before_script:
   - nix --version
   - nix flake metadata 
 
-lint:
-  stage: lint
+lint_and_fmt:
+  stage: checks
   script:
-    - nix develop .#default --command cargo clippy --all-targets --all-features -- -D warnings
-    - nix develop .#default --command cargo fmt -- --check
+    - nix develop --command ./scripts/check.sh
 
 test:
   stage: buildandtest
   script:
-    - nix develop .#default --command cargo test
+    - nix develop --command cargo test
 
 build:
   stage: buildandtest
   script:
-    - nix build .#default
+    - nix build 
   artifacts:
     paths:
-      - result/bin
+      - result/bin/main

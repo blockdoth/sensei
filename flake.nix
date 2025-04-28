@@ -1,51 +1,55 @@
 {
-  description = "A Nix flake template for a rust development environment";
+  description = "A flake template for a rust and python project";
 
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    flake-parts.url = "github:hercules-ci/flake-parts";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     rust-overlay.url = "github:oxalica/rust-overlay";
   };
 
   outputs =
-    { self, nixpkgs, rust-overlay, }:
-    let
-      supportedSystems = [
+    inputs@{ self, flake-parts, ... }:
+    flake-parts.lib.mkFlake { inherit inputs; } {
+      systems = [
         "x86_64-linux"
         "aarch64-linux"
         "x86_64-darwin"
         "aarch64-darwin"
       ];
-      # Imports the correct version of nixpkgs for each system architecture
-      forEachSupportedSystem =
-        f: nixpkgs.lib.genAttrs supportedSystems (system: f { pkgs = import nixpkgs { 
-          inherit system; 
-          overlays = [rust-overlay.overlays.default];
-        }; });
-      in
-    {
-      devShells = forEachSupportedSystem (
-        { pkgs }:
-        let 
-          toolchain = pkgs.rust-bin.fromRustupToolchainFile ./toolchain.toml;
-        in        
+      perSystem =
         {
-          default = pkgs.mkShell {
-            shellHook = " echo 'Entering a rust shell template'";
-            RUST_SRC_PATH = "${toolchain}/lib/rustlib/src/rust/library";
+          config,
+          self',
+          inputs',
+          pkgs,
+          system,
+          ...
+        }:
+        let
+          pkgs = import inputs.nixpkgs {
+            inherit system;
+            overlays = [ inputs.rust-overlay.overlays.default ];
+          };
+          toolchain = pkgs.rust-bin.fromRustupToolchainFile ./toolchain.toml;
+        in
+        {
+          devShells.default = pkgs.mkShell {
+            shellHook = ''
+              echo "Entering project shell"
+            '';
             packages = [
               toolchain
+              pkgs.ruff
+              pkgs.shellcheck
+              pkgs.nixfmt-rfc-style
               pkgs.rust-analyzer-unwrapped
             ];
-            
+            RUST_SRC_PATH = "${toolchain}/lib/rustlib/src/rust/library";
           };
-        }
-      );
-      packages = forEachSupportedSystem ({ pkgs }: 
-        let
-          toolchain = pkgs.rust-bin.fromRustupToolchainFile ./toolchain.toml;
-        in {
-          default = pkgs.rustPlatform.buildRustPackage {
-            pname = "my-rust-project";
+
+          # Example package definition
+          packages.default = pkgs.rustPlatform.buildRustPackage {
+            pname = "main";
             version = "0.1.0";
             src = ./.;
             cargoLock = {
@@ -54,6 +58,36 @@
             cargoToml = ./Cargo.toml;
             nativeBuildInputs = [ toolchain ];
           };
-        });      
+
+          # broken because clippy doesnt work in the sandboxed nix env
+          # checks = {
+          #   style =
+          #     pkgs.runCommand "pre-push"
+          #       {
+          #         nativeBuildInputs = [
+          #           toolchain
+          #           pkgs.ruff
+          #           pkgs.shellcheck
+          #           pkgs.nixfmt-rfc-style
+          #         ];
+          #       }
+          #       ''
+          #         export HOME=$(mktemp -d)
+          #         cd ${self.outPath}
+          #         ${builtins.readFile ./scripts/check.sh}
+          #         touch $out
+          #       '';
+          #   cargo-test =
+          #     pkgs.runCommand "cargo-test"
+          #       {
+          #         nativeBuildInputs = [ toolchain ];
+          #       }
+          #       ''
+          #         # Ensure the Rust package is built and then run tests
+          #         cargo test
+          #         touch $out
+          #       '';
+          # };
+        };
     };
 }
