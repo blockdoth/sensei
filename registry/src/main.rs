@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use common::RpcEnvelope;
+
 #[derive(Clone, Eq, Hash, PartialEq)]
 struct HostId {id: u32}
 #[derive(Eq, Hash, PartialEq)]
@@ -32,11 +34,11 @@ impl Registry {
         Ok(())
     }
 
-    fn handle_message(&self, msg: common::rpc_envelope::RpcEnvelope) ->  anyhow::Result<()> {
+    fn handle_message(&self, msg: RpcEnvelope) ->  anyhow::Result<()> {
         Ok(())
     }
 
-    async fn check_for_heartbeat(&self, msg: common::rpc_envelope::CtrlMsg, host: HostId) -> anyhow::Result<()> {
+    async fn check_for_heartbeat(&self, msg: RpcEnvelope, host: HostId) -> anyhow::Result<()> {
         Ok(())
     }
 }

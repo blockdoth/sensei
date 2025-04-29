@@ -3,4 +3,5 @@ members = [
     "common",
     "registry",
     "system_node",
+    "orchestrator",
 ]
