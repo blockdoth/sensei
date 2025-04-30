@@ -1,11 +1,13 @@
 use async_trait::async_trait;
-
+use tokio::net::UdpSocket;
+use common::adapter_mode::AdapterMode;
+use common::CtrlMsg::{Configure, Heartbeat};
+use common::radio_config::RadioConfig;
 use common::RpcEnvelope;
+use common::{serialize_envelope, deserialize_envelope};
 
 struct SystemNode {
-    //Read node.toml
-    //Register itself and every device with the registry
-    //For each device spawn a raw source task
+    devices: Vec<u64>
 }
 
 impl SystemNode {
@@ -13,7 +15,9 @@ impl SystemNode {
         //Read node.toml
         //Register itself and devices with the registry
         //For each device spawn a raw source task
-        SystemNode {}
+        SystemNode {
+            devices: Vec::new(),
+        }
     }
 }
 
@@ -24,9 +28,23 @@ trait WifiController {
 
 #[async_trait]
 trait DataPipeline {
-    async fn subscribe(&self, mode: AdapterMode) -> anyhow::Result<FrameStream>;
+    async fn subscribe(&self, mode: AdapterMode) -> anyhow::Result<()>;
 }
 
-fn main() {
-    println!("Hello, world!");
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    SystemNode::new();
+    let socket = UdpSocket::bind("127.0.0.1:8082").await?;
+
+    //Wait until receive a message
+    let mut buf  = [0u8; 1024];
+    let (len, addr) = socket.recv_from(&mut buf).await?;
+    let msg = deserialize_envelope(&buf[..len]);
+    println!("{:?} received", msg);
+    
+    //Respond to message
+    let response = serialize_envelope(RpcEnvelope::Ctrl(Heartbeat));
+    socket.send_to(&response, &addr).await?;
+    
+    Ok(())
 }
