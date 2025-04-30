@@ -3,12 +3,26 @@ use std::collections::HashMap;
 use common::RpcEnvelope;
 
 #[derive(Clone, Eq, Hash, PartialEq)]
-struct HostId {id: u32}
+struct HostId {
+    id: u32,
+}
 #[derive(Eq, Hash, PartialEq)]
-struct DeviceId {id: u32}
+struct DeviceId {
+    id: u32,
+}
 
-struct HostInfo {name: String, rpc_addr: String, state: String, last_heartbeat: u32}
-struct DeviceInfo { host_id: HostId, kind: String, state: String, current_cfg: String}
+struct HostInfo {
+    name: String,
+    rpc_addr: String,
+    state: String,
+    last_heartbeat: u32,
+}
+struct DeviceInfo {
+    host_id: HostId,
+    kind: String,
+    state: String,
+    current_cfg: String,
+}
 
 struct Registry {
     host_table: HashMap<HostId, HostInfo>,
@@ -16,7 +30,10 @@ struct Registry {
 }
 impl Registry {
     fn new() -> Self {
-        Registry { host_table: HashMap::new(), device_table: HashMap::new() }
+        Registry {
+            host_table: HashMap::new(),
+            device_table: HashMap::new(),
+        }
     }
 
     fn list_hosts(&self) -> anyhow::Result<Vec<HostId>> {
@@ -24,7 +41,11 @@ impl Registry {
         Ok(hosts)
     }
 
-    fn register_device(&mut self, device_id: DeviceId, device_info: DeviceInfo) -> anyhow::Result<()> {
+    fn register_device(
+        &mut self,
+        device_id: DeviceId,
+        device_info: DeviceInfo,
+    ) -> anyhow::Result<()> {
         self.device_table.insert(device_id, device_info);
         Ok(())
     }
@@ -34,7 +55,7 @@ impl Registry {
         Ok(())
     }
 
-    fn handle_message(&self, msg: RpcEnvelope) ->  anyhow::Result<()> {
+    fn handle_message(&self, msg: RpcEnvelope) -> anyhow::Result<()> {
         Ok(())
     }
 

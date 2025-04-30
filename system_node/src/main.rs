@@ -1,13 +1,14 @@
 use async_trait::async_trait;
-use tokio::net::UdpSocket;
-use common::adapter_mode::AdapterMode;
 use common::CtrlMsg::{Configure, Heartbeat};
-use common::radio_config::RadioConfig;
 use common::RpcEnvelope;
-use common::{serialize_envelope, deserialize_envelope};
+use common::adapter_mode::AdapterMode;
+use common::radio_config::RadioConfig;
+use common::{deserialize_envelope, serialize_envelope};
+use std::env;
+use tokio::net::UdpSocket;
 
 struct SystemNode {
-    devices: Vec<u64>
+    devices: Vec<u64>,
 }
 
 impl SystemNode {
@@ -33,18 +34,31 @@ trait DataPipeline {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    //Initialize a new node
     SystemNode::new();
-    let socket = UdpSocket::bind("127.0.0.1:8082").await?;
 
-    //Wait until receive a message
-    let mut buf  = [0u8; 1024];
-    let (len, addr) = socket.recv_from(&mut buf).await?;
-    let msg = deserialize_envelope(&buf[..len]);
-    println!("{:?} received", msg);
-    
+    let args: Vec<String> = env::args().collect();
+    if args.len() < 2 {
+        eprintln!("Usage: crate_a <local_port>");
+        std::process::exit(1);
+    }
+    let local_port = &args[1];
+    let local_addr = format!("127.0.0.1:{}", local_port); //Create a local address based on arguments
+    let remote_addr = "127.0.0.1:8081"; //Hardcoded address for remote
+    let socket = UdpSocket::bind(&local_addr).await?;
+
     //Respond to message
-    let response = serialize_envelope(RpcEnvelope::Ctrl(Heartbeat));
-    socket.send_to(&response, &addr).await?;
+    loop {
+        let mut buf = [0u8; 1024];
+        match socket.recv(&mut buf).await {
+            Ok(received) => {
+                let msg = deserialize_envelope(&buf[..received]);
+                println!("{:?} received", msg);
+            }
+            Err(e) => {println!("Received error: {}", e);}
+        }
+    }
     
+
     Ok(())
 }
