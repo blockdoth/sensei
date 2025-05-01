@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use common::adapter_mode::AdapterMode;
+use common::deserialize_envelope;
 use common::radio_config::RadioConfig;
-use common::{deserialize_envelope};
 use std::env;
 use tokio::net::UdpSocket;
 
@@ -31,7 +31,7 @@ trait DataPipeline {
 }
 
 #[tokio::main]
-pub async fn run(addr:String , port:u16) -> anyhow::Result<()> {
+pub async fn run(addr: String, port: u16) -> anyhow::Result<()> {
     //Initialize a new node
     SystemNode::new();
 
@@ -41,7 +41,7 @@ pub async fn run(addr:String , port:u16) -> anyhow::Result<()> {
         std::process::exit(1);
     }
     let local_port = &args[1];
-    let local_addr = format!("{}:{}", addr, port); //Create a local address based on arguments
+    let local_addr = format!("{addr}:{port}"); //Create a local address based on arguments
     let remote_addr = "127.0.0.1:8081"; //Hardcoded address for remote
     let socket = UdpSocket::bind(&local_addr).await?;
 
@@ -51,9 +51,11 @@ pub async fn run(addr:String , port:u16) -> anyhow::Result<()> {
         match socket.recv(&mut buf).await {
             Ok(received) => {
                 let msg = deserialize_envelope(&buf[..received]);
-                println!("{:?} received", msg);
+                println!("{msg:?} received");
             }
-            Err(e) => {println!("Received error: {}", e);}
+            Err(e) => {
+                println!("Received error: {e}");
+            }
         }
     }
 }
