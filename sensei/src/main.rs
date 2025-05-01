@@ -4,7 +4,6 @@ mod system_node;
 
 
 use argh::FromArgs;
-use std::env;
 
 /// A simple app to perform collection from configured sources
 #[derive(FromArgs, PartialEq, Debug)]

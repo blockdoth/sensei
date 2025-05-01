@@ -14,3 +14,6 @@ async-trait = "0.1.88"
 serde = { version = "1.0.219", features = ["derive"] }
 bincode = "2.0"
 argh = "0.1.12"
+
+[lints]
+workspace = true
