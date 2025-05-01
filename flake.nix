@@ -49,7 +49,7 @@
 
           # Example package definition
           packages.default = pkgs.rustPlatform.buildRustPackage {
-            pname = "main";
+            pname = "sensei";
             version = "0.1.0";
             src = ./.;
             cargoLock = {

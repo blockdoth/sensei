@@ -1,6 +1,12 @@
 [package]
-name = "test_lib"
+name = "lib"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "common"
+path = "src/rpc_envelope.rs"
+
 [dependencies]
+serde = { version = "1", features = ["derive"] }
+bincode = "1.3"
