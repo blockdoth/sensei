@@ -1,9 +1,9 @@
 use common::CtrlMsg::Heartbeat;
 use common::RpcEnvelope;
 use common::{deserialize_envelope, serialize_envelope};
-use tokio::net::UdpSocket;
 use std::sync::Arc;
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::UdpSocket;
 use tokio::task::JoinHandle;
 
 fn recv_task(recv_socket: Arc<UdpSocket>) -> JoinHandle<()> {
@@ -14,9 +14,11 @@ fn recv_task(recv_socket: Arc<UdpSocket>) -> JoinHandle<()> {
             match recv_socket.recv_from(&mut buf).await {
                 Ok((len, addr)) => {
                     let msg = deserialize_envelope(&buf[..len]);
-                    println!("{:?} received", msg);
+                    println!("{msg:?} received");
                 }
-                Err(e) => { println!("Received error {:?}", e); }
+                Err(e) => {
+                    println!("Received error {e:?}");
+                }
             }
         }
     })
@@ -52,19 +54,19 @@ fn send_task(send_socket: Arc<UdpSocket>) -> JoinHandle<()> {
                     continue;
                 }
             };
-            
-            if message == "Heartbeat" || message == "" {
+
+            if message == "Heartbeat" || message.is_empty() {
                 let msg = RpcEnvelope::Ctrl(Heartbeat);
                 let data = serialize_envelope(msg);
 
                 match send_socket.send_to(&data, addr).await {
-                    Ok(n) => println!("Sent {} bytes to {}", n, addr),
-                    Err(e) => eprintln!("Failed to send: {}", e),
+                    Ok(n) => println!("Sent {n} bytes to {addr}"),
+                    Err(e) => eprintln!("Failed to send: {e}"),
                 }
             }
 
             print!("> ");
-            let _ = io::stdout().flush(); // Ensure prompt shows up again
+            let _ = io::stdout().flush().await; // Ensure prompt shows up again
         }
 
         println!("Send loop ended (stdin closed).");
@@ -72,11 +74,11 @@ fn send_task(send_socket: Arc<UdpSocket>) -> JoinHandle<()> {
 }
 
 #[tokio::main]
-pub async fn run(addr:String , port:u16) -> anyhow::Result<()> {
-    let socket = Arc::new(UdpSocket::bind(format!("{}:{}", addr, port)).await?);
+pub async fn run(addr: String, port: u16) -> anyhow::Result<()> {
+    let socket = Arc::new(UdpSocket::bind(format!("{addr}:{port}")).await?);
     let recv_socket = Arc::clone(&socket);
     let send_socket = Arc::clone(&socket);
-    
+
     let recv_task = recv_task(recv_socket);
 
     let send_task = send_task(send_socket);
