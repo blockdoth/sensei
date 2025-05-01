@@ -1,9 +1,9 @@
 use common::CtrlMsg::Heartbeat;
 use common::RpcEnvelope;
 use common::{deserialize_envelope, serialize_envelope};
-use tokio::net::UdpSocket;
 use std::sync::Arc;
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::UdpSocket;
 use tokio::task::JoinHandle;
 
 fn recv_task(recv_socket: Arc<UdpSocket>) -> JoinHandle<()> {
@@ -16,7 +16,9 @@ fn recv_task(recv_socket: Arc<UdpSocket>) -> JoinHandle<()> {
                     let msg = deserialize_envelope(&buf[..len]);
                     println!("{msg:?} received");
                 }
-                Err(e) => { println!("Received error {e:?}"); }
+                Err(e) => {
+                    println!("Received error {e:?}");
+                }
             }
         }
     })
@@ -52,7 +54,7 @@ fn send_task(send_socket: Arc<UdpSocket>) -> JoinHandle<()> {
                     continue;
                 }
             };
-            
+
             if message == "Heartbeat" || message.is_empty() {
                 let msg = RpcEnvelope::Ctrl(Heartbeat);
                 let data = serialize_envelope(msg);
@@ -72,11 +74,11 @@ fn send_task(send_socket: Arc<UdpSocket>) -> JoinHandle<()> {
 }
 
 #[tokio::main]
-pub async fn run(addr:String , port:u16) -> anyhow::Result<()> {
+pub async fn run(addr: String, port: u16) -> anyhow::Result<()> {
     let socket = Arc::new(UdpSocket::bind(format!("{addr}:{port}")).await?);
     let recv_socket = Arc::clone(&socket);
     let send_socket = Arc::clone(&socket);
-    
+
     let recv_task = recv_task(recv_socket);
 
     let send_task = send_task(send_socket);

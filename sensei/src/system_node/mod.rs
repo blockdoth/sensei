@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use common::adapter_mode::AdapterMode;
+use common::deserialize_envelope;
 use common::radio_config::RadioConfig;
-use common::{deserialize_envelope};
 use std::env;
 use tokio::net::UdpSocket;
 
@@ -31,7 +31,7 @@ trait DataPipeline {
 }
 
 #[tokio::main]
-pub async fn run(addr:String , port:u16) -> anyhow::Result<()> {
+pub async fn run(addr: String, port: u16) -> anyhow::Result<()> {
     //Initialize a new node
     SystemNode::new();
 
@@ -53,7 +53,9 @@ pub async fn run(addr:String , port:u16) -> anyhow::Result<()> {
                 let msg = deserialize_envelope(&buf[..received]);
                 println!("{msg:?} received");
             }
-            Err(e) => {println!("Received error: {e}");}
+            Err(e) => {
+                println!("Received error: {e}");
+            }
         }
     }
 }
