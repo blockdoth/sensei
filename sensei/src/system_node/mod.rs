@@ -1,9 +1,7 @@
 use async_trait::async_trait;
-use common::CtrlMsg::{Configure, Heartbeat};
-use common::RpcEnvelope;
 use common::adapter_mode::AdapterMode;
 use common::radio_config::RadioConfig;
-use common::{deserialize_envelope, serialize_envelope};
+use common::{deserialize_envelope};
 use std::env;
 use tokio::net::UdpSocket;
 
@@ -33,7 +31,7 @@ trait DataPipeline {
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+pub async fn run() -> anyhow::Result<()> {
     //Initialize a new node
     SystemNode::new();
 
@@ -58,7 +56,4 @@ async fn main() -> anyhow::Result<()> {
             Err(e) => {println!("Received error: {}", e);}
         }
     }
-    
-
-    Ok(())
 }

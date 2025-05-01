@@ -53,7 +53,7 @@ fn send_task(send_socket: Arc<UdpSocket>) -> JoinHandle<()> {
                 }
             };
             
-            if (message == "Heartbeat" || message == "") {
+            if message == "Heartbeat" || message == "" {
                 let msg = RpcEnvelope::Ctrl(Heartbeat);
                 let data = serialize_envelope(msg);
 

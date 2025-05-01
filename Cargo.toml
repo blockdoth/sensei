@@ -1,7 +1,7 @@
 [workspace]
 members = [
-    "common",
-    "registry",
-    "system_node",
-    "orchestrator",
+	"lib",
+	"sensei"
 ]
+
+resolver = "2"

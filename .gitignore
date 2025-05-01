@@ -3,6 +3,13 @@
 # ================================
 target/
 **/*.rs.bk
+/lib/target
+
+# ================================
+# Nix builds
+# ================================
+
+/result
 
 # ================================
 # Cargo package manager files
@@ -23,3 +30,6 @@ target/
 Thumbs.db
 *.swp
 *.swo
+.envrc
+.direnv/
+ 
