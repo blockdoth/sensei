@@ -31,7 +31,7 @@ trait DataPipeline {
 }
 
 #[tokio::main]
-pub async fn run() -> anyhow::Result<()> {
+pub async fn run(addr:String , port:u16) -> anyhow::Result<()> {
     //Initialize a new node
     SystemNode::new();
 
@@ -41,7 +41,7 @@ pub async fn run() -> anyhow::Result<()> {
         std::process::exit(1);
     }
     let local_port = &args[1];
-    let local_addr = format!("127.0.0.1:{}", local_port); //Create a local address based on arguments
+    let local_addr = format!("{}:{}", addr, port); //Create a local address based on arguments
     let remote_addr = "127.0.0.1:8081"; //Hardcoded address for remote
     let socket = UdpSocket::bind(&local_addr).await?;
 

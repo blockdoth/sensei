@@ -72,8 +72,8 @@ fn send_task(send_socket: Arc<UdpSocket>) -> JoinHandle<()> {
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let socket = Arc::new(UdpSocket::bind("127.0.0.1:8081").await?);
+pub async fn run(addr:String , port:u16) -> anyhow::Result<()> {
+    let socket = Arc::new(UdpSocket::bind(format!("{}:{}", addr, port)).await?);
     let recv_socket = Arc::clone(&socket);
     let send_socket = Arc::clone(&socket);
     

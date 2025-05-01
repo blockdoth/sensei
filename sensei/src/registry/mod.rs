@@ -28,6 +28,7 @@ struct Registry {
     host_table: HashMap<HostId, HostInfo>,
     device_table: HashMap<DeviceId, DeviceInfo>,
 }
+
 impl Registry {
     fn new() -> Self {
         Registry {
@@ -64,6 +65,6 @@ impl Registry {
     }
 }
 
-fn main() {
+pub fn run() {
     println!("Hello, world!");
 }
