@@ -1,0 +1,30 @@
+image: nixos/nix:2.28.2
+
+stages:
+  - checks
+  - buildandtest
+
+variables:
+  NIX_CONFIG: "experimental-features = nix-command flakes"
+
+before_script:
+  - nix --version
+  - nix flake metadata 
+
+lint_and_fmt:
+  stage: checks
+  script:
+    - nix develop --command ./scripts/check.sh
+
+test:
+  stage: buildandtest
+  script:
+    - nix develop --command cargo test
+
+build:
+  stage: buildandtest
+  script:
+    - nix build 
+  artifacts:
+    paths:
+      - result/bin/main
