@@ -1,3 +1,6 @@
+use std::{net::SocketAddr, sync::Arc};
+use tokio::net::UdpSocket;
+
 use serde::{Deserialize, Serialize};
 pub mod radio_config;
 
@@ -14,12 +17,12 @@ pub enum CtrlMsg {
         cfg: radio_config::RadioConfig,
     },
     Subscribe {
-        sink_addr: String,
+        sink_addr: SocketAddr,
         device_id: u64,
         mode: AdapterMode,
     },
     Unsubscribe {
-        sink_addr: String,
+        sink_addr: SocketAddr,
         device_id: u64,
     },
     PollDevices,
@@ -61,7 +64,7 @@ impl std::str::FromStr for AdapterMode {
             "raw" => Ok(AdapterMode::RAW),
             "source" => Ok(AdapterMode::SOURCE),
             "target" => Ok(AdapterMode::TARGET),
-            _ => Err(format!("Unrecognised adapter mode '{}'", s)),
+            _ => Err(format!("Unrecognised adapter mode '{s}'")),
         }
     }
 }
@@ -72,4 +75,15 @@ pub fn serialize_envelope(env: RpcEnvelope) -> Vec<u8> {
 
 pub fn deserialize_envelope(buf: &[u8]) -> RpcEnvelope {
     bincode::deserialize(buf).expect("Failed to deserialize rpc envelope")
+}
+
+pub async fn send_envelope(
+    send_socket: Arc<UdpSocket>,
+    envelope: Vec<u8>,
+    socket_addr: SocketAddr,
+) {
+    match send_socket.send_to(&envelope, socket_addr).await {
+        Ok(n) => println!("Sent {n} bytes to {socket_addr}"),
+        Err(e) => eprintln!("Failed to send: {e}"),
+    }
 }

@@ -349,6 +349,7 @@ dependencies = [
  "argh",
  "bincode 1.3.3",
  "serde",
+ "tokio",
 ]
 
 [[package]]

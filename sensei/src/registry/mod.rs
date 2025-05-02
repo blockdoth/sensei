@@ -1,6 +1,37 @@
 use std::collections::HashMap;
 
+use crate::{
+    cli::{GlobalConfig, RegistrySubcommandArgs, SubCommandsArgsEnum},
+    module::*,
+};
+use anyhow::Ok;
 use common::RpcEnvelope;
+use std::net::SocketAddr;
+
+pub struct Registry {
+    socket_addr: SocketAddr,
+    host_table: HashMap<HostId, HostInfo>,
+    device_table: HashMap<DeviceId, DeviceInfo>,
+}
+
+impl RunsServer for Registry {
+    async fn start_server(&self) -> Result<(), Box<dyn std::error::Error>> {
+        println!("Starting registry");
+        loop {
+            println!("Balls");
+        }
+    }
+}
+
+impl CliInit<RegistrySubcommandArgs> for Registry {
+    fn init(config: &RegistrySubcommandArgs, global: &GlobalConfig) -> Self {
+        Registry {
+            socket_addr: global.socket_addr,
+            host_table: HashMap::new(),
+            device_table: HashMap::new(),
+        }
+    }
+}
 
 #[derive(Clone, Eq, Hash, PartialEq)]
 struct HostId {
@@ -24,19 +55,7 @@ struct DeviceInfo {
     current_cfg: String,
 }
 
-struct Registry {
-    host_table: HashMap<HostId, HostInfo>,
-    device_table: HashMap<DeviceId, DeviceInfo>,
-}
-
 impl Registry {
-    fn new() -> Self {
-        Registry {
-            host_table: HashMap::new(),
-            device_table: HashMap::new(),
-        }
-    }
-
     fn list_hosts(&self) -> anyhow::Result<Vec<HostId>> {
         let hosts: Vec<HostId> = self.host_table.keys().cloned().collect();
         Ok(hosts)
@@ -63,8 +82,4 @@ impl Registry {
     async fn check_for_heartbeat(&self, msg: RpcEnvelope, host: HostId) -> anyhow::Result<()> {
         Ok(())
     }
-}
-
-pub fn run() {
-    println!("Hello, world!");
 }
