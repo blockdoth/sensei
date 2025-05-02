@@ -1,7 +1,7 @@
 use crate::cli::{GlobalConfig, OrchestratorSubcommandArgs};
 use crate::module::*;
-use common::CtrlMsg::Heartbeat;
-use common::RpcEnvelope;
+use common::CtrlMsg::{Heartbeat, Subscribe, Unsubscribe};
+use common::{AdapterMode, RpcEnvelope, send_envelope};
 use common::{deserialize_envelope, serialize_envelope};
 use std::arch::global_asm;
 use std::sync::Arc;
@@ -61,8 +61,11 @@ impl Orchestrator {
     }
 
     fn send_task(&self, send_socket: Arc<UdpSocket>) -> JoinHandle<()> {
+        let socket_addr_local = self.socket_addr;
+
         tokio::spawn(async move {
-            let stdin = BufReader::new(io::stdin());
+            // Create the input reader
+            let stdin: BufReader<io::Stdin> = BufReader::new(io::stdin());
             let mut lines = stdin.lines();
 
             println!("Type: <target_addr> <type>");
@@ -75,34 +78,63 @@ impl Orchestrator {
                 }
 
                 let mut parts = input.splitn(2, ' ');
-                let addr = match parts.next() {
-                    Some(a) if !a.is_empty() => a,
+
+                // Get address (with port) from input
+                let addr: SocketAddr = match parts.next().unwrap().to_string().parse() {
+                    Ok(socket_addr) => socket_addr,
                     _ => {
-                        eprintln!("Invalid input. Format: <addr> <type>");
+                        eprintln!("Invalid input. Format: <addr> <type> <param1> <param2> <etc>");
                         continue;
                     }
                 };
 
-                let message = match parts.next() {
+                // Get the type of message from input
+                let message_type = match parts.next() {
                     Some(m) => m,
                     None => {
-                        eprintln!("Missing message text.");
+                        eprintln!("Missing type.");
                         continue;
                     }
                 };
 
-                if message == "Heartbeat" || message.is_empty() {
-                    let msg = RpcEnvelope::Ctrl(Heartbeat);
-                    let data = serialize_envelope(msg);
-
-                    match send_socket.send_to(&data, addr).await {
-                        Ok(n) => println!("Sent {n} bytes to {addr}"),
-                        Err(e) => eprintln!("Failed to send: {e}"),
+                match message_type.to_lowercase().as_str() {
+                    "heartbeat" => {
+                        let msg = RpcEnvelope::Ctrl(Heartbeat);
+                        let envelope = serialize_envelope(msg);
+                        send_envelope(send_socket.clone(), envelope, addr).await;
+                    }
+                    "subscribe" => {
+                        let msg = RpcEnvelope::Ctrl(Subscribe {
+                            sink_addr: socket_addr_local,
+                            // TODO proper device id's
+                            device_id: parts
+                                .next()
+                                .and_then(|s| s.parse::<u64>().ok())
+                                .unwrap_or(1),
+                            mode: match parts.next() {
+                                Some("target") => AdapterMode::TARGET,
+                                Some("source") => AdapterMode::SOURCE,
+                                _ => AdapterMode::RAW,
+                            },
+                        });
+                        let envelope = serialize_envelope(msg);
+                        send_envelope(send_socket.clone(), envelope, addr).await;
+                    }
+                    "unsubscribe" => {
+                        let msg = RpcEnvelope::Ctrl(Unsubscribe {
+                            sink_addr: socket_addr_local,
+                            device_id: 1,
+                        });
+                        let envelope = serialize_envelope(msg);
+                        send_envelope(send_socket.clone(), envelope, addr).await;
+                    }
+                    _ => {
+                        eprintln!("Unknown message type: {message_type}");
+                        continue;
                     }
                 }
 
-                print!("> ");
-                let _ = io::stdout().flush().await; // Ensure prompt shows up again
+                io::stdout().flush(); // Ensure prompt shows up again
             }
 
             println!("Send loop ended (stdin closed).");

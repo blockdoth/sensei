@@ -10,7 +10,7 @@ pub struct Args {
     addr: String,
 
     /// server port (default: 6969)
-    #[argh(option, default = "6969")]
+    #[argh(option, default = "1278")]
     port: u16,
 
     #[argh(subcommand)]
