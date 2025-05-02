@@ -1,8 +1,23 @@
 # Sensei
 
+Sensei can be run using:
+```bash
+cargo run -- --addr [address] --port [port] [variant]
+```
 
+An example of this would be:
+```bash
+cargo run -- --addr 127.0.0.1 --port 8081 system_node
+```
 
+The variants of Sensei consist of:
+- system_node
+- registry
+- orchestrator
 
+System nodes should run on any device that should be included in the network that should broadcast CSI data.
+The registry should run on a stronger machine (not a router) that will be on permanently.
+The orchestator can run on any machine, and is a way to interface with the network.
 
 # Building and development
 Sensei uses nix flakes for setting up a declarative development environment and achieving reproducible builds.   

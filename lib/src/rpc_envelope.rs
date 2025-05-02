@@ -1,6 +1,4 @@
 use serde::{Deserialize, Serialize};
-
-pub mod adapter_mode;
 pub mod radio_config;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -18,10 +16,11 @@ pub enum CtrlMsg {
     Subscribe {
         sink_addr: String,
         device_id: u64,
-        mode: adapter_mode::AdapterMode,
+        mode: AdapterMode,
     },
     Unsubscribe {
         sink_addr: String,
+        device_id: u64,
     },
     PollDevices,
     Heartbeat,
@@ -46,6 +45,25 @@ pub enum SourceType {
     AX200,
     AX210,
     AtherosQCA,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub enum AdapterMode {
+    RAW,
+    SOURCE,
+    TARGET,
+}
+
+impl std::str::FromStr for AdapterMode {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "raw" => Ok(AdapterMode::RAW),
+            "source" => Ok(AdapterMode::SOURCE),
+            "target" => Ok(AdapterMode::TARGET),
+            _ => Err(format!("Unrecognised adapter mode '{}'", s)),
+        }
+    }
 }
 
 pub fn serialize_envelope(env: RpcEnvelope) -> Vec<u8> {
