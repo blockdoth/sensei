@@ -1,69 +1,35 @@
+mod cli;
+mod module;
 mod orchestrator;
 mod registry;
 mod system_node;
 
-use argh::FromArgs;
+use crate::orchestrator::*;
+use crate::registry::*;
+use crate::system_node::*;
+use cli::*;
+use module::CliInit;
+use module::RunsServer;
+use std::net::IpAddr;
+use std::net::Ipv4Addr;
+use std::net::SocketAddr;
 
-/// A simple app to perform collection from configured sources
-#[derive(FromArgs, PartialEq, Debug)]
-struct Args {
-    /// server address (default: 127.0.0.1)
-    #[argh(option)]
-    addr: Option<String>,
-
-    /// server port (default: 8080)
-    #[argh(option)]
-    port: Option<u16>,
-
-    #[argh(subcommand)]
-    subcommands: Option<SubCommandsEnum>,
-}
-
-#[derive(FromArgs, PartialEq, Debug)]
-#[argh(subcommand)]
-enum SubCommandsEnum {
-    One(SystemNodeCommand),
-    Two(RegistryCommand),
-    Three(OrchestratorCommand),
-}
-
-#[derive(FromArgs, PartialEq, Debug)]
-/// Runs the system_node code
-#[argh(subcommand, name = "system_node")]
-struct SystemNodeCommand {
-    // Args
-}
-
-#[derive(FromArgs, PartialEq, Debug)]
-/// Runs the registry code
-#[argh(subcommand, name = "registery")]
-struct RegistryCommand {}
-
-#[derive(FromArgs, PartialEq, Debug)]
-/// Runs the orchestrator code
-#[argh(subcommand, name = "orchestrator")]
-struct OrchestratorCommand {}
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Args = argh::from_env();
-    let addr = args.addr.unwrap_or_else(|| "127.0.0.1".to_string());
-    let port = args.port.unwrap_or(1234);
 
-    match &args.subcommands {
-        Some(SubCommandsEnum::One(system_node)) => {
-            println!("Running system_node code");
-            system_node::run(addr, port);
+    match &args.subcommand {
+        SubCommandsArgsEnum::One(node_args) => {
+            let node = SystemNode::init(node_args, &args.global_config());
+            node.start_server().await;
         }
-        Some(SubCommandsEnum::Two(registry)) => {
-            println!("Running registry subcommand");
-            registry::run();
+        SubCommandsArgsEnum::Two(registry_args) => {
+            let registry = Registry::init(registry_args, &args.global_config());
+            registry.start_server().await;
         }
-        Some(SubCommandsEnum::Three(orchestrator)) => {
-            println!("Running orchestrator subcommand");
-            orchestrator::run(addr, port);
-        }
-        None => {
-            println!("No subcommand was provided.");
+        SubCommandsArgsEnum::Three(orchestrator_args) => {
+            let orchestrator = Orchestrator::init(orchestrator_args, &args.global_config());
+            orchestrator.start_server().await;
         }
     }
     Ok(())
