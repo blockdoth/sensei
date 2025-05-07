@@ -10,12 +10,8 @@ use lib::rpc_envelope::RpcEnvelope::{Ctrl, Data};
 use lib::rpc_envelope::SourceType::ESP32;
 use lib::rpc_envelope::{AdapterMode, RpcEnvelope};
 use lib::rpc_envelope::{deserialize_envelope, send_envelope, serialize_envelope};
-use std::env;
 use std::net::SocketAddr;
-use std::os::unix::raw::time_t;
-use std::ptr::null;
 use std::sync::{Arc, Mutex};
-use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::net::UdpSocket;
 use tokio::sync::watch;
@@ -104,7 +100,7 @@ impl SystemNode {
                     let current = send_addr_new.borrow_and_update().clone();
                     send_addr_new.mark_unchanged();
                     let current2 = current.clone().unwrap();
-                    println!("Added {:?}", current2);
+                    println!("Added {current2:?}");
                     targets.push(current2);
                 }
 
@@ -113,7 +109,7 @@ impl SystemNode {
                     let current = send_addr_old.borrow_and_update().clone();
                     send_addr_old.mark_unchanged();
                     let current2 = current.clone().unwrap();
-                    println!("Removed {:?}", current2);
+                    println!("Removed {current2:?}");
                     targets.retain(|x| x.0 != current2.0 && x.1 != current2.1);
                 }
 
