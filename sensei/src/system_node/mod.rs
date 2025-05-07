@@ -17,6 +17,7 @@ use tokio::net::UdpSocket;
 use tokio::sync::watch;
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::task::JoinHandle;
+use lib::subscriber::Subscriber;
 
 pub struct SystemNode {
     socket_addr: SocketAddr,
@@ -27,8 +28,8 @@ impl SystemNode {
     pub fn recv_task(
         &self,
         recv_socket: Arc<UdpSocket>,
-        recv_addr_new: Sender<Option<(SocketAddr, u64, AdapterMode)>>,
-        recv_addr_old: Sender<Option<(SocketAddr, u64, AdapterMode)>>,
+        recv_addr_new: Sender<Option<Subscriber>>,
+        recv_addr_old: Sender<Option<Subscriber>>,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
             loop {
@@ -46,7 +47,7 @@ impl SystemNode {
                                 } => {
                                     // Changes the address across the subscribe channel
                                     recv_addr_new
-                                        .send(Option::from((sink_addr, device_id, mode)))
+                                        .send(Option::from(Subscriber::new(sink_addr, device_id, mode)))
                                         .expect("Somehow the subscribe channel got disconnected");
                                     println!("Subscribed by {sink_addr}");
                                 }
@@ -56,11 +57,7 @@ impl SystemNode {
                                 } => {
                                     // Changes the address across the unsubscribe channel
                                     recv_addr_old
-                                        .send(Option::from((
-                                            sink_addr,
-                                            device_id,
-                                            AdapterMode::RAW,
-                                        )))
+                                        .send(Option::from(Subscriber::new(sink_addr, device_id, AdapterMode::RAW)))
                                         .expect("Somehow the unsubscribe channel got disconnected"); // Uses raw adapter mode as the default mode, as it doesn't matter
                                     println!("Unsubscribed by {sink_addr}");
                                 }
@@ -89,11 +86,11 @@ impl SystemNode {
     pub fn send_data_task(
         &self,
         send_socket: Arc<UdpSocket>,
-        mut send_addr_new: Receiver<Option<(SocketAddr, u64, AdapterMode)>>,
-        mut send_addr_old: Receiver<Option<(SocketAddr, u64, AdapterMode)>>,
+        mut send_addr_new: Receiver<Option<Subscriber>>,
+        mut send_addr_old: Receiver<Option<Subscriber>>,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
-            let mut targets: Vec<(SocketAddr, u64, AdapterMode)> = Vec::new();
+            let mut targets: Vec<Subscriber> = Vec::new();
             loop {
                 // Handles changes from the receiver channel concerning adding subscribers
                 if send_addr_new.has_changed().unwrap_or(false) {
@@ -110,7 +107,7 @@ impl SystemNode {
                     send_addr_old.mark_unchanged();
                     let current2 = current.clone().unwrap();
                     println!("Removed {current2:?}");
-                    targets.retain(|x| x.0 != current2.0 && x.1 != current2.1);
+                    targets.retain(|x| x.socket_addr != current2.socket_addr && x.device_id != current2.device_id);
                 }
 
                 // Periodically send data to all subscribed devices.
@@ -124,7 +121,7 @@ impl SystemNode {
                         source_type: ESP32,
                     }); //Random placeholder data
                     let envelope = serialize_envelope(msg);
-                    send_envelope(send_socket.clone(), envelope, target.0).await;
+                    send_envelope(send_socket.clone(), envelope, target.socket_addr).await;
                 }
 
                 // TODO: This should not be periodic. It should prepare data packets and send them once ready (implement once we have TCP)
@@ -143,9 +140,9 @@ impl RunsServer for SystemNode {
         let socket = Arc::new(sock);
 
         let (recv_addr_new, mut send_addr_new) =
-            watch::channel::<Option<(SocketAddr, u64, AdapterMode)>>(None); // Channel to add new subscribers
+            watch::channel::<Option<Subscriber>>(None); // Channel to add new subscribers
         let (recv_addr_old, mut send_addr_old) =
-            watch::channel::<Option<(SocketAddr, u64, AdapterMode)>>(None); // Channel to remove old subscribers
+            watch::channel::<Option<Subscriber>>(None); // Channel to remove old subscribers
         // Using cloning, we can create two references to the same pointer and use these in different threads.
         let send_task = self.send_data_task(socket.clone(), send_addr_new, send_addr_old);
         let recv_task = self.recv_task(socket.clone(), recv_addr_new, recv_addr_old);
