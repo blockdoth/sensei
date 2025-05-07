@@ -35,6 +35,7 @@ pub enum SubCommandsArgsEnum {
     One(SystemNodeSubcommandArgs),
     Two(RegistrySubcommandArgs),
     Three(OrchestratorSubcommandArgs),
+    Four(VisualiserSubcommandArgs),
 }
 
 /// System node commands
@@ -51,3 +52,25 @@ pub struct RegistrySubcommandArgs {}
 #[derive(FromArgs)]
 #[argh(subcommand, name = "orchestrator")]
 pub struct OrchestratorSubcommandArgs {}
+
+/// Visualiser commands
+#[derive(FromArgs)]
+#[argh(subcommand, name = "visualiser")]
+pub struct VisualiserSubcommandArgs {
+
+    /// height of the eventual window
+    #[argh(option, default = "default_height()")]
+    pub height: usize,
+
+    /// width of the eventual window
+    #[argh(option, default = "default_width()")]
+    pub width: usize,
+}
+
+fn default_height() -> usize {
+    600
+}
+
+fn default_width() -> usize {
+    800
+}

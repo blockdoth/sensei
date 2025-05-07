@@ -3,6 +3,7 @@ mod module;
 mod orchestrator;
 mod registry;
 mod system_node;
+mod visualiser;
 
 use crate::orchestrator::*;
 use crate::registry::*;
@@ -13,6 +14,7 @@ use module::RunsServer;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
+use crate::visualiser::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -30,6 +32,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         SubCommandsArgsEnum::Three(orchestrator_args) => {
             let orchestrator = Orchestrator::init(orchestrator_args, &args.global_config());
             orchestrator.start_server().await;
+        }
+        SubCommandsArgsEnum::Four(visualiser_args) => {
+            let visualiser = Visualiser::init(visualiser_args, &args.global_config());
+            visualiser.start_server().await;
         }
     }
     Ok(())
