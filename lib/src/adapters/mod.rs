@@ -1,9 +1,3 @@
-/**
- * Module for adapters
- * Mofidied based on: wisense/sensei/lib/src/adapters/mod.rs
- * Originally authored by: Fabian Portner
- */
-
 //!
 //! Data Adapters
 //! -------------
@@ -12,8 +6,9 @@
 //! or sockets. Different sources provide different data formats, which must be handled
 //! accordingly. This is the dask of Data Adapters.
 //!
-pub mod iwl;
-pub mod nexmon;
+//! Module for adapters
+//! Mofidied based on: wisense/sensei/lib/src/adapters/mod.rs
+//! Originally authored by: Fabian Portner
 
 use crate::csi_types::CsiData;
 use crate::errors::CsiAdapterError;
@@ -54,9 +49,10 @@ pub enum DataAdapterTag {
 
 impl From<DataAdapterTag> for Box<dyn CsiDataAdapter> {
     fn from(tag: DataAdapterTag) -> Box<dyn CsiDataAdapter> {
-        match tag {
-            DataAdapterTag::Nexmon => Box::new(nexmon::NexmonDataAdapter::default()),
-            DataAdapterTag::Iwl { scale_csi } => Box::new(iwl::IwlAdapter::new(scale_csi)),
-        }
+        panic!("No data adapter specified");
+        // match tag {
+        //     DataAdapterTag::Nexmon => Box::new(nexmon::NexmonDataAdapter::default()),
+        //     DataAdapterTag::Iwl { scale_csi } => Box::new(iwl::IwlAdapter::new(scale_csi)),
+        // }
     }
 }

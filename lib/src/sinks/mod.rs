@@ -1,14 +1,12 @@
-/**
- * Module for adapters
- * Mofidied based on: wisense/sensei/lib/src/sinks/mod.rs
- * Originally authored by: Fabian Portner
- */
+//! Module for adapters
+//! Mofidied based on: wisense/sensei/lib/src/sinks/mod.rs
+//! Originally authored by: Fabian Portner
 
 mod file;
-pub mod queue;
+pub use queue;
 
-#[cfg(feature = "tcpserver")]
-mod tcp;
+// #[cfg(feature = "tcpserver")]
+// mod tcp;
 
 use crate::csi_types::CsiData;
 use crate::errors::SinkError;
@@ -34,18 +32,18 @@ pub enum SinkConfig {
 /// Sinks to handle data
 /// Wrapped in a value enum for a clean abstraction.
 pub enum Sink {
-    #[cfg(feature = "tcpserver")]
-    TcpStream(tcp::TcpStream),
-    Queue(queue::Sender<CsiData>),
+    // #[cfg(feature = "tcpserver")]
+    // TcpStream(tcp::TcpStream),
+    // Queue(queue::Sender<CsiData>),
     File(File),
 }
 
 impl Sink {
     pub async fn provide<'a>(&mut self, data: SubscriberData<'a>) -> Result<(), SinkError> {
         match self {
-            #[cfg(feature = "tcpserver")]
-            Self::TcpStream(socket) => tcp::tcpstream_write(socket, data).await,
-            Self::Queue(queue) => queue::send(queue, data).await,
+            // #[cfg(feature = "tcpserver")]
+            // Self::TcpStream(socket) => tcp::tcpstream_write(socket, data).await,
+            // Self::Queue(queue) => queue::send(queue, data).await,
             Self::File(file) => file::file_write(file, data).await,
         }
     }

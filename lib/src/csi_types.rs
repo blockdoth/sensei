@@ -1,8 +1,6 @@
-/**
- * CSI data types
- * Mofidied based on: wisense/sensei/lib/src/csi_types.rs
- * Originally authored by: Fabian Portner
- */
+//! CSI data types
+//! Mofidied based on: wisense/sensei/lib/src/csi_types.rs
+//! Originally authored by: Fabian Portner
 
 use crate::errors::{AppError, DataSourceError};
 use num_complex::Complex64;
@@ -48,7 +46,7 @@ impl Bandwidth {
 
 impl std::fmt::Display for Bandwidth {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        fmt::Debug::fmt(self, f)
     }
 }
 
@@ -79,11 +77,11 @@ impl FrameEncoding {
 
 impl std::fmt::Display for FrameEncoding {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        fmt::Debug::fmt(self, f)
     }
 }
 
-#[cfg_attr(feature = "docs", derive(schemars::JsonSchema))]
+// #[cfg_attr(feature = "docs", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacAddr([u8; 6]);
 

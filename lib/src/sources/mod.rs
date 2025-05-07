@@ -1,12 +1,10 @@
-/**
- * Module for data sources
- * Mofidied based on: wisense/sensei/lib/src/sources/mod.rs
- * Originally authored by: Fabian Portner
- */
+//! Module for data sources
+//! Mofidied based on: wisense/sensei/lib/src/sources/mod.rs
+//! Originally authored by: Fabian Portner
 
 pub mod dummy;
 pub mod packet_file;
-    
+
 #[cfg(feature = "netlink_source")]
 pub mod netlink;
 #[cfg(feature = "pcap_source")]
