@@ -1,4 +1,5 @@
 use thiserror::Error;
+use crate::adapters::iwl::IwlAdapterError;
 
 #[derive(Error, Debug)]
 pub enum SenseiError {
@@ -161,6 +162,6 @@ pub enum ServerError {
 // Common error for all adapters
 #[derive(Error, Debug)]
 pub enum CsiAdapterError {
-    #[error("Adapter not implemented")]
-    NotImplemented,
+    #[error("IWL Adapter Error: {0}")]
+    IWL(#[from] IwlAdapterError),
 }

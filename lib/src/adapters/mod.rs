@@ -12,6 +12,7 @@
 
 use crate::csi_types::CsiData;
 use crate::errors::CsiAdapterError;
+pub mod iwl;
 
 /// Csi Data Adapter Trait
 /// ----------------------
@@ -43,7 +44,6 @@ pub trait CsiDataAdapter: Send {
 #[derive(serde::Deserialize, Debug, Clone, Copy)]
 #[serde(tag = "type")]
 pub enum DataAdapterTag {
-    Nexmon,
     Iwl { scale_csi: bool },
 }
 
