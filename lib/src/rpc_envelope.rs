@@ -32,12 +32,12 @@ pub enum CtrlMsg {
 #[derive(Serialize, Deserialize, Debug)]
 pub enum DataMsg {
     RawFrame {
-        ts: u64,
+        ts: u128,
         bytes: Vec<u8>,
         source_type: SourceType,
     }, // raw bytestream, requires decoding adapter
     CsiFrame {
-        ts: u64,
+        ts: u128,
         csi: Vec<f32>,
     }, // This would contain a proper deserialized CSI
 }
