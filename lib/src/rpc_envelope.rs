@@ -2,7 +2,6 @@ use std::{net::SocketAddr, sync::Arc};
 use tokio::net::UdpSocket;
 
 use serde::{Deserialize, Serialize};
-pub mod radio_config;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum RpcEnvelope {
@@ -14,7 +13,7 @@ pub enum RpcEnvelope {
 pub enum CtrlMsg {
     Configure {
         device_id: u64,
-        cfg: radio_config::RadioConfig,
+        cfg: RadioConfig,
     },
     Subscribe {
         sink_addr: SocketAddr,
@@ -32,12 +31,12 @@ pub enum CtrlMsg {
 #[derive(Serialize, Deserialize, Debug)]
 pub enum DataMsg {
     RawFrame {
-        ts: u64,
+        ts: u128,
         bytes: Vec<u8>,
         source_type: SourceType,
     }, // raw bytestream, requires decoding adapter
     CsiFrame {
-        ts: u64,
+        ts: u128,
         csi: Vec<f32>,
     }, // This would contain a proper deserialized CSI
 }
@@ -56,6 +55,9 @@ pub enum AdapterMode {
     SOURCE,
     TARGET,
 }
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RadioConfig {}
 
 impl std::str::FromStr for AdapterMode {
     type Err = String;

@@ -1,8 +1,8 @@
 use crate::cli::{GlobalConfig, OrchestratorSubcommandArgs};
 use crate::module::*;
-use common::CtrlMsg::{Heartbeat, Subscribe, Unsubscribe};
-use common::{AdapterMode, RpcEnvelope, send_envelope};
-use common::{deserialize_envelope, serialize_envelope};
+use lib::rpc_envelope::CtrlMsg::{Heartbeat, Subscribe, Unsubscribe};
+use lib::rpc_envelope::{AdapterMode, RpcEnvelope, send_envelope};
+use lib::rpc_envelope::{deserialize_envelope, serialize_envelope};
 use std::arch::global_asm;
 use std::sync::Arc;
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};

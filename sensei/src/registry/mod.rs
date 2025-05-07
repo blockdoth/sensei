@@ -5,7 +5,7 @@ use crate::{
     module::*,
 };
 use anyhow::Ok;
-use common::RpcEnvelope;
+use lib::rpc_envelope::RpcEnvelope;
 use std::net::SocketAddr;
 
 pub struct Registry {

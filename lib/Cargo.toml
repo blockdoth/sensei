@@ -4,14 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "common"
-path = "src/rpc_envelope.rs"
+name = "lib"
+path = "src/lib.rs"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 bincode = "1.3"
 argh = "0.1"
-tokio = "1.44.2"
+tokio = {  version = "1.44.2", features = ["full"] }
 
 [lints]
 workspace = true
