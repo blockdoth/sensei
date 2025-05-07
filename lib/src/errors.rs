@@ -29,10 +29,9 @@ pub enum DataSourceError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[cfg(feature = "pcap_source")]
-    #[error("PCAP error: {0}")]
-    Pcap(#[from] pcap::Error),
-
+    // #[cfg(feature = "pcap_source")]
+    // #[error("PCAP error: {0}")]
+    // Pcap(#[from] pcap::Error),
     #[error("Read before starting (must call `start` before)")]
     ReadBeforeStart,
 
@@ -54,7 +53,9 @@ pub enum DataSourceError {
     #[error("Couldnt parse packet: {0}")]
     ParsingError(String),
 
-    #[error("Permission denied: application lacks sufficient privileges. See `README.md` for details on permissions.")]
+    #[error(
+        "Permission denied: application lacks sufficient privileges. See `README.md` for details on permissions."
+    )]
     PermissionDenied,
 
     #[error("Incomplete packet (Source handler bug)")]
@@ -155,4 +156,11 @@ pub enum ServerError {
 
     #[error("Invalid message length {0}, likely forgot framing!")]
     MessageTooLarge(usize),
+}
+
+// Common error for all adapters
+#[derive(Error, Debug)]
+pub enum CsiAdapterError {
+    #[error("Adapter not implemented")]
+    NotImplemented,
 }
