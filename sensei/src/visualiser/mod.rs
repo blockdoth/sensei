@@ -85,7 +85,7 @@ impl RunsServer for Visualiser {
 
                 // ChartBuilder is used to configure and build the chart.
                 let mut chart = ChartBuilder::on(&root_drawing_area)
-                    .caption("data", ("sans-serif", (20).percent_height())) // Chart title and font
+                    .caption("data", ("", (20).percent_height())) // Chart title and font
                     .margin(10) // Margin around the chart
                     .x_label_area_size((10).percent_height()) // Space for X-axis labels
                     .y_label_area_size((10).percent_width()) // Space for Y-axis labels
