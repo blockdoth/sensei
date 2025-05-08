@@ -1,0 +1,44 @@
+use tokio_stream::{Stream, StreamExt};
+use async_stream::stream;
+use crate::errors::FileSourceError;
+
+use crate::rpc_envelope::DataMsg;
+use crate::adapters::CsiDataAdapter;
+use crate::errors::CsiAdapterError;
+use crate::errors::AdapterStreamError;
+
+/// A wrapper that consumes a stream of RawFrames and emits CsiFrames using a CsiDataAdapter.
+pub struct AdapterStream<A: CsiDataAdapter> {
+    adapter: A,
+}
+
+impl<A: CsiDataAdapter + 'static> AdapterStream<A> {
+    pub fn new(adapter: A) -> Self {
+        Self { adapter }
+    }
+
+    pub fn stream_from_raws<S>(
+        mut self,
+        mut input_stream: S,
+    ) -> impl Stream<Item = Result<DataMsg, AdapterStreamError>>  + Send + 'static
+    where
+        S: Stream<Item = DataMsg> + Unpin + Send + 'static,
+    {
+        stream! {
+            while let Some(msg) = input_stream.next().await {
+                match msg {
+                    DataMsg::RawFrame { bytes, .. } => {
+                        self.adapter.consume(&bytes).await?;
+
+                        while let Some(cooked) = self.adapter.reap_cooked().await? {
+                            yield Ok(cooked);
+                        }
+                    },
+                    _ => {
+                        yield Err(AdapterStreamError::InvalidInput);
+                    }
+                }
+            }
+        }
+    }
+}

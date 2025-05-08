@@ -3,18 +3,14 @@ use tokio::fs::File;
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio_stream::{Stream, StreamExt};
 use async_stream::stream;
-use thiserror::Error;
 
-use crate::{DataMsg, CsiDataAdapter, CsiAdapterError, CsiData};
+use crate::rpc_envelope::DataMsg;
+use crate::adapters::CsiDataAdapter;
+use crate::errors::CsiAdapterError;
+use crate::csi_types::CsiData;
+use crate::errors::FileSourceError;
 
-#[derive(Error, Debug)]
-pub enum FileSourceError {
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
 
-    #[error("CSI adapter error: {0}")]
-    Adapter(#[from] CsiAdapterError),
-}
 
 /// A reader for continuously updated files that streams CSI data using an adapter.
 pub struct FileReader<A: CsiDataAdapter> {
@@ -22,7 +18,7 @@ pub struct FileReader<A: CsiDataAdapter> {
     adapter: A,
 }
 
-impl<A: CsiDataAdapter> FileReader<A> {
+impl<A: CsiDataAdapter + 'static> FileReader<A> {
     pub fn new(path: PathBuf, adapter: A) -> Self {
         Self { path, adapter }
     }
@@ -30,7 +26,7 @@ impl<A: CsiDataAdapter> FileReader<A> {
     /// Stream CSI frames from the file continuously.
     pub fn stream(
         mut self,
-    ) -> impl Stream<Item = Result<DataMsg, FileSourceError>> + Unpin + Send + 'static {
+    ) -> impl Stream<Item = Result<DataMsg, FileSourceError>> + Send + 'static {
         stream! {
             let file = File::open(&self.path).await?;
             let mut reader = BufReader::new(file);

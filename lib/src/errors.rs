@@ -80,3 +80,22 @@ pub enum AtherosAdapterError {
     #[error("Invalid sequence number: {0}")]
     InvalidSequenceNumber(u16),
 }
+
+
+#[derive(Error, Debug)]
+pub enum FileSourceError {
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("CSI adapter error: {0}")]
+    Adapter(#[from] CsiAdapterError),
+}
+
+#[derive(Error, Debug)]
+pub enum AdapterStreamError {
+    #[error("CSI adapter error: {0}")]
+    Adapter(#[from] CsiAdapterError),
+
+    #[error("Expected RawFrame but received non-RawFrame DataMsg variant")]
+    InvalidInput,
+}
