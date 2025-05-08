@@ -1,3 +1,4 @@
+use crate::csi_types::CsiData;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::net::UdpSocket;
 
@@ -37,7 +38,7 @@ pub enum DataMsg {
     }, // raw bytestream, requires decoding adapter
     CsiFrame {
         ts: u128,
-        csi: CsiData
+        csi: CsiData,
     }, // This would contain a proper deserialized CSI
 }
 #[derive(Serialize, Deserialize, Debug)]

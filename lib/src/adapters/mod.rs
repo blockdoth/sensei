@@ -12,7 +12,7 @@
 
 use crate::csi_types::CsiData;
 use crate::errors::CsiAdapterError;
-use crate::rpc_enveloppe::DataMsg;
+use crate::rpc_envelope::DataMsg;
 pub mod iwl;
 
 /// Csi Data Adapter Trait
@@ -27,7 +27,6 @@ pub mod iwl;
 /// into consumption (data from a packet) and reaping (after assembly).
 #[async_trait::async_trait]
 pub trait CsiDataAdapter: Send {
-
     /// Consume a packet to parse CSI from.
     ///
     /// NOTE: The packet must be of appropriate size. Adapters are not expected
@@ -41,7 +40,6 @@ pub trait CsiDataAdapter: Send {
     /// returns an error.
     async fn reap(&mut self) -> Result<Option<CsiData>, CsiAdapterError>;
 
-    
     /// Consume a raw CSI frame by extracting the payload and passing it to `consume`
     async fn consume_raw(&mut self, rawframe: DataMsg) -> Result<(), CsiAdapterError> {
         match rawframe {

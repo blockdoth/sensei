@@ -1,4 +1,3 @@
-use crate::adapters::iwl::IwlAdapterError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -36,9 +35,7 @@ pub enum CsiAdapterError {
 
     #[error("Invalid input, give a raw frame")]
     InvalidInput,
-
 }
-
 
 /// Specific errors of the Iwl adapter
 #[derive(Error, Debug)]
