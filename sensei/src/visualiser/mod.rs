@@ -3,7 +3,7 @@ use minifb::{Key, Window, WindowOptions};
 use plotters::prelude::*;
 use plotters_bitmap::BitMapBackend;
 use tokio::sync::watch;
-use tokio::sync::watch::Sender;
+use tokio::sync::watch::{Receiver, Sender};
 use crate::cli::{GlobalConfig, OrchestratorSubcommandArgs, VisualiserSubcommandArgs};
 use crate::module::{CliInit, RunsServer};
 
@@ -24,13 +24,14 @@ impl CliInit<VisualiserSubcommandArgs> for Visualiser {
 }
 
 impl Visualiser {
-    pub fn receive_data_task(&self, tx: Sender<u8>) {
+    pub fn receive_data_task(&self, tx: Sender<Vec<u8>>) {
         tokio::spawn( async move {
-            let mut i = 1u8;
+            let mut i = vec![10u8];
             loop {
-                tx.send(i).expect("Channel closed");
-                i = (i + 1) % 100;
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                // TODO: Replace with tcp stream listening for data
+                tx.send(i.clone()).expect("Channel closed");
+                i[0] = (i[0] + 1) % 100;
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
         });
     }
@@ -41,18 +42,11 @@ impl Visualiser {
 }
 impl RunsServer for Visualiser {
     async fn start_server(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let(tx, mut rx) = watch::channel(0u8);
+        let (tx, mut rx) = watch::channel::<Vec<u8>>(vec![0]);
         
         self.receive_data_task(tx);
 
-        let mut window = Window::new(
-            "Rust Plotting Example - Press ESC to exit", // Window title
-            self.width,                                       // Window width
-            self.height,                                      // Window height
-            WindowOptions::default(),                    // Default window options
-        )?;
-
-        self.data.borrow_mut().push(0);
+        let mut window = Window::new("Data", self.width, self.height, WindowOptions::default())?;
 
         window.limit_update_rate(Some(std::time::Duration::from_micros(32000)));
 
@@ -60,7 +54,11 @@ impl RunsServer for Visualiser {
 
         while window.is_open() && !window.is_key_down(Key::Escape) {
             rx.changed().await.expect("TODO: panic message");
-            self.data.borrow_mut().push(rx.borrow_and_update().clone());
+            let sent_data = rx.borrow_and_update().clone();
+            
+            for point in sent_data {
+                self.data.borrow_mut().push(point);
+            }
 
             let current_data = self.data.borrow().clone();
 
@@ -89,7 +87,7 @@ impl RunsServer for Visualiser {
                     .margin(10) // Margin around the chart
                     .x_label_area_size((10).percent_height()) // Space for X-axis labels
                     .y_label_area_size((10).percent_width())  // Space for Y-axis labels
-                    .build_cartesian_2d(0f32..len - 1f32, min - 1f32..max + 1f32)?; // Define X and Y axis ranges
+                    .build_cartesian_2d(0f32..len, min - 1f32..max + 1f32)?; // Define X and Y axis ranges
 
                 // Configure the mesh (grid lines) for the chart.
                 chart
@@ -100,12 +98,12 @@ impl RunsServer for Visualiser {
 
                 // Plot the data.
                 chart.draw_series(LineSeries::new(
-                    (self.data.borrow().clone().into_iter()) // Create an iterator on the data
-                        .map(|x| x as f32) // Map to f32 values
-                        .map(|x| (x, x)), // IDK why this mapping is necessary, but without it the program does not work
+                    (current_data.into_iter()) // Create an iterator on the data
+                        .enumerate()
+                        .map(|(i, x)| (i as f32, x as f32)), // Map to f32 values and x and y coords
                     &RED, // Plot the line in red
                 ))?
-                    .label("how open joeri's mom is to dms") // Add a label for the series
+                    .label("Data format") // Add a label for the series
                     .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED)); // Configure legend
 
                 // Configure and draw the series labels (legend).
