@@ -37,7 +37,7 @@ pub enum DataMsg {
     }, // raw bytestream, requires decoding adapter
     CsiFrame {
         ts: u128,
-        csi: Vec<f32>,
+        csi: CsiData
     }, // This would contain a proper deserialized CSI
 }
 #[derive(Serialize, Deserialize, Debug)]

@@ -12,6 +12,7 @@
 
 use crate::csi_types::CsiData;
 use crate::errors::CsiAdapterError;
+use crate::rpc_enveloppe::DataMsg;
 pub mod iwl;
 
 /// Csi Data Adapter Trait
@@ -26,6 +27,7 @@ pub mod iwl;
 /// into consumption (data from a packet) and reaping (after assembly).
 #[async_trait::async_trait]
 pub trait CsiDataAdapter: Send {
+
     /// Consume a packet to parse CSI from.
     ///
     /// NOTE: The packet must be of appropriate size. Adapters are not expected
@@ -38,6 +40,26 @@ pub trait CsiDataAdapter: Send {
     /// If the data is corrupted or the adapter meets an internal problem, it
     /// returns an error.
     async fn reap(&mut self) -> Result<Option<CsiData>, CsiAdapterError>;
+
+    
+    /// Consume a raw CSI frame by extracting the payload and passing it to `consume`
+    async fn consume_raw(&mut self, rawframe: DataMsg) -> Result<(), CsiAdapterError> {
+        match rawframe {
+            DataMsg::RawFrame { bytes, .. } => self.consume(&bytes).await,
+            _ => Err(CsiAdapterError::InvalidInput),
+        }
+    }
+
+    /// Reap CSI and wrap it into a cooked CSI frame with timestamp
+    async fn reap_cooked(&mut self) -> Result<Option<DataMsg>, CsiAdapterError> {
+        match self.reap().await? {
+            Some(csi) => Ok(Some(DataMsg::CsiFrame {
+                ts: chrono::Utc::now().timestamp_millis() as u128,
+                csi,
+            })),
+            None => Ok(None),
+        }
+    }
 }
 
 /// Just a tag for directly deserializing an adapter from a config

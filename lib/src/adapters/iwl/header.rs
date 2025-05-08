@@ -1,6 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 // use std::u16;
-use super::IwlAdapterError;
+use errors::IwlAdapterError;
 
 pub struct IwlHeader {
     pub timestamp: f64,
