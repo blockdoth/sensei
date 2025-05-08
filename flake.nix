@@ -43,6 +43,8 @@
               pkgs.shellcheck
               pkgs.nixfmt-rfc-style
               pkgs.rust-analyzer-unwrapped
+              pkgs.fontconfig
+              pkgs.pkg-config
             ];
             RUST_SRC_PATH = "${toolchain}/lib/rustlib/src/rust/library";
           };

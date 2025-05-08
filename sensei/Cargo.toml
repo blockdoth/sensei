@@ -10,7 +10,7 @@ anyhow = "1.0.98"
 async-trait = "0.1.88"
 argh = "0.1.12"
 minifb = "0.25"
-plotters = "0.3.7"
+plotters = { version = "0.3.7", features = ["fontconfig-dlopen"] }
 plotters-bitmap = "0.3.5"
 
 [lints]
