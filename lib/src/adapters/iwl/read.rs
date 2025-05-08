@@ -1,8 +1,8 @@
+use crate::adapters::CsiDataAdapter;
+use crate::adapters::iwl::IwlAdapter;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::time::{self, Duration, Instant};
-use crate::adapters::iwl::IwlAdapter;
-use crate::adapters::CsiDataAdapter;
 
 /// Reads and prints live CSI data from a device file for a specified number of minutes.
 pub async fn print_live_csi_data(path: &str, duration_minutes: u64) {
@@ -11,7 +11,7 @@ pub async fn print_live_csi_data(path: &str, duration_minutes: u64) {
     let file = match File::open(path).await {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("Failed to open CSI file '{}': {:?}", path, e);
+            eprintln!("Failed to open CSI file '{path}': {e:?}");
             return;
         }
     };
@@ -24,7 +24,7 @@ pub async fn print_live_csi_data(path: &str, duration_minutes: u64) {
         let n = match reader.read(&mut buffer).await {
             Ok(n) => n,
             Err(e) => {
-                eprintln!("Failed to read CSI data: {:?}", e);
+                eprintln!("Failed to read CSI data: {e:?}");
                 return;
             }
         };
@@ -39,17 +39,17 @@ pub async fn print_live_csi_data(path: &str, duration_minutes: u64) {
         match adapter.consume(data).await {
             Ok(_) => {
                 if let Ok(Some(csi_data)) = adapter.reap().await {
-                    println!("{:#?}", csi_data);
+                    println!("{csi_data:#?}");
                 }
             }
             Err(e) => {
-                eprintln!("Error consuming CSI data: {:?}", e);
+                eprintln!("Error consuming CSI data: {e:?}");
                 continue;
             }
         }
     }
 
-    println!("Done collecting CSI data for {} minute(s).", duration_minutes);
+    println!("Done collecting CSI data for {duration_minutes} minute(s).");
 }
 
 #[cfg(test)]

@@ -35,7 +35,8 @@
         {
           devShells.default = pkgs.mkShell {
             shellHook = ''
-              echo "Entering project shell"
+              
+                            echo "Entering project shell"
             '';
             packages = [
               toolchain

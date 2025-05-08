@@ -1,5 +1,5 @@
-use crate::adapters::iwl::header::IwlHeader;
 use crate::adapters::CsiDataAdapter;
+use crate::adapters::iwl::header::IwlHeader;
 use crate::csi_types::{Complex, CsiData};
 use crate::errors::CsiAdapterError;
 
@@ -160,4 +160,3 @@ fn scale_csi(
         }
     }
 }
-

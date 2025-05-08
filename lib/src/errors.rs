@@ -1,5 +1,5 @@
-use thiserror::Error;
 use crate::adapters::iwl::IwlAdapterError;
+use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum SenseiError {
@@ -16,7 +16,6 @@ pub enum DataSourceError {
     ParsingError(String),
 }
 
-
 #[derive(Debug, Error)]
 pub enum AppError {
     #[error("IO error: {0}")]
@@ -28,7 +27,6 @@ pub enum AppError {
     #[error("Configuration error: {0}")]
     ConfigError(String),
 }
-
 
 // Common error for all adapters
 #[derive(Error, Debug)]

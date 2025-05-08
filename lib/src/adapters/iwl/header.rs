@@ -1,5 +1,5 @@
 use std::time::{SystemTime, UNIX_EPOCH};
-
+// use std::u16;
 use super::IwlAdapterError;
 
 pub struct IwlHeader {
@@ -70,7 +70,7 @@ impl IwlHeader {
 
         // Calculate expected CSI length based on NRX and NTX to validate
         // reported length matches.
-        let calc_len = (30 * (nrx * ntx * 8 * 2 + 3) + 7) / 8;
+        let calc_len = (30 * (nrx * ntx * 8 * 2 + 3)).div_ceil(8);
         if len != calc_len {
             return Err(IwlAdapterError::InvalidMatrixSize(len));
         }
