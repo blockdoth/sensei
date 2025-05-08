@@ -3,6 +3,7 @@ use minifb::{Key, Window, WindowOptions};
 use plotters::prelude::*;
 use plotters_bitmap::BitMapBackend;
 use tokio::sync::watch;
+use tokio::sync::watch::Sender;
 use crate::cli::{GlobalConfig, OrchestratorSubcommandArgs, VisualiserSubcommandArgs};
 use crate::module::{CliInit, RunsServer};
 
@@ -21,10 +22,9 @@ impl CliInit<VisualiserSubcommandArgs> for Visualiser {
         }
     }
 }
-impl RunsServer for Visualiser {
-    async fn start_server(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let(tx, mut rx) = watch::channel(0u8);
 
+impl Visualiser {
+    pub fn receive_data_task(&self, tx: Sender<u8>) {
         tokio::spawn( async move {
             let mut i = 1u8;
             loop {
@@ -33,6 +33,17 @@ impl RunsServer for Visualiser {
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             }
         });
+    }
+    
+    pub fn output_data(&self) -> Vec<u8> {
+        self.data.borrow().clone()
+    }
+}
+impl RunsServer for Visualiser {
+    async fn start_server(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let(tx, mut rx) = watch::channel(0u8);
+        
+        self.receive_data_task(tx);
 
         let mut window = Window::new(
             "Rust Plotting Example - Press ESC to exit", // Window title
@@ -50,7 +61,13 @@ impl RunsServer for Visualiser {
         while window.is_open() && !window.is_key_down(Key::Escape) {
             rx.changed().await.expect("TODO: panic message");
             self.data.borrow_mut().push(rx.borrow_and_update().clone());
-            
+
+            let current_data = self.data.borrow().clone();
+
+            let max = *current_data.iter().max().unwrap() as f32;
+            let min = *current_data.iter().min().unwrap() as f32;
+            let len = current_data.len() as f32;
+
             // Plotters will draw to an RGB u8 buffer. We need a temporary buffer for that.
             // Each pixel requires 3 bytes (Red, Green, Blue).
             let mut plot_buffer = vec![0u8; self.width * self.height * 3];
@@ -72,7 +89,7 @@ impl RunsServer for Visualiser {
                     .margin(10) // Margin around the chart
                     .x_label_area_size((10).percent_height()) // Space for X-axis labels
                     .y_label_area_size((10).percent_width())  // Space for Y-axis labels
-                    .build_cartesian_2d(0f32..self.data.borrow().len() as f32 / 10f32, -1f32..1f32)?; // Define X and Y axis ranges
+                    .build_cartesian_2d(0f32..len - 1f32, min - 1f32..max + 1f32)?; // Define X and Y axis ranges
 
                 // Configure the mesh (grid lines) for the chart.
                 chart
@@ -83,10 +100,10 @@ impl RunsServer for Visualiser {
 
                 // Plot the data.
                 chart.draw_series(LineSeries::new(
-                    (0..=self.data.borrow().len()) // Generate integers equivalent to length of data vec
-                        .map(|x| x as f32 / 10f32) // Map to f32 values from -1.0 to 1.0
-                        .map(|x| (x, x.sin())), // For each x, calculate (x, x^2)
-                    &RED, // P-lot the line in red
+                    (self.data.borrow().clone().into_iter()) // Create an iterator on the data
+                        .map(|x| x as f32) // Map to f32 values
+                        .map(|x| (x, x)), // IDK why this mapping is necessary, but without it the program does not work
+                    &RED, // Plot the line in red
                 ))?
                     .label("how open joeri's mom is to dms") // Add a label for the series
                     .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED)); // Configure legend
@@ -122,7 +139,10 @@ impl RunsServer for Visualiser {
             // Update the window with the contents of minifb_buffer.
             window.update_with_buffer(&minifb_buffer, self.width, self.height)?;
         }
-
+        
+        let output = self.output_data();
+        println!("{output:?}");
+        
         Ok(())
     }
 }
