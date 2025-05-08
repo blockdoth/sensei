@@ -59,7 +59,7 @@ mod tests {
     #[tokio::test]
     async fn test_print_csi_from_file() {
         let path = "tmp/csi.dat";
-        let minutes = 1; // Run for 1 minute
+        let minutes = 0; // Run for 1 minute
         print_live_csi_data(path, minutes).await;
     }
 }
