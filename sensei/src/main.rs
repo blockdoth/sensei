@@ -8,13 +8,13 @@ mod visualiser;
 use crate::orchestrator::*;
 use crate::registry::*;
 use crate::system_node::*;
+use crate::visualiser::*;
 use cli::*;
 use module::CliInit;
 use module::RunsServer;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
-use crate::visualiser::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

@@ -57,7 +57,6 @@ pub struct OrchestratorSubcommandArgs {}
 #[derive(FromArgs)]
 #[argh(subcommand, name = "visualiser")]
 pub struct VisualiserSubcommandArgs {
-
     /// height of the eventual window
     #[argh(option, default = "default_height()")]
     pub height: usize,

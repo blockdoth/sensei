@@ -1,5 +1,5 @@
-use std::net::SocketAddr;
 use crate::rpc_envelope::AdapterMode;
+use std::net::SocketAddr;
 
 #[derive(Debug, Clone)]
 pub struct Subscriber {

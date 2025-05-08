@@ -10,6 +10,7 @@ use lib::rpc_envelope::RpcEnvelope::{Ctrl, Data};
 use lib::rpc_envelope::SourceType::ESP32;
 use lib::rpc_envelope::{AdapterMode, RpcEnvelope};
 use lib::rpc_envelope::{deserialize_envelope, send_envelope, serialize_envelope};
+use lib::subscriber::Subscriber;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -17,7 +18,6 @@ use tokio::net::UdpSocket;
 use tokio::sync::watch;
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::task::JoinHandle;
-use lib::subscriber::Subscriber;
 
 pub struct SystemNode {
     socket_addr: SocketAddr,
@@ -47,7 +47,9 @@ impl SystemNode {
                                 } => {
                                     // Changes the address across the subscribe channel
                                     recv_addr_new
-                                        .send(Option::from(Subscriber::new(sink_addr, device_id, mode)))
+                                        .send(Option::from(Subscriber::new(
+                                            sink_addr, device_id, mode,
+                                        )))
                                         .expect("Somehow the subscribe channel got disconnected");
                                     println!("Subscribed by {sink_addr}");
                                 }
@@ -57,7 +59,11 @@ impl SystemNode {
                                 } => {
                                     // Changes the address across the unsubscribe channel
                                     recv_addr_old
-                                        .send(Option::from(Subscriber::new(sink_addr, device_id, AdapterMode::RAW)))
+                                        .send(Option::from(Subscriber::new(
+                                            sink_addr,
+                                            device_id,
+                                            AdapterMode::RAW,
+                                        )))
                                         .expect("Somehow the unsubscribe channel got disconnected"); // Uses raw adapter mode as the default mode, as it doesn't matter
                                     println!("Unsubscribed by {sink_addr}");
                                 }
@@ -107,7 +113,9 @@ impl SystemNode {
                     send_addr_old.mark_unchanged();
                     let current2 = current.clone().unwrap();
                     println!("Removed {current2:?}");
-                    targets.retain(|x| x.socket_addr != current2.socket_addr && x.device_id != current2.device_id);
+                    targets.retain(|x| {
+                        x.socket_addr != current2.socket_addr && x.device_id != current2.device_id
+                    });
                 }
 
                 // Periodically send data to all subscribed devices.
@@ -139,10 +147,8 @@ impl RunsServer for SystemNode {
 
         let socket = Arc::new(sock);
 
-        let (recv_addr_new, mut send_addr_new) =
-            watch::channel::<Option<Subscriber>>(None); // Channel to add new subscribers
-        let (recv_addr_old, mut send_addr_old) =
-            watch::channel::<Option<Subscriber>>(None); // Channel to remove old subscribers
+        let (recv_addr_new, mut send_addr_new) = watch::channel::<Option<Subscriber>>(None); // Channel to add new subscribers
+        let (recv_addr_old, mut send_addr_old) = watch::channel::<Option<Subscriber>>(None); // Channel to remove old subscribers
         // Using cloning, we can create two references to the same pointer and use these in different threads.
         let send_task = self.send_data_task(socket.clone(), send_addr_new, send_addr_old);
         let recv_task = self.recv_task(socket.clone(), recv_addr_new, recv_addr_old);
