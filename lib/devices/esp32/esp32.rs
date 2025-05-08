@@ -11,12 +11,14 @@ use std::time::{Duration, Instant};
 use byteorder::{LittleEndian, ReadBytesExt};
 
 /// ESP32 operation mode
+/// Transmit (Tx) or Receive (Rx)
 pub enum OperationMode {
     Rx = 0x00,
     Tx = 0x01,
 }
 
 /// Secondary channel setting for 40MHz
+/// No secondary, Extra 20MHz below, Extra 20MHz above
 pub enum SecondaryChannel {
     No = 0x00,
     Below = 0x01,
@@ -24,6 +26,7 @@ pub enum SecondaryChannel {
 }
 
 /// CSI type selection
+/// Legacy LTF (legacy) or HT LTF (high throughput)
 pub enum CsiType {
     LegacyLtf = 0x00,
     HtLtf = 0x01,
@@ -46,12 +49,15 @@ pub enum Command {
     SyncTimeApply   = 0x0B,
 }
 
+
+/// Framing constants
 const PREAMBLE: [u8; 4] = [0xC3, 0xC3, 0xC3, 0xC3];
 const FRAME_LEN: usize = 128;
 const PACKET_PREAMBLE: [u8; 8] = [0xAA; 8];
 const OUTER_HEADER_LEN: usize = 8 + 2; // preamble + i16 length
 
 /// Parsed CSI packet
+/// TODO: maybe we should unify this representation over the whole project?
 pub struct CsiPacket {
     pub timestamp_us: u64,
     pub src_mac: [u8; 6],
@@ -66,8 +72,8 @@ pub struct CsiPacket {
 /// High-level ESP32 CSI client
 pub struct Esp32 {
     port: Arc<Mutex<Box<dyn SerialPort + Send>>>,
-    csi_rx: Receiver<CsiPacket>,
-    ack_rx: Receiver<Vec<u8>>,
+    csi_rx: Receiver<CsiPacket>, // channel for parsed CSI packets
+    ack_rx: Receiver<Vec<u8>>,   // channel for ACK packets
 }
 
 impl Esp32 {
