@@ -1,74 +1,74 @@
 use crate::cli::*;
 use crate::cli::{SubCommandsArgsEnum, SystemNodeSubcommandArgs};
 use crate::module::*;
+
+use crate::system_node::rpc_message::RpcMessageKind::*;
 use anyhow::Ok;
 use argh::FromArgs;
 use async_trait::async_trait;
 use lib::errors::NetworkError;
+use lib::network::rpc_message::AdapterMode;
 use lib::network::rpc_message::CtrlMsg::*;
-use lib::network::rpc_message::RpcMessage::*;
-use lib::network::rpc_message::{AdapterMode, CtrlMsg, DataMsg, RpcMessage, SourceType};
-use lib::network::tcp::RequestHandler;
+use lib::network::rpc_message::DataMsg::*;
+use lib::network::rpc_message::RpcMessage;
+use lib::network::rpc_message::SourceType::*;
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
-use lib::network::tcp::*;
-use lib::network::tcp::*;
+use lib::network::tcp::{ChannelMsg, ConnectionHandler};
+use lib::network::*;
 use log::*;
 use std::env;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio::io::AsyncWriteExt;
+use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::{TcpStream, UdpSocket};
-use tokio::sync::Mutex;
+use tokio::sync::watch::{Receiver, Sender};
+use tokio::sync::{Mutex, watch};
 use tokio::task::JoinHandle;
 pub struct SystemNode {
     socket_addr: SocketAddr,
-    remote_addrs: Arc<Mutex<Vec<(SocketAddr, u64, AdapterMode)>>>, // Address, device id, adapter mode
-    devices: Vec<u64>,
 }
 
 #[async_trait]
-impl RequestHandler for SystemNode {
-    async fn handle_request(
+impl ConnectionHandler for SystemNode {
+    async fn handle_recv(
         &self,
         request: RpcMessage,
-        stream: &mut TcpStream,
+        send_channel: Sender<ChannelMsg>,
     ) -> Result<(), anyhow::Error> {
-        info!("received request");
-        match request {
+        info!("Received message {:?}", request.msg);
+        match request.msg {
             Ctrl(command) => match command {
-                Subscribe {
-                    sink_addr,
-                    device_id,
-                    mode,
-                } => {
-                    // You must lock the reference in order to edit
-                    // TODO: find a better way of doing this such that this does not potentially lock while reading (maybe not an issue)
-                    self.remote_addrs
-                        .lock()
-                        .await
-                        .push((sink_addr, device_id, mode));
-                    info!("Subscribed by {sink_addr}");
-                    //  send_message(stream, RpcMessage::Ctrl(Heartbeat));
-                    Ok(())
+                Connect => {
+                    let src = request.src_addr;
+                    info!("Started connection with {src}");
+                    Ok(());
                 }
-                Unsubscribe {
-                    sink_addr,
-                    device_id,
-                } => {
-                    self.remote_addrs
-                        .lock()
-                        .await
-                        .retain(|(tup1, tup2, _)| !(*tup1 == sink_addr && *tup2 == device_id));
-                    println!("Unsubscribed by {sink_addr}");
-                    todo!("update channel")
+                Disconnect => {
+                    send_channel.send(ChannelMsg::Disconnect);
+
+                    todo!("disconnect logic")
+                }
+                Subscribe { device_id, mode } => {
+                    send_channel.send(ChannelMsg::Subscribe);
+
+                    info!("Subscribed to data stream");
+                    Ok(());
+                }
+                Unsubscribe { device_id } => {
+                    send_channel.send(ChannelMsg::Unsubscribe);
+                    println!("Unsubscribed from data stream");
+                    Ok(());
                 }
                 Configure { device_id, cfg } => {
                     todo!("Configure")
                 }
                 PollDevices => {
-                    todo!("PollDevices")
+                    send_channel.send(ChannelMsg::Poll);
+                    Ok(());
                 }
                 Heartbeat => {
                     todo!("Heartbeat")
@@ -79,6 +79,47 @@ impl RequestHandler for SystemNode {
             },
             Data(data_msg) => todo!(),
         }
+        Ok(())
+    }
+
+    async fn handle_send(
+        &self,
+        mut recv_channel: Receiver<ChannelMsg>,
+        mut send_stream: OwnedWriteHalf,
+    ) -> Result<(), anyhow::Error> {
+        let mut sending = false;
+
+        loop {
+            recv_channel.changed().await;
+
+            if recv_channel.has_changed().unwrap_or(false) {
+                let msg_opt = recv_channel.borrow_and_update().clone();
+                debug!("Received message {msg_opt:?} over channel");
+                match msg_opt {
+                    ChannelMsg::Disconnect => break,
+                    ChannelMsg::Empty => (),
+                    ChannelMsg::Subscribe => {
+                        sending = true;
+                    }
+                    ChannelMsg::Unsubscribe => {
+                        sending = false;
+                    }
+                    ChannelMsg::Poll => todo!(),
+                    ChannelMsg::Data(date_msg) => {
+                        if sending {
+                            let msg = RpcMessage {
+                                src_addr: self.socket_addr,
+                                target_addr: self.socket_addr, // TODO fix
+                                msg: Data(date_msg),
+                            };
+                            tcp::send_message(&mut send_stream, msg).await;
+                            info!("Sending")
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -86,7 +127,7 @@ impl RunsServer for SystemNode {
     async fn start_server(self: Arc<Self>) -> Result<(), Box<dyn std::error::Error>> {
         info!("Starting node on address {}", self.socket_addr);
 
-        let server = TcpServer::serve(self.socket_addr, self).await;
+        let server = TcpServer::serve(self.socket_addr, self.clone()).await;
         panic!()
     }
 }
@@ -95,8 +136,6 @@ impl CliInit<SystemNodeSubcommandArgs> for SystemNode {
     fn init(config: &SystemNodeSubcommandArgs, global: &GlobalConfig) -> Self {
         SystemNode {
             socket_addr: global.socket_addr,
-            remote_addrs: Arc::new(Mutex::new(Vec::new())),
-            devices: vec![],
         }
     }
 }

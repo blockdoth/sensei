@@ -1,11 +1,15 @@
-use super::rpc_message::{self, RpcMessage};
+use super::rpc_message::{self, DataMsg, RpcMessage};
 use crate::errors::NetworkError;
 use async_trait::async_trait;
 use log::{error, info, trace};
 use serde::Deserialize;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpStream,
+    net::{
+        TcpStream,
+        tcp::{OwnedReadHalf, OwnedWriteHalf},
+    },
+    sync::watch::{Receiver, Sender},
 };
 
 pub mod client;
@@ -14,13 +18,13 @@ pub mod server;
 pub const MAX_MESSAGE_LENGTH: usize = 1024;
 
 pub async fn read_message(
-    stream: &mut TcpStream,
+    read_stream: &mut OwnedReadHalf,
     buffer: &mut [u8],
 ) -> Result<Option<RpcMessage>, NetworkError> {
     let mut length_buffer = [0; 4];
 
     // TODO error handling
-    let msg_length = match stream.read_exact(&mut length_buffer).await {
+    let msg_length = match read_stream.read_exact(&mut length_buffer).await {
         Ok(_) => {
             trace!("Header bytes: {length_buffer:?}");
             Ok(u32::from_be_bytes(length_buffer) as usize)
@@ -48,7 +52,9 @@ pub async fn read_message(
     let mut bytes_read: usize = 0;
 
     while bytes_read < msg_length {
-        let n_read: usize = stream.read(&mut buffer[bytes_read..msg_length]).await?;
+        let n_read: usize = read_stream
+            .read(&mut buffer[bytes_read..msg_length])
+            .await?;
         if n_read == 0 {
             error!("stream closed before all bytes were read ({bytes_read}/{msg_length})");
             return Err(NetworkError::Closed);
@@ -60,7 +66,10 @@ pub async fn read_message(
     Ok(Some(deserialize_rpc_message(&buffer[..msg_length])?))
 }
 
-pub async fn send_message(stream: &mut TcpStream, msg: RpcMessage) -> Result<(), NetworkError> {
+pub async fn send_message(
+    stream: &mut OwnedWriteHalf,
+    msg: RpcMessage,
+) -> Result<(), NetworkError> {
     let msg_serialized = serialize_rpc_message(msg)?;
     let msg_length = msg_serialized.len();
 
@@ -98,10 +107,26 @@ fn deserialize_rpc_message(buf: &[u8]) -> Result<RpcMessage, NetworkError> {
 }
 
 #[async_trait]
-pub trait RequestHandler: Send + Sync {
-    async fn handle_request(
+pub trait ConnectionHandler: Send + Sync {
+    async fn handle_recv(
         &self,
         request: RpcMessage,
-        stream: &mut TcpStream,
+        send_channel: Sender<ChannelMsg>,
     ) -> Result<(), anyhow::Error>;
+
+    async fn handle_send(
+        &self,
+        mut recv_channel: Receiver<ChannelMsg>,
+        mut send_stream: OwnedWriteHalf,
+    ) -> Result<(), anyhow::Error>;
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub enum ChannelMsg {
+    Empty,
+    Disconnect,
+    Subscribe,
+    Unsubscribe,
+    Poll,
+    Data(DataMsg),
 }

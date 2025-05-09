@@ -9,43 +9,42 @@ use std::{
 use tokio::net::UdpSocket;
 
 #[derive(Serialize, Deserialize, Debug)]
-pub enum RpcMessage {
+pub struct RpcMessage {
+    pub msg: RpcMessageKind,
+    pub src_addr: SocketAddr,
+    pub target_addr: SocketAddr,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum RpcMessageKind {
     Ctrl(CtrlMsg),
     Data(DataMsg),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum CtrlMsg {
-    Configure {
-        device_id: u64,
-        cfg: DeviceCfg,
-    },
-    Subscribe {
-        sink_addr: SocketAddr,
-        device_id: u64,
-        mode: AdapterMode,
-    },
-    Unsubscribe {
-        sink_addr: SocketAddr,
-        device_id: u64,
-    },
+    Connect,
+    Disconnect,
+    Configure { device_id: u64, cfg: DeviceCfg },
+    Subscribe { device_id: u64, mode: AdapterMode },
+    Unsubscribe { device_id: u64 },
     PollDevices,
     Heartbeat,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum DataMsg {
     RawFrame {
-        ts: u64,
+        ts: u128,
         bytes: Vec<u8>,
         source_type: SourceType,
     }, // raw bytestream, requires decoding adapter
     CsiFrame {
-        ts: u64,
+        ts: u128,
         csi: Vec<f32>,
     }, // This would contain a proper deserialized CSI
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum SourceType {
     ESP32,
     IWL5300,
@@ -85,15 +84,12 @@ impl FromStr for CtrlMsg {
         let kind = parts.next().unwrap_or("not a valid command");
 
         match kind {
+            "connect" => Ok(CtrlMsg::Connect),
+            "disconnect" => Ok(CtrlMsg::Disconnect),
             "configure" => {
                 todo!("support this")
             }
             "subscribe" => {
-                let addr = parts
-                    .next()
-                    .and_then(|s| s.parse::<SocketAddr>().ok())
-                    .unwrap_or(DEFAULT_ADDRESS);
-
                 let device_id = parts
                     .next()
                     .and_then(|s| s.parse::<u64>().ok())
@@ -104,27 +100,15 @@ impl FromStr for CtrlMsg {
                     .and_then(|s| s.parse::<AdapterMode>().ok())
                     .unwrap_or(AdapterMode::RAW);
 
-                Ok(CtrlMsg::Subscribe {
-                    sink_addr: addr,
-                    device_id,
-                    mode,
-                })
+                Ok(CtrlMsg::Subscribe { device_id, mode })
             }
             "unsubscribe" => {
-                let addr = parts
-                    .next()
-                    .and_then(|s| s.parse::<SocketAddr>().ok())
-                    .unwrap_or(DEFAULT_ADDRESS);
-
                 let device_id = parts
                     .next()
                     .and_then(|s| s.parse::<u64>().ok())
                     .unwrap_or(0);
 
-                Ok(CtrlMsg::Unsubscribe {
-                    sink_addr: addr,
-                    device_id,
-                })
+                Ok(CtrlMsg::Unsubscribe { device_id })
             }
             "polldevices" => Ok(CtrlMsg::PollDevices),
             "heartbeat" => Ok(CtrlMsg::Heartbeat),

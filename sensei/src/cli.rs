@@ -12,11 +12,11 @@ pub struct Args {
     addr: String,
 
     /// server port (default: 6969)
-    #[argh(option, default = "1278")]
+    #[argh(option, default = "6969")]
     port: u16,
 
     /// log level to use for terminal logging
-    #[argh(option, default = "LevelFilter::Info")]
+    #[argh(option, default = "LevelFilter::Debug")]
     pub level: LevelFilter,
 
     #[argh(subcommand)]
