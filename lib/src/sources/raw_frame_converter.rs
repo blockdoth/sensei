@@ -27,8 +27,8 @@ impl<A: CsiDataAdapter + 'static> AdapterStream<A> {
         stream! {
             while let Some(msg) = input_stream.next().await {
                 match msg {
-                    DataMsg::RawFrame { bytes, .. } => {
-                        self.adapter.consume(&bytes).await?;
+                    f@DataMsg::RawFrame { .. } => {
+                        self.adapter.consume_raw(f).await?;
 
                         while let Some(cooked) = self.adapter.reap_cooked().await? {
                             yield Ok(cooked);
