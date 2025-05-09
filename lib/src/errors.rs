@@ -81,7 +81,6 @@ pub enum AtherosAdapterError {
     InvalidSequenceNumber(u16),
 }
 
-
 #[derive(Error, Debug)]
 pub enum FileSourceError {
     #[error("IO error: {0}")]

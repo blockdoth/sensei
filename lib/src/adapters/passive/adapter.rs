@@ -13,6 +13,12 @@ impl EmptyAdapter {
     }
 }
 
+impl Default for EmptyAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait::async_trait]
 impl CsiDataAdapter for EmptyAdapter {
     // DO NOT USE THIS method as there is no way to know sourceType
@@ -32,9 +38,7 @@ impl CsiDataAdapter for EmptyAdapter {
                 bytes.extend_from_slice(buf);
                 Ok(())
             }
-            Some(_) => {
-                Err(CsiAdapterError::InvalidInput)
-            }
+            Some(_) => Err(CsiAdapterError::InvalidInput),
         }
     }
 
