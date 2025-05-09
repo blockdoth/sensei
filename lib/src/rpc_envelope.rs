@@ -41,7 +41,7 @@ pub enum DataMsg {
         csi: CsiData,
     }, // This would contain a proper deserialized CSI
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum SourceType {
     ESP32,
     IWL5300,

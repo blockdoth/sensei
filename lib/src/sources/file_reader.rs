@@ -9,6 +9,7 @@ use crate::adapters::CsiDataAdapter;
 use crate::errors::CsiAdapterError;
 use crate::csi_types::CsiData;
 use crate::errors::FileSourceError;
+use crate::rpc_envelope::SourceType;
 
 
 
@@ -16,11 +17,12 @@ use crate::errors::FileSourceError;
 pub struct FileReader<A: CsiDataAdapter> {
     path: PathBuf,
     adapter: A,
+    sourcetype: SourceType, 
 }
 
 impl<A: CsiDataAdapter + 'static> FileReader<A> {
-    pub fn new(path: PathBuf, adapter: A) -> Self {
-        Self { path, adapter }
+    pub fn new(path: PathBuf, adapter: A, sourcetype: SourceType) -> Self {
+        Self { path, adapter, sourcetype }
     }
 
     /// Stream CSI frames from the file continuously.
@@ -40,7 +42,14 @@ impl<A: CsiDataAdapter + 'static> FileReader<A> {
                     continue;
                 }
 
-                self.adapter.consume(&buffer[..n]).await?;
+                let mut v = Vec::new();
+                v.extend_from_slice(&buffer[..n]);
+                self.adapter.consume_raw(DataMsg::RawFrame {
+                    ts: chrono::Utc::now().timestamp_millis() as u128,
+                    bytes: v,
+                    source_type: self.sourcetype.clone(),
+                }).await?;
+                //self.adapter.consume(&buffer[..n]).await?;
 
                 while let Some(cooked) = self.adapter.reap_cooked().await? {
                     yield Ok(cooked);
