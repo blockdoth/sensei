@@ -14,6 +14,7 @@ use crate::csi_types::CsiData;
 use crate::errors::CsiAdapterError;
 use crate::rpc_envelope::DataMsg;
 pub mod iwl;
+pub mod passive;
 
 /// Csi Data Adapter Trait
 /// ----------------------
