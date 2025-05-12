@@ -56,15 +56,14 @@ impl RunsServer for Orchestrator {
 
                         client.connect(self.target_addr).await;
                         let msg = RpcMessage {
-                          src_addr: client.self_addr.unwrap(),
-                          target_addr: self.target_addr,
-                          msg: Ctrl(CtrlMsg::Connect),
+                            src_addr: client.self_addr.unwrap(),
+                            target_addr: self.target_addr,
+                            msg: Ctrl(CtrlMsg::Connect),
                         };
 
                         client.send_message(self.target_addr, msg).await;
-                        
-                      }
-                      Ok(Disconnect) => {
+                    }
+                    Ok(Disconnect) => {
                         client.lock().await.disconnect(self.target_addr).await;
                     }
                     Ok(Subscribe { device_id, mode }) => {

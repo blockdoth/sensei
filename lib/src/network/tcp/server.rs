@@ -57,9 +57,12 @@ impl TcpServer {
             loop {
                 match read_message(&mut read_stream, &mut read_buffer).await {
                     Ok(Some(request)) => {
-                        connection_handler
+                        if let Err(NetworkError::Closed) = connection_handler
                             .handle_recv(request, send_channel_local.clone())
-                            .await;
+                            .await
+                        {
+                            break;
+                        }
                     }
                     Ok(None) => {
                         info!("Connection with {local_peer_addr:?} closed gracefully");
@@ -82,8 +85,8 @@ impl TcpServer {
             debug!("Ended writing task");
         });
 
-        info!("Started connection with {peer_addr:?}");
         tokio::join!(read_task, write_task);
+        info!("Gracefully closed connection with {local_peer_addr:?}");
         Ok(())
     }
 }

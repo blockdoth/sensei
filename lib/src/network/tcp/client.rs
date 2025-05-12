@@ -80,15 +80,22 @@ impl TcpClient {
                 self.connections.lock().await.insert(
                     target_addr,
                     Connection {
-                        buffer: vec![0;MAX_MESSAGE_LENGTH],
+                        buffer: vec![0; MAX_MESSAGE_LENGTH],
                         write_stream,
                         read_stream,
                     },
                 );
                 let self_addr = self.self_addr.unwrap();
                 info!("Connected to {target_addr} from {self_addr}");
-                
-                let t = self.connections.lock().await.get(&target_addr).unwrap().buffer.clone();
+
+                let t = self
+                    .connections
+                    .lock()
+                    .await
+                    .get(&target_addr)
+                    .unwrap()
+                    .buffer
+                    .clone();
 
                 Ok(self_addr)
             }
@@ -120,10 +127,10 @@ impl TcpClient {
                     src_addr: self.self_addr.unwrap(), // TODO improve this
                     target_addr,
                 };
-                debug!("Initiating graceful disconnect");
+                debug!("Initiating graceful disconnect with {target_addr}");
                 match super::send_message(&mut connection.write_stream, msg).await {
                     Ok(_) => {
-                        debug!("Waiting for confirm of disconnect");
+                        debug!("Waiting for confirm of disconnect from {target_addr}");
                         match super::read_message(
                             &mut connection.read_stream,
                             &mut connection.buffer,
@@ -136,12 +143,12 @@ impl TcpClient {
                             })) => {
                                 info!("Connection with {target_addr} closed gracefully.");
                                 if let Err(e) = connection.write_stream.shutdown().await {
-                                  error!("Failed to shutdown write stream: {e}");
+                                    error!("Failed to shutdown write stream: {e}");
                                 }
                                 Ok(())
                             }
                             Ok(Some(other_msg)) => {
-                                error!("Expected Disconnect ACK, got: {other_msg:?}");
+                                error!("Expected disconnect ACK, got: {other_msg:?}");
                                 Err(NetworkError::Closed)
                             }
                             Ok(None) => {
