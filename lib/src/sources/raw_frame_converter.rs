@@ -5,7 +5,7 @@ use tokio_stream::{Stream, StreamExt};
 use crate::adapters::CsiDataAdapter;
 use crate::errors::AdapterStreamError;
 use crate::errors::CsiAdapterError;
-use crate::rpc_envelope::DataMsg;
+use crate::network::rpc_message::DataMsg;
 
 /// A wrapper that consumes a stream of RawFrames and emits CsiFrames using a CsiDataAdapter.
 pub struct AdapterStream<A: CsiDataAdapter> {

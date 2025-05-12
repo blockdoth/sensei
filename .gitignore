@@ -32,4 +32,5 @@ Thumbs.db
 *.swo
 .envrc
 .direnv/
+sensei.log
  

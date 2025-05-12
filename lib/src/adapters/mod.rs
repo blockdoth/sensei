@@ -12,7 +12,7 @@
 
 use crate::csi_types::CsiData;
 use crate::errors::CsiAdapterError;
-use crate::rpc_envelope::DataMsg;
+use crate::network::rpc_message::DataMsg;
 pub mod iwl;
 pub mod passive;
 

@@ -34,16 +34,13 @@
         in
         {
           devShells.default = pkgs.mkShell {
-            shellHook = ''
-
-              echo "Entering project shell"
-            '';
             packages = [
               toolchain
               pkgs.ruff
               pkgs.shellcheck
               pkgs.nixfmt-rfc-style
               pkgs.rust-analyzer-unwrapped
+              pkgs.mprocs
             ];
             RUST_SRC_PATH = "${toolchain}/lib/rustlib/src/rust/library";
           };

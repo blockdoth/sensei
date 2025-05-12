@@ -1,7 +1,7 @@
 use crate::adapters::CsiDataAdapter;
 use crate::csi_types::{Complex, CsiData};
 use crate::errors::CsiAdapterError;
-use crate::rpc_envelope::{DataMsg, SourceType};
+use crate::network::rpc_message::{DataMsg, SourceType};
 
 pub struct EmptyAdapter {
     frame: Option<DataMsg>,

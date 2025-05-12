@@ -8,8 +8,8 @@ use crate::adapters::CsiDataAdapter;
 use crate::csi_types::CsiData;
 use crate::errors::CsiAdapterError;
 use crate::errors::FileSourceError;
-use crate::rpc_envelope::DataMsg;
-use crate::rpc_envelope::SourceType;
+use crate::network::rpc_message::DataMsg;
+use crate::network::rpc_message::SourceType;
 
 /// A reader for continuously updated files that streams CSI data using an adapter.
 pub struct FileReader<A: CsiDataAdapter> {
