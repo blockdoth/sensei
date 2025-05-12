@@ -4,11 +4,13 @@ use minifb::{Key, Window, WindowOptions};
 use plotters::prelude::*;
 use plotters_bitmap::BitMapBackend;
 use std::cell::RefCell;
+use std::sync::{Arc, Mutex, RwLock};
+use plotters::coord::ranged1d::ReversibleRanged;
 use tokio::sync::watch;
 use tokio::sync::watch::{Receiver, Sender};
 
 pub struct Visualiser {
-    data: RefCell<Vec<u8>>,
+    data: Arc<Mutex<Vec<u8>>>,
     width: usize,
     height: usize,
 }
@@ -16,7 +18,7 @@ pub struct Visualiser {
 impl CliInit<VisualiserSubcommandArgs> for Visualiser {
     fn init(config: &VisualiserSubcommandArgs, global: &GlobalConfig) -> Self {
         Visualiser {
-            data: RefCell::new(vec![]),
+            data: Arc::new(Mutex::new(vec![])),
             width: config.width,
             height: config.height,
         }
@@ -26,26 +28,34 @@ impl CliInit<VisualiserSubcommandArgs> for Visualiser {
 impl Visualiser {
     pub fn receive_data_task(&self, tx: Sender<Vec<u8>>) {
         tokio::spawn(async move {
-            let mut i = vec![10u8];
+            let mut i = vec![0u8];
             loop {
                 // TODO: Replace with tcp stream listening for data
                 tx.send(i.clone()).expect("Channel closed");
-                i[0] = (i[0] + 1) % 100;
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                i.push((i.last().unwrap() + 1u8) % 100);
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            }
+        });
+    }
+    
+    pub async fn update_data(&self, mut rx: Receiver<Vec<u8>>, data: Arc<Mutex<Vec<u8>>>) {
+        tokio::spawn(async move {
+            loop {
+                rx.changed().await.expect("TODO: panic message");
+                let sent_data = rx.borrow_and_update().clone();
+
+                for point in sent_data {
+                    data.lock().unwrap().push(point);
+                }
             }
         });
     }
 
     pub fn output_data(&self) -> Vec<u8> {
-        self.data.borrow().clone()
+        self.data.lock().unwrap().clone()
     }
-}
-impl RunsServer for Visualiser {
-    async fn start_server(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let (tx, mut rx) = watch::channel::<Vec<u8>>(vec![0]);
-
-        self.receive_data_task(tx);
-
+    
+    pub async fn plot_data(&self) -> Result<(), Box<dyn std::error::Error>> {
         let mut window = Window::new("Data", self.width, self.height, WindowOptions::default())?;
 
         window.limit_update_rate(Some(std::time::Duration::from_micros(32000)));
@@ -53,14 +63,8 @@ impl RunsServer for Visualiser {
         let mut minifb_buffer: Vec<u32> = vec![0; self.width * self.height];
 
         while window.is_open() && !window.is_key_down(Key::Escape) {
-            rx.changed().await.expect("TODO: panic message");
-            let sent_data = rx.borrow_and_update().clone();
-
-            for point in sent_data {
-                self.data.borrow_mut().push(point);
-            }
-
-            let current_data = self.data.borrow().clone();
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            let current_data = self.data.lock().unwrap().clone();
 
             let max = *current_data.iter().max().unwrap() as f32;
             let min = *current_data.iter().min().unwrap() as f32;
@@ -78,7 +82,7 @@ impl RunsServer for Visualiser {
                     &mut plot_buffer,
                     (self.width as u32, self.height as u32),
                 )
-                .into_drawing_area();
+                    .into_drawing_area();
 
                 // Fill the background of the drawing area with white.
                 root_drawing_area.fill(&WHITE)?;
@@ -142,7 +146,17 @@ impl RunsServer for Visualiser {
 
         let output = self.output_data();
         println!("{output:?}");
-
+        
         Ok(())
+    }
+}
+impl RunsServer for Visualiser {
+    async fn start_server(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let (tx, mut rx) = watch::channel::<Vec<u8>>(vec![0]);
+
+        self.receive_data_task(tx);
+        self.update_data(rx, self.data.clone());
+        
+        self.plot_data().await
     }
 }
