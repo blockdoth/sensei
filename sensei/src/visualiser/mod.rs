@@ -26,27 +26,15 @@ impl CliInit<VisualiserSubcommandArgs> for Visualiser {
 }
 
 impl Visualiser {
-    pub fn receive_data_task(&self, tx: Sender<Vec<u8>>) {
+    pub fn receive_data_task(&self, data: Arc<Mutex<Vec<u8>>>) {
         tokio::spawn(async move {
-            let mut i = vec![0u8];
+            let test_list = vec![10u8];
             loop {
                 // TODO: Replace with tcp stream listening for data
-                tx.send(i.clone()).expect("Channel closed");
-                i.push((i.last().unwrap() + 1u8) % 100);
-                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-            }
-        });
-    }
-
-    pub fn update_data(&self, mut rx: Receiver<Vec<u8>>, data: Arc<Mutex<Vec<u8>>>) {
-        tokio::spawn(async move {
-            loop {
-                rx.changed().await.expect("TODO: panic message");
-                let sent_data = rx.borrow_and_update().clone();
-
-                for point in sent_data {
+                for point in test_list.clone() {
                     data.lock().unwrap().push(point);
                 }
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             }
         });
     }
@@ -62,8 +50,14 @@ impl Visualiser {
 
         let mut minifb_buffer: Vec<u32> = vec![0; self.width * self.height];
 
-        while window.is_open() && !window.is_key_down(Key::Escape) {
-            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        'outer: while window.is_open() && !window.is_key_down(Key::Escape) {
+            for _ in 0..50 {
+                if !window.is_open() { break; }
+                if window.is_key_down(Key::Escape) { break 'outer }
+                window.update();
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+
             let current_data = self.output_data();
 
             let max = *current_data.iter().max().unwrap() as f32;
@@ -153,10 +147,7 @@ impl Visualiser {
 }
 impl RunsServer for Visualiser {
     async fn start_server(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let (tx, mut rx) = watch::channel::<Vec<u8>>(vec![0]);
-
-        self.receive_data_task(tx);
-        self.update_data(rx, self.data.clone());
+        self.receive_data_task(self.data.clone());
 
         self.plot_data().await
     }

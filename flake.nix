@@ -31,6 +31,23 @@
             overlays = [ inputs.rust-overlay.overlays.default ];
           };
           toolchain = pkgs.rust-bin.fromRustupToolchainFile ./toolchain.toml;
+
+          runtimeLibs = with pkgs; [
+            fontconfig
+            freetype
+            xorg.libX11
+            xorg.libXcursor
+            xorg.libXrandr
+            xorg.libXi
+            xorg.libxcb
+            xorg.libXext
+            libGL
+            libxkbcommon
+            wayland
+          ];
+
+          libPath = pkgs.lib.makeLibraryPath runtimeLibs;
+
         in
         {
           devShells.default = pkgs.mkShell {
@@ -58,7 +75,18 @@
               lockFile = ./Cargo.lock;
             };
             cargoToml = ./Cargo.toml;
-            nativeBuildInputs = [ toolchain ];
+
+            nativeBuildInputs = [
+              toolchain
+              pkgs.pkg-config
+              pkgs.makeWrapper
+            ];
+            buildInputs = runtimeLibs;
+
+            postInstall = ''
+              wrapProgram $out/bin/sensei \
+                --prefix LD_LIBRARY_PATH : ${libPath}
+            '';
           };
 
           # broken because clippy doesnt work in the sandboxed nix env
