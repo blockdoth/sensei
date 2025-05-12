@@ -53,7 +53,6 @@ pub trait CsiDataAdapter: Send {
     async fn reap_cooked(&mut self) -> Result<Option<DataMsg>, CsiAdapterError> {
         match self.reap().await? {
             Some(csi) => Ok(Some(DataMsg::CsiFrame {
-                ts: chrono::Utc::now().timestamp_millis() as u128,
                 csi,
             })),
             None => Ok(None),

@@ -47,7 +47,7 @@ impl<A: CsiDataAdapter + 'static> FileReader<A> {
                 let mut v = Vec::new();
                 v.extend_from_slice(&buffer[..n]);
                 self.adapter.consume_raw(DataMsg::RawFrame {
-                    ts: chrono::Utc::now().timestamp_millis() as u128,
+                    ts: chrono::Utc::now().timestamp_millis() as f64,
                     bytes: v,
                     source_type: self.sourcetype.clone(),
                 }).await?;

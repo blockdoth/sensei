@@ -1,18 +1,31 @@
 use crate::cli::{GlobalConfig, OrchestratorSubcommandArgs, VisualiserSubcommandArgs};
 use crate::module::{CliInit, RunsServer};
+use async_trait::async_trait;
+use lib::errors::NetworkError;
+use lib::network::rpc_message::CtrlMsg::*;
+use lib::network::rpc_message::DataMsg::*;
+use lib::network::rpc_message::RpcMessage;
+use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
+use lib::network::tcp::server::TcpServer;
+use lib::network::tcp::{ChannelMsg, ConnectionHandler};
+use log::{info, warn};
 use minifb::{Key, Window, WindowOptions};
 use plotters::coord::ranged1d::ReversibleRanged;
 use plotters::prelude::*;
 use plotters_bitmap::BitMapBackend;
 use std::cell::RefCell;
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, RwLock};
+use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::watch;
 use tokio::sync::watch::{Receiver, Sender};
+use lib::csi_types::CsiData;
 
 pub struct Visualiser {
-    data: Arc<Mutex<Vec<u8>>>,
+    data: Arc<Mutex<Vec<(u128, CsiData)>>>,
     width: usize,
     height: usize,
+    socket_addr: SocketAddr,
 }
 
 impl CliInit<VisualiserSubcommandArgs> for Visualiser {
@@ -21,6 +34,7 @@ impl CliInit<VisualiserSubcommandArgs> for Visualiser {
             data: Arc::new(Mutex::new(vec![])),
             width: config.width,
             height: config.height,
+            socket_addr: global.socket_addr,
         }
     }
 }
@@ -39,7 +53,7 @@ impl Visualiser {
         });
     }
 
-    pub fn output_data(&self) -> Vec<u8> {
+    pub fn output_data(&self) -> Vec<(u128, CsiData)> {
         self.data.lock().unwrap().clone()
     }
 
@@ -52,16 +66,20 @@ impl Visualiser {
 
         'outer: while window.is_open() && !window.is_key_down(Key::Escape) {
             for _ in 0..50 {
-                if !window.is_open() { break; }
-                if window.is_key_down(Key::Escape) { break 'outer }
+                if !window.is_open() {
+                    break;
+                }
+                if window.is_key_down(Key::Escape) {
+                    break 'outer;
+                }
                 window.update();
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
 
             let current_data = self.output_data();
 
-            let max = *current_data.iter().max().unwrap() as f32;
-            let min = *current_data.iter().min().unwrap() as f32;
+            let max = current_data.iter().max_by(|x, y| x.1.);
+            let min = current_data.iter();
             let len = current_data.len() as f32;
 
             // Plotters will draw to an RGB u8 buffer. We need a temporary buffer for that.
@@ -147,8 +165,65 @@ impl Visualiser {
 }
 impl RunsServer for Visualiser {
     async fn start_server(self: Arc<Visualiser>) -> Result<(), Box<dyn std::error::Error>> {
+        let addr = self.socket_addr.clone();
+        let visualiser_ref = self.clone();
+
+        info!("Starting visualiser on {}", addr);
+
+        tokio::spawn(async move {
+            let server = TcpServer::serve(addr, visualiser_ref).await;
+        });
+
         self.receive_data_task(self.data.clone());
 
         self.plot_data().await
+    }
+}
+
+#[async_trait]
+impl ConnectionHandler for Visualiser {
+    async fn handle_recv(
+        &self,
+        request: RpcMessage,
+        send_channel: Sender<ChannelMsg>,
+    ) -> Result<(), NetworkError> {
+        info!(
+            "Received message {:?} from {}",
+            request.msg, request.src_addr
+        );
+
+        match request.msg {
+            Ctrl(command) => match command {
+                _ => warn!("Ctrl messages for the visualiser not implemented"),
+            },
+            Data(data_msg) => {
+                send_channel
+                    .send(ChannelMsg::Data(data_msg))
+                    .expect("Channel got disconnected");
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn handle_send(
+        &self,
+        mut recv_channel: Receiver<ChannelMsg>,
+        mut send_stream: OwnedWriteHalf,
+    ) -> Result<(), NetworkError> {
+        loop {
+            if recv_channel.has_changed().unwrap_or(false) {
+                let msg_opt = recv_channel.borrow_and_update().clone();
+                match msg_opt {
+                    ChannelMsg::Data(data_msg) => {
+                        match data_msg {
+                            RawFrame {ts, bytes, source_type} => todo!("Graph raw data"),
+                            CsiFrame {ts, csi} => todo!("Graph csi data")
+                        }
+                    }
+                    _ => warn!("Sending ctrl messages not implemented")
+                }
+            }
+        }
     }
 }

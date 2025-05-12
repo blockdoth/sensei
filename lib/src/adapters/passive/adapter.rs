@@ -28,7 +28,7 @@ impl CsiDataAdapter for EmptyAdapter {
                 let mut v = Vec::new();
                 v.extend_from_slice(buf);
                 self.frame = Some(DataMsg::RawFrame {
-                    ts: chrono::Utc::now().timestamp_millis() as u128,
+                    ts: chrono::Utc::now().timestamp_millis() as f64,
                     bytes: v,
                     source_type: SourceType::Unknown,
                 });
