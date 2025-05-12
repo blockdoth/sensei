@@ -2,6 +2,8 @@ use std::net::SocketAddr;
 
 use argh::FromArgs;
 
+use simplelog::{ColorChoice, CombinedLogger, LevelFilter, TermLogger, TerminalMode, WriteLogger};
+
 /// A simple app to perform collection from configured sources
 #[derive(FromArgs)]
 pub struct Args {
@@ -10,8 +12,12 @@ pub struct Args {
     addr: String,
 
     /// server port (default: 6969)
-    #[argh(option, default = "1278")]
+    #[argh(option, default = "6969")]
     port: u16,
+
+    /// log level to use for terminal logging
+    #[argh(option, default = "LevelFilter::Debug")]
+    pub level: LevelFilter,
 
     #[argh(subcommand)]
     pub subcommand: SubCommandsArgsEnum,

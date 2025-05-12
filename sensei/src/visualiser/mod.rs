@@ -146,7 +146,7 @@ impl Visualiser {
     }
 }
 impl RunsServer for Visualiser {
-    async fn start_server(&self) -> Result<(), Box<dyn std::error::Error>> {
+    async fn start_server(self: Arc<Visualiser>) -> Result<(), Box<dyn std::error::Error>> {
         self.receive_data_task(self.data.clone());
 
         self.plot_data().await

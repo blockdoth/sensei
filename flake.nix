@@ -51,9 +51,6 @@
         in
         {
           devShells.default = pkgs.mkShell {
-            shellHook = ''
-              echo "Entering project shell"
-            '';
             packages = [
               toolchain
               pkgs.ruff
@@ -62,6 +59,7 @@
               pkgs.rust-analyzer-unwrapped
               pkgs.fontconfig
               pkgs.pkg-config
+              pkgs.mprocs
             ];
             RUST_SRC_PATH = "${toolchain}/lib/rustlib/src/rust/library";
           };
