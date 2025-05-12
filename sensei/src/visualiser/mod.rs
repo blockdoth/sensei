@@ -1,11 +1,11 @@
 use crate::cli::{GlobalConfig, OrchestratorSubcommandArgs, VisualiserSubcommandArgs};
 use crate::module::{CliInit, RunsServer};
 use minifb::{Key, Window, WindowOptions};
+use plotters::coord::ranged1d::ReversibleRanged;
 use plotters::prelude::*;
 use plotters_bitmap::BitMapBackend;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex, RwLock};
-use plotters::coord::ranged1d::ReversibleRanged;
 use tokio::sync::watch;
 use tokio::sync::watch::{Receiver, Sender};
 
@@ -37,7 +37,7 @@ impl Visualiser {
             }
         });
     }
-    
+
     pub fn update_data(&self, mut rx: Receiver<Vec<u8>>, data: Arc<Mutex<Vec<u8>>>) {
         tokio::spawn(async move {
             loop {
@@ -54,7 +54,7 @@ impl Visualiser {
     pub fn output_data(&self) -> Vec<u8> {
         self.data.lock().unwrap().clone()
     }
-    
+
     pub async fn plot_data(&self) -> Result<(), Box<dyn std::error::Error>> {
         let mut window = Window::new("Data", self.width, self.height, WindowOptions::default())?;
 
@@ -82,17 +82,18 @@ impl Visualiser {
                     &mut plot_buffer,
                     (self.width as u32, self.height as u32),
                 )
-                    .into_drawing_area();
+                .into_drawing_area();
 
                 // Fill the background of the drawing area with white.
                 root_drawing_area.fill(&WHITE)?;
 
                 // ChartBuilder is used to configure and build the chart.
-                let mut chart = ChartBuilder::on(&root_drawing_area) // Chart title and font
-                    .margin(10) // Margin around the chart
-                    .x_label_area_size((10).percent_height()) // Space for X-axis labels
-                    .y_label_area_size((10).percent_width()) // Space for Y-axis labels
-                    .build_cartesian_2d(0f32..len, min - 1f32..max + 1f32)?; // Define X and Y axis ranges
+                let mut chart =
+                    ChartBuilder::on(&root_drawing_area) // Chart title and font
+                        .margin(10) // Margin around the chart
+                        .x_label_area_size((10).percent_height()) // Space for X-axis labels
+                        .y_label_area_size((10).percent_width()) // Space for Y-axis labels
+                        .build_cartesian_2d(0f32..len, min - 1f32..max + 1f32)?; // Define X and Y axis ranges
 
                 // Configure the mesh (grid lines) for the chart.
                 chart
@@ -146,7 +147,7 @@ impl Visualiser {
 
         let output = self.output_data();
         println!("{output:?}");
-        
+
         Ok(())
     }
 }
@@ -156,7 +157,7 @@ impl RunsServer for Visualiser {
 
         self.receive_data_task(tx);
         self.update_data(rx, self.data.clone());
-        
+
         self.plot_data().await
     }
 }
