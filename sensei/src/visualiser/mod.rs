@@ -38,7 +38,7 @@ impl Visualiser {
         });
     }
     
-    pub async fn update_data(&self, mut rx: Receiver<Vec<u8>>, data: Arc<Mutex<Vec<u8>>>) {
+    pub fn update_data(&self, mut rx: Receiver<Vec<u8>>, data: Arc<Mutex<Vec<u8>>>) {
         tokio::spawn(async move {
             loop {
                 rx.changed().await.expect("TODO: panic message");
@@ -64,7 +64,7 @@ impl Visualiser {
 
         while window.is_open() && !window.is_key_down(Key::Escape) {
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-            let current_data = self.data.lock().unwrap().clone();
+            let current_data = self.output_data();
 
             let max = *current_data.iter().max().unwrap() as f32;
             let min = *current_data.iter().min().unwrap() as f32;
