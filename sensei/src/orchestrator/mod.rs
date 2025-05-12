@@ -52,9 +52,19 @@ impl RunsServer for Orchestrator {
 
                 match line.parse::<CtrlMsg>() {
                     Ok(Connect) => {
-                        client.lock().await.connect(self.target_addr).await;
-                    }
-                    Ok(Disconnect) => {
+                        let mut client = client.lock().await;
+
+                        client.connect(self.target_addr).await;
+                        let msg = RpcMessage {
+                          src_addr: client.self_addr.unwrap(),
+                          target_addr: self.target_addr,
+                          msg: Ctrl(CtrlMsg::Connect),
+                        };
+
+                        client.send_message(self.target_addr, msg).await;
+                        
+                      }
+                      Ok(Disconnect) => {
                         client.lock().await.disconnect(self.target_addr).await;
                     }
                     Ok(Subscribe { device_id, mode }) => {

@@ -12,6 +12,7 @@ use crate::network::rpc_message::RpcMessage;
 use crate::network::rpc_message::RpcMessageKind;
 use crate::network::rpc_message::RpcMessageKind::*;
 use crate::network::rpc_message::*;
+use crate::network::tcp::MAX_MESSAGE_LENGTH;
 use log::debug;
 use log::error;
 use log::info;
@@ -49,7 +50,7 @@ pub struct Connection {
     // A temp buffer to deal with fragmentation
     write_stream: OwnedWriteHalf,
     read_stream: OwnedReadHalf,
-    buffer: Vec<u8>,
+    pub buffer: Vec<u8>,
 }
 
 impl TcpClient {
@@ -79,13 +80,16 @@ impl TcpClient {
                 self.connections.lock().await.insert(
                     target_addr,
                     Connection {
-                        buffer: vec![],
+                        buffer: vec![0;MAX_MESSAGE_LENGTH],
                         write_stream,
                         read_stream,
                     },
                 );
                 let self_addr = self.self_addr.unwrap();
                 info!("Connected to {target_addr} from {self_addr}");
+                
+                let t = self.connections.lock().await.get(&target_addr).unwrap().buffer.clone();
+
                 Ok(self_addr)
             }
             Ok(Err(e)) => {
@@ -119,10 +123,7 @@ impl TcpClient {
                 debug!("Initiating graceful disconnect");
                 match super::send_message(&mut connection.write_stream, msg).await {
                     Ok(_) => {
-                        if let Err(e) = connection.write_stream.shutdown().await {
-                            error!("Failed to shutdown write stream: {e}");
-                        }
-
+                        debug!("Waiting for confirm of disconnect");
                         match super::read_message(
                             &mut connection.read_stream,
                             &mut connection.buffer,
@@ -134,6 +135,9 @@ impl TcpClient {
                                 ..
                             })) => {
                                 info!("Connection with {target_addr} closed gracefully.");
+                                if let Err(e) = connection.write_stream.shutdown().await {
+                                  error!("Failed to shutdown write stream: {e}");
+                                }
                                 Ok(())
                             }
                             Ok(Some(other_msg)) => {

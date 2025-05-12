@@ -7,14 +7,14 @@ use anyhow::Ok;
 use argh::FromArgs;
 use async_trait::async_trait;
 use lib::errors::NetworkError;
-use lib::network::rpc_message::AdapterMode;
+use lib::network::rpc_message::{AdapterMode, CtrlMsg};
 use lib::network::rpc_message::CtrlMsg::*;
 use lib::network::rpc_message::DataMsg::*;
 use lib::network::rpc_message::RpcMessage;
 use lib::network::rpc_message::SourceType::*;
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
-use lib::network::tcp::{ChannelMsg, ConnectionHandler};
+use lib::network::tcp::{send_message, ChannelMsg, ConnectionHandler};
 use lib::network::*;
 use log::*;
 use std::env;
@@ -50,7 +50,8 @@ impl ConnectionHandler for SystemNode {
                 Disconnect => {
                     send_channel.send(ChannelMsg::Disconnect);
 
-                    todo!("disconnect logic")
+                    // todo!("disconnect logic")
+                    Ok(());
                 }
                 Subscribe { device_id, mode } => {
                     send_channel.send(ChannelMsg::Subscribe);
@@ -87,29 +88,37 @@ impl ConnectionHandler for SystemNode {
         mut recv_channel: Receiver<ChannelMsg>,
         mut send_stream: OwnedWriteHalf,
     ) -> Result<(), anyhow::Error> {
-        let mut sending = false;
-
-        loop {
-            recv_channel.changed().await;
-
-            if recv_channel.has_changed().unwrap_or(false) {
+      
+      let mut sending = false;
+      loop {
+        if recv_channel.has_changed().unwrap_or(false) {
                 let msg_opt = recv_channel.borrow_and_update().clone();
                 debug!("Received message {msg_opt:?} over channel");
                 match msg_opt {
-                    ChannelMsg::Disconnect => break,
-                    ChannelMsg::Empty => (),
+                    ChannelMsg::Empty => (), // For init
+                    ChannelMsg::Poll => todo!(),
+                    ChannelMsg::Disconnect => {
+                      let msg = RpcMessage {
+                        msg: Ctrl(CtrlMsg::Disconnect),
+                        src_addr: send_stream.local_addr().unwrap(), 
+                        target_addr: send_stream.peer_addr().unwrap(),
+                      };
+                      
+                      send_message(&mut send_stream, msg).await;
+                      debug!("Send close confirmation");
+                      break;
+                    },
                     ChannelMsg::Subscribe => {
                         sending = true;
                     }
                     ChannelMsg::Unsubscribe => {
                         sending = false;
                     }
-                    ChannelMsg::Poll => todo!(),
                     ChannelMsg::Data(date_msg) => {
                         if sending {
                             let msg = RpcMessage {
                                 src_addr: self.socket_addr,
-                                target_addr: self.socket_addr, // TODO fix
+                                target_addr: send_stream.peer_addr().unwrap(),
                                 msg: Data(date_msg),
                             };
                             tcp::send_message(&mut send_stream, msg).await;
@@ -118,6 +127,7 @@ impl ConnectionHandler for SystemNode {
                     }
                 }
             }
+            
         }
         Ok(())
     }

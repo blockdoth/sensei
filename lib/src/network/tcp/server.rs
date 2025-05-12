@@ -55,7 +55,6 @@ impl TcpServer {
         let read_task = tokio::spawn(async move {
             debug!("Start reading task");
             loop {
-                debug!("Awaiting incoming message");
                 match read_message(&mut read_stream, &mut read_buffer).await {
                     Ok(Some(request)) => {
                         connection_handler
@@ -77,13 +76,9 @@ impl TcpServer {
 
         let write_task = tokio::spawn(async move {
             debug!("Started writing task");
-            match connection_handler_local
+            connection_handler_local
                 .handle_send(recv_channel, write_stream)
-                .await
-            {
-                Ok(_) => todo!(),
-                Err(_) => todo!(),
-            }
+                .await;
             debug!("Ended writing task");
         });
 

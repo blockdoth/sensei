@@ -1,7 +1,7 @@
 use super::rpc_message::{self, DataMsg, RpcMessage};
 use crate::errors::NetworkError;
 use async_trait::async_trait;
-use log::{error, info, trace};
+use log::{debug, error, info, trace};
 use serde::Deserialize;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -26,7 +26,7 @@ pub async fn read_message(
     // TODO error handling
     let msg_length = match read_stream.read_exact(&mut length_buffer).await {
         Ok(_) => {
-            trace!("Header bytes: {length_buffer:?}");
+            debug!("Header bytes: {length_buffer:?}");
             Ok(u32::from_be_bytes(length_buffer) as usize)
         }
         Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
@@ -36,7 +36,7 @@ pub async fn read_message(
         Err(e) => todo!("idk"),
     }?;
 
-    trace!("Message length {msg_length}");
+    debug!("Recieved message of length {msg_length}");
 
     if msg_length > MAX_MESSAGE_LENGTH {
         error!(
@@ -50,42 +50,49 @@ pub async fn read_message(
     }
 
     let mut bytes_read: usize = 0;
-
+    info!("{}", buffer.len());
     while bytes_read < msg_length {
+      let t = &buffer[bytes_read..msg_length];
+
+      info!("{} {} {:?}", bytes_read, msg_length, t );
         let n_read: usize = read_stream
             .read(&mut buffer[bytes_read..msg_length])
             .await?;
+        debug!("Read {} bytes from buffer",n_read);
         if n_read == 0 {
             error!("stream closed before all bytes were read ({bytes_read}/{msg_length})");
             return Err(NetworkError::Closed);
         }
         bytes_read += n_read;
     }
-    info!("Read message of size {msg_length}: {buffer:?}");
+    info!("Read message of size {msg_length}: {:?}",&buffer[..msg_length]);
     //TODO fix error handling
     Ok(Some(deserialize_rpc_message(&buffer[..msg_length])?))
 }
+
+
 
 pub async fn send_message(
     stream: &mut OwnedWriteHalf,
     msg: RpcMessage,
 ) -> Result<(), NetworkError> {
-    let msg_serialized = serialize_rpc_message(msg)?;
-    let msg_length = msg_serialized.len();
 
-    if msg_length > MAX_MESSAGE_LENGTH {
+    let msg_serialized = serialize_rpc_message(msg)?;
+    let msg_length:u32 = msg_serialized.len().try_into().unwrap();
+
+    if msg_length as usize > MAX_MESSAGE_LENGTH {
         error!(
             "Message of length {msg_length} is to long, max message length: {MAX_MESSAGE_LENGTH}"
         );
         return Err(NetworkError::Serialization);
     }
-
     let msg_length_serialized = msg_length.to_be_bytes();
+    
+    debug!("Sending message of length {:?}",msg_length);
 
     stream.write_all(&msg_length_serialized).await?;
     stream.write_all(&msg_serialized).await?;
     stream.flush().await?;
-
     Ok(())
 }
 
