@@ -1,3 +1,4 @@
+use crate::csi_types::CsiData;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::net::UdpSocket;
 
@@ -37,16 +38,17 @@ pub enum DataMsg {
     }, // raw bytestream, requires decoding adapter
     CsiFrame {
         ts: u128,
-        csi: Vec<f32>,
+        csi: CsiData,
     }, // This would contain a proper deserialized CSI
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum SourceType {
     ESP32,
     IWL5300,
     AX200,
     AX210,
     AtherosQCA,
+    Unknown,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
