@@ -7,6 +7,7 @@ use std::{
     sync::Arc,
 };
 use tokio::net::UdpSocket;
+use crate::csi_types::CsiData;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RpcMessage {
@@ -41,7 +42,7 @@ pub enum DataMsg {
     }, // raw bytestream, requires decoding adapter
     CsiFrame {
         ts: u128,
-        csi: Vec<f32>,
+        csi: CsiData,
     }, // This would contain a proper deserialized CSI
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -51,6 +52,7 @@ pub enum SourceType {
     AX200,
     AX210,
     AtherosQCA,
+    Unknown,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
