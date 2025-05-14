@@ -12,6 +12,7 @@ use crate::network::rpc_message::RpcMessage;
 use crate::network::rpc_message::RpcMessageKind;
 use crate::network::rpc_message::RpcMessageKind::*;
 use crate::network::rpc_message::*;
+use crate::network::tcp;
 use crate::network::tcp::MAX_MESSAGE_LENGTH;
 use log::debug;
 use log::error;
@@ -42,12 +43,13 @@ const CONNECTION_TIME: u64 = 10;
 /// Tcp Client
 pub struct TcpClient {
     //TODO look if using SocketAddr is fine to use as key
-    pub self_addr: Option<SocketAddr>,
     connections: Arc<Mutex<HashMap<SocketAddr, Connection>>>,
 }
 
+#[derive(Debug)]
 pub struct Connection {
     // A temp buffer to deal with fragmentation
+    addr: SocketAddr,
     write_stream: OwnedWriteHalf,
     read_stream: OwnedReadHalf,
     pub buffer: Vec<u8>,
@@ -56,15 +58,27 @@ pub struct Connection {
 impl TcpClient {
     pub async fn new() -> Self {
         Self {
-            self_addr: None,
             connections: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
+    // Might be inefficient, please improve
+    pub async fn get_src_addr(&self, src_addr: SocketAddr) -> SocketAddr {
+      self.connections.lock().await.get(&src_addr).unwrap().addr
+    }
+
+    // pub async fn is_connected(&self, target_addr: SocketAddr) -> bool {
+    //   match self.connections.lock().await.get(&target_addr) {
+    //     Some(_) => true,
+    //     None => false,
+    //       }
+    // }
+
     pub async fn connect(&mut self, target_addr: SocketAddr) -> Result<(SocketAddr), NetworkError> {
-        if self.connections.lock().await.contains_key(&target_addr) {
+        if let Some(connection) = self.connections.lock().await.get(&target_addr) {
+            let target_addr = connection.read_stream.peer_addr().unwrap();
             info!("Already connected to {target_addr}");
-            return Ok(self.self_addr.unwrap());
+            return Ok(target_addr);
         }
 
         let connection = tokio::time::timeout(
@@ -75,29 +89,31 @@ impl TcpClient {
 
         match connection {
             Ok(Ok(stream)) => {
-                self.self_addr = Some(stream.local_addr()?); // TODO better
-                let (read_stream, write_stream) = stream.into_split();
+                let (read_stream, mut write_stream) = stream.into_split();
+                
+                let target_addr =  write_stream.peer_addr().unwrap();
+                let src_addr =  write_stream.local_addr().unwrap();
+
+                let msg = RpcMessage {
+                  msg: Ctrl(CtrlMsg::Connect),
+                  src_addr: src_addr,
+                  target_addr: target_addr,
+                };
+
+                tcp::send_message(&mut write_stream, msg).await;
+
                 self.connections.lock().await.insert(
                     target_addr,
                     Connection {
+                        addr: write_stream.peer_addr().unwrap(),
                         buffer: vec![0; MAX_MESSAGE_LENGTH],
                         write_stream,
                         read_stream,
                     },
                 );
-                let self_addr = self.self_addr.unwrap();
-                info!("Connected to {target_addr} from {self_addr}");
+                info!("Connected to {target_addr} from {src_addr}");
 
-                let t = self
-                    .connections
-                    .lock()
-                    .await
-                    .get(&target_addr)
-                    .unwrap()
-                    .buffer
-                    .clone();
-
-                Ok(self_addr)
+                Ok(src_addr)
             }
             Ok(Err(e)) => {
                 error!("Failed to connect to {target_addr}: {e}");
@@ -124,7 +140,7 @@ impl TcpClient {
             Some(mut connection) => {
                 let msg = RpcMessage {
                     msg: Ctrl(CtrlMsg::Disconnect),
-                    src_addr: self.self_addr.unwrap(), // TODO improve this
+                    src_addr: connection.write_stream.local_addr().unwrap(), // TODO improve this
                     target_addr,
                 };
                 debug!("Initiating graceful disconnect with {target_addr}");
@@ -172,11 +188,11 @@ impl TcpClient {
 
     pub async fn read_message(
         &mut self,
-        connection_addr: SocketAddr,
+        target_addr: SocketAddr,
     ) -> Result<RpcMessage, NetworkError> {
-        match self.connections.lock().await.get_mut(&connection_addr) {
+        match self.connections.lock().await.get_mut(&target_addr) {
             None => {
-                error!("Connection not found {connection_addr}");
+                error!("Connection not found {target_addr}");
                 Err(NetworkError::Closed)
             }
             Some(connection) => {
@@ -198,18 +214,18 @@ impl TcpClient {
 
     pub async fn send_message(
         &mut self,
-        connection_addr: SocketAddr,
+        target_addr: SocketAddr,
         msg: RpcMessage,
     ) -> Result<(), NetworkError> {
-        match self.connections.lock().await.get_mut(&connection_addr) {
+        match self.connections.lock().await.get_mut(&target_addr) {
             None => {
-                error!("Connection not found {connection_addr}");
+                error!("Connection not found {target_addr}");
                 Err(NetworkError::Closed)
             }
             Some(connection) => {
                 match super::send_message(&mut connection.write_stream, msg).await {
                     Ok(_) => {
-                        trace!("Message sent successfully.");
+                        debug!("Message sent successfully.");
                         Ok(())
                     }
                     Err(e) => {

@@ -9,7 +9,10 @@ use tokio::{
         TcpStream,
         tcp::{OwnedReadHalf, OwnedWriteHalf},
     },
-    sync::watch::{Receiver, Sender},
+    sync::{
+        broadcast,
+        watch::{self, Receiver, Sender},
+    },
 };
 
 pub mod client;
@@ -106,14 +109,20 @@ pub trait ConnectionHandler: Send + Sync {
     async fn handle_recv(
         &self,
         request: RpcMessage,
-        send_channel: Sender<ChannelMsg>,
+        send_commands_channel: watch::Sender<ChannelMsg>,
     ) -> Result<(), NetworkError>;
 
     async fn handle_send(
         &self,
-        mut recv_channel: Receiver<ChannelMsg>,
+        mut recv_commands_channel: watch::Receiver<ChannelMsg>,
+        mut recv_data_channel: broadcast::Receiver<DataMsg>,
         mut send_stream: OwnedWriteHalf,
     ) -> Result<(), NetworkError>;
+}
+
+#[async_trait]
+pub trait SubscribeDataChannel {
+    fn subscribe_data_channel(&self) -> broadcast::Receiver<DataMsg>;
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -123,5 +132,4 @@ pub enum ChannelMsg {
     Subscribe,
     Unsubscribe,
     Poll,
-    Data(DataMsg),
 }

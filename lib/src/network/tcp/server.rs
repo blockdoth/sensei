@@ -1,4 +1,4 @@
-use super::{ConnectionHandler, MAX_MESSAGE_LENGTH, read_message};
+use super::{ConnectionHandler, MAX_MESSAGE_LENGTH, SubscribeDataChannel, read_message};
 use crate::{
     errors::NetworkError,
     network::{rpc_message::RpcMessage, tcp::ChannelMsg},
@@ -14,13 +14,9 @@ use tokio::{
 pub struct TcpServer {}
 
 impl TcpServer {
-  
-    pub async fn serve<H>(
-        addr: SocketAddr,
-        connection_handler: Arc<H>,
-    ) -> Result<(), NetworkError> 
-    where 
-      H: ConnectionHandler + Sync + Clone + 'static,
+    pub async fn serve<H>(addr: SocketAddr, connection_handler: Arc<H>) -> Result<(), NetworkError>
+    where
+        H: ConnectionHandler + SubscribeDataChannel + Clone + 'static,
     {
         info!("Starting node on address {addr}");
         let listener = TcpListener::bind(addr).await?;
@@ -44,10 +40,10 @@ impl TcpServer {
     async fn init_connection<H>(
         stream: TcpStream,
         connection_handler: Arc<H>,
-    ) -> Result<(), NetworkError> 
-    where 
-    H: ConnectionHandler + Sync + Clone + 'static,
-  {
+    ) -> Result<(), NetworkError>
+    where
+        H: ConnectionHandler + SubscribeDataChannel + Clone + 'static,
+    {
         let mut read_buffer = vec![0; MAX_MESSAGE_LENGTH];
 
         let peer_addr = stream.peer_addr()?;
@@ -55,10 +51,13 @@ impl TcpServer {
 
         let (mut read_stream, write_stream) = stream.into_split();
 
-        let (send_channel, mut recv_channel) = watch::channel::<ChannelMsg>(ChannelMsg::Empty);
+        let (send_commands_channel, mut recv_commands_channel) =
+            watch::channel::<ChannelMsg>(ChannelMsg::Empty);
 
-        let send_channel_local = send_channel.clone();
+        let send_commands_channel_local = send_commands_channel.clone();
         let connection_handler_local = connection_handler.clone();
+
+        let recv_data_channel_local = connection_handler.subscribe_data_channel();
 
         let read_task = tokio::spawn(async move {
             debug!("Start reading task");
@@ -66,7 +65,7 @@ impl TcpServer {
                 match read_message(&mut read_stream, &mut read_buffer).await {
                     Ok(Some(request)) => {
                         if let Err(NetworkError::Closed) = connection_handler
-                            .handle_recv(request, send_channel_local.clone())
+                            .handle_recv(request, send_commands_channel_local.clone())
                             .await
                         {
                             break;
@@ -88,7 +87,7 @@ impl TcpServer {
         let write_task = tokio::spawn(async move {
             debug!("Started writing task");
             connection_handler_local
-                .handle_send(recv_channel, write_stream)
+                .handle_send(recv_commands_channel, recv_data_channel_local, write_stream)
                 .await;
             debug!("Ended writing task");
         });

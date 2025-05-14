@@ -5,15 +5,16 @@ use crate::module::*;
 use crate::system_node::rpc_message::RpcMessageKind::*;
 use argh::FromArgs;
 use async_trait::async_trait;
+use lib::csi_types::CsiData;
 use lib::errors::NetworkError;
-use lib::network::rpc_message::CtrlMsg::*;
 use lib::network::rpc_message::DataMsg::*;
 use lib::network::rpc_message::RpcMessage;
 use lib::network::rpc_message::SourceType::*;
 use lib::network::rpc_message::{AdapterMode, CtrlMsg};
+use lib::network::rpc_message::{CtrlMsg::*, DataMsg};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
-use lib::network::tcp::{ChannelMsg, ConnectionHandler, send_message};
+use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
 use lib::network::*;
 use log::*;
 use std::env;
@@ -24,19 +25,26 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncWriteExt;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::{TcpStream, UdpSocket};
-use tokio::sync::watch::{Receiver, Sender};
-use tokio::sync::{Mutex, watch};
+use tokio::sync::{Mutex, broadcast, watch};
 use tokio::task::JoinHandle;
 
 #[derive(Clone)]
-pub struct SystemNode {}
+pub struct SystemNode {
+    send_data_channel: broadcast::Sender<DataMsg>, // Call .subscribe() on the sender in order to get a receiver
+}
+
+impl SubscribeDataChannel for SystemNode {
+    fn subscribe_data_channel(&self) -> broadcast::Receiver<DataMsg> {
+        self.send_data_channel.subscribe()
+    }
+}
 
 #[async_trait]
 impl ConnectionHandler for SystemNode {
     async fn handle_recv(
         &self,
         request: RpcMessage,
-        send_channel: Sender<ChannelMsg>,
+        send_channel: watch::Sender<ChannelMsg>,
     ) -> Result<(), NetworkError> {
         info!(
             "Received message {:?} from {}",
@@ -83,13 +91,14 @@ impl ConnectionHandler for SystemNode {
 
     async fn handle_send(
         &self,
-        mut recv_channel: Receiver<ChannelMsg>,
+        mut recv_command_channel: watch::Receiver<ChannelMsg>,
+        mut recv_data_channel: broadcast::Receiver<DataMsg>,
         mut send_stream: OwnedWriteHalf,
     ) -> Result<(), NetworkError> {
         let mut sending = false;
         loop {
-            if recv_channel.has_changed().unwrap_or(false) {
-                let msg_opt = recv_channel.borrow_and_update().clone();
+            if recv_command_channel.has_changed().unwrap_or(false) {
+                let msg_opt = recv_command_channel.borrow_and_update().clone();
                 debug!("Received message {msg_opt:?} over channel");
                 match msg_opt {
                     ChannelMsg::Empty => (), // For init
@@ -106,23 +115,24 @@ impl ConnectionHandler for SystemNode {
                         break;
                     }
                     ChannelMsg::Subscribe => {
-                        sending = true;
+                      info!("Subscribed");
+                      sending = true;
                     }
                     ChannelMsg::Unsubscribe => {
+                        info!("Unsubscribed");
                         sending = false;
                     }
-                    ChannelMsg::Data(date_msg) => {
-                        if sending {
-                            let msg = RpcMessage {
-                                src_addr: send_stream.local_addr().unwrap(),
-                                target_addr: send_stream.peer_addr().unwrap(),
-                                msg: Data(date_msg),
-                            };
-                            tcp::send_message(&mut send_stream, msg).await;
-                            info!("Sending")
-                        }
-                    }
                 }
+            }
+
+            if sending && let Ok(date_msg) = recv_data_channel.recv().await {
+                let msg = RpcMessage {
+                    src_addr: send_stream.local_addr().unwrap(),
+                    target_addr: send_stream.peer_addr().unwrap(),
+                    msg: Data(date_msg),
+                };
+                tcp::send_message(&mut send_stream, msg).await;
+                info!("Sending")
             }
         }
         Ok(())
@@ -131,7 +141,8 @@ impl ConnectionHandler for SystemNode {
 
 impl Run<SystemNodeSubcommandArgs> for SystemNode {
     fn new() -> Self {
-        SystemNode {}
+        let (send_data_channel, _) = broadcast::channel::<DataMsg>(16);
+        SystemNode { send_data_channel }
     }
 
     async fn run(
@@ -139,7 +150,28 @@ impl Run<SystemNodeSubcommandArgs> for SystemNode {
         config: &SystemNodeSubcommandArgs,
         global: &GlobalConfig,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        TcpServer::serve(global.socket_addr, Arc::new(self.clone())).await;
+        let connection_handler = Arc::new(self.clone());
+
+        let sender_data_channel = connection_handler.send_data_channel.clone();
+
+        tokio::spawn(async move {
+            let mut i = 0;
+            loop {
+                sender_data_channel.send(CsiFrame {
+                    ts: i,
+                    csi: CsiData {
+                        timestamp: 0.0,
+                        sequence_number: 0,
+                        rssi: vec![],
+                        csi: vec![],
+                    },
+                });
+                i+=1
+                // tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+            }
+        });
+
+        TcpServer::serve(global.socket_addr, connection_handler).await;
         Ok(())
     }
 }
