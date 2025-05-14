@@ -1,4 +1,4 @@
-use crate::cli::{self, GlobalConfig, OrchestratorSubcommandArgs};
+use crate::cli::{self, GlobalConfig, OrchestratorSubcommandArgs, SubCommandsArgsEnum};
 use crate::module::*;
 use lib::network::rpc_message::CtrlMsg::*;
 use lib::network::rpc_message::RpcMessage;
@@ -16,21 +16,21 @@ use tokio::signal;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
-pub struct Orchestrator {
-    target_addr: SocketAddr,
-}
+pub struct Orchestrator {}
 
-impl CliInit<OrchestratorSubcommandArgs> for Orchestrator {
-    fn init(config: &OrchestratorSubcommandArgs, global: &GlobalConfig) -> Self {
-        Orchestrator {
-            target_addr: global.socket_addr,
-        }
+impl Run<OrchestratorSubcommandArgs> for Orchestrator {
+    fn new() -> Self {
+        Orchestrator {}
     }
-}
 
-impl RunsServer for Orchestrator {
-    async fn start_server(self: Arc<Self>) -> Result<(), Box<dyn std::error::Error>> {
+    async fn run(
+        &self,
+        config: &OrchestratorSubcommandArgs,
+        global: &GlobalConfig,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let client = Arc::new(Mutex::new(TcpClient::new().await));
+
+        let target_addr = global.socket_addr;
 
         let client_task = tokio::spawn(async move {
             // Create the input reader
@@ -54,40 +54,40 @@ impl RunsServer for Orchestrator {
                     Ok(Connect) => {
                         let mut client = client.lock().await;
 
-                        client.connect(self.target_addr).await;
+                        client.connect(target_addr).await;
                         let msg = RpcMessage {
                             src_addr: client.self_addr.unwrap(),
-                            target_addr: self.target_addr,
+                            target_addr: target_addr,
                             msg: Ctrl(CtrlMsg::Connect),
                         };
 
-                        client.send_message(self.target_addr, msg).await;
+                        client.send_message(target_addr, msg).await;
                     }
                     Ok(Disconnect) => {
-                        client.lock().await.disconnect(self.target_addr).await;
+                        client.lock().await.disconnect(target_addr).await;
                     }
                     Ok(Subscribe { device_id, mode }) => {
                         let src_addr = client.lock().await.self_addr.unwrap();
                         let msg = RpcMessage {
                             src_addr,
-                            target_addr: self.target_addr,
+                            target_addr: target_addr,
                             msg: Ctrl(CtrlMsg::Subscribe {
                                 device_id: 0,
                                 mode: AdapterMode::RAW,
                             }),
                         };
-                        client.lock().await.send_message(self.target_addr, msg);
-                        info!("Subscribed to node {}", self.target_addr)
+                        client.lock().await.send_message(target_addr, msg);
+                        info!("Subscribed to node {}", target_addr)
                     }
                     Ok(Unsubscribe { device_id }) => {
                         let src_addr = client.lock().await.self_addr.unwrap();
                         let msg = RpcMessage {
                             src_addr,
-                            target_addr: self.target_addr,
+                            target_addr: target_addr,
                             msg: Ctrl(CtrlMsg::Unsubscribe { device_id: 0 }),
                         };
-                        client.lock().await.send_message(self.target_addr, msg);
-                        info!("Subscribed from node {}", self.target_addr)
+                        client.lock().await.send_message(target_addr, msg);
+                        info!("Subscribed from node {}", target_addr)
                     }
                     Ok(Configure { device_id, cfg }) => {
                         todo!("Configure not yet implemented")

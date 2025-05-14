@@ -27,9 +27,9 @@ use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::{Mutex, watch};
 use tokio::task::JoinHandle;
-pub struct SystemNode {
-    socket_addr: SocketAddr,
-}
+
+#[derive(Clone)]
+pub struct SystemNode {}
 
 #[async_trait]
 impl ConnectionHandler for SystemNode {
@@ -114,7 +114,7 @@ impl ConnectionHandler for SystemNode {
                     ChannelMsg::Data(date_msg) => {
                         if sending {
                             let msg = RpcMessage {
-                                src_addr: self.socket_addr,
+                                src_addr: send_stream.local_addr().unwrap(),
                                 target_addr: send_stream.peer_addr().unwrap(),
                                 msg: Data(date_msg),
                             };
@@ -129,19 +129,17 @@ impl ConnectionHandler for SystemNode {
     }
 }
 
-impl RunsServer for SystemNode {
-    async fn start_server(self: Arc<Self>) -> Result<(), Box<dyn std::error::Error>> {
-        info!("Starting node on address {}", self.socket_addr);
-
-        let server = TcpServer::serve(self.socket_addr, self.clone()).await;
-        panic!()
+impl Run<SystemNodeSubcommandArgs> for SystemNode {
+    fn new() -> Self {
+        SystemNode {}
     }
-}
 
-impl CliInit<SystemNodeSubcommandArgs> for SystemNode {
-    fn init(config: &SystemNodeSubcommandArgs, global: &GlobalConfig) -> Self {
-        SystemNode {
-            socket_addr: global.socket_addr,
-        }
+    async fn run(
+        &self,
+        config: &SystemNodeSubcommandArgs,
+        global: &GlobalConfig,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        TcpServer::serve(global.socket_addr, Arc::new(self.clone())).await;
+        Ok(())
     }
 }

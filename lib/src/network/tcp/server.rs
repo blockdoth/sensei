@@ -14,18 +14,23 @@ use tokio::{
 pub struct TcpServer {}
 
 impl TcpServer {
-    pub async fn serve(
+  
+    pub async fn serve<H>(
         addr: SocketAddr,
-        connection_handler: Arc<dyn ConnectionHandler>,
-    ) -> Result<(), NetworkError> {
+        connection_handler: Arc<H>,
+    ) -> Result<(), NetworkError> 
+    where 
+      H: ConnectionHandler + Sync + Clone + 'static,
+    {
+        info!("Starting node on address {addr}");
         let listener = TcpListener::bind(addr).await?;
 
         loop {
             match listener.accept().await {
                 Ok((mut stream, peer_addr)) => {
-                    let handler = Arc::clone(&connection_handler);
+                    let local_handler = connection_handler.clone();
                     tokio::spawn(async move {
-                        Self::init_connection(stream, handler).await;
+                        Self::init_connection(stream, local_handler).await;
                     });
                 }
                 Err(e) => {
@@ -36,10 +41,13 @@ impl TcpServer {
         }
     }
 
-    async fn init_connection(
+    async fn init_connection<H>(
         stream: TcpStream,
-        connection_handler: Arc<dyn ConnectionHandler>,
-    ) -> Result<(), NetworkError> {
+        connection_handler: Arc<H>,
+    ) -> Result<(), NetworkError> 
+    where 
+    H: ConnectionHandler + Sync + Clone + 'static,
+  {
         let mut read_buffer = vec![0; MAX_MESSAGE_LENGTH];
 
         let peer_addr = stream.peer_addr()?;

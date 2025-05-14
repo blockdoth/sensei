@@ -9,8 +9,7 @@ use crate::registry::*;
 use crate::system_node::*;
 use cli::*;
 use log::*;
-use module::CliInit;
-use module::RunsServer;
+use module::Run;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
@@ -46,17 +45,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match &args.subcommand {
         SubCommandsArgsEnum::One(node_args) => {
-            let node = Arc::new(SystemNode::init(node_args, &args.global_config()));
-            node.start_server().await;
+            SystemNode::new()
+                .run(node_args, &args.global_config())
+                .await?
         }
         SubCommandsArgsEnum::Two(registry_args) => {
-            let registry = Arc::new(Registry::init(registry_args, &args.global_config()));
-            registry.start_server().await;
+            Registry::new()
+                .run(registry_args, &args.global_config())
+                .await?
         }
         SubCommandsArgsEnum::Three(orchestrator_args) => {
-            let orchestrator =
-                Arc::new(Orchestrator::init(orchestrator_args, &args.global_config()));
-            orchestrator.start_server().await;
+            Orchestrator::new()
+                .run(orchestrator_args, &args.global_config())
+                .await?
         }
     }
     Ok(())
