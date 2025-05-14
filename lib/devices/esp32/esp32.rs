@@ -2,15 +2,15 @@ use anyhow::{Context, Result};
 use byteorder::{LittleEndian, ReadBytesExt};
 use crossbeam_channel::{bounded, Receiver, Sender, RecvTimeoutError};
 use log::{debug, error, info, warn};
-use serialport::SerialPort; // Removed SerialPortInfo, SerialPortType
+use serialport::SerialPort;
 use std::{
-    io::{Cursor, Read, Write}, // Added std::io::Read and std::io::Write
+    io::{Cursor, Read, Write},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering as AtomicOrdering},
     },
     thread::{self, JoinHandle},
-    time::Duration, // Removed Instant
+    time::Duration,
 };
 
 // --- Protocol Constants ---
@@ -123,7 +123,7 @@ pub struct DeviceConfig {
     pub bandwidth: Bandwidth,
     pub secondary_channel: SecondaryChannel,
     pub csi_type: CsiType,
-    pub manual_scale: u8, // experimental_csi_scaling
+    pub manual_scale: u8, // Manual scale for CSI data
 }
 
 impl Default for DeviceConfig {
@@ -166,7 +166,7 @@ pub struct Esp32 {
     csi_tx: Sender<CsiPacket>,
     csi_rx: Receiver<CsiPacket>,
     connected: Arc<AtomicBool>,
-    config: DeviceConfig, // This remains private
+    config: DeviceConfig,
     reader_thread_handle: Option<JoinHandle<()>>,
 }
 
@@ -206,7 +206,6 @@ impl Esp32 {
         connected_clone.store(true, AtomicOrdering::SeqCst);
 
         let handle = thread::spawn(move || {
-            // ... (reader thread logic as in your last provided esp32.rs, with detailed debug logs) ...
             let mut partial_buffer = Vec::with_capacity(4096 * 2);
             let mut read_buf = [0u8; 2048];
 
@@ -260,14 +259,14 @@ impl Esp32 {
         ack_tx: &Sender<(Command, Vec<u8>)>,
         csi_tx: &Sender<CsiPacket>,
     ) {
-        // ***** USE THE UNIFIED LENGTH LOGIC FROM THE PREVIOUS RESPONSE HERE *****
-        // This logic was: total_packet_len_on_wire = payload_len_signed_from_wire.abs() as usize;
-        // Ensure this is the version you are using.
+
         debug!("Processing buffer of len: {}", buffer.len());
         if !buffer.is_empty() {
             let log_len = std::cmp::min(buffer.len(), 64);
             debug!("Buffer content (first {} bytes): {:02X?}", log_len, &buffer[..log_len]);
         }
+
+        // Check for preamble and process packets
 
         loop {
             if buffer.is_empty() {
@@ -415,7 +414,6 @@ impl Esp32 {
             match self.ack_rx.recv_timeout(Duration::from_millis(500 * attempt as u64)) {
                 Ok((ack_cmd, _ack_data)) => { // _ack_data to silence warning, still available if needed
                     if ack_cmd == cmd {
-                        // debug!("ACK received for {:?}, ack_data length: {}", cmd, _ack_data.len());
                         info!("ACK received for command: {:?}", cmd);
                         return Ok(());
                     } else {
@@ -471,14 +469,10 @@ impl Esp32 {
         if !(1..=14).contains(&channel) {
             return Err(EspError::Config(format!("Invalid WiFi channel: {}", channel)).into());
         }
-        // Update local config optimistically, or only after ACK?
-        // For now, update then send. If send fails, config is "out of sync" with device.
+        // Update local config only after ACK
+        self.send_command(Command::SetChannel, Some(&[channel]))?;
         self.config.channel = channel;
-        self.send_command(Command::SetChannel, Some(&[channel]))
-        // If you prefer to update only on success:
-        // self.send_command(Command::SetChannel, Some(&[channel]))?;
-        // self.config.channel = channel;
-        // Ok(())
+        Ok(())
     }
 
     pub fn apply_device_config(&mut self) -> Result<()> {
@@ -649,7 +643,6 @@ fn parse_csi_packet(payload_data: &[u8]) -> Result<CsiPacket> {
     }
 
     let mut cursor = Cursor::new(payload_data);
-    // ... (rest of parse_csi_packet as before, it should be fine if payload_data is correct)
 
     let timestamp_us = cursor.read_u64::<LittleEndian>()?;
     let mut src_mac = [0u8; 6];

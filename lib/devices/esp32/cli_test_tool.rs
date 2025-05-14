@@ -5,15 +5,15 @@ use std::collections::VecDeque; // For log buffer
 use std::error::Error;
 use std::io;
 use std::sync::{Arc, Mutex};
-use std::thread;
+use std::thread::{self, sleep};
 use std::time::Duration;
 use std::env;
 
 use chrono::{DateTime, Local};
 
 // Logging facade and our custom logger components
-use log::{debug, error, info, warn, Level, LevelFilter, Metadata, Record, SetLoggerError}; // Added more log items
-use crossbeam_channel::{Sender, Receiver}; // For log channel
+use log::{debug, error, info, warn, Level, LevelFilter, Metadata, Record, SetLoggerError};
+use crossbeam_channel::{Sender, Receiver};
 
 use crossterm::{
     event::{Event as CEvent, KeyCode},
@@ -24,16 +24,15 @@ use tui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table}, // Added List, ListItem
+    widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table},
     Frame, Terminal,
-    text::Spans, // For multi-line list items or paragraphs
+    text::Spans,
 };
 
 mod esp32;
 use esp32::{
     Bandwidth, CsiPacket, CsiType, Esp32, OperationMode, SecondaryChannel,
     DeviceConfig as EspDeviceConfig,
-    // Command as EspCommand, // Not directly used by CLI, remove if truly unused
 };
 
 
@@ -45,7 +44,7 @@ pub struct LogEntry {
 
 // --- Custom TUI Logger ---
 struct TuiLogger {
-    log_sender: Sender<LogEntry>, // MODIFIED: Was Sender<String>
+    log_sender: Sender<LogEntry>,
     level: Level, // This field is used by the enabled() method
 }
 
@@ -56,9 +55,9 @@ impl log::Log for TuiLogger {
 
     fn log(&self, record: &Record) {
         if self.enabled(record.metadata()) {
-            // MODIFIED: Create and send LogEntry
+            // Create a LogEntry with the current timestamp
             let log_entry = LogEntry {
-                timestamp: Local::now(), // Capture timestamp at event time
+                timestamp: Local::now(),
                 level: record.level(),
                 message: format!("{}", record.args()),
             };
@@ -72,7 +71,7 @@ impl log::Log for TuiLogger {
     fn flush(&self) {}
 }
 
-fn init_tui_logger(log_level_filter: LevelFilter, sender: Sender<LogEntry>) -> Result<(), SetLoggerError> { // MODIFIED: Sender type
+fn init_tui_logger(log_level_filter: LevelFilter, sender: Sender<LogEntry>) -> Result<(), SetLoggerError> {
     let logger = TuiLogger { 
         log_sender: sender, 
         level: log_level_filter.to_level().unwrap_or(log::Level::Error) // Ensure TuiLogger.level is initialized
@@ -84,7 +83,7 @@ fn init_tui_logger(log_level_filter: LevelFilter, sender: Sender<LogEntry>) -> R
 // --- End Custom TUI Logger ---
 
 
-// Remove the old setup_logging that uses env_logger
+// old setup_logging that uses env_logger
 // fn setup_logging() {
 //     env_logger::Builder::from_default_env()
 //         .format_timestamp_millis()
@@ -170,7 +169,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     if args.len() < 2 {
         // These eprintsln! are fine as TUI is not active yet.
         eprintln!("Usage: {} <serial_port>", args[0]);
-        eprintln!("Example: {} /dev/ttyUSB0", args[0]);
+        eprintln!("Example: {} /dev/cu.usbmodemXXX", args[0]);
        eprintln!("\nAvailable ports:");
         match serialport::available_ports() {
             Ok(ports) => {
@@ -297,7 +296,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     restore_terminal(&mut terminal)?;
-    info!("CLI tool shutting down."); // This log might not be seen if terminal is restored too quickly
+    sleep(Duration::from_millis(100)); // Give time for terminal to restore
+    info!("CLI tool shutting down.");
     Ok(())
 }
 
@@ -314,7 +314,6 @@ fn handle_input(
 
     match key {
         KeyCode::Char('q') => {
-            // ... (q handling as before)
             info!("'q' pressed, attempting to disconnect ESP32.");
             match esp_mutex.lock() {
                 Ok(mut esp_guard) => {
@@ -362,7 +361,6 @@ fn handle_input(
                         app_state_guard.current_esp_config.mode = new_esp_op_mode;
                         info!("ESP32 mode set to {:?} via ApplyDeviceConfig", new_esp_op_mode);
 
-                        // ***** CRITICAL CHANGE: Resume/Pause Transmit Task *****
                         if new_esp_op_mode == OperationMode::Transmit {
                             info!("Attempting to RESUME WiFi transmit task on ESP32...");
                             if let Err(e_resume) = esp_guard.resume_wifi_transmit() {
@@ -374,7 +372,7 @@ fn handle_input(
                         } else { // Switched to Receive or other non-Transmit mode
                             info!("WiFi transmit task PAUSED.");
                         }
-                        // ******************************************************
+                        
                     }
                 }
                 Err(p) => app_state_guard.last_error = Some(format!("Mutex error: {}", p)),
@@ -455,8 +453,6 @@ fn handle_input(
 }
 
 fn ui<B: tui::backend::Backend>(f: &mut Frame<B>, app_state: &AppState) {
-    // No need for `use chrono::Local;` here anymore for timestamp generation,
-    // as timestamps are already part of LogEntry. chrono::Local is used by LogEntry's DateTime<Local>.
 
     // Main layout: Horizontally split screen
     let main_horizontal_chunks = Layout::default()
@@ -555,21 +551,20 @@ fn ui<B: tui::backend::Backend>(f: &mut Frame<B>, app_state: &AppState) {
     f.render_widget(table, table_area);
 
     // --- Log Messages (right panel) ---
-    // app_state.log_messages now contains VecDeque<LogEntry>
     let log_items_list: Vec<ListItem> = app_state
         .log_messages
         .iter()
-        .map(|entry| { // entry is &LogEntry
+        .map(|entry| {
             // Format the LogEntry for display
             let timestamp_str = entry.timestamp.format("%H:%M:%S").to_string();
-            // The message string now includes level from the LogEntry struct.
+            
             let display_msg_with_timestamp = format!("{} [{}] {}", timestamp_str, entry.level, entry.message);
             
             // Determine style based on entry.level
             let style = match entry.level {
                 log::Level::Error => Style::default().fg(Color::Red),
                 log::Level::Warn  => Style::default().fg(Color::Yellow),
-                log::Level::Info  => Style::default().fg(Color::White), // Consider Cyan or Green for Info
+                log::Level::Info  => Style::default().fg(Color::Cyan),
                 log::Level::Debug => Style::default().fg(Color::Blue),
                 log::Level::Trace => Style::default().fg(Color::Magenta),
             };
@@ -579,7 +574,7 @@ fn ui<B: tui::backend::Backend>(f: &mut Frame<B>, app_state: &AppState) {
         })
         .collect();
 
-    let num_logs_to_show = log_panel_area.height.saturating_sub(2).max(0) as usize; // -2 for block borders
+    let num_logs_to_show = log_panel_area.height.saturating_sub(2).max(0) as usize;
     
     let current_log_count = log_items_list.len();
     let visible_log_items = if current_log_count > num_logs_to_show {
