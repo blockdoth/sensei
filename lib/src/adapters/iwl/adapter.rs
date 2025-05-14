@@ -5,15 +5,25 @@ use crate::errors::CsiAdapterError;
 
 const NUM_SUBCARRIER: usize = 30;
 
+
+/// Adapter for Intel wireless CSI data.
+///
+/// The `IwlAdapter` parses raw bytes received from the Intel 5300 NIC and transforms them
+/// into structured CSI data, optionally applying signal scaling to convert raw complex
+/// values into meaningful signal representations.
 pub struct IwlAdapter {
-    tmp_data: Option<CsiData>, // Temporary storage for the current CSI data being reassembled
+    /// Whether to apply scaling to CSI data based on RSSI, noise, and AGC.
     scale_csi: bool,
 }
 
 impl IwlAdapter {
+    /// Creates a new Intel wireless CSI adapter.
+    ///
+    /// # Arguments
+    ///
+    /// * `scale_csi` - Whether to apply signal scaling after parsing CSI.
     pub fn new(scale_csi: bool) -> Self {
         Self {
-            tmp_data: None,
             scale_csi,
         }
     }
@@ -21,8 +31,24 @@ impl IwlAdapter {
 
 #[async_trait::async_trait]
 impl CsiDataAdapter for IwlAdapter {
-    /// Consume bytes from buffer
-    async fn consume(&mut self, buf: &[u8]) -> Result<(), CsiAdapterError> {
+    /// Parses raw CSI data buffer and produces structured `CsiData`.
+    ///
+    /// This function:
+    /// - Parses the header and payload from the input buffer.
+    /// - Reconstructs the CSI matrix with complex numbers.
+    /// - Optionally applies scaling to the CSI based on signal characteristics.
+    /// - Will only return a value when parsing is ready, otherwise all again
+    ///
+    /// # Arguments
+    ///
+    /// * `buf` - A byte slice containing the raw CSI data.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Some(CsiData))` if parsing is successful.
+    /// * 'Ok(None)' if parsing is not yet done, call the function again
+    /// * `Err(CsiAdapterError)` if parsing fails.
+    async fn produce(&mut self, buf: &[u8]) -> Result<Option<CsiData>, CsiAdapterError> {
         // Parse header information and extract payload slice
         let (header, payload) = IwlHeader::parse(buf)?;
 
@@ -68,7 +94,7 @@ impl CsiDataAdapter for IwlAdapter {
             );
         }
 
-        // Unpermute rssi
+        // Unpermute RSSI values using the header's permutation array
         let rssi: Vec<_> = header
             .perm
             .iter()
@@ -76,33 +102,44 @@ impl CsiDataAdapter for IwlAdapter {
             .map(|&permuted_rx| header.rssi[permuted_rx])
             .collect();
 
-        self.tmp_data = Some(CsiData {
+        Ok(Some(CsiData {
             timestamp: header.timestamp,
             sequence_number: header.sequence_number,
             rssi,
             csi,
-        });
-
-        Ok(())
+        }));
     }
 
-    /// Reap CSI Data from this adapter.
-    /// If there is no data to reap, this function returns None.
-    async fn reap(&mut self) -> Result<Option<CsiData>, CsiAdapterError> {
-        Ok(self.tmp_data.take())
-    }
 }
 
-/// Convert dB to linear scale
+/// Converts a dB value to its corresponding linear scale.
+///
+/// # Arguments
+///
+/// * `x` - Value in dB.
+///
+/// # Returns
+///
+/// Linear-scale value.
 fn dbinv(x: f64) -> f64 {
     10f64.powf(x / 10.0)
 }
 
-/// Calculate the total received signal strength (RSS) in dBm
+/// Computes total received signal strength (RSS) in dBm.
 ///
-/// Includes a magic constant offset, as described by Daniel Halperin:
+/// This function uses an empirical offset to match Intel 5300 measurements as described by
+/// Daniel Halperin in:
 /// > https://github.com/dhalperi/linux-80211n-csitool-supplementary/blob/master/matlab/get_total_rss.m
 /// > https://dhalperi.github.io/linux-80211n-csitool/faq.html
+///
+/// # Arguments
+///
+/// * `rssi` - RSSI vector from the NIC.
+/// * `agc` - Automatic Gain Control value.
+///
+/// # Returns
+///
+/// Total RSS in dBm.
 fn get_total_rss(rssi: &[u16], agc: u8) -> f64 {
     let rssi_mag: f64 = rssi
         .iter()
@@ -111,7 +148,20 @@ fn get_total_rss(rssi: &[u16], agc: u8) -> f64 {
     rssi_mag.log10() * 10.0 - 44.0 - agc as f64
 }
 
-/// CSI/RSSI scaling to achieve actual sensible units.
+
+/// Scales the CSI matrix using RSSI, noise, and AGC information.
+///
+/// The scaling process adjusts CSI values to match their actual received power levels,
+/// accounting for thermal noise, quantization error, and transmitter diversity.
+///
+/// # Arguments
+///
+/// * `csi` - Mutable reference to the CSI matrix (Tx x Rx x Subcarrier).
+/// * `rssi` - RSSI values for each receive antenna.
+/// * `noise` - Noise floor reported by the NIC.
+/// * `agc` - AGC level for the current capture.
+/// * `ntx` - Number of transmit antennas.
+/// * `nrx` - Number of receive antennas.
 fn scale_csi(
     csi: &mut [Vec<Vec<Complex>>],
     rssi: &[u16],
