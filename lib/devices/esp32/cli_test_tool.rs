@@ -12,7 +12,7 @@ use std::env;
 use chrono::{DateTime, Local};
 
 // Logging facade and our custom logger components
-use log::{debug, error, info, warn, Level, LevelFilter, Metadata, Record, SetLoggerError};
+use log::{error, info, warn, Level, LevelFilter, Metadata, Record, SetLoggerError};
 use crossbeam_channel::{Sender, Receiver};
 
 use crossterm::{
@@ -26,7 +26,6 @@ use tui::{
     style::{Color, Modifier, Style},
     widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table},
     Frame, Terminal,
-    text::Spans,
 };
 
 mod esp32;
