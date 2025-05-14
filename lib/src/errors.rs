@@ -1,4 +1,4 @@
-use thiserror::Error;
+tmp_datause thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum NetworkError {
@@ -119,3 +119,39 @@ pub enum AdapterStreamError {
     #[error("Expected RawFrame but received non-RawFrame DataMsg variant")]
     InvalidInput,
 }
+
+#[derive(Error, Debug)]
+pub enum RawSourceTaskError {
+    #[error("Generic Error: {0}")]
+    GenericError.
+}
+
+
+#[derive(Error, Debug)]
+pub enum ControllerError {
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("Expected file {0} to exist, but it didnt.")]
+    FileNotPresent(String),
+
+    #[error("Script failed with error: {0}")]
+    ScriptError(String),
+
+    #[error("Encountered error at data source during reconfiguration: {0}")]
+    DataSource(#[from] DataSourceError),
+
+    #[error("Given invalid parameters: {0}")]
+    InvalidParams(String),
+
+    #[error("(De-) Serialization returned an error: {0}")]
+    Serialization(#[from] serde_json::Error),
+
+    #[error("Missing parameter: {0}")]
+    MissingParameter(String),
+
+    #[error("Failed to extract PhyName due to string conversions")]
+    PhyName,
+}
+
+

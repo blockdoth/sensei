@@ -1,12 +1,11 @@
-// src/tasks/raw_source_task.rs
 use crate::adapters::Adapter;
 use crate::network::rpc_message::{DataMsg, RpcMessage, SourceType};
 use crate::sinks::Sink;
 use crate::sources::Source;
 use async_trait::async_trait;
-use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tokio::task::JoinHandle;
+use errors::RawSourceTaskError;
 
 pub struct RawSourceConfig {
     pub source: Box<dyn Source + Send + Sync>,
@@ -30,5 +29,8 @@ impl RawSourceTask {
         *cfg = new_config;
     }
 
-
+    pub fn start(&self) -> Result<(), RawSourceTaskError> {
+        //TODO
+        Ok(())
+    }
 }
