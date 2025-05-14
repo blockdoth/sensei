@@ -1,12 +1,6 @@
-pub fn get_message() -> String {
-    "Hello Nix flake!".to_string()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn get_message_test() {
-        assert_eq!(get_message(), "Hello Nix flake!");
-    }
-}
+pub mod adapters;
+pub mod csi_types;
+pub mod devices;
+pub mod errors;
+pub mod sources;
+pub mod network;

@@ -1,80 +1,63 @@
+mod cli;
+mod module;
 mod orchestrator;
 mod registry;
 mod system_node;
 
+use crate::orchestrator::*;
+use crate::registry::*;
+use crate::system_node::*;
+use cli::*;
+use log::*;
+use module::CliInit;
+use module::RunsServer;
+use std::net::IpAddr;
+use std::net::Ipv4Addr;
+use std::net::SocketAddr;
+use std::sync::Arc;
 
-use argh::FromArgs;
-use std::env;
+use simplelog::{ColorChoice, CombinedLogger, LevelFilter, TermLogger, TerminalMode, WriteLogger};
+use std::fs::File;
 
-/// A simple app to perform collection from configured sources
-#[derive(FromArgs, PartialEq, Debug)]
-struct Args {
-    /// server address (default: 127.0.0.1)
-    #[argh(option)]
-    addr: Option<String>,
+#[tokio::main(flavor = "multi_thread", worker_threads = 4)]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Args = argh::from_env();
+    debug!("Parsed args");
 
-    /// server port (default: 8080)
-    #[argh(option)]
-    port: Option<u16>,
+    CombinedLogger::init(vec![
+        TermLogger::new(
+            args.level,
+            simplelog::ConfigBuilder::new()
+                // .add_filter_allow("sensei".into())
+                .build(),
+            TerminalMode::Mixed,
+            ColorChoice::Auto,
+        ),
+        WriteLogger::new(
+            LevelFilter::Error,
+            simplelog::ConfigBuilder::new()
+                // .add_filter_allow("sensei".into())
+                .set_location_level(LevelFilter::Error)
+                .build(),
+            File::create("sensei.log").unwrap(),
+        ),
+    ])
+    .unwrap();
 
-    #[argh(subcommand)]
-    subcommands: Option<SubCommandsEnum>,
-}
-
-
-#[derive(FromArgs, PartialEq, Debug)]
-#[argh(subcommand)]
-enum SubCommandsEnum {
-    One(SystemNodeCommand),
-    Two(RegistryCommand),
-    Three(OrchestratorCommand),
-}
-
-#[derive(FromArgs, PartialEq, Debug)]
-/// Runs the system_node code
-#[argh(subcommand, name = "system_node")]
-struct SystemNodeCommand {
-  // Args
-}
-
-#[derive(FromArgs, PartialEq, Debug)]
-/// Runs the registry code
-#[argh(subcommand, name = "registery")]
-struct RegistryCommand {
-
-}
-
-#[derive(FromArgs, PartialEq, Debug)]
-/// Runs the orchestrator code
-#[argh(subcommand, name = "orchestrator")]
-struct OrchestratorCommand {
-
-}
-
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-  
-  let args: Args = argh::from_env();
-  let addr = args.addr.unwrap_or_else(|| "127.0.0.1".to_string());
-  let port = args.port.unwrap_or(1234);
-
-  match &args.subcommands {
-    Some(SubCommandsEnum::One(system_node)) => {
-      println!("Running system_node code");
-      system_node::run(addr,port);
-    },
-    Some(SubCommandsEnum::Two(registry)) => {
-      println!("Running registry subcommand");
-      registry::run();
-      
-    },    
-    Some(SubCommandsEnum::Three(orchestrator)) => {
-      println!("Running orchestrator subcommand");
-      orchestrator::run(addr,port);
-    },      
-    None => {
-        println!("No subcommand was provided.");
+    match &args.subcommand {
+        SubCommandsArgsEnum::One(node_args) => {
+            let node = Arc::new(SystemNode::init(node_args, &args.global_config()));
+            node.start_server().await;
+        }
+        SubCommandsArgsEnum::Two(registry_args) => {
+            let registry = Arc::new(Registry::init(registry_args, &args.global_config()));
+            registry.start_server().await;
+        }
+        SubCommandsArgsEnum::Three(orchestrator_args) => {
+            let orchestrator =
+                Arc::new(Orchestrator::init(orchestrator_args, &args.global_config()));
+            orchestrator.start_server().await;
+        }
     }
-  }
-  Ok(())
+    Ok(())
 }

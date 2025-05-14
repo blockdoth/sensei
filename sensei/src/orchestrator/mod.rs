@@ -1,87 +1,116 @@
-use common::CtrlMsg::Heartbeat;
-use common::RpcEnvelope;
-use common::{deserialize_envelope, serialize_envelope};
-use tokio::net::UdpSocket;
+use crate::cli::{self, GlobalConfig, OrchestratorSubcommandArgs};
+use crate::module::*;
+use lib::network::rpc_message::CtrlMsg::*;
+use lib::network::rpc_message::RpcMessage;
+use lib::network::rpc_message::RpcMessageKind::Ctrl;
+use lib::network::rpc_message::{AdapterMode, CtrlMsg, DataMsg, SourceType};
+use lib::network::tcp::client::TcpClient;
+use log::*;
+use ratatui::backend::ClearType;
+use std::arch::global_asm;
+use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader, Split};
+use tokio::net::{TcpStream, UdpSocket};
+use tokio::signal;
+use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
-fn recv_task(recv_socket: Arc<UdpSocket>) -> JoinHandle<()> {
-    tokio::spawn(async move {
-        //Wait for a response
-        loop {
-            let mut buf = [0u8; 1024];
-            match recv_socket.recv_from(&mut buf).await {
-                Ok((len, addr)) => {
-                    let msg = deserialize_envelope(&buf[..len]);
-                    println!("{:?} received", msg);
-                }
-                Err(e) => { println!("Received error {:?}", e); }
-            }
-        }
-    })
+pub struct Orchestrator {
+    target_addr: SocketAddr,
 }
 
-fn send_task(send_socket: Arc<UdpSocket>) -> JoinHandle<()> {
-    tokio::spawn(async move {
-        let stdin = BufReader::new(io::stdin());
-        let mut lines = stdin.lines();
-
-        println!("Type: <target_addr> <type>");
-        println!("Example: 127.0.0.1:8082 Heartbeat");
-
-        while let Ok(Some(line)) = lines.next_line().await {
-            let input = line.trim();
-            if input.is_empty() {
-                continue;
-            }
-
-            let mut parts = input.splitn(2, ' ');
-            let addr = match parts.next() {
-                Some(a) if !a.is_empty() => a,
-                _ => {
-                    eprintln!("Invalid input. Format: <addr> <type>");
-                    continue;
-                }
-            };
-
-            let message = match parts.next() {
-                Some(m) => m,
-                None => {
-                    eprintln!("Missing message text.");
-                    continue;
-                }
-            };
-            
-            if message == "Heartbeat" || message == "" {
-                let msg = RpcEnvelope::Ctrl(Heartbeat);
-                let data = serialize_envelope(msg);
-
-                match send_socket.send_to(&data, addr).await {
-                    Ok(n) => println!("Sent {} bytes to {}", n, addr),
-                    Err(e) => eprintln!("Failed to send: {}", e),
-                }
-            }
-
-            print!("> ");
-            let _ = io::stdout().flush(); // Ensure prompt shows up again
+impl CliInit<OrchestratorSubcommandArgs> for Orchestrator {
+    fn init(config: &OrchestratorSubcommandArgs, global: &GlobalConfig) -> Self {
+        Orchestrator {
+            target_addr: global.socket_addr,
         }
-
-        println!("Send loop ended (stdin closed).");
-    })
+    }
 }
 
-#[tokio::main]
-pub async fn run(addr:String , port:u16) -> anyhow::Result<()> {
-    let socket = Arc::new(UdpSocket::bind(format!("{}:{}", addr, port)).await?);
-    let recv_socket = Arc::clone(&socket);
-    let send_socket = Arc::clone(&socket);
-    
-    let recv_task = recv_task(recv_socket);
+impl RunsServer for Orchestrator {
+    async fn start_server(self: Arc<Self>) -> Result<(), Box<dyn std::error::Error>> {
+        let client = Arc::new(Mutex::new(TcpClient::new().await));
 
-    let send_task = send_task(send_socket);
+        let client_task = tokio::spawn(async move {
+            // Create the input reader
+            let stdin: BufReader<io::Stdin> = BufReader::new(io::stdin());
+            let mut lines = stdin.lines();
 
-    tokio::try_join!(recv_task, send_task)?;
+            info!("Connected to socket");
+            info!("Manual mode, type 'help' for commands");
 
-    Ok(())
+            while let Ok(Some(line)) = lines.next_line().await {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                if line.eq("help") {
+                    todo!("help message");
+                    continue;
+                }
+
+                match line.parse::<CtrlMsg>() {
+                    Ok(Connect) => {
+                        let mut client = client.lock().await;
+
+                        client.connect(self.target_addr).await;
+                        let msg = RpcMessage {
+                            src_addr: client.self_addr.unwrap(),
+                            target_addr: self.target_addr,
+                            msg: Ctrl(CtrlMsg::Connect),
+                        };
+
+                        client.send_message(self.target_addr, msg).await;
+                    }
+                    Ok(Disconnect) => {
+                        client.lock().await.disconnect(self.target_addr).await;
+                    }
+                    Ok(Subscribe { device_id, mode }) => {
+                        let src_addr = client.lock().await.self_addr.unwrap();
+                        let msg = RpcMessage {
+                            src_addr,
+                            target_addr: self.target_addr,
+                            msg: Ctrl(CtrlMsg::Subscribe {
+                                device_id: 0,
+                                mode: AdapterMode::RAW,
+                            }),
+                        };
+                        client.lock().await.send_message(self.target_addr, msg);
+                        info!("Subscribed to node {}", self.target_addr)
+                    }
+                    Ok(Unsubscribe { device_id }) => {
+                        let src_addr = client.lock().await.self_addr.unwrap();
+                        let msg = RpcMessage {
+                            src_addr,
+                            target_addr: self.target_addr,
+                            msg: Ctrl(CtrlMsg::Unsubscribe { device_id: 0 }),
+                        };
+                        client.lock().await.send_message(self.target_addr, msg);
+                        info!("Subscribed from node {}", self.target_addr)
+                    }
+                    Ok(Configure { device_id, cfg }) => {
+                        todo!("Configure not yet implemented")
+                    }
+                    Ok(PollDevices) => {
+                        todo!("PollDevices not yet implemented")
+                    }
+                    Ok(Heartbeat) => {
+                        todo!("Heartbeat not yet implemented")
+                    }
+                    Err(e) => {
+                        println!("Failed to parse CtrlMsg: {e}");
+                        continue;
+                    }
+                }
+                io::stdout().flush(); // Ensure prompt shows up again
+            }
+            println!("Send loop ended (stdin closed).");
+        });
+        signal::ctrl_c().await?;
+        info!("Shutdown signal received. Exiting.");
+        client_task.abort();
+
+        Ok(())
+    }
 }

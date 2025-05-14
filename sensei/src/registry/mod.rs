@@ -1,6 +1,19 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
-use common::RpcEnvelope;
+use crate::{
+    cli::{GlobalConfig, RegistrySubcommandArgs, SubCommandsArgsEnum},
+    module::*,
+};
+use anyhow::Ok;
+use lib::network::rpc_message::RpcMessage;
+use log::*;
+use std::net::SocketAddr;
+
+pub struct Registry {
+    socket_addr: SocketAddr,
+    host_table: HashMap<HostId, HostInfo>,
+    device_table: HashMap<DeviceId, DeviceInfo>,
+}
 
 #[derive(Clone, Eq, Hash, PartialEq)]
 struct HostId {
@@ -24,19 +37,26 @@ struct DeviceInfo {
     current_cfg: String,
 }
 
-struct Registry {
-    host_table: HashMap<HostId, HostInfo>,
-    device_table: HashMap<DeviceId, DeviceInfo>,
+impl RunsServer for Registry {
+    async fn start_server(self: Arc<Self>) -> Result<(), Box<dyn std::error::Error>> {
+        info!("Starting registry on address {}", self.socket_addr);
+        loop {
+            println!("Balls");
+        }
+    }
 }
 
-impl Registry {
-    fn new() -> Self {
+impl CliInit<RegistrySubcommandArgs> for Registry {
+    fn init(config: &RegistrySubcommandArgs, global: &GlobalConfig) -> Self {
         Registry {
+            socket_addr: global.socket_addr,
             host_table: HashMap::new(),
             device_table: HashMap::new(),
         }
     }
+}
 
+impl Registry {
     fn list_hosts(&self) -> anyhow::Result<Vec<HostId>> {
         let hosts: Vec<HostId> = self.host_table.keys().cloned().collect();
         Ok(hosts)
@@ -56,15 +76,11 @@ impl Registry {
         Ok(())
     }
 
-    fn handle_message(&self, msg: RpcEnvelope) -> anyhow::Result<()> {
+    fn handle_message(&self, msg: RpcMessage) -> anyhow::Result<()> {
         Ok(())
     }
 
-    async fn check_for_heartbeat(&self, msg: RpcEnvelope, host: HostId) -> anyhow::Result<()> {
+    async fn check_for_heartbeat(&self, msg: RpcMessage, host: HostId) -> anyhow::Result<()> {
         Ok(())
     }
-}
-
-pub fn run() {
-    println!("Hello, world!");
 }

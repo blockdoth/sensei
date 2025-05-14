@@ -8,9 +8,14 @@ lib = { path = "../lib" }
 colored = "2.0.4"
 ratatui = "0.28.1"
 crossterm = "0.28.1"
-tokio = { version = "1.38", features = ["full"] }
+tokio = { version = "1.44.2", features = ["full"] }
 anyhow = "1.0.98"
 async-trait = "0.1.88"
 serde = { version = "1.0.219", features = ["derive"] }
 bincode = "2.0"
 argh = "0.1.12"
+log = "0.4.27"
+simplelog = "0.12.2"
+
+[lints]
+workspace = true
