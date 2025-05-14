@@ -13,8 +13,8 @@
 use crate::csi_types::CsiData;
 use crate::errors::CsiAdapterError;
 use crate::network::rpc_message::DataMsg;
-pub mod iwl;
-pub mod passive;
+// pub mod iwl; Commented out for now
+// pub mod passive; Commented out for now
 
 /// Csi Data Adapter Trait
 /// ----------------------

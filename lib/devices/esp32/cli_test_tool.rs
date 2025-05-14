@@ -2,38 +2,37 @@
 //! Robust CLI tool for ESP32 CSI monitoring
 
 use std::collections::VecDeque; // For log buffer
+use std::env;
 use std::error::Error;
 use std::io;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, sleep};
 use std::time::Duration;
-use std::env;
 
 use chrono::{DateTime, Local};
 
 // Logging facade and our custom logger components
-use log::{error, info, warn, Level, LevelFilter, Metadata, Record, SetLoggerError};
-use crossbeam_channel::{Sender, Receiver};
+use crossbeam_channel::{Receiver, Sender};
+use log::{Level, LevelFilter, Metadata, Record, SetLoggerError, error, info, warn};
 
 use crossterm::{
     event::{Event as CEvent, KeyCode},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use tui::{
+    Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table},
-    Frame, Terminal,
 };
 
 mod esp32;
 use esp32::{
-    Bandwidth, CsiPacket, CsiType, Esp32, OperationMode, SecondaryChannel,
-    DeviceConfig as EspDeviceConfig,
+    Bandwidth, CsiPacket, CsiType, DeviceConfig as EspDeviceConfig, Esp32, OperationMode,
+    SecondaryChannel,
 };
-
 
 pub struct LogEntry {
     pub timestamp: DateTime<Local>,
@@ -60,9 +59,13 @@ impl log::Log for TuiLogger {
                 level: record.level(),
                 message: format!("{}", record.args()),
             };
-            
+
             if self.log_sender.try_send(log_entry).is_err() {
-                eprintln!("TUI_LOGGER_ERROR: Failed to send log to TUI: {} - {}", record.level(), record.args());
+                eprintln!(
+                    "TUI_LOGGER_ERROR: Failed to send log to TUI: {} - {}",
+                    record.level(),
+                    record.args()
+                );
             }
         }
     }
@@ -70,17 +73,19 @@ impl log::Log for TuiLogger {
     fn flush(&self) {}
 }
 
-fn init_tui_logger(log_level_filter: LevelFilter, sender: Sender<LogEntry>) -> Result<(), SetLoggerError> {
-    let logger = TuiLogger { 
-        log_sender: sender, 
-        level: log_level_filter.to_level().unwrap_or(log::Level::Error) // Ensure TuiLogger.level is initialized
+fn init_tui_logger(
+    log_level_filter: LevelFilter,
+    sender: Sender<LogEntry>,
+) -> Result<(), SetLoggerError> {
+    let logger = TuiLogger {
+        log_sender: sender,
+        level: log_level_filter.to_level().unwrap_or(log::Level::Error), // Ensure TuiLogger.level is initialized
     };
     log::set_boxed_logger(Box::new(logger))?;
     log::set_max_level(log_level_filter);
     Ok(())
 }
 // --- End Custom TUI Logger ---
-
 
 // old setup_logging that uses env_logger
 // fn setup_logging() {
@@ -100,7 +105,9 @@ fn setup_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>, Box<dyn Er
     Ok(terminal)
 }
 
-fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<(), Box<dyn Error>> {
+fn restore_terminal(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+) -> Result<(), Box<dyn Error>> {
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
@@ -136,14 +143,14 @@ impl AppState {
         }
     }
 
-    fn add_log_message(&mut self, entry: LogEntry) { // MODIFIED: Accepts LogEntry
+    fn add_log_message(&mut self, entry: LogEntry) {
+        // MODIFIED: Accepts LogEntry
         if self.log_messages.len() >= self.max_log_messages {
             self.log_messages.pop_front();
         }
         self.log_messages.push_back(entry);
     }
 }
-
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Create a channel for log messages
@@ -169,7 +176,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         // These eprintsln! are fine as TUI is not active yet.
         eprintln!("Usage: {} <serial_port>", args[0]);
         eprintln!("Example: {} /dev/cu.usbmodemXXX", args[0]);
-       eprintln!("\nAvailable ports:");
+        eprintln!("\nAvailable ports:");
         match serialport::available_ports() {
             Ok(ports) => {
                 if ports.is_empty() {
@@ -180,12 +187,14 @@ fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
             }
-            Err(e) => { eprintln!("  Error listing serial ports: {}",e); }
+            Err(e) => {
+                eprintln!("  Error listing serial ports: {e}");
+            }
         }
         return Err("Serial port argument missing".into());
     }
     let port_name = &args[1];
-    info!("Attempting to use port: {}", port_name);
+    info!("Attempting to use port: {port_name}");
 
     let mut terminal = match setup_terminal() {
         Ok(term) => term,
@@ -204,8 +213,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     };
 
-    let initial_esp_config_for_appstate: EspDeviceConfig;
-    match esp_mutex.lock() {
+    let initial_esp_config_for_appstate: EspDeviceConfig = match esp_mutex.lock() {
         Ok(mut esp_guard) => {
             if let Err(e) = esp_guard.connect() {
                 let _ = restore_terminal(&mut terminal);
@@ -219,19 +227,18 @@ fn main() -> Result<(), Box<dyn Error>> {
             } else {
                 info!("MAC address whitelist cleared successfully.");
             }
-            initial_esp_config_for_appstate = esp_guard.get_current_config().clone();
+            esp_guard.get_current_config().clone()
         }
         Err(poisoned) => {
             let _ = restore_terminal(&mut terminal);
             error!("ESP32 Mutex poisoned during initial connect: {poisoned}");
             return Err("Mutex poisoned".into());
         }
-    }
+    };
     info!("ESP32 setup complete.");
 
     let app_state = Arc::new(Mutex::new(AppState::new(initial_esp_config_for_appstate)));
     app_state.lock().unwrap().connection_status = "CONNECTED".to_string();
-
 
     // --- Log processing thread ---
     let app_state_log_clone = Arc::clone(&app_state);
@@ -258,19 +265,25 @@ fn main() -> Result<(), Box<dyn Error>> {
         loop {
             match csi_rx_channel.recv_timeout(Duration::from_secs(1)) {
                 Ok(packet) => {
-                    info!("CSI LISTENER THREAD RECEIVED PACKET: ts={}", packet.timestamp_us);
+                    info!(
+                        "CSI LISTENER THREAD RECEIVED PACKET: ts={}",
+                        packet.timestamp_us
+                    );
                     if let Ok(mut state_guard) = state_clone_csi.lock() {
                         state_guard.csi_data.push(packet);
                         if state_guard.csi_data.len() > 1000 {
                             state_guard.csi_data.remove(0);
                         }
-                    } else { break; } // Mutex poisoned
+                    } else {
+                        break;
+                    } // Mutex poisoned
                 }
                 Err(crossbeam_channel::RecvTimeoutError::Timeout) => { /* Continue */ }
                 Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
                     info!("CSI channel disconnected.");
                     if let Ok(mut state_guard) = state_clone_csi.lock() {
-                        state_guard.connection_status = "DISCONNECTED (CSI Channel Closed)".to_string();
+                        state_guard.connection_status =
+                            "DISCONNECTED (CSI Channel Closed)".to_string();
                     }
                     break;
                 }
@@ -340,7 +353,8 @@ fn handle_input(
             app_state_guard.connection_status = "DISCONNECTED (by user)".to_string();
             return Ok(true);
         }
-        KeyCode::Char('m') => { // Toggle UI Mode (CSI/Spam) and apply to ESP32
+        KeyCode::Char('m') => {
+            // Toggle UI Mode (CSI/Spam) and apply to ESP32
             let new_ui_mode = match app_state_guard.ui_mode {
                 UiMode::Csi => UiMode::Spam,
                 UiMode::Spam => UiMode::Csi,
@@ -354,7 +368,8 @@ fn handle_input(
                 Ok(mut esp_guard) => {
                     esp_guard.update_config_mode(new_esp_op_mode);
                     if let Err(e) = esp_guard.apply_device_config() {
-                        app_state_guard.last_error = Some(format!("Failed to set ESP mode via ApplyDeviceConfig: {e}"));
+                        app_state_guard.last_error =
+                            Some(format!("Failed to set ESP mode via ApplyDeviceConfig: {e}"));
                     } else {
                         app_state_guard.ui_mode = new_ui_mode;
                         app_state_guard.current_esp_config.mode = new_esp_op_mode;
@@ -363,15 +378,16 @@ fn handle_input(
                         if new_esp_op_mode == OperationMode::Transmit {
                             info!("Attempting to RESUME WiFi transmit task on ESP32...");
                             if let Err(e_resume) = esp_guard.resume_wifi_transmit() {
-                                app_state_guard.last_error = Some(format!("Failed to RESUME transmit: {e_resume}"));
+                                app_state_guard.last_error =
+                                    Some(format!("Failed to RESUME transmit: {e_resume}"));
                                 error!("Failed to RESUME WiFi transmit: {e_resume}");
                             } else {
                                 info!("WiFi transmit task RESUMED.");
                             }
-                        } else { // Switched to Receive or other non-Transmit mode
+                        } else {
+                            // Switched to Receive or other non-Transmit mode
                             info!("WiFi transmit task PAUSED.");
                         }
-                        
                     }
                 }
                 Err(p) => app_state_guard.last_error = Some(format!("Mutex error: {p}")),
@@ -379,7 +395,9 @@ fn handle_input(
         }
         KeyCode::Char('c') => {
             let mut new_channel = app_state_guard.current_esp_config.channel + 1;
-            if new_channel > 11 { new_channel = 1; }
+            if new_channel > 11 {
+                new_channel = 1;
+            }
 
             match esp_mutex.lock() {
                 Ok(mut esp_guard) => {
@@ -394,12 +412,21 @@ fn handle_input(
             }
         }
         KeyCode::Char('b') => {
-            let new_bandwidth_is_40 = app_state_guard.current_esp_config.bandwidth == Bandwidth::Twenty;
+            let new_bandwidth_is_40 =
+                app_state_guard.current_esp_config.bandwidth == Bandwidth::Twenty;
             match esp_mutex.lock() {
                 Ok(mut esp_guard) => {
-                    let new_esp_bw = if new_bandwidth_is_40 { Bandwidth::Forty } else { Bandwidth::Twenty };
+                    let new_esp_bw = if new_bandwidth_is_40 {
+                        Bandwidth::Forty
+                    } else {
+                        Bandwidth::Twenty
+                    };
                     esp_guard.update_config_bandwidth(new_esp_bw);
-                    let new_secondary_chan = if new_bandwidth_is_40 { SecondaryChannel::Above } else { SecondaryChannel::None };
+                    let new_secondary_chan = if new_bandwidth_is_40 {
+                        SecondaryChannel::Above
+                    } else {
+                        SecondaryChannel::None
+                    };
                     esp_guard.update_config_secondary_channel(new_secondary_chan);
 
                     if let Err(e) = esp_guard.apply_device_config() {
@@ -407,17 +434,24 @@ fn handle_input(
                     } else {
                         app_state_guard.current_esp_config.bandwidth = new_esp_bw;
                         app_state_guard.current_esp_config.secondary_channel = new_secondary_chan;
-                        info!("ESP32 bandwidth set to {new_esp_bw:?}, secondary {new_secondary_chan:?}");
+                        info!(
+                            "ESP32 bandwidth set to {new_esp_bw:?}, secondary {new_secondary_chan:?}"
+                        );
                     }
                 }
                 Err(p) => app_state_guard.last_error = Some(format!("Mutex error: {p}")),
             }
         }
         KeyCode::Char('l') => {
-            let new_csi_type_is_legacy = app_state_guard.current_esp_config.csi_type == CsiType::HTLTF;
+            let new_csi_type_is_legacy =
+                app_state_guard.current_esp_config.csi_type == CsiType::HighThroughputLTF;
             match esp_mutex.lock() {
                 Ok(mut esp_guard) => {
-                    let new_esp_csi_type = if new_csi_type_is_legacy { CsiType::LegacyLTF } else { CsiType::HTLTF };
+                    let new_esp_csi_type = if new_csi_type_is_legacy {
+                        CsiType::LegacyLTF
+                    } else {
+                        CsiType::HighThroughputLTF
+                    };
                     esp_guard.update_config_csi_type(new_esp_csi_type);
                     if let Err(e) = esp_guard.apply_device_config() {
                         app_state_guard.last_error = Some(format!("Failed to set CSI type: {e}"));
@@ -429,38 +463,39 @@ fn handle_input(
                 Err(p) => app_state_guard.last_error = Some(format!("Mutex error: {p}")),
             }
         }
-        KeyCode::Char('r') => { /* Pressing 'r' does nothing to the error; it's cleared by other keys */ }
+        KeyCode::Char('r') => { /* Pressing 'r' does nothing to the error; it's cleared by other keys */
+        }
         KeyCode::Up => {
             app_state_guard.csi_data.clear();
             info!("CSI data buffer cleared.");
         }
-        KeyCode::Down => {
-             match esp_mutex.lock() {
-                Ok(mut esp_guard) => {
-                    if let Err(e) = esp_guard.synchronize_time() {
-                        app_state_guard.last_error = Some(format!("Failed to sync time: {e}"));
-                    } else {
-                        info!("Time synchronization requested.");
-                    }
+        KeyCode::Down => match esp_mutex.lock() {
+            Ok(mut esp_guard) => {
+                if let Err(e) = esp_guard.synchronize_time() {
+                    app_state_guard.last_error = Some(format!("Failed to sync time: {e}"));
+                } else {
+                    info!("Time synchronization requested.");
                 }
-                Err(p) => app_state_guard.last_error = Some(format!("Mutex error: {p}")),
             }
-        }
+            Err(p) => app_state_guard.last_error = Some(format!("Mutex error: {p}")),
+        },
         _ => {}
     }
     Ok(false)
 }
 
 fn ui<B: tui::backend::Backend>(f: &mut Frame<B>, app_state: &AppState) {
-
     // Main layout: Horizontally split screen
     let main_horizontal_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .margin(1) // Apply a margin around the entire UI
-        .constraints([
-            Constraint::Percentage(60), // Left panel
-            Constraint::Percentage(40), // Right panel (Logs)
-        ].as_ref())
+        .constraints(
+            [
+                Constraint::Percentage(60), // Left panel
+                Constraint::Percentage(40), // Right panel (Logs)
+            ]
+            .as_ref(),
+        )
         .split(f.size());
 
     let left_panel_area = main_horizontal_chunks[0];
@@ -469,11 +504,14 @@ fn ui<B: tui::backend::Backend>(f: &mut Frame<B>, app_state: &AppState) {
     // Left panel layout: Vertically split for Status, Table, Footer
     let left_vertical_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),    // Status area
-            Constraint::Min(0),       // Table area
-            Constraint::Length(3),    // Footer area
-        ].as_ref())
+        .constraints(
+            [
+                Constraint::Length(3), // Status area
+                Constraint::Min(0),    // Table area
+                Constraint::Length(3), // Footer area
+            ]
+            .as_ref(),
+        )
         .split(left_panel_area);
 
     let status_area = left_vertical_chunks[0];
@@ -490,7 +528,7 @@ fn ui<B: tui::backend::Backend>(f: &mut Frame<B>, app_state: &AppState) {
         Bandwidth::Forty => "40MHz",
     };
     let ltf_str = match app_state.current_esp_config.csi_type {
-        CsiType::HTLTF => "HT-LTF",
+        CsiType::HighThroughputLTF => "HT-LTF",
         CsiType::LegacyLTF => "L-LTF",
     };
     let status_text = format!(
@@ -511,39 +549,64 @@ fn ui<B: tui::backend::Backend>(f: &mut Frame<B>, app_state: &AppState) {
         .block(Block::default().borders(Borders::ALL).title(" Status "));
     f.render_widget(header_paragraph, status_area);
 
-
     // --- CSI Data Table (middle-left) ---
-    let table_header_cells = ["Timestamp (us)", "Src MAC", "Dst MAC", "Seq", "RSSI", "AGC Gain", "FFT Gain", "CSI Len"]
-        .iter().map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow)));
+    let table_header_cells = [
+        "Timestamp (us)",
+        "Src MAC",
+        "Dst MAC",
+        "Seq",
+        "RSSI",
+        "AGC Gain",
+        "FFT Gain",
+        "CSI Len",
+    ]
+    .iter()
+    .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow)));
     let table_header = Row::new(table_header_cells).height(1).bottom_margin(0);
 
-    let rows = app_state.csi_data.iter().rev().take(table_area.height.saturating_sub(2) as usize).map(|p| {
-        let src_mac_str = format!("{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-                                  p.src_mac[0], p.src_mac[1], p.src_mac[2],
-                                  p.src_mac[3], p.src_mac[4], p.src_mac[5]);
-        let dst_mac_str = format!("{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-                                  p.dst_mac[0], p.dst_mac[1], p.dst_mac[2],
-                                  p.dst_mac[3], p.dst_mac[4], p.dst_mac[5]);
-        Row::new(vec![
-            Cell::from(p.timestamp_us.to_string()),
-            Cell::from(src_mac_str),
-            Cell::from(dst_mac_str),
-            Cell::from(p.seq.to_string()),
-            Cell::from(p.rssi.to_string()),
-            Cell::from(p.agc_gain.to_string()),
-            Cell::from(p.fft_gain.to_string()),
-            Cell::from(p.csi_data.len().to_string()),
-        ])
-    });
+    let rows = app_state
+        .csi_data
+        .iter()
+        .rev()
+        .take(table_area.height.saturating_sub(2) as usize)
+        .map(|p| {
+            let src_mac_str = format!(
+                "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                p.src_mac[0], p.src_mac[1], p.src_mac[2], p.src_mac[3], p.src_mac[4], p.src_mac[5]
+            );
+            let dst_mac_str = format!(
+                "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                p.dst_mac[0], p.dst_mac[1], p.dst_mac[2], p.dst_mac[3], p.dst_mac[4], p.dst_mac[5]
+            );
+            Row::new(vec![
+                Cell::from(p.timestamp_us.to_string()),
+                Cell::from(src_mac_str),
+                Cell::from(dst_mac_str),
+                Cell::from(p.seq.to_string()),
+                Cell::from(p.rssi.to_string()),
+                Cell::from(p.agc_gain.to_string()),
+                Cell::from(p.fft_gain.to_string()),
+                Cell::from(p.csi_data.len().to_string()),
+            ])
+        });
 
     let table_widths = [
-        Constraint::Length(18), Constraint::Length(18), Constraint::Length(18), 
-        Constraint::Length(6), Constraint::Length(6), Constraint::Length(9),    
-        Constraint::Length(9), Constraint::Length(8),    
+        Constraint::Length(18),
+        Constraint::Length(18),
+        Constraint::Length(18),
+        Constraint::Length(6),
+        Constraint::Length(6),
+        Constraint::Length(9),
+        Constraint::Length(9),
+        Constraint::Length(8),
     ];
     let table = Table::new(rows)
         .header(table_header)
-        .block(Block::default().borders(Borders::ALL).title(" CSI Data Packets "))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" CSI Data Packets "),
+        )
         .widths(&table_widths)
         .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
         .highlight_symbol(">> ");
@@ -556,25 +619,26 @@ fn ui<B: tui::backend::Backend>(f: &mut Frame<B>, app_state: &AppState) {
         .map(|entry| {
             // Format the LogEntry for display
             let timestamp_str = entry.timestamp.format("%H:%M:%S").to_string();
-            
-            let display_msg_with_timestamp = format!("{timestamp_str} [{}] {}", entry.level, entry.message);
-            
+
+            let display_msg_with_timestamp =
+                format!("{timestamp_str} [{}] {}", entry.level, entry.message);
+
             // Determine style based on entry.level
             let style = match entry.level {
                 log::Level::Error => Style::default().fg(Color::Red),
-                log::Level::Warn  => Style::default().fg(Color::Yellow),
-                log::Level::Info  => Style::default().fg(Color::Cyan),
+                log::Level::Warn => Style::default().fg(Color::Yellow),
+                log::Level::Info => Style::default().fg(Color::Cyan),
                 log::Level::Debug => Style::default().fg(Color::Blue),
                 log::Level::Trace => Style::default().fg(Color::Magenta),
             };
-            
+
             //ListItem::new(String) converts to Text, which enables wrapping.
             ListItem::new(display_msg_with_timestamp).style(style)
         })
         .collect();
 
     let num_logs_to_show = log_panel_area.height.saturating_sub(2) as usize;
-    
+
     let current_log_count = log_items_list.len();
     let visible_log_items = if current_log_count > num_logs_to_show {
         let items_to_skip = current_log_count - num_logs_to_show;
@@ -591,12 +655,18 @@ fn ui<B: tui::backend::Backend>(f: &mut Frame<B>, app_state: &AppState) {
     let footer_text = if let Some(err_msg) = &app_state.last_error {
         format!("ERROR: {err_msg} (Press 'R' to keep, other keys clear error)")
     } else {
-        "Controls: [Q]uit | [M]ode | [C]hannel | [B]W | [L]TF | [↑]Clr CSI | [↓]Sync Time".to_string()
+        "Controls: [Q]uit | [M]ode | [C]hannel | [B]W | [L]TF | [↑]Clr CSI | [↓]Sync Time"
+            .to_string()
     };
-    let footer_style = if app_state.last_error.is_some() { Style::default().fg(Color::Red) }
-                        else { Style::default().fg(Color::DarkGray) };
-    let footer_paragraph = Paragraph::new(footer_text)
-        .style(footer_style)
-        .block(Block::default().borders(Borders::ALL).title(" Info/Errors "));
+    let footer_style = if app_state.last_error.is_some() {
+        Style::default().fg(Color::Red)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+    let footer_paragraph = Paragraph::new(footer_text).style(footer_style).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Info/Errors "),
+    );
     f.render_widget(footer_paragraph, footer_area);
 }
