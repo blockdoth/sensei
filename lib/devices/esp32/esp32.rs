@@ -57,6 +57,10 @@ pub enum SecondaryChannel {
     Above = 0x02,
 }
 
+/* TEMPORARY: This is not used yet, but might be useful in the future for status reporting
+   or debugging. Currently, the ESP32 firmware does not send any status updates to the host.
+   If this changes, we can add a status update command and a way to receive it here.
+
 /// Represents the ESP32 device status (currently informational, not deeply integrated)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EspStatus {
@@ -67,6 +71,7 @@ pub enum EspStatus {
     Transmitting,
     Error,
 }
+*/
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
@@ -224,7 +229,7 @@ impl Esp32 {
                         if e.kind() == std::io::ErrorKind::TimedOut {
                             continue;
                         }
-                        error!("Serial read error in thread: {}. Terminating thread.", e);
+                        error!("Serial read error in thread: {e}. Terminating thread.");
                         break;
                     }
                 }
@@ -238,14 +243,14 @@ impl Esp32 {
 
         // Apply initial config (default is Receive mode) and handle acquisition state
         if let Err(e) = self.apply_device_config() {
-             error!("Failed to apply initial device config during connect: {}", e);
+             error!("Failed to apply initial device config during connect: {e}");
              let _ = self.disconnect();
              return Err(e);
         }
         // Note: apply_device_config will now also handle unpausing if mode is Receive.
 
         if let Err(e) = self.synchronize_time() {
-            error!("Failed initial time synchronization during connect: {}", e);
+            error!("Failed initial time synchronization during connect: {e}");
             let _ = self.disconnect();
             return Err(e);
         }
@@ -263,7 +268,7 @@ impl Esp32 {
         debug!("Processing buffer of len: {}", buffer.len());
         if !buffer.is_empty() {
             let log_len = std::cmp::min(buffer.len(), 64);
-            debug!("Buffer content (first {} bytes): {:02X?}", log_len, &buffer[..log_len]);
+            debug!("Buffer content (first {log_len} bytes): {:02X?}", &buffer[..log_len]);
         }
 
         // Check for preamble and process packets
@@ -274,7 +279,7 @@ impl Esp32 {
             }
             if let Some(pos) = buffer.windows(ESP_PACKET_PREAMBLE_ESP_TO_HOST.len()).position(|w| w == ESP_PACKET_PREAMBLE_ESP_TO_HOST) {
                 if pos > 0 {
-                    debug!("Preamble found at pos {}. Discarding {} bytes before preamble.", pos, pos);
+                    debug!("Preamble found at pos {pos}. Discarding {pos} bytes before preamble.");
                     buffer.drain(0..pos);
                 }
 
@@ -285,28 +290,28 @@ impl Esp32 {
 
                 let len_bytes = &buffer[ESP_PACKET_PREAMBLE_ESP_TO_HOST.len()..ESP_TO_HOST_MIN_HEADER_SIZE];
                 let payload_len_signed_from_wire = i16::from_le_bytes([len_bytes[0], len_bytes[1]]);
-                debug!("Read raw length field value from wire: {} ({:02X?})", payload_len_signed_from_wire, len_bytes);
+                debug!("Read raw length field value from wire: {payload_len_signed_from_wire} ({len_bytes:02X?})");
 
                 if payload_len_signed_from_wire == 0 {
                     warn!("Received packet with declared length 0. Problematic. Discarding header to attempt recovery. Buffer head: {:02X?}", &buffer[..std::cmp::min(buffer.len(), ESP_TO_HOST_MIN_HEADER_SIZE)]);
                     buffer.drain(0..std::cmp::min(ESP_TO_HOST_MIN_HEADER_SIZE, buffer.len()));
                     continue;
                 }
-                if payload_len_signed_from_wire.abs() as usize > buffer.capacity() && payload_len_signed_from_wire.abs() > 8192 {
+                if payload_len_signed_from_wire.unsigned_abs() as usize > buffer.capacity() && payload_len_signed_from_wire.abs() > 8192 {
                     warn!("Declared packet length {} is very large. Clearing buffer.", payload_len_signed_from_wire.abs());
                     buffer.clear();
                     break;
                 }
 
                 let total_packet_len_on_wire = payload_len_signed_from_wire.abs() as usize;
-                debug!("Interpreted total packet length on wire: {}", total_packet_len_on_wire);
+                debug!("Interpreted total packet length on wire: {total_packet_len_on_wire}");
 
                 if buffer.len() < total_packet_len_on_wire {
                     debug!("Buffer (len {}) too short for full packet (need {}). Waiting for more.", buffer.len(), total_packet_len_on_wire);
                     break;
                 }
 
-                debug!("Extracting full packet of len: {}", total_packet_len_on_wire);
+                debug!("Extracting full packet of len: {total_packet_len_on_wire}");
                 let packet_data = buffer.drain(0..total_packet_len_on_wire).collect::<Vec<_>>();
                 
                 Self::parse_packet_from_esp(&packet_data, payload_len_signed_from_wire, ack_tx, csi_tx);
@@ -331,7 +336,7 @@ impl Esp32 {
         let is_ack = payload_len_signed < 0;
         let payload_offset = ESP_TO_HOST_MIN_HEADER_SIZE; // 10 bytes (8 preamble + 2 length)
 
-        debug!("Parsing packet from ESP. is_ack: {}, payload_len_signed: {}, frame_len: {}", is_ack, payload_len_signed, full_packet_frame.len());
+        debug!("Parsing packet from ESP. is_ack: {is_ack}, payload_len_signed: {payload_len_signed}, frame_len: {}", full_packet_frame.len());
 
         if full_packet_frame.len() < payload_offset {
             warn!("Packet frame (len: {}) too small to contain minimal header + payload offset ({}). Corrupted data or logic error.", full_packet_frame.len(), payload_offset);
@@ -355,9 +360,9 @@ impl Esp32 {
                     } else {
                         Vec::new()
                     };
-                    debug!("Parsed ACK for command {:?}, data len: {}", cmd, data.len());
+                    debug!("Parsed ACK for command {cmd:?}, data len: {}", data.len());
                     if let Err(e) = ack_tx.try_send((cmd, data)) {
-                        warn!("Failed to send ACK to channel (possibly full or disconnected): {}", e);
+                        warn!("Failed to send ACK to channel (possibly full or disconnected): {e}");
                     }
                 }
                 Err(e) => {
@@ -369,11 +374,11 @@ impl Esp32 {
                 Ok(csi) => {
                     debug!("Successfully parsed CSI packet. Timestamp: {}, Data len: {}", csi.timestamp_us, csi.csi_data.len());
                     if let Err(e) = csi_tx.try_send(csi) {
-                        warn!("Failed to send CSI packet to channel (possibly full or disconnected): {}", e);
+                        warn!("Failed to send CSI packet to channel (possibly full or disconnected): {e}");
                     }
                 }
                 Err(e) => {
-                    warn!("Failed to parse CSI packet from payload: {}", e);
+                    warn!("Failed to parse CSI packet from payload: {e}");
                 }
             }
         }
@@ -401,8 +406,7 @@ impl Esp32 {
         }
 
         debug!(
-            "Sending command: {:?} with data_len {} (total packet_len {} fixed)",
-            cmd,
+            "Sending command: {cmd:?} with data_len {} (total packet_len {} fixed)",
             data.map_or(0, |d| d.len()),
             CMD_PACKET_TOTAL_SIZE_HOST_TO_ESP
         );
@@ -417,14 +421,11 @@ impl Esp32 {
                         info!("ACK received for command: {:?}", cmd);
                         return Ok(());
                     } else {
-                        debug!(
-                            "Received ACK for different command: {:?} (expected {:?}), attempt {}",
-                            ack_cmd, cmd, attempt
-                        );
+                        debug!("Received ACK for different command: {ack_cmd:?} (expected {cmd:?}), attempt {attempt}");
                     }
                 }
                 Err(RecvTimeoutError::Timeout) => {
-                    debug!("ACK timeout for command {:?} on attempt {}", cmd, attempt);
+                    debug!("ACK timeout for command {cmd:?} on attempt {attempt}");
                 }
                 Err(RecvTimeoutError::Disconnected) => {
                     error!("ACK channel disconnected while waiting for ACK for {:?}. Reader thread likely died.", cmd);
@@ -467,7 +468,7 @@ impl Esp32 {
 
     pub fn set_channel(&mut self, channel: u8) -> Result<()> {
         if !(1..=14).contains(&channel) {
-            return Err(EspError::Config(format!("Invalid WiFi channel: {}", channel)).into());
+            return Err(EspError::Config(format!("Invalid WiFi channel: {channel}")).into());
         }
         // Update local config only after ACK
         self.send_command(Command::SetChannel, Some(&[channel]))?;
@@ -500,14 +501,14 @@ impl Esp32 {
             // Explicitly ignore error here for now, but log it. 
             // Some firmwares might auto-unpause or not need it if already unpaused.
             if let Err(e) = self.unpause_acquisition() {
-                warn!("Failed to UNPAUSE acquisition after applying config (this might be okay if already unpaused): {}", e);
+                warn!("Failed to UNPAUSE acquisition after applying config (this might be okay if already unpaused): {e}");
             } else {
                 info!("UnpauseAcquisition ACKed or sent successfully.");
             }
         } else { // For Transmit mode or any other future modes
             info!("Current mode is {:?}. Attempting to PAUSE CSI acquisition.", self.config.mode);
             if let Err(e) = self.pause_acquisition() {
-                warn!("Failed to PAUSE acquisition after applying config (this might be okay if already paused): {}", e);
+                warn!("Failed to PAUSE acquisition after applying config (this might be okay if already paused): {e}");
             } else {
                 info!("PauseAcquisition ACKed or sent successfully.");
             }
@@ -546,7 +547,7 @@ impl Esp32 {
         self.send_command(Command::SynchronizeTimeInit, None)?;
         let time_us = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|e| EspError::Protocol(format!("System time error: {}", e)))?
+            .map_err(|e| EspError::Protocol(format!("System time error: {e}")))?
             .as_micros() as u64;
         self.send_command(Command::SynchronizeTimeApply, Some(&time_us.to_le_bytes()))
     }
@@ -626,7 +627,7 @@ impl Drop for Esp32 {
         if self.connected.load(AtomicOrdering::SeqCst) || self.reader_thread_handle.is_some() {
             info!("Esp32 instance dropped, ensuring disconnection.");
             if let Err(e) = self.disconnect() {
-                error!("Error during disconnect on drop: {}", e);
+                error!("Error during disconnect on drop: {e}");
             }
         }
     }
@@ -654,15 +655,14 @@ fn parse_csi_packet(payload_data: &[u8]) -> Result<CsiPacket> {
     let agc_gain = cursor.read_u8()?;
     let fft_gain = cursor.read_u8()?;
     let csi_data_len = cursor.read_u16::<LittleEndian>()? as usize;
-    debug!("CSI header parsed: ts={}, smac={:02X?}, dmac={:02X?}, seq={}, rssi={}, agc={}, fft={}, declared_csi_data_len={}",
-        timestamp_us, src_mac, dst_mac, seq, rssi, agc_gain, fft_gain, csi_data_len);
+    debug!("CSI header parsed: ts={timestamp_us}, smac={src_mac:02X?}, dmac={dst_mac:02X?}, seq={seq}, rssi={rssi}, agc={agc_gain}, fft={fft_gain}, declared_csi_data_len={csi_data_len}");
 
 
     let remaining_buffer_after_header = payload_data.len() - cursor.position() as usize;
     if csi_data_len > remaining_buffer_after_header {
         return Err(EspError::Protocol(format!(
-            "CSI data length field ({}) exceeds remaining buffer size ({}) after parsing header. Payload start: {:02X?}",
-            csi_data_len, remaining_buffer_after_header, &payload_data[..std::cmp::min(payload_data.len(), 32)]
+            "CSI data length field ({csi_data_len}) exceeds remaining buffer size ({remaining_buffer_after_header}) after parsing header. Payload start: {:02X?}",
+            &payload_data[..std::cmp::min(payload_data.len(), 32)]
         )).into());
     }
     if csi_data_len == 0 && remaining_buffer_after_header > 0 {
@@ -675,9 +675,9 @@ fn parse_csi_packet(payload_data: &[u8]) -> Result<CsiPacket> {
     // For i8, a loop is fine or read_exact into a u8 slice and transmute (unsafe) or copy.
     // Current loop is safe.
     for i in 0..csi_data_len {
-        csi_data[i] = cursor.read_i8().context(format!("Failed to read CSI data byte {}/{}", i, csi_data_len))?;
+        csi_data[i] = cursor.read_i8().context(format!("Failed to read CSI data byte {i}/{csi_data_len}"))?;
     }
-    debug!("Successfully read {} CSI data samples.", csi_data_len);
+    debug!("Successfully read {csi_data_len} CSI data samples.");
 
     Ok(CsiPacket {
         timestamp_us,

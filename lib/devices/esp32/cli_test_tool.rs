@@ -157,7 +157,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .unwrap_or(LevelFilter::Info);
 
     if let Err(e) = init_tui_logger(log_level, log_tx) {
-        eprintln!("FATAL: Failed to initialize TUI logger: {}", e);
+        eprintln!("FATAL: Failed to initialize TUI logger: {e}");
         // No TUI at this point, so direct eprintln is fine.
         return Err(e.into());
     }
@@ -190,7 +190,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut terminal = match setup_terminal() {
         Ok(term) => term,
         Err(e) => {
-            error!("Failed to setup terminal: {}", e); // This log will go to TUI if logger init worked
+            error!("Failed to setup terminal: {e}"); // This log will go to TUI if logger init worked
             return Err(e);
         }
     };
@@ -199,7 +199,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         Ok(esp_instance) => Arc::new(Mutex::new(esp_instance)),
         Err(e) => {
             let _ = restore_terminal(&mut terminal);
-            error!("Failed to initialize ESP32: {}", e);
+            error!("Failed to initialize ESP32: {e}");
             return Err(e.into());
         }
     };
@@ -209,13 +209,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         Ok(mut esp_guard) => {
             if let Err(e) = esp_guard.connect() {
                 let _ = restore_terminal(&mut terminal);
-                error!("Failed to connect to ESP32: {}", e);
+                error!("Failed to connect to ESP32: {e}");
                 return Err(e.into());
             }
             info!("ESP32 connected, basic configuration applied.");
             info!("Attempting to clear MAC address whitelist...");
             if let Err(e) = esp_guard.clear_mac_filters() {
-                warn!("Failed to clear MAC whitelist: {}. CSI reception might be filtered.", e);
+                warn!("Failed to clear MAC whitelist: {e}. CSI reception might be filtered.");
             } else {
                 info!("MAC address whitelist cleared successfully.");
             }
@@ -223,7 +223,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         Err(poisoned) => {
             let _ = restore_terminal(&mut terminal);
-            error!("ESP32 Mutex poisoned during initial connect: {}", poisoned);
+            error!("ESP32 Mutex poisoned during initial connect: {poisoned}");
             return Err("Mutex poisoned".into());
         }
     }
@@ -320,21 +320,21 @@ fn handle_input(
                     if app_state_guard.ui_mode == UiMode::Spam {
                         info!("Pausing WiFi transmit before disconnecting...");
                         if let Err(e) = esp_guard.pause_wifi_transmit() {
-                            warn!("Failed to pause WiFi transmit: {}", e);
+                            warn!("Failed to pause WiFi transmit: {e}");
                             // Log but continue with disconnect
                         }
                     }
                     if let Err(e) = esp_guard.disconnect() {
-                        app_state_guard.last_error = Some(format!("Error during disconnect: {}", e));
-                        error!("Error disconnecting ESP32: {}", e);
+                        app_state_guard.last_error = Some(format!("Error during disconnect: {e}"));
+                        error!("Error disconnecting ESP32: {e}");
                     } else {
                         info!("ESP32 disconnected successfully by user.");
                     }
                 }
                 Err(poisoned) => {
-                    let err_msg = format!("ESP32 Mutex poisoned on disconnect: {}", poisoned);
+                    let err_msg = format!("ESP32 Mutex poisoned on disconnect: {poisoned}");
                     app_state_guard.last_error = Some(err_msg.clone());
-                    error!("{}", err_msg);
+                    error!("{err_msg}");
                 }
             }
             app_state_guard.connection_status = "DISCONNECTED (by user)".to_string();
@@ -354,17 +354,17 @@ fn handle_input(
                 Ok(mut esp_guard) => {
                     esp_guard.update_config_mode(new_esp_op_mode);
                     if let Err(e) = esp_guard.apply_device_config() {
-                        app_state_guard.last_error = Some(format!("Failed to set ESP mode via ApplyDeviceConfig: {}", e));
+                        app_state_guard.last_error = Some(format!("Failed to set ESP mode via ApplyDeviceConfig: {e}"));
                     } else {
                         app_state_guard.ui_mode = new_ui_mode;
                         app_state_guard.current_esp_config.mode = new_esp_op_mode;
-                        info!("ESP32 mode set to {:?} via ApplyDeviceConfig", new_esp_op_mode);
+                        info!("ESP32 mode set to {new_esp_op_mode:?} via ApplyDeviceConfig");
 
                         if new_esp_op_mode == OperationMode::Transmit {
                             info!("Attempting to RESUME WiFi transmit task on ESP32...");
                             if let Err(e_resume) = esp_guard.resume_wifi_transmit() {
-                                app_state_guard.last_error = Some(format!("Failed to RESUME transmit: {}", e_resume));
-                                error!("Failed to RESUME WiFi transmit: {}", e_resume);
+                                app_state_guard.last_error = Some(format!("Failed to RESUME transmit: {e_resume}"));
+                                error!("Failed to RESUME WiFi transmit: {e_resume}");
                             } else {
                                 info!("WiFi transmit task RESUMED.");
                             }
@@ -374,7 +374,7 @@ fn handle_input(
                         
                     }
                 }
-                Err(p) => app_state_guard.last_error = Some(format!("Mutex error: {}", p)),
+                Err(p) => app_state_guard.last_error = Some(format!("Mutex error: {p}")),
             }
         }
         KeyCode::Char('c') => {
@@ -384,13 +384,13 @@ fn handle_input(
             match esp_mutex.lock() {
                 Ok(mut esp_guard) => {
                     if let Err(e) = esp_guard.set_channel(new_channel) {
-                        app_state_guard.last_error = Some(format!("Failed to set channel: {}", e));
+                        app_state_guard.last_error = Some(format!("Failed to set channel: {e}"));
                     } else {
                         app_state_guard.current_esp_config.channel = new_channel; // esp32.set_channel updates its internal config
-                        info!("ESP32 channel changed to {}", new_channel);
+                        info!("ESP32 channel changed to {new_channel}");
                     }
                 }
-                Err(p) => app_state_guard.last_error = Some(format!("Mutex error: {}", p)),
+                Err(p) => app_state_guard.last_error = Some(format!("Mutex error: {p}")),
             }
         }
         KeyCode::Char('b') => {
@@ -403,14 +403,14 @@ fn handle_input(
                     esp_guard.update_config_secondary_channel(new_secondary_chan);
 
                     if let Err(e) = esp_guard.apply_device_config() {
-                        app_state_guard.last_error = Some(format!("Failed to set bandwidth: {}", e));
+                        app_state_guard.last_error = Some(format!("Failed to set bandwidth: {e}"));
                     } else {
                         app_state_guard.current_esp_config.bandwidth = new_esp_bw;
                         app_state_guard.current_esp_config.secondary_channel = new_secondary_chan;
-                        info!("ESP32 bandwidth set to {:?}, secondary {:?}", new_esp_bw, new_secondary_chan);
+                        info!("ESP32 bandwidth set to {new_esp_bw:?}, secondary {new_secondary_chan:?}");
                     }
                 }
-                Err(p) => app_state_guard.last_error = Some(format!("Mutex error: {}", p)),
+                Err(p) => app_state_guard.last_error = Some(format!("Mutex error: {p}")),
             }
         }
         KeyCode::Char('l') => {
@@ -420,13 +420,13 @@ fn handle_input(
                     let new_esp_csi_type = if new_csi_type_is_legacy { CsiType::LegacyLTF } else { CsiType::HTLTF };
                     esp_guard.update_config_csi_type(new_esp_csi_type);
                     if let Err(e) = esp_guard.apply_device_config() {
-                        app_state_guard.last_error = Some(format!("Failed to set CSI type: {}", e));
+                        app_state_guard.last_error = Some(format!("Failed to set CSI type: {e}"));
                     } else {
                         app_state_guard.current_esp_config.csi_type = new_esp_csi_type;
-                        info!("ESP32 CSI type set to {:?}", new_esp_csi_type);
+                        info!("ESP32 CSI type set to {new_esp_csi_type:?}");
                     }
                 }
-                Err(p) => app_state_guard.last_error = Some(format!("Mutex error: {}", p)),
+                Err(p) => app_state_guard.last_error = Some(format!("Mutex error: {p}")),
             }
         }
         KeyCode::Char('r') => { /* Pressing 'r' does nothing to the error; it's cleared by other keys */ }
@@ -438,12 +438,12 @@ fn handle_input(
              match esp_mutex.lock() {
                 Ok(mut esp_guard) => {
                     if let Err(e) = esp_guard.synchronize_time() {
-                        app_state_guard.last_error = Some(format!("Failed to sync time: {}", e));
+                        app_state_guard.last_error = Some(format!("Failed to sync time: {e}"));
                     } else {
                         info!("Time synchronization requested.");
                     }
                 }
-                Err(p) => app_state_guard.last_error = Some(format!("Mutex error: {}", p)),
+                Err(p) => app_state_guard.last_error = Some(format!("Mutex error: {p}")),
             }
         }
         _ => {}
@@ -517,7 +517,7 @@ fn ui<B: tui::backend::Backend>(f: &mut Frame<B>, app_state: &AppState) {
         .iter().map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow)));
     let table_header = Row::new(table_header_cells).height(1).bottom_margin(0);
 
-    let rows = app_state.csi_data.iter().rev().take(table_area.height.saturating_sub(2).max(0) as usize).map(|p| {
+    let rows = app_state.csi_data.iter().rev().take(table_area.height.saturating_sub(2) as usize).map(|p| {
         let src_mac_str = format!("{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
                                   p.src_mac[0], p.src_mac[1], p.src_mac[2],
                                   p.src_mac[3], p.src_mac[4], p.src_mac[5]);
@@ -557,7 +557,7 @@ fn ui<B: tui::backend::Backend>(f: &mut Frame<B>, app_state: &AppState) {
             // Format the LogEntry for display
             let timestamp_str = entry.timestamp.format("%H:%M:%S").to_string();
             
-            let display_msg_with_timestamp = format!("{} [{}] {}", timestamp_str, entry.level, entry.message);
+            let display_msg_with_timestamp = format!("{timestamp_str} [{}] {}", entry.level, entry.message);
             
             // Determine style based on entry.level
             let style = match entry.level {
@@ -573,7 +573,7 @@ fn ui<B: tui::backend::Backend>(f: &mut Frame<B>, app_state: &AppState) {
         })
         .collect();
 
-    let num_logs_to_show = log_panel_area.height.saturating_sub(2).max(0) as usize;
+    let num_logs_to_show = log_panel_area.height.saturating_sub(2) as usize;
     
     let current_log_count = log_items_list.len();
     let visible_log_items = if current_log_count > num_logs_to_show {
@@ -589,7 +589,7 @@ fn ui<B: tui::backend::Backend>(f: &mut Frame<B>, app_state: &AppState) {
 
     // --- Footer / Controls (bottom-left) ---
     let footer_text = if let Some(err_msg) = &app_state.last_error {
-        format!("ERROR: {} (Press 'R' to keep, other keys clear error)", err_msg)
+        format!("ERROR: {err_msg} (Press 'R' to keep, other keys clear error)")
     } else {
         "Controls: [Q]uit | [M]ode | [C]hannel | [B]W | [L]TF | [↑]Clr CSI | [↓]Sync Time".to_string()
     };
