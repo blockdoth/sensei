@@ -40,7 +40,7 @@ pub trait CsiDataAdapter: Send {
     /// # Notes
     /// - Adapters do not handle packet fragmentation logic. Callers must ensure
     ///   that only complete packets are passed in (unless fragmentation is internally supported).
-    async fn produce(&mut self, buf: &[u8]) -> Result<CsiData, CsiAdapterError>;
+    async fn produce(&mut self, buf: &[u8]) -> Result<Option<CsiData>, CsiAdapterError>;
 }
 
 /// Adapter type tag for configuration-based instantiation.
