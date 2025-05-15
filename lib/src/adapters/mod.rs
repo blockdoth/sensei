@@ -52,9 +52,7 @@ pub trait CsiDataAdapter: Send {
     /// Reap CSI and wrap it into a cooked CSI frame with timestamp
     async fn reap_cooked(&mut self) -> Result<Option<DataMsg>, CsiAdapterError> {
         match self.reap().await? {
-            Some(csi) => Ok(Some(DataMsg::CsiFrame {
-                csi,
-            })),
+            Some(csi) => Ok(Some(DataMsg::CsiFrame { csi })),
             None => Ok(None),
         }
     }

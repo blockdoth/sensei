@@ -70,6 +70,10 @@ pub struct VisualiserSubcommandArgs {
     /// width of the eventual window
     #[argh(option, default = "default_width()")]
     pub width: usize,
+
+    /// using tui (ratatui, default) or gui (plotters, minifb)
+    #[argh(option, default = "String::from(\"tui\")")]
+    pub ui_type: String,
 }
 
 fn default_height() -> usize {

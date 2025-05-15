@@ -1,31 +1,45 @@
 use crate::cli::{GlobalConfig, OrchestratorSubcommandArgs, VisualiserSubcommandArgs};
 use crate::module::{CliInit, RunsServer};
 use async_trait::async_trait;
+use lib::csi_types::CsiData;
 use lib::errors::NetworkError;
 use lib::network::rpc_message::CtrlMsg::*;
 use lib::network::rpc_message::DataMsg::*;
-use lib::network::rpc_message::RpcMessage;
 use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
+use lib::network::rpc_message::{AdapterMode, CtrlMsg, RpcMessage};
+use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler};
-use log::{info, warn};
+use log::{debug, info, warn};
 use minifb::{Key, Window, WindowOptions};
 use plotters::coord::ranged1d::ReversibleRanged;
 use plotters::prelude::*;
 use plotters_bitmap::BitMapBackend;
+use ratatui::Terminal;
+use ratatui::backend::{Backend, CrosstermBackend};
+use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+use ratatui::crossterm::execute;
+use ratatui::crossterm::terminal::{EnterAlternateScreen, enable_raw_mode, disable_raw_mode, LeaveAlternateScreen};
+use ratatui::layout::{Constraint, Layout};
+use ratatui::prelude::Direction;
 use std::cell::RefCell;
+use std::io::stdout;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex, RwLock};
+use std::ops::DerefMut;
+use std::sync::{Arc, RwLock};
+use std::time::{Duration, Instant};
+use tokio::io;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::tcp::OwnedWriteHalf;
-use tokio::sync::watch;
 use tokio::sync::watch::{Receiver, Sender};
-use lib::csi_types::CsiData;
+use tokio::sync::{Mutex, watch};
 
 pub struct Visualiser {
-    data: Arc<Mutex<Vec<(u128, CsiData)>>>,
+    data: Arc<Mutex<Vec<Vec<CsiData>>>>, // Devices x CsiData over time
     width: usize,
     height: usize,
-    socket_addr: SocketAddr,
+    target_addr: SocketAddr,
+    ui_type: String,
 }
 
 impl CliInit<VisualiserSubcommandArgs> for Visualiser {
@@ -34,30 +48,58 @@ impl CliInit<VisualiserSubcommandArgs> for Visualiser {
             data: Arc::new(Mutex::new(vec![])),
             width: config.width,
             height: config.height,
-            socket_addr: global.socket_addr,
+            target_addr: global.socket_addr,
+            ui_type: config.ui_type.clone(),
         }
     }
 }
 
 impl Visualiser {
-    pub fn receive_data_task(&self, data: Arc<Mutex<Vec<u8>>>) {
+    fn receive_data_task(
+        &self,
+        data: Arc<Mutex<Vec<Vec<CsiData>>>>,
+        client: Arc<Mutex<TcpClient>>,
+        target_addr: SocketAddr,
+    ) {
         tokio::spawn(async move {
-            let test_list = vec![10u8];
+            debug!("Receive task");
+
             loop {
-                // TODO: Replace with tcp stream listening for data
-                for point in test_list.clone() {
-                    data.lock().unwrap().push(point);
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                let mut client = client.lock().await;
+                debug!("Client locked");
+                client.read_message(target_addr).await;
             }
         });
     }
 
-    pub fn output_data(&self) -> Vec<(u128, CsiData)> {
-        self.data.lock().unwrap().clone()
+    async fn output_data(&self) -> Vec<Vec<CsiData>> {
+        self.data.lock().await.clone()
+    }
+    
+    async fn plot_data_tui(&self) -> Result<(), Box<dyn std::error::Error>> {
+        enable_raw_mode()?;
+        let mut stdout = stdout();
+        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+        let backend = CrosstermBackend::new(stdout);
+        let mut terminal = Terminal::new(backend)?;
+
+        let tick_rate = Duration::from_millis(200);
+        let mut last_tick = Instant::now();
+
+        
+        // Shutdown process
+        disable_raw_mode()?;
+        execute!(
+            terminal.backend_mut(),
+            LeaveAlternateScreen,
+            DisableMouseCapture
+        )?;
+        terminal.show_cursor()?;
+
+        Ok(())
     }
 
-    pub async fn plot_data(&self) -> Result<(), Box<dyn std::error::Error>> {
+    async fn plot_data_gui(&self) -> Result<(), Box<dyn std::error::Error>> {
         let mut window = Window::new("Data", self.width, self.height, WindowOptions::default())?;
 
         window.limit_update_rate(Some(std::time::Duration::from_micros(32000)));
@@ -76,10 +118,10 @@ impl Visualiser {
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
 
-            let current_data = self.output_data();
+            let current_data = self.output_data().await;
 
-            let max = current_data.iter().max_by(|x, y| x.1.);
-            let min = current_data.iter();
+            let max = 10f32;
+            let min = -10f32;
             let len = current_data.len() as f32;
 
             // Plotters will draw to an RGB u8 buffer. We need a temporary buffer for that.
@@ -119,7 +161,7 @@ impl Visualiser {
                     .draw_series(LineSeries::new(
                         (current_data.into_iter()) // Create an iterator on the data
                             .enumerate()
-                            .map(|(i, x)| (i as f32, x as f32)), // Map to f32 values and x and y coords
+                            .map(|(i, x)| (i as f32, x[0].timestamp as f32)), // Map to f32 values and x and y coords
                         &RED, // Plot the line in red
                     ))?
                     .label("Data format") // Add a label for the series
@@ -157,73 +199,108 @@ impl Visualiser {
             window.update_with_buffer(&minifb_buffer, self.width, self.height)?;
         }
 
-        let output = self.output_data();
+        let output = self.output_data().await;
         println!("{output:?}");
 
         Ok(())
     }
+
+    fn client_task(&self, client: Arc<Mutex<TcpClient>>, target_addr: SocketAddr) {
+        tokio::spawn(async move {
+            debug!("Client task");
+
+            // Visualiser connects to the target node on startup
+            {
+                // Locking the client within this lifetime ensures that the receiver task
+                // only starts once the lock in this lifetime has been released
+                let mut client = client.lock().await;
+                client.connect(target_addr).await;
+
+                let msg = RpcMessage {
+                    src_addr: client.self_addr.unwrap(),
+                    target_addr: target_addr,
+                    msg: Ctrl(CtrlMsg::Connect),
+                };
+
+                client.send_message(target_addr, msg).await;
+            }
+
+            let stdin: BufReader<io::Stdin> = BufReader::new(io::stdin());
+            let mut lines = stdin.lines();
+
+            while let Ok(Some(line)) = lines.next_line().await {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+
+                if line.eq("help") {
+                    todo!("Help message for visualiser")
+                }
+
+                let mut client = client.lock().await;
+                match line.parse::<CtrlMsg>() {
+                    Ok(Connect) => {
+                        client.connect(target_addr).await;
+
+                        let msg = RpcMessage {
+                            src_addr: client.self_addr.unwrap(),
+                            target_addr: target_addr,
+                            msg: Ctrl(CtrlMsg::Connect),
+                        };
+
+                        client.send_message(target_addr, msg).await;
+                    }
+
+                    Ok(Disconnect) => {
+                        client.disconnect(target_addr).await;
+                    }
+
+                    Ok(Subscribe { device_id, mode }) => {
+                        let src_addr = client.self_addr.unwrap();
+                        let msg = RpcMessage {
+                            src_addr,
+                            target_addr: target_addr,
+                            msg: Ctrl(CtrlMsg::Subscribe {
+                                device_id: 0,
+                                mode: AdapterMode::RAW,
+                            }),
+                        };
+                        client.send_message(target_addr, msg).await;
+                        info!("Subscribed to node {}", target_addr)
+                    }
+
+                    Ok(Unsubscribe { device_id }) => {
+                        let src_addr = client.self_addr.unwrap();
+                        let msg = RpcMessage {
+                            src_addr,
+                            target_addr: target_addr,
+                            msg: Ctrl(CtrlMsg::Unsubscribe { device_id: 0 }),
+                        };
+                        client.send_message(target_addr, msg);
+                        info!("Subscribed from node {}", target_addr)
+                    }
+
+                    _ => {}
+                }
+            }
+        });
+    }
 }
 impl RunsServer for Visualiser {
     async fn start_server(self: Arc<Visualiser>) -> Result<(), Box<dyn std::error::Error>> {
-        let addr = self.socket_addr.clone();
-        let visualiser_ref = self.clone();
+        // Technically, the visualiser has cli tools for connecting to multiple nodes
+        // At the moment, it is sufficient to connect to one target node on startup
+        // Manually start the subscription by typing subscribe
+        let client = Arc::new(Mutex::new(TcpClient::new().await));
+        self.client_task(client.clone(), self.target_addr);
+        self.receive_data_task(self.data.clone(), client.clone(), self.target_addr);
 
-        info!("Starting visualiser on {}", addr);
-
-        tokio::spawn(async move {
-            let server = TcpServer::serve(addr, visualiser_ref).await;
-        });
-
-        self.receive_data_task(self.data.clone());
-
-        self.plot_data().await
-    }
-}
-
-#[async_trait]
-impl ConnectionHandler for Visualiser {
-    async fn handle_recv(
-        &self,
-        request: RpcMessage,
-        send_channel: Sender<ChannelMsg>,
-    ) -> Result<(), NetworkError> {
-        info!(
-            "Received message {:?} from {}",
-            request.msg, request.src_addr
-        );
-
-        match request.msg {
-            Ctrl(command) => match command {
-                _ => warn!("Ctrl messages for the visualiser not implemented"),
-            },
-            Data(data_msg) => {
-                send_channel
-                    .send(ChannelMsg::Data(data_msg))
-                    .expect("Channel got disconnected");
-            }
+        if (self.ui_type == "tui") {
+            self.plot_data_gui().await?;
+        } else {
         }
 
         Ok(())
-    }
-
-    async fn handle_send(
-        &self,
-        mut recv_channel: Receiver<ChannelMsg>,
-        mut send_stream: OwnedWriteHalf,
-    ) -> Result<(), NetworkError> {
-        loop {
-            if recv_channel.has_changed().unwrap_or(false) {
-                let msg_opt = recv_channel.borrow_and_update().clone();
-                match msg_opt {
-                    ChannelMsg::Data(data_msg) => {
-                        match data_msg {
-                            RawFrame {ts, bytes, source_type} => todo!("Graph raw data"),
-                            CsiFrame {ts, csi} => todo!("Graph csi data")
-                        }
-                    }
-                    _ => warn!("Sending ctrl messages not implemented")
-                }
-            }
-        }
     }
 }
