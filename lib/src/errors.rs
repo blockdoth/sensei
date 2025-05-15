@@ -1,4 +1,4 @@
-use crate::adapters::iwl::IwlAdapterError;
+use crate::adapters::{csv::CSVAdapter, csv::CSVAdapterError, iwl::IwlAdapterError};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -33,4 +33,7 @@ pub enum AppError {
 pub enum CsiAdapterError {
     #[error("IWL Adapter Error: {0}")]
     IWL(#[from] IwlAdapterError),
+    
+    #[error("CSV Adapter Error: {0}")]
+    CSV(#[from] CSVAdapterError),
 }

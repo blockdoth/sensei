@@ -21,6 +21,17 @@ pub struct CsiData {
 	pub csi             : Csi        // A num_cores x num_streams x num_subcarrier array
 }
 
+impl std::default::Default for CsiData {
+    fn default() -> Self {
+        CsiData {
+            timestamp: 0.0,
+            sequence_number: 0,
+            rssi: vec![0; 4],
+            csi: vec![vec![vec![Complex::new(0.0, 0.0); 30]; 2]; 4],
+        }
+    }
+}
+
 /// Channel Bandwidth
 #[derive(Debug, Clone, Copy)]
 pub enum Bandwidth {
