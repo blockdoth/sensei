@@ -2,6 +2,7 @@ use crate::adapters::CsiDataAdapter;
 use crate::adapters::iwl::header::IwlHeader;
 use crate::csi_types::{Complex, CsiData};
 use crate::errors::CsiAdapterError;
+use crate::network::rpc_message::DataMsg;
 
 const NUM_SUBCARRIER: usize = 30;
 
@@ -38,16 +39,17 @@ impl CsiDataAdapter for IwlAdapter {
     ///
     /// # Arguments
     ///
-    /// * `buf` - A byte slice containing the raw CSI data.
+    /// * `msg` - DataMsg containing frames either raw or cooked
     ///
     /// # Returns
     ///
-    /// * `Ok(Some(CsiData))` if parsing is successful.
-    /// * 'Ok(None)' if parsing is not yet done, call the function again
-    /// * `Err(CsiAdapterError)` if parsing fails.
-    async fn produce(&mut self, buf: &[u8]) -> Result<Option<CsiData>, CsiAdapterError> {
+    /// * `Ok(Some(DataMsg))` if parsing is successful.
+    /// * `Err(CsiAdapterError) or Some(None)` if parsing fails.
+    async fn produce(&mut self, msg: DataMsg) -> Result<Option<DataMsg>, CsiAdapterError> {
         // Parse header information and extract payload slice
-        let (header, payload) = IwlHeader::parse(buf)?;
+        match msg {
+            DataMsg::RawFrame { ts: _, bytes, source_type: _ } =>  {
+                let (header, payload) = IwlHeader::parse(&bytes)?;
 
         // Initialize CSI matrix based on NRX and NTX
         let mut csi = vec![vec![vec![Complex::new(0.0, 0.0); 30]; header.nrx]; header.ntx];
@@ -98,13 +100,21 @@ impl CsiDataAdapter for IwlAdapter {
             .take(header.nrx)
             .map(|&permuted_rx| header.rssi[permuted_rx])
             .collect();
-
-        Ok(Some(CsiData {
+        csi: CsiData
+        Ok(Some(DataMsg::CsiFrame{csi: CsiData {
             timestamp: header.timestamp,
             sequence_number: header.sequence_number,
             rssi,
             csi,
-        }))
+        }}))
+    
+            }
+            DataMsg::CsiFrame { csi } => {
+                // Already parsed — just forward
+                Ok(Some(DataMsg::CsiFrame { csi }))
+            }
+        }
+        
     }
 }
 

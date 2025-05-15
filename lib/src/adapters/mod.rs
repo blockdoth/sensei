@@ -28,19 +28,16 @@ pub mod iwl;
 /// otherwise returns None
 #[async_trait::async_trait]
 pub trait CsiDataAdapter: Send {
-    /// Attempts to consume a slice of bytes and produce a `CsiData` frame.
+    /// Attempts to consume a DataMsg and produce a CsiFrame variant.
     ///
     /// # Arguments
-    /// * `buf` - A slice of bytes representing a raw data packet from a source.
+    /// * `msg` - A DataMsg enum (either raw bytes or already parsed CSI).
     ///
     /// # Returns
-    /// * `Ok(Some(CsiData))` - When a complete and valid frame is assembled.
-    /// * `OK(none) or Err(CsiAdapterError)` - On malformed input or internal parsing error.
-    ///
-    /// # Notes
-    /// - Adapters do not handle packet fragmentation logic. Callers must ensure
-    ///   that only complete packets are passed in (unless fragmentation is internally supported).
-    async fn produce(&mut self, buf: &[u8]) -> Result<Option<CsiData>, CsiAdapterError>;
+    /// * `Ok(Some(DataMsg::CsiFrame))` - When a CSI frame is ready.
+    /// * `Ok(None)` - When more data is needed (e.g. fragmented input).
+    /// * `Err(CsiAdapterError)` - On decoding error.
+    async fn produce(&mut self, msg: DataMsg) -> Result<Option<DataMsg>, CsiAdapterError>;
 }
 
 /// Adapter type tag for configuration-based instantiation.
