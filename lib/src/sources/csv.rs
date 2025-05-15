@@ -21,6 +21,8 @@ pub struct CsvConfig {
     pub row_delimiter: u8,
     /// Header row in the CSV file
     pub header: bool,
+    /// The delay between reads
+    pub delay: u32,
 }
 
 pub struct CsvSource {
@@ -89,6 +91,8 @@ impl DataSourceT for CsvSource {
         })?;
         // put the line into the buffer
         buf[..bytes_read].copy_from_slice(line);
+        // sleep for the delay
+        tokio::time::sleep(tokio::time::Duration::from_millis(self.config.delay.into())).await;
         Ok(bytes_read)
     }
 
@@ -135,6 +139,7 @@ mod tests {
             cell_delimiter: b',',
             row_delimiter: b'\n',
             header: true,
+            delay: 1,
         };
 
         let csv_source = CsvSource::new(config.clone());
@@ -148,6 +153,7 @@ mod tests {
             cell_delimiter: b',',
             row_delimiter: b'\n',
             header: true,
+            delay: 1,
         };
 
         let csv_source = CsvSource::new(config);
@@ -164,6 +170,7 @@ mod tests {
             cell_delimiter: b',',
             row_delimiter: b'\n',
             header: true,
+            delay: 1,
         };
 
         let mut csv_source = CsvSource::new(config).unwrap();
@@ -182,6 +189,7 @@ mod tests {
             cell_delimiter: b',',
             row_delimiter: b'\n',
             header: true,
+            delay: 1,
         };
 
         let mut csv_source = CsvSource::new(config).unwrap();
