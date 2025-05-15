@@ -1,5 +1,6 @@
 use crate::errors::ControllerError;
 use crate::controllers::Controller;
+use crate::sources::DataSourcesT;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use tokio::process::Command;
@@ -30,7 +31,7 @@ impl Default for NetworkCardControlParams {
 #[typetag::serde(name = "NetLink")]
 #[async_trait::async_trait]
 impl Controller for NetworkCardControlParams {
-    async fn configure(&self) -> Result<(), ControllerError> {
+    async fn apply(&self, _source: &mut dyn DataSourceT) -> Result<(), ControllerError> {
         let mut freq_args = vec![
             self.center_freq_mhz.to_string(),
             self.bandwidth_mhz.to_string(),

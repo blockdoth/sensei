@@ -173,17 +173,6 @@ impl DataSourceT for NetlinkSource {
         buf[..payload.len()].copy_from_slice(payload);
         Ok(payload.len())
     }
-
-    async fn configure(&mut self, params: Box<dyn Controller>) -> Result<(), DataSourceError> {
-        trace!(
-            "Invoking configuration for netlink; Subscribed group: {}",
-            self.config.group
-        );
-        params
-            .configure()
-            .await
-            .map_err(|e| DataSourceError::Controller(e.to_string()))
-    }
 }
 
 impl NetlinkSource {
@@ -214,14 +203,5 @@ impl NetlinkSource {
                 Err(DataSourceError::Io(e))
             }
         }
-    }
-}
-
-/// TryFrom trait implementations
-impl TryFrom<NetlinkConfig> for Box<dyn DataSourceT> {
-    type Error = DataSourceError; // Replace with your actual error type
-
-    fn try_from(config: NetlinkConfig) -> Result<Self, Self::Error> {
-        Ok(Box::new(NetlinkSource::new(config)?))
     }
 }

@@ -2,8 +2,10 @@ mod controllers;
 pub mod netlink;
 
 use std::net::SocketAddr;
-
+use crate::FromConfig;
 use crate::errors::DataSourceError;
+use crate::errors::TaskError;
+use crate::FromConfig;
 use crate::sources::controllers::Controller;
 
 /// Data Source Trait
@@ -35,16 +37,7 @@ pub trait DataSourceT: Send {
     /// its size.
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError>;
 
-    /// Configure a source
-    /// ------------------
-    /// Try to configure a source with a given set of control parameters. These are
-    /// tool/protocol specific, and sources must decide what they can and can't handle.
-    async fn configure(&mut self, params: Box<dyn Controller>) -> Result<(), DataSourceError>;
 }
-
-
-
-//TODO: Create a way to control the sources with a RPCMessage, Bellow is what Fabian worked on and how he controlled the sources
 
 
 /// Unified controller parameters
@@ -55,6 +48,34 @@ pub enum ControllerParams {
     // Extendable
 }
 
+
+#[derive(serde::Deserialize, Debug, Clone)]
+#[serde(tag = "type")]
+pub enum DataSourceConfig {
+    Netlink(netlink::NetlinkConfig),
+}
+
+#[async_trait::async_trait]
+impl FromConfig<DataSourceConfig> for dyn DataSourceT {
+
+    async fn from_config(config: DataSourceConfig) -> Result<Box<Self>, TaskError> {
+        let source: Box<dyn DataSourceT> = match config {
+            DataSourceConfig::Netlink(cfg) => Box::new(netlink::NetlinkSource::new(cfg)?),
+        };
+        Ok(source)
+    }
+}
+
+// Not sure if I need everything after this yet
+//
+// 
+
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+pub struct RemoteSourceConfig {
+    pub device_id: u64,
+    pub addr: SocketAddr,
+    pub raw: bool,
+}
 
 #[cfg_attr(feature = "docs", derive(schemars::JsonSchema))]
 #[derive(serde::Deserialize, serde::Serialize, Debug)]
@@ -76,29 +97,4 @@ pub struct Subscription {
 pub struct Configuration {
     pub device_id: u64,
     pub params: ControllerParams,
-}
-
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
-pub struct RemoteSourceConfig {
-    pub device_id: u64,
-    pub addr: SocketAddr,
-    pub raw: bool,
-}
-
-#[derive(serde::Deserialize, Debug, Clone)]
-#[serde(tag = "type")]
-pub enum DataSourceConfig {
-    Netlink(netlink::NetlinkConfig),
-}
-
-pub async fn source_from_config(
-    config: DataSourceConfig,
-) -> Result<Box<dyn DataSourceT>, DataSourceError> {
-    let source: Box<dyn DataSourceT> = match config {
-        DataSourceConfig::Netlink(cfg) => {
-            Box::new(netlink::NetlinkSource::new(cfg)?)
-        }
-    };
-
-    Ok(source)
 }

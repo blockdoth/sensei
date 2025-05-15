@@ -172,3 +172,9 @@ pub enum ControllerError {
     #[error("Failed to extract PhyName due to string conversions")]
     PhyName,
 }
+
+#[derive(Error, Debug)]
+pub enum TaskError {
+    #[error("Generic")]
+    Generic,
+}

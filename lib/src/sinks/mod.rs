@@ -1,6 +1,8 @@
 use crate::errors::SinkError;
+use crate::errors::TaskError;
 use crate::network::DataMsg;
 use async_trait::async_trait;
+use crate::FromConfig;
 
 pub mod file;
 
@@ -19,12 +21,16 @@ pub enum SinkConfig {
     // add other sink types here
 }
 
-/// Factory to create a boxed SinkHandler from a config.
-pub async fn create_sink(config: SinkConfig) -> Result<Box<dyn SinkHandler>, SinkError> {
-    match config {
-        SinkConfig::File(cfg) => {
-            let sink = file::FileSink::new(cfg).await?;
-            Ok(Box::new(sink))
+#[async_trait::async_trait]
+impl FromConfig<SinkConfig> for dyn Sink {
+    type Error = SinkError;
+
+    async fn from_config(config: SinkConfig) -> Result<Box<Self>, TaskError> {
+        match config {
+            SinkConfig::File(cfg) => {
+                let sink = file::FileSink::new(cfg).await?;
+                Ok(Box::new(sink))
+            }
         }
     }
 }

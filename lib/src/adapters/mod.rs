@@ -13,6 +13,8 @@
 use crate::csi_types::CsiData;
 use crate::errors::CsiAdapterError;
 use crate::network::rpc_message::DataMsg;
+use crate::errors:TaskError;
+use crate::FromConfig;
 pub mod iwl;
 
 /// Csi Data Adapter Trait
@@ -46,20 +48,23 @@ pub trait CsiDataAdapter: Send {
 /// automatically. Each variant contains options specific to the corresponding adapter.
 #[derive(serde::Deserialize, Debug, Clone, Copy)]
 #[serde(tag = "type")]
-pub enum DataAdapterTag {
+pub enum DataAdapterConfig {
     Iwl { scale_csi: bool },
 }
 
 /// Instantiates a boxed CSI data adapter from a configuration tag.
 ///
-/// This implementation allows you to convert a `DataAdapterTag` into a
+/// This implementation allows you to convert a `DataAdapterConfig` into a
 /// boxed dynamic adapter instance.
 ///
 ///
-impl From<DataAdapterTag> for Box<dyn CsiDataAdapter> {
-    fn from(tag: DataAdapterTag) -> Box<dyn CsiDataAdapter> {
-        match tag {
+#[async_trait::async_trait]
+impl FromConfig<DataAdapterTag> for dyn CsiDataAdapter {
+
+    async fn from_config(tag: DataAdapterConfig) -> Result<Box<Self>, TaskError> {
+        let adapter: Box<dyn CsiDataAdapter> = match tag {
             DataAdapterTag::Iwl { scale_csi } => Box::new(iwl::IwlAdapter::new(scale_csi)),
-        }
+        };
+        Ok(adapter)
     }
 }
