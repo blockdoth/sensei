@@ -1,4 +1,4 @@
-tmp_datause thiserror::Error;
+use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum NetworkError {
@@ -122,8 +122,8 @@ pub enum AdapterStreamError {
 
 #[derive(Error, Debug)]
 pub enum RawSourceTaskError {
-    #[error("Generic Error: {0}")]
-    GenericError.
+    #[error("Generic RawSourceTask Error")]
+    GenericError,
 }
 
 

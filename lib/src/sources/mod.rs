@@ -3,7 +3,7 @@ mod controllers;
 
 use std::net::SocketAddr;
 
-use crate::sources::controller::Controller;
+use crate::sources::controllers::Controller;
 use crate::errors::DataSourceError;
 
 /// Data Source Trait
@@ -42,55 +42,50 @@ pub trait DataSourceT: Send {
     async fn configure(&mut self, params: Box<dyn Controller>) -> Result<(), DataSourceError>;
 }
 
-/// Enum capturing all source handler requests
-/// ------------------------------------------
-///
-/// The source handler allows for a few different requests. These requests are passed
-/// down from the server that deals with clients. While the server API may differ, we
-/// want a unified API afterwards.
-///
-/// Since some sources may be on remote machines and connected through a middle layer
-/// of e.g. TCP/Webservice, we need this request here for the RemoteSource trait.
-#[cfg_attr(feature = "docs", derive(schemars::JsonSchema))]
-#[derive(serde::Deserialize, serde::Serialize, Debug)]
-pub enum SourceRequest {
-    Subscribe(Subscription),
-    Configure(Configuration),
-}
 
-#[cfg_attr(feature = "docs", derive(schemars::JsonSchema))]
-#[derive(serde::Deserialize, serde::Serialize, Debug)]
-pub struct Subscription {
-    pub source_id: SourceId,
-    pub raw: bool,
-}
+//TODO: Create a way to control the sources with a RPCMessage, Bellow is what Fabian worked on and how he controlled the sources
 
-#[cfg_attr(feature = "docs", derive(schemars::JsonSchema))]
-#[derive(serde::Deserialize, serde::Serialize, Debug)]
-pub struct Configuration {
-    pub source_id: SourceId,
-    pub params: Box<dyn Controller>,
-}
+// /// of e.g. TCP/Webservice, we need this request here for the RemoteSource trait.
+// #[cfg_attr(feature = "docs", derive(schemars::JsonSchema))]
+// #[derive(serde::Deserialize, serde::Serialize, Debug)]
+// pub enum SourceRequest {
+//     Subscribe(Subscription),
+//     Configure(Configuration),
+// }
 
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
-pub struct RemoteSourceConfig {
-    pub source_id: String,
-    pub addr: SocketAddr,
-    pub raw: bool,
-}
+// #[cfg_attr(feature = "docs", derive(schemars::JsonSchema))]
+// #[derive(serde::Deserialize, serde::Serialize, Debug)]
+// pub struct Subscription {
+//     pub source_id: SourceId,
+//     pub raw: bool,
+// }
 
-#[derive(serde::Deserialize, Debug, Clone)]
-#[serde(tag = "type")]
-pub enum DataSourceConfig {
-    Netlink(netlink::NetlinkConfig),
-}
+// #[cfg_attr(feature = "docs", derive(schemars::JsonSchema))]
+// #[derive(serde::Deserialize, serde::Serialize, Debug)]
+// pub struct Configuration {
+//     pub source_id: SourceId,
+//     pub params: Box<dyn Controller>,
+// }
 
-pub async fn source_from_config(
-    config: DataSourceConfig,
-) -> Result<Box<dyn DataSourceT>, DataSourceError> {
-    let source: Box<dyn DataSourceT> = match config {
-        DataSourceConfig::Netlink(config) => Box::new(netlink::NetlinkSource::new(config)?),
-    };
+// #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+// pub struct RemoteSourceConfig {
+//     pub source_id: String,
+//     pub addr: SocketAddr,
+//     pub raw: bool,
+// }
 
-    Ok(source)
-}
+// #[derive(serde::Deserialize, Debug, Clone)]
+// #[serde(tag = "type")]
+// pub enum DataSourceConfig {
+//     Netlink(netlink::NetlinkConfig),
+// }
+
+// pub async fn source_from_config(
+//     config: DataSourceConfig,
+// ) -> Result<Box<dyn DataSourceT>, DataSourceError> {
+//     let source: Box<dyn DataSourceT> = match config {
+//         DataSourceConfig::Netlink(config) => Box::new(netlink::NetlinkSource::new(config)?),
+//     };
+
+//     Ok(source)
+// }

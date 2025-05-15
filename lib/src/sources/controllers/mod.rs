@@ -1,4 +1,5 @@
 use crate::errors::ControllerError;
+use typetag;
 
 /// Trait that must be implemented by all controller types
 // Tag is for desrialization

@@ -5,5 +5,4 @@ pub mod errors;
 pub mod sources;
 pub mod network;
 pub mod sinks;
-pub mod sources;
 pub mod handler;

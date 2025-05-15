@@ -1,4 +1,4 @@
-use crate::sources::controller::Controller;
+use crate::sources::controllers::Controller;
 use crate::errors::DataSourceError;
 use crate::sources::DataSourceT;
 
@@ -174,7 +174,7 @@ impl DataSourceT for NetlinkSource {
         Ok(payload.len())
     }
 
-    async fn configure(&mut self, params: ControllerParams) -> Result<(), DataSourceError> {
+    async fn configure(&mut self, params: Box<dyn Controller>) -> Result<(), DataSourceError> {
         trace!(
             "Invoking configuration for netlink; Subscribed group: {}",
             self.config.group
