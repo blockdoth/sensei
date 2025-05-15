@@ -23,12 +23,12 @@ num-complex = { version = "0.4.6", features = ["serde"] }
 file = "1.1.2"
 queue = "0.3.1"
 tcpserver = "2.2.0"
-
 chrono = "0.4.41"
 tokio-stream = "0.1.17"
 async-stream = "0.3.6"
 netlink-sys = "0.8.7"
 typetag = "0.2.20"
+tempfile = "3.20.0"
 
 [lints]
 workspace = true

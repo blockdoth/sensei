@@ -1,3 +1,4 @@
+use crate::adapters::{csv::CSVAdapter, csv::CSVAdapterError};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -76,6 +77,9 @@ pub enum CsiAdapterError {
 
     #[error("Invalid input, give a raw frame")]
     InvalidInput,
+
+    #[error("CSV Adapter Error: {0}")]
+    CSV(#[from] CSVAdapterError),
 }
 
 /// Specific errors of the Iwl adapter

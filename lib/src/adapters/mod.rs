@@ -13,6 +13,7 @@
 use crate::csi_types::CsiData;
 use crate::errors::CsiAdapterError;
 use crate::network::rpc_message::DataMsg;
+pub mod csv;
 pub mod iwl;
 
 /// Csi Data Adapter Trait
@@ -40,7 +41,7 @@ pub trait CsiDataAdapter: Send {
     /// # Notes
     /// - Adapters do not handle packet fragmentation logic. Callers must ensure
     ///   that only complete packets are passed in (unless fragmentation is internally supported).
-    async fn produce(&mut self, buf: &[u8]) -> Result<CsiData, CsiAdapterError>;
+    async fn produce(&mut self, buf: &[u8]) -> Result<Option<CsiData>, CsiAdapterError>;
 }
 
 /// Adapter type tag for configuration-based instantiation.
@@ -51,6 +52,7 @@ pub trait CsiDataAdapter: Send {
 #[serde(tag = "type")]
 pub enum DataAdapterTag {
     Iwl { scale_csi: bool },
+    CSV {},
 }
 
 /// Instantiates a boxed CSI data adapter from a configuration tag.
@@ -63,6 +65,8 @@ impl From<DataAdapterTag> for Box<dyn CsiDataAdapter> {
     fn from(tag: DataAdapterTag) -> Box<dyn CsiDataAdapter> {
         match tag {
             DataAdapterTag::Iwl { scale_csi } => Box::new(iwl::IwlAdapter::new(scale_csi)),
+            DataAdapterTag::CSV {} => Box::new(csv::CSVAdapter::default()),
+            _ => panic!("No data adapter specified"),
         }
     }
 }
