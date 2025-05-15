@@ -1,5 +1,6 @@
 mod controllers;
 pub mod netlink;
+pub mod csv;
 
 use std::net::SocketAddr;
 

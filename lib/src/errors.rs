@@ -30,6 +30,9 @@ pub enum SenseiError {
 
 #[derive(Error, Debug)]
 pub enum DataSourceError {
+    #[error("Generic error: {0}")]
+    GenericError(String),
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 

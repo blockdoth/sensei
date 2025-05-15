@@ -1,0 +1,191 @@
+use crate::errors::DataSourceError;
+use crate::sources::DataSourceT;
+use crate::sources::controllers::Controller;
+
+use log::trace;
+use serde::Deserialize;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::{path, vec};
+use std::io::Write;
+use tempfile::NamedTempFile;
+
+/// Config struct which can be parsed from a toml config
+#[derive(Debug, Deserialize, Clone)]
+pub struct CsvConfig {
+    /// Path to the CSV file
+    pub path: path::PathBuf,
+    /// Cell delimiter used in the CSV file
+    pub cell_delimiter: u8,
+    /// Row delimiter used in the CSV file
+    pub row_delimiter: u8,
+    /// Header row in the CSV file
+    pub header: bool,
+}
+
+pub struct CsvSource {
+    config: CsvConfig,
+    file: File,
+    reader: BufReader<File>,
+    buffer: Vec<u8>,
+}
+
+impl CsvSource {
+    pub fn new(config: CsvConfig) -> Result<Self, DataSourceError> {
+        trace!("Creating new CSV source (path: {})", config.path.display());
+        let file = File::open(&config.path).map_err(|e| {
+            DataSourceError::GenericError(format!(
+                "Failed to open CSV file: {}: {}",
+                config.path.display(),
+                e
+            ))
+        })?;
+        let mut reader = BufReader::new(file.try_clone().map_err(|e| {
+            DataSourceError::GenericError(format!(
+                "Failed to clone CSV file: {}: {}",
+                config.path.display(),
+                e
+            ))
+        })?);
+        let mut buffer = Vec::new();
+        buffer.resize(8192, 0); // Preallocate buffer with a size of 8192 bytes;
+
+        if config.header {
+            reader.read_until(config.row_delimiter, &mut Vec::new()).map_err(|e| {
+                DataSourceError::GenericError(
+                    format!(
+                    "Failed to read header from CSV file: {}: {}",
+                    config.path.display(),
+                    e
+                ))
+            })?;
+        }
+        Ok(Self {
+            config,
+            file,
+            reader,
+            buffer,
+        })
+    }
+}
+
+/// Source implementation
+#[async_trait::async_trait]
+impl DataSourceT for CsvSource {
+    /// Read data from source
+    /// ---------------------
+    /// Copy one "packet" (meaning being source specific) into the buffer and report
+    /// its size.
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError> {
+        // create str buff
+        let mut line: &mut Vec<u8> = &mut Vec::new();
+        // read line from file
+        let bytes_read = self.reader.read_until(self.config.row_delimiter, line).map_err(|e| {
+            DataSourceError::GenericError(format!(
+                "Failed to read from CSV file: {}: {}",
+                self.config.path.display(),
+                e
+            ))
+        })?;
+        // put the line into the buffer
+        buf[..bytes_read].copy_from_slice(line);
+        Ok(bytes_read)
+    }
+
+    /// Configure a source
+    /// ------------------
+    /// Try to configure a source with a given set of control parameters. These are
+    /// tool/protocol specific, and sources must decide what they can and can't handle. 
+    async fn configure(&mut self, params: Box<dyn Controller>) -> Result<(), DataSourceError> {
+        trace!("Invoking configuration for CSV source");
+        params
+            .configure()
+            .await
+            .map_err(|e| DataSourceError::Controller(e.to_string()))
+    }
+    /// Start the data source
+    /// -------------------
+    /// Start the data source and prepare it for reading data. This may involve
+    /// opening files, establishing network connections, etc.
+    async fn start(&mut self) -> Result<(), DataSourceError> {
+        trace!("Starting CSV source");
+        Ok(())
+    }
+    /// Stop the data source
+    /// ----------------
+    /// Stop the data source and release any resources it holds. This may involve
+    /// closing files, terminating network connections, etc.
+    async fn stop(&mut self) -> Result<(), DataSourceError> {
+        trace!("Stopping CSV source");
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_csv_source_new_success() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "header1,header2\nvalue1,value2").unwrap();
+
+        let config = CsvConfig {
+            path: temp_file.path().to_path_buf(),
+            cell_delimiter: b',',
+            row_delimiter: b'\n',
+            header: true,
+        };
+
+        let csv_source = CsvSource::new(config.clone());
+        assert!(csv_source.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_csv_source_new_file_not_found() {
+        let config = CsvConfig {
+            path: "non_existent_file.csv".into(),
+            cell_delimiter: b',',
+            row_delimiter: b'\n',
+            header: true,
+        };
+
+        let csv_source = CsvSource::new(config);
+        assert!(csv_source.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_csv_source_read_success() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "header1,header2\nvalue1,value2").unwrap();
+
+        let config = CsvConfig {
+            path: temp_file.path().to_path_buf(),
+            cell_delimiter: b',',
+            row_delimiter: b'\n',
+            header: true,
+        };
+
+        let mut csv_source = CsvSource::new(config).unwrap();
+        let mut buffer = vec![0; 1024];
+        let bytes_read = csv_source.read(&mut buffer).await.unwrap();
+        assert!(bytes_read > 0);
+    }
+
+    #[tokio::test]
+    async fn test_csv_source_start_and_stop() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "header1,header2\nvalue1,value2").unwrap();
+
+        let config = CsvConfig {
+            path: temp_file.path().to_path_buf(),
+            cell_delimiter: b',',
+            row_delimiter: b'\n',
+            header: true,
+        };
+
+        let mut csv_source = CsvSource::new(config).unwrap();
+        assert!(csv_source.start().await.is_ok());
+        assert!(csv_source.stop().await.is_ok());
+    }
+}
