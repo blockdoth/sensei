@@ -75,23 +75,14 @@ impl CsiDataAdapter for CSVAdapter<'_> {
         // Append the incoming bytes to the buffer
         self.buffer.extend_from_slice(buf);
         // Check if the buffer contains a complete row
-        let mut row_buffer: Vec<u8> = Vec::new();
         let mut found = false;
         // Find the first EOL character in the buffer
-        for i in self.cursor_pos..self.buffer.len() {
-            if self.buffer[i] == b'\n' && i != 0 {
-                row_buffer.extend_from_slice(&self.buffer[self.cursor_pos..i]);
-                found = true;
-                // clear the buffer up to the cursor
-                self.buffer.drain(0..i);
-                self.cursor_pos = 0;
-                break;
-            }
+        let x: Vec<_> = self.buffer.split(|c| c == self.line_delimiter).collect();
+        // we care about the second to last row, as that's the most recent complete row
+        if x.len() < 2 {
+            return Ok(None); // No complete row found, return Ok. Data might be incomplete.
         }
-        if row_buffer.is_empty() {
-            // No complete row found, return Ok
-            return Ok(None);
-        }
+        let row_buffer = x[x.len() - 2];
         // EOL found, process the buffer
         let mut csi_data = CsiData::default();
         // split the buffer into cells
