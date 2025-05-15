@@ -18,6 +18,7 @@ pub struct CSVAdapter<'a> {
     line_delimiter: &'a u8,
 }
 
+#[allow(clippy::needless_lifetimes)] // TODO: fix this
 impl<'a> CSVAdapter<'a> {
     pub fn new(
         buffer: Vec<u8>,
@@ -35,7 +36,7 @@ impl<'a> CSVAdapter<'a> {
     }
 }
 
-impl<'a> std::default::Default for CSVAdapter<'a> {
+impl std::default::Default for CSVAdapter<'_> {
     fn default() -> Self {
         CSVAdapter::new(Vec::new(), None, &DEFAULT_CELL_DELIM, &DEFAULT_LINE_DELIM)
     }
