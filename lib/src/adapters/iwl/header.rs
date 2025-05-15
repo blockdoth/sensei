@@ -2,18 +2,53 @@ use std::time::{SystemTime, UNIX_EPOCH};
 // use std::u16;
 use crate::errors::IwlAdapterError;
 
+/// Represents the parsed header of an Intel Wireless Link (IWL) CSI (Channel State Information) packet.
+///
+/// This struct contains metadata extracted from the CSI header including sequence numbers,
+/// antenna configuration, RSSI (Received Signal Strength Indicator), and more.
 pub struct IwlHeader {
+    /// Wall-clock timestamp (in seconds with microsecond precision) when the header was parsed.
     pub timestamp: f64,
+    /// 12-bit sequence number identifying the frame.
     pub sequence_number: u16,
+    /// Number of receiving antennas (max 3).
     pub nrx: usize,
+    /// Number of transmitting antennas or spatial streams (max 3)
     pub ntx: usize,
+    /// Received signal strength indicators for each antenna (up to 3).
     pub rssi: Vec<u16>,
+    /// Noise floor measurement (in dBm).
     pub noise: i8,
+    /// Automatic gain control (AGC) level.
     pub agc: u8,
+    /// Antenna permutation array. Maps raw CSI streams to actual antennas.
     pub perm: [usize; 3],
 }
 
 impl IwlHeader {
+    /// Parses a raw byte buffer containing an IWL CSI header and returns a tuple of the parsed
+    /// `IwlHeader` and the payload slice containing CSI matrix data.
+    ///
+    /// # Arguments
+    /// * `buf` - A byte slice expected to contain a valid IWL header followed by payload.
+    ///
+    /// # Returns
+    /// * `Ok((IwlHeader, &[u8]))` - On successful parsing.
+    /// * `Err(IwlAdapterError)` - If the buffer is malformed or fails validation.
+    ///
+    /// # Errors
+    /// Returns an appropriate `IwlAdapterError` if:
+    /// - The buffer is too short to contain a full header.
+    /// - The netlink code is not the expected value (187).
+    /// - The sequence number exceeds the 12-bit 802.11 spec limit.
+    /// - The antenna count exceeds hardware limits (max 3 for rx/tx).
+    /// - The reported payload size does not match calculated CSI matrix size.
+    ///
+    /// # Notes
+    /// * The original timestamp from the hardware is discarded and replaced
+    ///   with the current system time at parsing for cross-platform consistency.
+    /// * CSI payload matrix size is verified based on NRX and NTX using the formula:
+    ///   `(30 * (nrx * ntx * 8 * 2 + 3)) / 8`, rounded up.
     pub fn parse(buf: &[u8]) -> Result<(Self, &[u8]), IwlAdapterError> {
         if buf.len() < 21 {
             return Err(IwlAdapterError::IncompleteHeader);
@@ -28,6 +63,7 @@ impl IwlHeader {
         // NOTE: The timestamp is useless. Its some internal time that only lasts for like 60 minutes
         let _timestamp = u32::from_le_bytes(buf[0..4].try_into().expect("length checked"));
 
+        // Use current system time for timestamp (in seconds + microseconds).
         let ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards");
