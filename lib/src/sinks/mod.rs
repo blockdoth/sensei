@@ -1,8 +1,8 @@
+use crate::FromConfig;
 use crate::errors::SinkError;
 use crate::errors::TaskError;
-use crate::network::DataMsg;
+use crate::network::rpc_message::DataMsg;
 use async_trait::async_trait;
-use crate::FromConfig;
 
 pub mod file;
 
@@ -23,8 +23,6 @@ pub enum SinkConfig {
 
 #[async_trait::async_trait]
 impl FromConfig<SinkConfig> for dyn Sink {
-    type Error = SinkError;
-
     async fn from_config(config: SinkConfig) -> Result<Box<Self>, TaskError> {
         match config {
             SinkConfig::File(cfg) => {
@@ -34,4 +32,3 @@ impl FromConfig<SinkConfig> for dyn Sink {
         }
     }
 }
-

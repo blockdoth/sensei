@@ -10,11 +10,11 @@
 //! Mofidied based on: wisense/sensei/lib/src/adapters/mod.rs
 //! Originally authored by: Fabian Portner
 
+use crate::FromConfig;
 use crate::csi_types::CsiData;
 use crate::errors::CsiAdapterError;
+use crate::errors::TaskError;
 use crate::network::rpc_message::DataMsg;
-use crate::errors:TaskError;
-use crate::FromConfig;
 pub mod iwl;
 
 /// Csi Data Adapter Trait
@@ -59,11 +59,10 @@ pub enum DataAdapterConfig {
 ///
 ///
 #[async_trait::async_trait]
-impl FromConfig<DataAdapterTag> for dyn CsiDataAdapter {
-
+impl FromConfig<DataAdapterConfig> for dyn CsiDataAdapter {
     async fn from_config(tag: DataAdapterConfig) -> Result<Box<Self>, TaskError> {
         let adapter: Box<dyn CsiDataAdapter> = match tag {
-            DataAdapterTag::Iwl { scale_csi } => Box::new(iwl::IwlAdapter::new(scale_csi)),
+            DataAdapterConfig::Iwl { scale_csi } => Box::new(iwl::IwlAdapter::new(scale_csi)),
         };
         Ok(adapter)
     }

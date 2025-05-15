@@ -2,6 +2,7 @@ use crate::errors::ControllerError;
 use crate::sources::DataSourceT;
 use async_trait::async_trait;
 use typetag;
+pub mod netlink_controller;
 
 /// Trait that must be implemented by all source controller types
 #[typetag::serde(tag = "type")]

@@ -1,12 +1,11 @@
 mod controllers;
 pub mod netlink;
 
-use std::net::SocketAddr;
 use crate::FromConfig;
 use crate::errors::DataSourceError;
 use crate::errors::TaskError;
-use crate::FromConfig;
 use crate::sources::controllers::Controller;
+use std::net::SocketAddr;
 
 /// Data Source Trait
 /// -----------------
@@ -36,18 +35,15 @@ pub trait DataSourceT: Send {
     /// Copy one "packet" (meaning being source specific) into the buffer and report
     /// its size.
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError>;
-
 }
-
 
 /// Unified controller parameters
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, schemars::JsonSchema)]
 #[serde(tag = "type", content = "params")]
 pub enum ControllerParams {
-    Netlink(netlink::NetlinkControllerParams),
+    Netlink(controllers::netlink_controller::NetlinkControllerParams),
     // Extendable
 }
-
 
 #[derive(serde::Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
@@ -57,7 +53,6 @@ pub enum DataSourceConfig {
 
 #[async_trait::async_trait]
 impl FromConfig<DataSourceConfig> for dyn DataSourceT {
-
     async fn from_config(config: DataSourceConfig) -> Result<Box<Self>, TaskError> {
         let source: Box<dyn DataSourceT> = match config {
             DataSourceConfig::Netlink(cfg) => Box::new(netlink::NetlinkSource::new(cfg)?),
@@ -68,7 +63,7 @@ impl FromConfig<DataSourceConfig> for dyn DataSourceT {
 
 // Not sure if I need everything after this yet
 //
-// 
+//
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct RemoteSourceConfig {
@@ -77,23 +72,19 @@ pub struct RemoteSourceConfig {
     pub raw: bool,
 }
 
-#[cfg_attr(feature = "docs", derive(schemars::JsonSchema))]
-#[derive(serde::Deserialize, serde::Serialize, Debug)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, schemars::JsonSchema)]
 pub enum SourceRequest {
     Subscribe(Subscription),
     Configure(Configuration),
 }
 
-#[cfg_attr(feature = "docs", derive(schemars::JsonSchema))]
-#[derive(serde::Deserialize, serde::Serialize, Debug)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, schemars::JsonSchema)]
 pub struct Subscription {
     pub device_id: u64,
     pub raw: bool,
 }
 
-
-#[cfg_attr(feature = "docs", derive(schemars::JsonSchema))]
-#[derive(serde::Deserialize, serde::Serialize, Debug)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, schemars::JsonSchema)]
 pub struct Configuration {
     pub device_id: u64,
     pub params: ControllerParams,
