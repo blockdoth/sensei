@@ -33,7 +33,7 @@ pub enum AppError {
 pub enum CsiAdapterError {
     #[error("IWL Adapter Error: {0}")]
     IWL(#[from] IwlAdapterError),
-    
+
     #[error("CSV Adapter Error: {0}")]
     CSV(#[from] CSVAdapterError),
 }

@@ -12,8 +12,8 @@
 
 use crate::csi_types::CsiData;
 use crate::errors::CsiAdapterError;
-pub mod iwl;
 pub mod csv;
+pub mod iwl;
 
 /// Csi Data Adapter Trait
 /// ----------------------
@@ -46,15 +46,15 @@ pub trait CsiDataAdapter: Send {
 #[serde(tag = "type")]
 pub enum DataAdapterTag {
     Iwl { scale_csi: bool },
-    CSV { }
+    CSV {},
 }
 
 impl From<DataAdapterTag> for Box<dyn CsiDataAdapter> {
     fn from(tag: DataAdapterTag) -> Box<dyn CsiDataAdapter> {
         match tag {
             DataAdapterTag::Iwl { scale_csi } => Box::new(iwl::IwlAdapter::new(scale_csi)),
-            DataAdapterTag::CSV { } => Box::new(csv::CSVAdapter::default()),
-            _ => panic!("No data adapter specified")
+            DataAdapterTag::CSV {} => Box::new(csv::CSVAdapter::default()),
+            _ => panic!("No data adapter specified"),
         }
     }
 }
