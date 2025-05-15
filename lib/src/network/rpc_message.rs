@@ -1,5 +1,6 @@
 use crate::csi_types::CsiData;
 use crate::devices::DeviceCfg;
+use crate::network::rpc_message::RpcMessageKind::Ctrl;
 use bincode::Error;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -7,7 +8,8 @@ use std::{
     str::FromStr,
     sync::Arc,
 };
-use tokio::net::UdpSocket;
+use tokio::net::{TcpStream, UdpSocket};
+use tokio_stream::Stream;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RpcMessage {
@@ -116,5 +118,14 @@ impl FromStr for CtrlMsg {
             "heartbeat" => Ok(CtrlMsg::Heartbeat),
             s => Err(s.to_owned()),
         }
+    }
+}
+
+pub fn make_msg<S: AsRef<TcpStream>>(stream: S, msg: RpcMessageKind) -> RpcMessage {
+    let stream_ref = stream.as_ref();
+    RpcMessage {
+        msg,
+        src_addr: stream_ref.local_addr().unwrap(),
+        target_addr: stream_ref.peer_addr().unwrap(),
     }
 }

@@ -44,6 +44,7 @@ const CONNECTION_TIME: u64 = 10;
 pub struct TcpClient {
     //TODO look if using SocketAddr is fine to use as key
     connections: Arc<Mutex<HashMap<SocketAddr, Connection>>>,
+    pub addr: Option<SocketAddr>,
 }
 
 #[derive(Debug)]
@@ -55,30 +56,39 @@ pub struct Connection {
     pub buffer: Vec<u8>,
 }
 
+impl Default for TcpClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TcpClient {
-    pub async fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             connections: Arc::new(Mutex::new(HashMap::new())),
+            addr: None,
         }
     }
 
     // Might be inefficient, please improve
     pub async fn get_src_addr(&self, src_addr: SocketAddr) -> SocketAddr {
-      self.connections.lock().await.get(&src_addr).unwrap().addr
+        self.connections.lock().await.get(&src_addr).unwrap().addr
     }
 
-    // pub async fn is_connected(&self, target_addr: SocketAddr) -> bool {
-    //   match self.connections.lock().await.get(&target_addr) {
-    //     Some(_) => true,
-    //     None => false,
-    //       }
-    // }
+    pub async fn get_connections(&self) -> Vec<SocketAddr> {
+        self.connections
+            .lock()
+            .await
+            .values()
+            .map(|conn| conn.addr)
+            .collect()
+    }
 
-    pub async fn connect(&mut self, target_addr: SocketAddr) -> Result<(SocketAddr), NetworkError> {
+    pub async fn connect(&mut self, target_addr: SocketAddr) -> Result<(), NetworkError> {
         if let Some(connection) = self.connections.lock().await.get(&target_addr) {
             let target_addr = connection.read_stream.peer_addr().unwrap();
             info!("Already connected to {target_addr}");
-            return Ok(target_addr);
+            return Ok(());
         }
 
         let connection = tokio::time::timeout(
@@ -90,17 +100,11 @@ impl TcpClient {
         match connection {
             Ok(Ok(stream)) => {
                 let (read_stream, mut write_stream) = stream.into_split();
-                
-                let target_addr =  write_stream.peer_addr().unwrap();
-                let src_addr =  write_stream.local_addr().unwrap();
 
-                let msg = RpcMessage {
-                  msg: Ctrl(CtrlMsg::Connect),
-                  src_addr: src_addr,
-                  target_addr: target_addr,
-                };
+                let target_addr = write_stream.peer_addr().unwrap();
+                let src_addr = write_stream.local_addr().unwrap();
 
-                tcp::send_message(&mut write_stream, msg).await;
+                tcp::send_message(&mut write_stream, Ctrl(CtrlMsg::Connect)).await;
 
                 self.connections.lock().await.insert(
                     target_addr,
@@ -112,8 +116,8 @@ impl TcpClient {
                     },
                 );
                 info!("Connected to {target_addr} from {src_addr}");
-
-                Ok(src_addr)
+                self.addr = Some(src_addr);
+                Ok(())
             }
             Ok(Err(e)) => {
                 error!("Failed to connect to {target_addr}: {e}");
@@ -138,13 +142,10 @@ impl TcpClient {
                 Err(NetworkError::Closed)
             }
             Some(mut connection) => {
-                let msg = RpcMessage {
-                    msg: Ctrl(CtrlMsg::Disconnect),
-                    src_addr: connection.write_stream.local_addr().unwrap(), // TODO improve this
-                    target_addr,
-                };
                 debug!("Initiating graceful disconnect with {target_addr}");
-                match super::send_message(&mut connection.write_stream, msg).await {
+                match super::send_message(&mut connection.write_stream, Ctrl(CtrlMsg::Disconnect))
+                    .await
+                {
                     Ok(_) => {
                         debug!("Waiting for confirm of disconnect from {target_addr}");
                         match super::read_message(
@@ -215,7 +216,7 @@ impl TcpClient {
     pub async fn send_message(
         &mut self,
         target_addr: SocketAddr,
-        msg: RpcMessage,
+        msg: RpcMessageKind,
     ) -> Result<(), NetworkError> {
         match self.connections.lock().await.get_mut(&target_addr) {
             None => {

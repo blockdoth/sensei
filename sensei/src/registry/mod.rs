@@ -1,7 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    cli::{GlobalConfig, RegistrySubcommandArgs, SubCommandsArgsEnum},
+    cli::{GlobalConfig, RegistrySubcommandArgs, SubCommandsArgs},
+    config::RegistryConfig,
     module::*,
 };
 use anyhow::Ok;
@@ -36,7 +37,7 @@ struct DeviceInfo {
     current_cfg: String,
 }
 
-impl Run<RegistrySubcommandArgs> for Registry {
+impl Run<RegistryConfig> for Registry {
     fn new() -> Self {
         Registry {
             host_table: HashMap::new(),
@@ -44,12 +45,8 @@ impl Run<RegistrySubcommandArgs> for Registry {
         }
     }
 
-    async fn run(
-        &self,
-        config: &RegistrySubcommandArgs,
-        global: &GlobalConfig,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        info!("Starting registry on address {}", global.socket_addr);
+    async fn run(&self, config: RegistryConfig) -> Result<(), Box<dyn std::error::Error>> {
+        // info!("Starting registry on address {}", config.targets);
         loop {
             println!("Balls");
         }

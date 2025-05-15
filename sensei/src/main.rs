@@ -1,4 +1,5 @@
 mod cli;
+mod config;
 mod module;
 mod orchestrator;
 mod registry;
@@ -44,21 +45,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .unwrap();
 
     match &args.subcommand {
-        SubCommandsArgsEnum::One(node_args) => {
-            SystemNode::new()
-                .run(node_args, &args.global_config())
-                .await?
-        }
-        SubCommandsArgsEnum::Two(registry_args) => {
-            Registry::new()
-                .run(registry_args, &args.global_config())
-                .await?
-        }
-        SubCommandsArgsEnum::Three(orchestrator_args) => {
-            Orchestrator::new()
-                .run(orchestrator_args, &args.global_config())
-                .await?
-        }
+        SubCommandsArgs::One(args) => SystemNode::new().run(args.parse()?).await?,
+        SubCommandsArgs::Two(args) => Registry::new().run(args.parse()?).await?,
+        SubCommandsArgs::Three(args) => Orchestrator::new().run(args.parse()?).await?,
     }
     Ok(())
 }

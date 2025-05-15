@@ -1,17 +1,18 @@
 use crate::cli::*;
-use crate::cli::{SubCommandsArgsEnum, SystemNodeSubcommandArgs};
+use crate::cli::{SubCommandsArgs, SystemNodeSubcommandArgs};
+use crate::config::{OrchestratorConfig, SystemNodeConfig};
 use crate::module::*;
 
 use crate::system_node::rpc_message::RpcMessageKind::*;
-use argh::FromArgs;
+use argh::{CommandInfo, FromArgs};
 use async_trait::async_trait;
 use lib::csi_types::CsiData;
 use lib::errors::NetworkError;
-use lib::network::rpc_message::DataMsg::*;
 use lib::network::rpc_message::RpcMessage;
 use lib::network::rpc_message::SourceType::*;
 use lib::network::rpc_message::{AdapterMode, CtrlMsg};
 use lib::network::rpc_message::{CtrlMsg::*, DataMsg};
+use lib::network::rpc_message::{DataMsg::*, make_msg};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
@@ -101,37 +102,25 @@ impl ConnectionHandler for SystemNode {
                 let msg_opt = recv_command_channel.borrow_and_update().clone();
                 debug!("Received message {msg_opt:?} over channel");
                 match msg_opt {
-                    ChannelMsg::Empty => (), // For init
-                    ChannelMsg::Poll => todo!(),
                     ChannelMsg::Disconnect => {
-                        let msg = RpcMessage {
-                            msg: Ctrl(CtrlMsg::Disconnect),
-                            src_addr: send_stream.local_addr().unwrap(),
-                            target_addr: send_stream.peer_addr().unwrap(),
-                        };
-
-                        send_message(&mut send_stream, msg).await;
+                        send_message(&mut send_stream, Ctrl(CtrlMsg::Disconnect)).await;
                         debug!("Send close confirmation");
                         break;
                     }
                     ChannelMsg::Subscribe => {
-                      info!("Subscribed");
-                      sending = true;
+                        info!("Subscribed");
+                        sending = true;
                     }
                     ChannelMsg::Unsubscribe => {
                         info!("Unsubscribed");
                         sending = false;
                     }
+                    _ => (),
                 }
             }
 
             if sending && let Ok(date_msg) = recv_data_channel.recv().await {
-                let msg = RpcMessage {
-                    src_addr: send_stream.local_addr().unwrap(),
-                    target_addr: send_stream.peer_addr().unwrap(),
-                    msg: Data(date_msg),
-                };
-                tcp::send_message(&mut send_stream, msg).await;
+                tcp::send_message(&mut send_stream, Data(date_msg)).await;
                 info!("Sending")
             }
         }
@@ -139,17 +128,13 @@ impl ConnectionHandler for SystemNode {
     }
 }
 
-impl Run<SystemNodeSubcommandArgs> for SystemNode {
+impl Run<SystemNodeConfig> for SystemNode {
     fn new() -> Self {
         let (send_data_channel, _) = broadcast::channel::<DataMsg>(16);
         SystemNode { send_data_channel }
     }
 
-    async fn run(
-        &self,
-        config: &SystemNodeSubcommandArgs,
-        global: &GlobalConfig,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn run(&self, config: SystemNodeConfig) -> Result<(), Box<dyn std::error::Error>> {
         let connection_handler = Arc::new(self.clone());
 
         let sender_data_channel = connection_handler.send_data_channel.clone();
@@ -166,12 +151,15 @@ impl Run<SystemNodeSubcommandArgs> for SystemNode {
                         csi: vec![],
                     },
                 });
-                i+=1
+                i += 1;
+                if i > 1_000_000 {
+                    i = 0;
+                }
                 // tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
             }
         });
 
-        TcpServer::serve(global.socket_addr, connection_handler).await;
+        TcpServer::serve(config.addr, connection_handler).await;
         Ok(())
     }
 }

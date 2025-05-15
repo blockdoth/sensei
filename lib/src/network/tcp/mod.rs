@@ -1,5 +1,7 @@
-use super::rpc_message::{self, DataMsg, RpcMessage};
-use crate::errors::NetworkError;
+use std::net::SocketAddr;
+
+use super::rpc_message::{self, DataMsg, RpcMessage, RpcMessageKind};
+use crate::{errors::NetworkError, network::rpc_message::make_msg};
 use async_trait::async_trait;
 use log::{debug, error, info, trace};
 use serde::Deserialize;
@@ -66,9 +68,10 @@ pub async fn read_message(
 
 pub async fn send_message(
     stream: &mut OwnedWriteHalf,
-    msg: RpcMessage,
+    msg: RpcMessageKind,
 ) -> Result<(), NetworkError> {
-    let msg_serialized = serialize_rpc_message(msg)?;
+    let msg_wrapped = make_msg(&stream, msg);
+    let msg_serialized = serialize_rpc_message(msg_wrapped)?;
     let msg_length: u32 = msg_serialized.len().try_into().unwrap();
 
     if msg_length as usize > MAX_MESSAGE_LENGTH {
@@ -130,6 +133,8 @@ pub enum ChannelMsg {
     Empty,
     Disconnect,
     Subscribe,
+    ListenSubscribe { addr: SocketAddr },
+    ListenUnsubscribe { addr: SocketAddr },
     Unsubscribe,
     Poll,
 }
