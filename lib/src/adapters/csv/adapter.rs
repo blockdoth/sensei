@@ -70,23 +70,14 @@ impl CsiDataAdapter for CSVAdapter<'_> {
         // Append the incoming bytes to the buffer
         self.buffer.extend_from_slice(buf);
         // Check if the buffer contains a complete row
-        let mut row_buffer: Vec<u8> = Vec::new();
         let mut found = false;
         // Find the first EOL character in the buffer
-        for i in self.cursor_pos..self.buffer.len() {
-            if self.buffer[i] == b'\n' && i != 0 {
-                row_buffer.extend_from_slice(&self.buffer[self.cursor_pos..i]);
-                found = true;
-                // clear the buffer up to the cursor
-                self.buffer.drain(0..i);
-                self.cursor_pos = 0;
-                break;
-            }
+        let x: Vec<_> = self.buffer.split(|c| c == self.line_delimiter).collect();
+        // we care about the second to last row, as that's the most recent complete row
+        if x.len() < 2 {
+            return Ok(()); // No complete row found, return Ok. Data might be incomplete.
         }
-        if row_buffer.is_empty() {
-            // No complete row found, return Ok
-            return Ok(());
-        }
+        let row_buffer = x[x.len() - 2];
         // EOL found, process the buffer
         let mut csi_data = CsiData::default();
         // split the buffer into cells
@@ -241,10 +232,13 @@ mod tests {
     async fn test_consume_multiple_rows() {
         let mut adapter = CSVAdapter::default();
         let csv_data = b"5139255.620319567,13657,2,1,2,\"48,27\",\"(-0.24795687792212684-0.7262670239309299j),(0.8454303851106912+0.7649475667253236j),(-0.8925048482423406+0.35672177778974534j),(0.5601050369340623-0.9757985075283211j)\"\n1627584001.0,51825,2,1,2,\"10,53\",\"(-0.9336763181483387+0.9137239452950752j),(0.04222732682994734+0.4741629187802445j),(-0.24923809791108553-0.6532018904054162j),(-0.13563524299387808+0.8352370739609778j)\"\n";
-        
+        adapter.consume(csv_data).await.unwrap();
         let data1 = adapter.reap().await.unwrap().unwrap();
-        assert_eq!(data1.timestamp, 5139255.620319567);
-        assert_eq!(data1.sequence_number, 13657);
+        // assert_eq!(data1.timestamp, 5139255.620319567);
+        // assert_eq!(data1.sequence_number, 13657);
+
+        assert_eq!(data1.timestamp, 1627584001.0);
+        assert_eq!(data1.sequence_number, 51825);
     }
 
 
