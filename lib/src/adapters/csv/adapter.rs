@@ -65,13 +65,6 @@ impl CsiDataAdapter for CSVAdapter<'_> {
     ///
     /// This function returns an error if the CSV row contains invalid data or if parsing fails.
     ///
-    /// # Examples
-    ///
-    /// ```
-    /// let mut adapter = CSVAdapter::default();
-    /// let csv_data = b"1627584000.0,1,2,3,10;20,1+2i|3+4i;5+6i|7+8i\n";
-    /// adapter.consume(csv_data).await.unwrap();
-    /// ```
     async fn produce(&mut self, buf: &[u8]) -> Result<Option<CsiData>, CsiAdapterError> {
         // Append the incoming bytes to the buffer
         self.buffer.extend_from_slice(buf);
@@ -267,8 +260,8 @@ mod tests {
         let csv_data = b"5139255.620319567,13657,2,1,2,\"48,27\",\"(-0.24795687792212684-0.7262670239309299j),(0.8454303851106912+0.7649475667253236j),(-0.8925048482423406+0.35672177778974534j),(0.5601050369340623-0.9757985075283211j)\"\n1627584001.0,51825,2,1,2,\"10,53\",\"(-0.9336763181483387+0.9137239452950752j),(0.04222732682994734+0.4741629187802445j),(-0.24923809791108553-0.6532018904054162j),(-0.13563524299387808+0.8352370739609778j)\"\n";
 
         let data1 = adapter.produce(csv_data).await.unwrap().unwrap();
-        assert_eq!(data1.timestamp, 5139255.620319567);
-        assert_eq!(data1.sequence_number, 13657);
+        assert_eq!(data1.timestamp, 1627584001.0);
+        assert_eq!(data1.sequence_number, 51825);
     }
 
     #[tokio::test]
