@@ -1,10 +1,10 @@
-pub mod netlink;
 mod controllers;
+pub mod netlink;
 
 use std::net::SocketAddr;
 
-use crate::sources::controllers::Controller;
 use crate::errors::DataSourceError;
+use crate::sources::controllers::Controller;
 
 /// Data Source Trait
 /// -----------------
@@ -41,7 +41,6 @@ pub trait DataSourceT: Send {
     /// tool/protocol specific, and sources must decide what they can and can't handle.
     async fn configure(&mut self, params: Box<dyn Controller>) -> Result<(), DataSourceError>;
 }
-
 
 //TODO: Create a way to control the sources with a RPCMessage, Bellow is what Fabian worked on and how he controlled the sources
 

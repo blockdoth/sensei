@@ -5,7 +5,6 @@ use crate::errors::CsiAdapterError;
 
 const NUM_SUBCARRIER: usize = 30;
 
-
 /// Adapter for Intel wireless CSI data.
 ///
 /// The `IwlAdapter` parses raw bytes received from the Intel 5300 NIC and transforms them
@@ -23,9 +22,7 @@ impl IwlAdapter {
     ///
     /// * `scale_csi` - Whether to apply signal scaling after parsing CSI.
     pub fn new(scale_csi: bool) -> Self {
-        Self {
-            scale_csi,
-        }
+        Self { scale_csi }
     }
 }
 
@@ -107,9 +104,8 @@ impl CsiDataAdapter for IwlAdapter {
             sequence_number: header.sequence_number,
             rssi,
             csi,
-        }));
+        }))
     }
-
 }
 
 /// Converts a dB value to its corresponding linear scale.
@@ -147,7 +143,6 @@ fn get_total_rss(rssi: &[u16], agc: u8) -> f64 {
         .sum();
     rssi_mag.log10() * 10.0 - 44.0 - agc as f64
 }
-
 
 /// Scales the CSI matrix using RSSI, noise, and AGC information.
 ///

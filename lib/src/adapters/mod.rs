@@ -24,7 +24,7 @@ pub mod iwl;
 ///
 /// NOTE: Adapters may hold data internally because the bytestream may
 /// be fragmented over multiple packets. To this end, we split the API
-/// the function only starts reutrning data once the CSIData frame has been collected 
+/// the function only starts reutrning data once the CSIData frame has been collected
 /// otherwise returns None
 #[async_trait::async_trait]
 pub trait CsiDataAdapter: Send {
@@ -54,19 +54,16 @@ pub enum DataAdapterTag {
     Iwl { scale_csi: bool },
 }
 
-
 /// Instantiates a boxed CSI data adapter from a configuration tag.
 ///
 /// This implementation allows you to convert a `DataAdapterTag` into a
-/// boxed dynamic adapter instance:
+/// boxed dynamic adapter instance.
 ///
-/// ```rust
-/// let adapter: Box<dyn CsiDataAdapter> = DataAdapterTag::Iwl { scale_csi: true }.into();
-/// ```
+/// 
 impl From<DataAdapterTag> for Box<dyn CsiDataAdapter> {
     fn from(tag: DataAdapterTag) -> Box<dyn CsiDataAdapter> {
         match tag {
-             DataAdapterTag::Iwl { scale_csi } => Box::new(iwl::IwlAdapter::new(scale_csi)),
+            DataAdapterTag::Iwl { scale_csi } => Box::new(iwl::IwlAdapter::new(scale_csi)),
         }
     }
 }

@@ -1,9 +1,9 @@
-use crate::sources::controllers::Controller;
 use crate::errors::DataSourceError;
 use crate::sources::DataSourceT;
+use crate::sources::controllers::Controller;
 
 use log::trace;
-use netlink_sys::{protocols::NETLINK_CONNECTOR, Socket, SocketAddr};
+use netlink_sys::{Socket, SocketAddr, protocols::NETLINK_CONNECTOR};
 use serde::Deserialize;
 
 /// Config struct which can be parsed from a toml config

@@ -1,3 +1,4 @@
+use crate::csi_types::CsiData;
 use crate::devices::DeviceCfg;
 use bincode::Error;
 use serde::{Deserialize, Serialize};
@@ -7,7 +8,6 @@ use std::{
     sync::Arc,
 };
 use tokio::net::UdpSocket;
-use crate::csi_types::CsiData;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RpcMessage {
