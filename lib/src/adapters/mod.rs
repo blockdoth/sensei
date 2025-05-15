@@ -35,13 +35,12 @@ pub trait CsiDataAdapter: Send {
     ///
     /// # Returns
     /// * `Ok(Some(CsiData))` - When a complete and valid frame is assembled.
-    /// * `Ok(None)` - When more data is needed to complete a frame.
-    /// * `Err(CsiAdapterError)` - On malformed input or internal parsing error.
+    /// * `OK(none) or Err(CsiAdapterError)` - On malformed input or internal parsing error.
     ///
     /// # Notes
     /// - Adapters do not handle packet fragmentation logic. Callers must ensure
     ///   that only complete packets are passed in (unless fragmentation is internally supported).
-    async fn produce(&mut self, buf: &[u8]) -> Result<Option<CsiData>, CsiAdapterError>;
+    async fn produce(&mut self, buf: &[u8]) -> Result<CsiData, CsiAdapterError>;
 }
 
 /// Adapter type tag for configuration-based instantiation.
@@ -59,7 +58,7 @@ pub enum DataAdapterTag {
 /// This implementation allows you to convert a `DataAdapterTag` into a
 /// boxed dynamic adapter instance.
 ///
-/// 
+///
 impl From<DataAdapterTag> for Box<dyn CsiDataAdapter> {
     fn from(tag: DataAdapterTag) -> Box<dyn CsiDataAdapter> {
         match tag {
