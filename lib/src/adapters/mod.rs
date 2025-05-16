@@ -15,6 +15,8 @@ use crate::csi_types::CsiData;
 use crate::errors::CsiAdapterError;
 use crate::errors::TaskError;
 use crate::network::rpc_message::DataMsg;
+use crate::network::rpc_message::DataMsg::CsiFrame;
+pub mod csv;
 pub mod iwl;
 
 /// Csi Data Adapter Trait
@@ -50,6 +52,7 @@ pub trait CsiDataAdapter: Send {
 #[serde(tag = "type")]
 pub enum DataAdapterConfig {
     Iwl { scale_csi: bool },
+    CSV {},
 }
 
 /// Instantiates a boxed CSI data adapter from a configuration tag.
@@ -63,6 +66,7 @@ impl FromConfig<DataAdapterConfig> for dyn CsiDataAdapter {
     async fn from_config(tag: DataAdapterConfig) -> Result<Box<Self>, TaskError> {
         let adapter: Box<dyn CsiDataAdapter> = match tag {
             DataAdapterConfig::Iwl { scale_csi } => Box::new(iwl::IwlAdapter::new(scale_csi)),
+            DataAdapterConfig::CSV {} => Box::new(csv::CSVAdapter::default()),
         };
         Ok(adapter)
     }

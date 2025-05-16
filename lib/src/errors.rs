@@ -1,3 +1,4 @@
+use crate::adapters::{csv::CSVAdapter, csv::CSVAdapterError};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -29,6 +30,9 @@ pub enum SenseiError {
 
 #[derive(Error, Debug)]
 pub enum DataSourceError {
+    #[error("Generic error: {0}")]
+    GenericError(String),
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
@@ -76,6 +80,9 @@ pub enum CsiAdapterError {
 
     #[error("Invalid input, give a raw frame")]
     InvalidInput,
+
+    #[error("CSV Adapter Error: {0}")]
+    CSV(#[from] CSVAdapterError),
 }
 
 /// Specific errors of the Iwl adapter
