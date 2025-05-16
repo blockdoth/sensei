@@ -56,7 +56,6 @@ impl SpamConfigField {
         }
     }
 
-    #[allow(dead_code)] // Was not used in original handle_input, keep for potential future use
     fn prev(self) -> Self {
         match self {
             SpamConfigField::SrcMacOctet(0) => SpamConfigField::PauseMs,
@@ -630,7 +629,7 @@ fn handle_input(
     Ok(false)
 }
 
-fn ui(f: &mut Frame, app_state: &AppState) { // Frame is no longer generic over Backend here
+fn ui(f: &mut Frame, app_state: &AppState) {
     let main_horizontal_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .margin(1)
