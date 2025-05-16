@@ -263,7 +263,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             } else {
                 info!("MAC address whitelist cleared successfully.");
             }
-            esp_guard.get_current_config().clone()
+            esp_guard.config.clone()
         }
         Err(poisoned) => {
             let _ = restore_terminal(&mut terminal);
@@ -463,7 +463,7 @@ fn handle_input(
 
             match esp_mutex.lock() {
                 Ok(mut esp_guard) => {
-                    esp_guard.update_config_mode(new_esp_op_mode);
+                    esp_guard.config.mode = new_esp_op_mode;
                     if let Err(e) = esp_guard.apply_device_config() {
                         app_state_guard.last_error =
                             Some(format!("Failed to set ESP mode via ApplyDeviceConfig: {e}"));
@@ -599,13 +599,13 @@ fn handle_input(
                     } else {
                         Bandwidth::Twenty
                     };
-                    esp_guard.update_config_bandwidth(new_esp_bw);
+                    esp_guard.config.bandwidth = new_esp_bw;
                     let new_secondary_chan = if new_bandwidth_is_40 {
                         SecondaryChannel::Above
                     } else {
                         SecondaryChannel::None
                     };
-                    esp_guard.update_config_secondary_channel(new_secondary_chan);
+                    esp_guard.config.secondary_channel = new_secondary_chan;
 
                     if let Err(e) = esp_guard.apply_device_config() {
                         app_state_guard.last_error = Some(format!("Failed to set bandwidth: {e}"));
@@ -630,7 +630,7 @@ fn handle_input(
                     } else {
                         CsiType::HighThroughputLTF
                     };
-                    esp_guard.update_config_csi_type(new_esp_csi_type);
+                    esp_guard.config.csi_type = new_esp_csi_type;
                     if let Err(e) = esp_guard.apply_device_config() {
                         app_state_guard.last_error = Some(format!("Failed to set CSI type: {e}"));
                     } else {

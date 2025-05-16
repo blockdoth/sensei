@@ -170,7 +170,7 @@ pub struct Esp32 {
     csi_tx: Sender<CsiPacket>,
     csi_rx: Receiver<CsiPacket>,
     connected: Arc<AtomicBool>,
-    config: DeviceConfig,
+    pub config: DeviceConfig,
     reader_thread_handle: Option<JoinHandle<()>>,
 }
 
@@ -658,30 +658,6 @@ impl Esp32 {
         tx_data[12..16].copy_from_slice(&n_reps.to_le_bytes());
         tx_data[16..20].copy_from_slice(&pause_ms.to_le_bytes());
         self.send_command(Command::TransmitCustomFrame, Some(&tx_data))
-    }
-
-    // --- Public getters and setters for config fields ---
-    // These allow cli_test_tool.rs to modify the config and then call apply_device_config()
-    pub fn get_current_config(&self) -> &DeviceConfig {
-        &self.config
-    }
-    pub fn update_config_mode(&mut self, mode: OperationMode) {
-        self.config.mode = mode;
-    }
-    pub fn update_config_channel_local(&mut self, channel: u8) {
-        self.config.channel = channel;
-    } // Renamed to avoid confusion with set_channel command
-    pub fn update_config_bandwidth(&mut self, bandwidth: Bandwidth) {
-        self.config.bandwidth = bandwidth;
-    }
-    pub fn update_config_secondary_channel(&mut self, secondary_channel: SecondaryChannel) {
-        self.config.secondary_channel = secondary_channel;
-    }
-    pub fn update_config_csi_type(&mut self, csi_type: CsiType) {
-        self.config.csi_type = csi_type;
-    }
-    pub fn update_config_manual_scale(&mut self, manual_scale: u8) {
-        self.config.manual_scale = manual_scale;
     }
 
     pub fn get_subcarrier_indices(&self) -> Vec<i32> {
