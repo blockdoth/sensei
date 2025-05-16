@@ -1,3 +1,5 @@
+#![cfg(target_os = "linux")]
+
 use crate::errors::ControllerError;
 use crate::controllers::Controller;
 use std::fs::{self, OpenOptions};

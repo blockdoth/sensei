@@ -39,7 +39,11 @@ env_logger = "0.11.8" # Kept from HEAD, dev had simplelog which is also a logger
 thiserror = "2.0.12"
 anyhow = "1.0.98"
 chrono = "0.4.41"
+typetag = "0.2.20"
+
+[target.'cfg(target_os = "linux")'.dependencies]
 netlink-sys = "0.8.7"
+
 typetag = "0.2.20"
 
 [lints]
