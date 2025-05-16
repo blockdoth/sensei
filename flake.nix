@@ -54,9 +54,7 @@
               lockFile = ./Cargo.lock;
             };
             cargoToml = ./Cargo.toml;
-            buildInputs = with pkgs; [
-              udev
-            ];
+            buildInputs = lib.optionals pkgs.stdenv.isLinux [ pkgs.udev ];
             nativeBuildInputs = with pkgs; [ 
               toolchain 
               pkg-config  
