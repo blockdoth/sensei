@@ -45,7 +45,7 @@ impl CsiDataAdapter for IwlAdapter {
     /// * `Ok(Some(CsiData))` if parsing is successful.
     /// * 'Ok(None)' if parsing is not yet done, call the function again
     /// * `Err(CsiAdapterError)` if parsing fails.
-    async fn produce(&mut self, buf: &[u8]) -> Result<CsiData, CsiAdapterError> {
+    async fn produce(&mut self, buf: &[u8]) -> Result<Option<CsiData>, CsiAdapterError> {
         // Parse header information and extract payload slice
         let (header, payload) = IwlHeader::parse(buf)?;
 
@@ -99,12 +99,12 @@ impl CsiDataAdapter for IwlAdapter {
             .map(|&permuted_rx| header.rssi[permuted_rx])
             .collect();
 
-        Ok(CsiData {
+        Ok(Some(CsiData {
             timestamp: header.timestamp,
             sequence_number: header.sequence_number,
             rssi,
             csi,
-        })
+        }))
     }
 }
 
