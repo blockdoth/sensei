@@ -42,6 +42,7 @@ pub trait DataSourceT: Send {
 #[serde(tag = "type", content = "params")]
 pub enum ControllerParams {
     Netlink(controllers::netlink_controller::NetlinkControllerParams),
+    Esp32(controllers::esp32_controller::Esp32ControllerParams),
     // TODO ADD ESP32
     // Extendable
 }
