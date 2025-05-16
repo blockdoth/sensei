@@ -1,6 +1,10 @@
 use crate::cli::{GlobalConfig, OrchestratorSubcommandArgs, VisualiserSubcommandArgs};
 use crate::module::{CliInit, RunsServer};
+use crate::visualiser::GraphType::Amplitude;
 use async_trait::async_trait;
+use charming::series::Scatter;
+use charming::theme::Theme;
+use charming::{HtmlRenderer, component::Title, element::AxisType, series::Line};
 use lib::csi_types::{Complex, CsiData};
 use lib::errors::NetworkError;
 use lib::network::rpc_message::CtrlMsg::*;
@@ -11,6 +15,7 @@ use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler};
 use log::{debug, info, warn};
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture, Event, KeyCode};
 use ratatui::crossterm::terminal::{
@@ -20,6 +25,7 @@ use ratatui::crossterm::{event, execute};
 use ratatui::layout::{Constraint, Layout, Position};
 use ratatui::prelude::Direction;
 use ratatui::style::{Color, Style};
+use ratatui::text::ToLine;
 use ratatui::widgets::{Axis, Block, Borders, Chart, Dataset};
 use ratatui::{Frame, Terminal, symbols};
 use std::cell::RefCell;
@@ -32,27 +38,13 @@ use std::ops::DerefMut;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
-use ratatui::text::ToLine;
+use std::{fs, sync::mpsc::channel};
 use tokio::io;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::{Mutex, watch};
-use charming::{
-    component::{Title},
-    element::AxisType,
-    series::Line,
-    HtmlRenderer,
-};
-use notify::{RecommendedWatcher, RecursiveMode, Watcher};
-use std::{
-    fs,
-    sync::mpsc::channel,
-};
-use charming::series::Scatter;
-use charming::theme::Theme;
 use warp::Filter;
-use crate::visualiser::GraphType::Amplitude;
 
 pub struct Visualiser {
     // This seemed to me the best way to structure the data, as the socketaddr is a primary key for each node, and each device has a unique id only within a node
@@ -227,8 +219,7 @@ impl Visualiser {
                             text_input.pop();
                         }
                         KeyCode::Enter => {
-                            Self::execute_command(text_input.clone(), graphs.clone())
-                                .await;
+                            Self::execute_command(text_input.clone(), graphs.clone()).await;
                             text_input.clear();
                         }
                         KeyCode::Esc => return Ok(()),
@@ -293,15 +284,18 @@ impl Visualiser {
                                         .0,
                                 ]),
                             )
-                            .y_axis(Axis::default().title(types[i].clone()).bounds([data.iter()
-                                .min_by(|x, y| x.1.total_cmp(&y.1))
-                                .unwrap_or(&(0f64, 10f64))
-                                .0,
-                                data.iter()
-                                    .max_by(|x, y| x.1.total_cmp(&y.1))
-                                    .unwrap_or(&(0f64, 10f64))
-                                    .0,
-                            ]));
+                            .y_axis(
+                                Axis::default().title(types[i].clone()).bounds([
+                                    data.iter()
+                                        .min_by(|x, y| x.1.total_cmp(&y.1))
+                                        .unwrap_or(&(0f64, 10f64))
+                                        .0,
+                                    data.iter()
+                                        .max_by(|x, y| x.1.total_cmp(&y.1))
+                                        .unwrap_or(&(0f64, 10f64))
+                                        .0,
+                                ]),
+                            );
                         f.render_widget(chart, chart_area[i]);
                     }
 
@@ -320,7 +314,9 @@ impl Visualiser {
         }
     }
 
-    fn entry_from_command(parts: Vec<&str>) -> Option<(GraphType, SocketAddr, u64, usize, usize, usize)> {
+    fn entry_from_command(
+        parts: Vec<&str>,
+    ) -> Option<(GraphType, SocketAddr, u64, usize, usize, usize)> {
         let graph_type: GraphType = match parts[1].parse() {
             Ok(addr) => addr,
             Err(_) => return None, // Exit on invalid input
@@ -361,16 +357,16 @@ impl Visualiser {
 
         match parts[0] {
             "add" if parts.len() == 7 => {
-                let entry = match Self::entry_from_command(parts){
-                    None => { return }
-                    Some(entry) => {entry}
+                let entry = match Self::entry_from_command(parts) {
+                    None => return,
+                    Some(entry) => entry,
                 };
                 graphs.lock().await.push(entry);
             }
             "remove" if parts.len() == 7 => {
-                let entry =  match Self::entry_from_command(parts){
-                    None => { return }
-                    Some(entry) => {entry}
+                let entry = match Self::entry_from_command(parts) {
+                    None => return,
+                    Some(entry) => entry,
                 };
                 graphs.lock().await.retain(|x| *x != entry)
             }
@@ -421,7 +417,8 @@ impl Visualiser {
                     let chart = Self::generate_chart_from_data(self.process_data(graph).await);
                     HtmlRenderer::new("Example Chart", 800, 600)
                         .theme(Theme::Default)
-                        .save(&chart, format!("{i}chart.html")).expect("TODO: panic message");
+                        .save(&chart, format!("{i}chart.html"))
+                        .expect("TODO: panic message");
                 }
 
                 last_tick = Instant::now();
