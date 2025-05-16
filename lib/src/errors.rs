@@ -179,3 +179,30 @@ pub enum ControllerError {
     #[error("Failed to extract PhyName due to string conversions")]
     PhyName,
 }
+
+#[derive(Error, Debug)]
+pub enum SinkError {
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("Error: {0}")]
+    Generic(#[from] SenseiError),
+
+    #[error("Channel closed; Sink disconnected.")]
+    Disconnected,
+
+    #[error("Error: {0}")]
+    Serialize(String),
+}
+
+#[derive(Error, Debug)]
+pub enum TaskError {
+    #[error("Generic")]
+    Generic,
+
+    #[error("Sink Error: {0}")]
+    SinkError(#[from] SinkError),
+
+    #[error("Data Source Error: {0}")]
+    DataSourceError(#[from] DataSourceError),
+}

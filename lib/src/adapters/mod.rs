@@ -10,8 +10,10 @@
 //! Mofidied based on: wisense/sensei/lib/src/adapters/mod.rs
 //! Originally authored by: Fabian Portner
 
+use crate::FromConfig;
 use crate::csi_types::CsiData;
 use crate::errors::CsiAdapterError;
+use crate::errors::TaskError;
 use crate::network::rpc_message::DataMsg;
 pub mod csv;
 pub mod iwl;
@@ -29,10 +31,10 @@ pub mod iwl;
 /// otherwise returns None
 #[async_trait::async_trait]
 pub trait CsiDataAdapter: Send {
-    /// Attempts to consume a slice of bytes and produce a `CsiData` frame.
+    /// Attempts to consume a DataMsg and produce a CsiFrame variant.
     ///
     /// # Arguments
-    /// * `buf` - A slice of bytes representing a raw data packet from a source.
+    /// * `msg` - A DataMsg enum (either raw bytes or already parsed CSI).
     ///
     /// # Returns
     /// * `Ok(Some(CsiData))` - When a complete and valid frame is assembled.
@@ -50,14 +52,14 @@ pub trait CsiDataAdapter: Send {
 /// automatically. Each variant contains options specific to the corresponding adapter.
 #[derive(serde::Deserialize, Debug, Clone, Copy)]
 #[serde(tag = "type")]
-pub enum DataAdapterTag {
+pub enum DataAdapterConfig {
     Iwl { scale_csi: bool },
     CSV {},
 }
 
 /// Instantiates a boxed CSI data adapter from a configuration tag.
 ///
-/// This implementation allows you to convert a `DataAdapterTag` into a
+/// This implementation allows you to convert a `DataAdapterConfig` into a
 /// boxed dynamic adapter instance.
 ///
 ///
