@@ -32,6 +32,9 @@ pub enum DataSourceError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
+    #[error("Serial port error: {0}")]
+    Serial(#[from] serialport::Error),
+
     #[error("Couldnt parse packet: {0}")]
     ParsingError(String),
 
@@ -76,7 +79,7 @@ pub enum CsiAdapterError {
 
     #[error("ESP32 Adapter Error: {0}")]
     ESP32(#[from] Esp32AdapterError),
-    
+
     #[error("Invalid input, give a raw frame")]
     InvalidInput,
 }
@@ -185,6 +188,9 @@ pub enum ControllerError {
 
     #[error("Failed to extract PhyName due to string conversions")]
     PhyName,
+
+    #[error("Controller execution error: {0}")]
+    Execution(String),
 }
 
 #[derive(Error, Debug)]
