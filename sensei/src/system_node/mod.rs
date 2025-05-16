@@ -71,7 +71,7 @@ impl ConnectionHandler for SystemNode {
                     println!("Unsubscribed from data stream");
                 }
                 m => {
-                  todo!("{:?}", m);
+                    todo!("{:?}", m);
                 }
             },
             Data(data_msg) => todo!(),
@@ -128,7 +128,7 @@ impl Run<SystemNodeConfig> for SystemNode {
 
         let sender_data_channel = connection_handler.send_data_channel.clone();
 
-        // Example sender which just spams packets 
+        // Example sender which just spams packets
         // The most important thing is the ability to clone send ends of channels arround
         tokio::spawn(async move {
             let mut i = 0;

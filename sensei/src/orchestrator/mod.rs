@@ -27,31 +27,30 @@ pub struct Orchestrator {
 }
 
 impl Run<OrchestratorConfig> for Orchestrator {
-  fn new() -> Self {
-      Orchestrator {
-          client: Arc::new(Mutex::new(TcpClient::new())),
-      }
-  }
+    fn new() -> Self {
+        Orchestrator {
+            client: Arc::new(Mutex::new(TcpClient::new())),
+        }
+    }
 
-  async fn run(&self, config: OrchestratorConfig) -> Result<(), Box<dyn std::error::Error>> {
-      for target_addr in config.targets.into_iter() {
-          Self::connect(&self.client, target_addr).await
-      }
-      self.cli_interface().await;
-      Ok(())
-  }
+    async fn run(&self, config: OrchestratorConfig) -> Result<(), Box<dyn std::error::Error>> {
+        for target_addr in config.targets.into_iter() {
+            Self::connect(&self.client, target_addr).await
+        }
+        self.cli_interface().await;
+        Ok(())
+    }
 }
 
 impl Orchestrator {
-    
     async fn connect(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr) {
         client.lock().await.connect(target_addr).await;
     }
-    
+
     async fn disconnect(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr) {
         client.lock().await.disconnect(target_addr).await;
     }
-    
+
     async fn subscribe(
         client: &Arc<Mutex<TcpClient>>,
         target_addr: SocketAddr,
@@ -101,12 +100,12 @@ impl Orchestrator {
                     }
                     Some("disconnect") => {
                         let target_addr: SocketAddr =
-                            line_iter.next().unwrap().parse().unwrap_or(DEFAULT_ADDRESS);
+                            line_iter.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
                         Self::disconnect(&send_client, target_addr).await;
                     }
                     Some("sub") => {
                         let target_addr: SocketAddr =
-                            line_iter.next().unwrap().parse().unwrap_or(DEFAULT_ADDRESS);
+                            line_iter.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
                         let device_id: u64 = line_iter.next().unwrap_or("0").parse().unwrap();
                         let mode: AdapterMode = match line_iter.next() {
                             Some("source") => AdapterMode::SOURCE,
@@ -120,7 +119,7 @@ impl Orchestrator {
                     Some("unsub") => {
                         let target_addr: SocketAddr = line_iter
                             .next()
-                            .unwrap() // #TODO remove unwrap
+                            .unwrap_or("") // #TODO remove unwrap
                             .parse()
                             .unwrap_or(DEFAULT_ADDRESS);
                         let device_id: u64 = line_iter.next().unwrap_or("0").parse().unwrap();
@@ -170,7 +169,9 @@ impl Orchestrator {
                             .await
                             .unwrap();
                         match msg.msg {
-                            Data(DataMsg::CsiFrame {  csi }) => info!("{}: {}", msg.src_addr, csi.timestamp),
+                            Data(DataMsg::CsiFrame { csi }) => {
+                                info!("{}: {}", msg.src_addr, csi.timestamp)
+                            }
                             Data(DataMsg::RawFrame {
                                 ts,
                                 bytes,

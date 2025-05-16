@@ -77,7 +77,6 @@ impl FromStr for AdapterMode {
     }
 }
 
-
 // FromStr implementations for easy cli usage
 impl FromStr for CtrlMsg {
     type Err = String;
@@ -122,8 +121,8 @@ impl FromStr for CtrlMsg {
 }
 
 // Convenient wrapper to add src/target data to RpcMessage's
-// Takes any type that implements AsRef, such as TcpStream/OwnedReadHalf/OwnedWriteHalf 
-// as refs (&), Arc<>, Box<> and Rc<> 
+// Takes any type that implements AsRef, such as TcpStream/OwnedReadHalf/OwnedWriteHalf
+// as refs (&), Arc<>, Box<> and Rc<>
 pub fn make_msg<S: AsRef<TcpStream>>(stream: S, msg: RpcMessageKind) -> RpcMessage {
     let stream_ref = stream.as_ref();
     RpcMessage {
