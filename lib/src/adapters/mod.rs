@@ -10,8 +10,10 @@
 //! Mofidied based on: wisense/sensei/lib/src/adapters/mod.rs
 //! Originally authored by: Fabian Portner
 
+use crate::FromConfig;
 use crate::csi_types::CsiData;
 use crate::errors::CsiAdapterError;
+use crate::errors::TaskError;
 use crate::network::rpc_message::DataMsg;
 pub mod iwl;
 
@@ -28,19 +30,16 @@ pub mod iwl;
 /// otherwise returns None
 #[async_trait::async_trait]
 pub trait CsiDataAdapter: Send {
-    /// Attempts to consume a slice of bytes and produce a `CsiData` frame.
+    /// Attempts to consume a DataMsg and produce a CsiFrame variant.
     ///
     /// # Arguments
-    /// * `buf` - A slice of bytes representing a raw data packet from a source.
+    /// * `msg` - A DataMsg enum (either raw bytes or already parsed CSI).
     ///
     /// # Returns
-    /// * `Ok(Some(CsiData))` - When a complete and valid frame is assembled.
-    /// * `OK(none) or Err(CsiAdapterError)` - On malformed input or internal parsing error.
-    ///
-    /// # Notes
-    /// - Adapters do not handle packet fragmentation logic. Callers must ensure
-    ///   that only complete packets are passed in (unless fragmentation is internally supported).
-    async fn produce(&mut self, buf: &[u8]) -> Result<CsiData, CsiAdapterError>;
+    /// * `Ok(Some(DataMsg::CsiFrame))` - When a CSI frame is ready.
+    /// * `Ok(None)` - When more data is needed (e.g. fragmented input).
+    /// * `Err(CsiAdapterError)` - On decoding error.
+    async fn produce(&mut self, msg: DataMsg) -> Result<Option<DataMsg>, CsiAdapterError>;
 }
 
 /// Adapter type tag for configuration-based instantiation.
@@ -49,20 +48,22 @@ pub trait CsiDataAdapter: Send {
 /// automatically. Each variant contains options specific to the corresponding adapter.
 #[derive(serde::Deserialize, Debug, Clone, Copy)]
 #[serde(tag = "type")]
-pub enum DataAdapterTag {
+pub enum DataAdapterConfig {
     Iwl { scale_csi: bool },
 }
 
 /// Instantiates a boxed CSI data adapter from a configuration tag.
 ///
-/// This implementation allows you to convert a `DataAdapterTag` into a
+/// This implementation allows you to convert a `DataAdapterConfig` into a
 /// boxed dynamic adapter instance.
 ///
 ///
-impl From<DataAdapterTag> for Box<dyn CsiDataAdapter> {
-    fn from(tag: DataAdapterTag) -> Box<dyn CsiDataAdapter> {
-        match tag {
-            DataAdapterTag::Iwl { scale_csi } => Box::new(iwl::IwlAdapter::new(scale_csi)),
-        }
+#[async_trait::async_trait]
+impl FromConfig<DataAdapterConfig> for dyn CsiDataAdapter {
+    async fn from_config(tag: DataAdapterConfig) -> Result<Box<Self>, TaskError> {
+        let adapter: Box<dyn CsiDataAdapter> = match tag {
+            DataAdapterConfig::Iwl { scale_csi } => Box::new(iwl::IwlAdapter::new(scale_csi)),
+        };
+        Ok(adapter)
     }
 }
