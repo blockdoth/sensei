@@ -1,43 +1,30 @@
-use std::net::SocketAddr;
+use std::net::{AddrParseError, SocketAddr};
 
 use argh::FromArgs;
 
 use simplelog::{ColorChoice, CombinedLogger, LevelFilter, TermLogger, TerminalMode, WriteLogger};
 
+use crate::config::{OrchestratorConfig, RegistryConfig, SystemNodeConfig};
+
 /// A simple app to perform collection from configured sources
 #[derive(FromArgs)]
 pub struct Args {
-    /// server address (default: 127.0.0.1)
-    #[argh(option, default = "String::from(\"127.0.0.1\")")]
-    addr: String,
-
-    /// server port (default: 6969)
-    #[argh(option, default = "6969")]
-    port: u16,
-
     /// log level to use for terminal logging
-    #[argh(option, default = "LevelFilter::Debug")]
+    #[argh(option, default = "LevelFilter::Info")]
     pub level: LevelFilter,
 
     #[argh(subcommand)]
-    pub subcommand: SubCommandsArgsEnum,
+    pub subcommand: SubCommandsArgs,
 }
 
 pub struct GlobalConfig {
-    pub socket_addr: SocketAddr,
-}
-
-impl Args {
-    pub fn global_config(&self) -> GlobalConfig {
-        GlobalConfig {
-            socket_addr: format!("{}:{}", self.addr, self.port).parse().unwrap(),
-        }
-    }
+    pub target_addr: SocketAddr,
+    pub tui: bool,
 }
 
 #[derive(FromArgs)]
 #[argh(subcommand)]
-pub enum SubCommandsArgsEnum {
+pub enum SubCommandsArgs {
     One(SystemNodeSubcommandArgs),
     Two(RegistrySubcommandArgs),
     Three(OrchestratorSubcommandArgs),
@@ -46,14 +33,56 @@ pub enum SubCommandsArgsEnum {
 /// System node commands
 #[derive(FromArgs)]
 #[argh(subcommand, name = "node")]
-pub struct SystemNodeSubcommandArgs {}
+pub struct SystemNodeSubcommandArgs {
+    /// server address (default: 127.0.0.1)
+    #[argh(option, default = "String::from(\"127.0.0.1\")")]
+    pub addr: String,
+
+    /// server port (default: 6969)
+    #[argh(option, default = "6969")]
+    pub port: u16,
+}
+
+impl SystemNodeSubcommandArgs {
+    pub fn parse(&self) -> Result<SystemNodeConfig, AddrParseError> {
+        Ok(SystemNodeConfig {
+            addr: format!("{}:{}", self.addr, self.port).parse()?,
+        })
+    }
+}
 
 /// Registry node commands
 #[derive(FromArgs)]
 #[argh(subcommand, name = "registry")]
 pub struct RegistrySubcommandArgs {}
 
+impl RegistrySubcommandArgs {
+    pub fn parse(&self) -> Result<RegistryConfig, AddrParseError> {
+        Ok(RegistryConfig { targets: vec![] })
+    }
+}
 /// Orchestrator node commands
 #[derive(FromArgs)]
 #[argh(subcommand, name = "orchestrator")]
-pub struct OrchestratorSubcommandArgs {}
+pub struct OrchestratorSubcommandArgs {
+    /// server port (default: 6969)
+    #[argh(option, default = "vec![String::from(\"127.0.0.1:6969\")]")]
+    pub target: Vec<String>,
+
+    /// whether to enable tui input
+    #[argh(option, default = "true")]
+    pub tui: bool,
+}
+
+impl OrchestratorSubcommandArgs {
+    pub fn parse(&self) -> Result<OrchestratorConfig, AddrParseError> {
+        // TODO input validation
+        Ok(OrchestratorConfig {
+            targets: self
+                .target
+                .iter()
+                .map(|addr| addr.parse().unwrap())
+                .collect(),
+        })
+    }
+}

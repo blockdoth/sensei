@@ -1,7 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    cli::{GlobalConfig, RegistrySubcommandArgs, SubCommandsArgsEnum},
+    cli::{GlobalConfig, RegistrySubcommandArgs, SubCommandsArgs},
+    config::RegistryConfig,
     module::*,
 };
 use anyhow::Ok;
@@ -10,7 +11,6 @@ use log::*;
 use std::net::SocketAddr;
 
 pub struct Registry {
-    socket_addr: SocketAddr,
     host_table: HashMap<HostId, HostInfo>,
     device_table: HashMap<DeviceId, DeviceInfo>,
 }
@@ -37,21 +37,18 @@ struct DeviceInfo {
     current_cfg: String,
 }
 
-impl RunsServer for Registry {
-    async fn start_server(self: Arc<Self>) -> Result<(), Box<dyn std::error::Error>> {
-        info!("Starting registry on address {}", self.socket_addr);
-        loop {
-            println!("Balls");
-        }
-    }
-}
-
-impl CliInit<RegistrySubcommandArgs> for Registry {
-    fn init(config: &RegistrySubcommandArgs, global: &GlobalConfig) -> Self {
+impl Run<RegistryConfig> for Registry {
+    fn new() -> Self {
         Registry {
-            socket_addr: global.socket_addr,
             host_table: HashMap::new(),
             device_table: HashMap::new(),
+        }
+    }
+
+    async fn run(&self, config: RegistryConfig) -> Result<(), Box<dyn std::error::Error>> {
+        // info!("Starting registry on address {}", config.targets);
+        loop {
+            println!("Balls");
         }
     }
 }
