@@ -42,6 +42,7 @@ pub trait DataSourceT: Send {
 #[serde(tag = "type", content = "params")]
 pub enum ControllerParams {
     Netlink(controllers::netlink_controller::NetlinkControllerParams),
+    // TODO ADD ESP32
     // Extendable
 }
 
@@ -49,6 +50,7 @@ pub enum ControllerParams {
 #[serde(tag = "type")]
 pub enum DataSourceConfig {
     Netlink(netlink::NetlinkConfig),
+    // TODO ADD ESP32
 }
 
 #[async_trait::async_trait]
@@ -56,6 +58,7 @@ impl FromConfig<DataSourceConfig> for dyn DataSourceT {
     async fn from_config(config: DataSourceConfig) -> Result<Box<Self>, TaskError> {
         let source: Box<dyn DataSourceT> = match config {
             DataSourceConfig::Netlink(cfg) => Box::new(netlink::NetlinkSource::new(cfg)?),
+            // TODO ADD ESP32
         };
         Ok(source)
     }
@@ -64,7 +67,7 @@ impl FromConfig<DataSourceConfig> for dyn DataSourceT {
 // Not sure if I need everything after this yet
 //
 //
-
+/* Fabian's stuff
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct RemoteSourceConfig {
     pub device_id: u64,
@@ -89,3 +92,4 @@ pub struct Configuration {
     pub device_id: u64,
     pub params: ControllerParams,
 }
+*/
