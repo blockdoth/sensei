@@ -11,10 +11,6 @@ use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler};
 use log::{debug, info, warn};
-use minifb::{Key, Window, WindowOptions};
-use plotters::coord::ranged1d::ReversibleRanged;
-use plotters::prelude::*;
-use plotters_bitmap::BitMapBackend;
 use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture, Event, KeyCode};
 use ratatui::crossterm::terminal::{
@@ -42,6 +38,21 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::{Mutex, watch};
+use charming::{
+    component::{Title},
+    element::AxisType,
+    series::Line,
+    HtmlRenderer,
+};
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+use std::{
+    fs,
+    sync::mpsc::channel,
+};
+use charming::series::Scatter;
+use charming::theme::Theme;
+use warp::Filter;
+use crate::visualiser::GraphType::Amplitude;
 
 pub struct Visualiser {
     // This seemed to me the best way to structure the data, as the socketaddr is a primary key for each node, and each device has a unique id only within a node
@@ -52,7 +63,7 @@ pub struct Visualiser {
     ui_type: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum GraphType {
     Amplitude,
 }
@@ -216,7 +227,7 @@ impl Visualiser {
                             text_input.pop();
                         }
                         KeyCode::Enter => {
-                            self.execute_command(text_input.clone(), graphs.clone())
+                            Self::execute_command(text_input.clone(), graphs.clone())
                                 .await;
                             text_input.clear();
                         }
@@ -309,7 +320,7 @@ impl Visualiser {
         }
     }
 
-    fn entry_from_command(&self, parts: Vec<&str>) -> Option<(GraphType, SocketAddr, u64, usize, usize, usize)> {
+    fn entry_from_command(parts: Vec<&str>) -> Option<(GraphType, SocketAddr, u64, usize, usize, usize)> {
         let graph_type: GraphType = match parts[1].parse() {
             Ok(addr) => addr,
             Err(_) => return None, // Exit on invalid input
@@ -340,7 +351,6 @@ impl Visualiser {
     }
 
     async fn execute_command(
-        &self,
         text_input: String,
         graphs: Arc<Mutex<Vec<(GraphType, SocketAddr, u64, usize, usize, usize)>>>,
     ) {
@@ -351,14 +361,14 @@ impl Visualiser {
 
         match parts[0] {
             "add" if parts.len() == 7 => {
-                let entry = match self.entry_from_command(parts){
+                let entry = match Self::entry_from_command(parts){
                     None => { return }
                     Some(entry) => {entry}
                 };
                 graphs.lock().await.push(entry);
             }
             "remove" if parts.len() == 7 => {
-                let entry =  match self.entry_from_command(parts){
+                let entry =  match Self::entry_from_command(parts){
                     None => { return }
                     Some(entry) => {entry}
                 };
@@ -371,32 +381,63 @@ impl Visualiser {
         }
     }
 
+    fn apply_n_times<T>(mut val: T, f: impl Fn(T) -> T, times: usize) -> T {
+        for _ in 0..times {
+            val = f(val);
+        }
+        val
+    }
+
     async fn plot_data_gui(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let mut window = Window::new("Data", self.width, self.height, WindowOptions::default())?;
+        let tick_rate = Duration::from_millis(2000);
+        let mut last_tick = Instant::now();
 
-        window.limit_update_rate(Some(std::time::Duration::from_micros(32000)));
+        // Source address, device id, core, stream, subcarrier
+        let graphs: Arc<Mutex<Vec<(GraphType, SocketAddr, u64, usize, usize, usize)>>> =
+            Arc::new(Mutex::new(Vec::new()));
+        let graphs_2 = graphs.clone();
 
-        let mut minifb_buffer: Vec<u32> = vec![0; self.width * self.height];
+        tokio::spawn(async move {
+            let stdin: BufReader<io::Stdin> = BufReader::new(io::stdin());
+            let mut lines = stdin.lines();
 
-        'outer: while window.is_open() && !window.is_key_down(Key::Escape) {
-            for _ in 0..50 {
-                if !window.is_open() {
-                    break;
+            while let Ok(Some(line)) = lines.next_line().await {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
                 }
-                if window.is_key_down(Key::Escape) {
-                    break 'outer;
-                }
-                window.update();
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+                Self::execute_command(line.parse().unwrap(), graphs.clone()).await;
             }
+        });
 
-            window.update_with_buffer(&minifb_buffer, self.width, self.height)?;
+        loop {
+            let timeout = tick_rate
+                .checked_sub(last_tick.elapsed())
+                .unwrap_or_else(|| Duration::from_secs(0));
+
+            if last_tick.elapsed() >= tick_rate {
+                for (i, graph) in graphs_2.lock().await.clone().into_iter().enumerate() {
+                    let chart = Self::generate_chart_from_data(self.process_data(graph).await);
+                    HtmlRenderer::new("Example Chart", 800, 600)
+                        .theme(Theme::Default)
+                        .save(&chart, format!("{i}chart.html")).expect("TODO: panic message");
+                }
+
+                last_tick = Instant::now();
+            }
         }
 
-        let output = self.output_data().await;
-        println!("{output:?}");
-
         Ok(())
+    }
+
+    fn generate_chart_from_data(data: Vec<(f64, f64)>) -> charming::Chart {
+        let data = data.into_iter().map(|(x, y)| vec![x, y]).collect();
+        charming::Chart::new()
+            .title(Title::new().text("Data plot"))
+            .x_axis(charming::component::Axis::new().type_(AxisType::Value))
+            .y_axis(charming::component::Axis::new().type_(AxisType::Value))
+            .series(Line::new().data(data))
     }
 
     fn client_task(&self, client: Arc<Mutex<TcpClient>>, target_addr: SocketAddr) {
@@ -443,7 +484,7 @@ impl RunsServer for Visualiser {
         self.receive_data_task(self.data.clone(), client.clone(), self.target_addr);
 
         if (self.ui_type == "tui") {
-            self.plot_data_gui().await?;
+            self.plot_data_tui().await?;
         } else {
             self.plot_data_gui().await?;
         }

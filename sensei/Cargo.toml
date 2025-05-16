@@ -11,10 +11,10 @@ async-trait = "0.1.88"
 argh = "0.1.12"
 log = "0.4.27"
 simplelog = "0.12.2"
-minifb = "0.25"
-plotters = { version = "0.3.7", features = ["fontconfig-dlopen"] }
-plotters-bitmap = "0.3.5"
 ratatui = "0.29.0"
+charming = "0.4.0"
+notify = "6.1.1"
+warp = "0.3.7"
 
 [lints]
 workspace = true
