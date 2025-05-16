@@ -170,7 +170,7 @@ impl Orchestrator {
                             .await
                             .unwrap();
                         match msg.msg {
-                            Data(DataMsg::CsiFrame { ts, csi }) => info!("{}: {ts}", msg.src_addr),
+                            Data(DataMsg::CsiFrame {  csi }) => info!("{}: {}", msg.src_addr, csi.timestamp),
                             Data(DataMsg::RawFrame {
                                 ts,
                                 bytes,

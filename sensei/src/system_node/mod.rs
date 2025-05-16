@@ -134,9 +134,8 @@ impl Run<SystemNodeConfig> for SystemNode {
             let mut i = 0;
             loop {
                 sender_data_channel.send(CsiFrame {
-                    ts: i,
                     csi: CsiData {
-                        timestamp: 0.0,
+                        timestamp: i as f64,
                         sequence_number: 0,
                         rssi: vec![],
                         csi: vec![],
