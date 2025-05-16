@@ -5,14 +5,16 @@ use std::collections::VecDeque; // For log buffer
 use std::env;
 use std::error::Error;
 use std::io;
-use std::sync::{Arc, Mutex};
-use std::thread::{self, sleep};
+use std::sync::{Arc, Mutex as StdMutex}; // Standard Mutex for AppState
+use std::thread::{sleep};
 use std::time::Duration;
 
 use chrono::{DateTime, Local};
+use crossterm::event::EventStream; // For async event reading
+use futures::StreamExt; // For EventStream.next()
 
 // Logging facade and our custom logger components
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::{Receiver as CrossbeamReceiver, Sender as CrossbeamSender};
 use log::{Level, LevelFilter, Metadata, Record, SetLoggerError, error, info, warn};
 
 use crossterm::{
@@ -26,16 +28,30 @@ use ratatui::{
     Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
-    style::{Color, Modifier, Style, Stylize}, // Stylize can be useful for .fg(Color), .bold(), etc.
-    text::{Line, Span, Text}, // Replaced Spans with Line, Text is a collection of Lines
+    style::{Color, Modifier, Style, Stylize},
+    text::{Line, Span, Text},
     widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table},
 };
 
-mod esp32;
-use esp32::{
-    Bandwidth, CsiPacket, CsiType, DeviceConfig as EspDeviceConfig, Esp32, OperationMode,
-    SecondaryChannel,
+// Project-specific imports - Changed csi_collection_lib to crate
+use crate::csi_types::{CsiData, Complex};
+use crate::sources::esp32::{Esp32Source, Esp32SourceConfig};
+use crate::sources::controllers::esp32_controller::{
+    Esp32Command,
+    OperationMode as EspOperationMode,
+    Bandwidth as EspBandwidth,
+    SecondaryChannel as EspSecondaryChannel,
+    CsiType as EspCsiType,
+    Esp32DeviceConfigPayload,
+    // CustomFrameParams, // Needed for spamming
+    // MacFilterPair, // If MAC filtering is added back
 };
+use crate::adapters::esp32::ESP32Adapter;
+use crate::adapters::CsiDataAdapter;
+use crate::network::rpc_message::{DataMsg, SourceType};
+use crate::errors::{DataSourceError, ControllerError}; // Assuming ControllerError is also in crate::errors
+
+use tokio::sync::Mutex as TokioMutex; // Tokio Mutex for Esp32Source
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum SpamConfigField {
@@ -77,7 +93,7 @@ pub struct LogEntry {
 
 // --- Custom TUI Logger ---
 struct TuiLogger {
-    log_sender: Sender<LogEntry>,
+    log_sender: CrossbeamSender<LogEntry>,
     level: Level,
 }
 
@@ -109,7 +125,7 @@ impl log::Log for TuiLogger {
 
 fn init_tui_logger(
     log_level_filter: LevelFilter,
-    sender: Sender<LogEntry>,
+    sender: CrossbeamSender<LogEntry>,
 ) -> Result<(), SetLoggerError> {
     let logger = TuiLogger {
         log_sender: sender,
@@ -145,10 +161,35 @@ enum UiMode {
     Spam,
 }
 
+// NEW: Configuration struct for AppState, mirroring Esp32DeviceConfigPayload + channel
+#[derive(Clone, Debug)]
+struct CliEspConfig {
+    channel: u8,
+    mode: EspOperationMode,
+    bandwidth: EspBandwidth,
+    secondary_channel: EspSecondaryChannel,
+    csi_type: EspCsiType,
+    manual_scale: u8, // Manual scale for CSI data (0 for auto)
+}
+
+impl Default for CliEspConfig {
+    fn default() -> Self {
+        Self {
+            channel: 1, // Default channel
+            mode: EspOperationMode::Receive,
+            bandwidth: EspBandwidth::Twenty,
+            secondary_channel: EspSecondaryChannel::None,
+            csi_type: EspCsiType::HighThroughputLTF, // Common default
+            manual_scale: 0,
+        }
+    }
+}
+
+
 struct AppState {
     ui_mode: UiMode,
-    current_esp_config: EspDeviceConfig,
-    csi_data: Vec<CsiPacket>,
+    current_cli_config: CliEspConfig, // NEW
+    csi_data: Vec<CsiData>,          // NEW: Storing official CsiData
     connection_status: String,
     last_error: Option<String>,
     log_messages: VecDeque<LogEntry>,
@@ -162,10 +203,10 @@ struct AppState {
 }
 
 impl AppState {
-    fn new(initial_esp_config: EspDeviceConfig) -> Self {
+    fn new(initial_cli_config: CliEspConfig) -> Self {
         Self {
             ui_mode: UiMode::Csi,
-            current_esp_config: initial_esp_config,
+            current_cli_config: initial_cli_config,
             csi_data: Vec::with_capacity(1000),
             connection_status: "CONNECTING...".into(),
             last_error: None,
@@ -188,15 +229,16 @@ impl AppState {
     }
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let (log_tx, log_rx): (Sender<LogEntry>, Receiver<LogEntry>) = crossbeam_channel::bounded(200);
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+    let (log_tx, log_rx): (CrossbeamSender<LogEntry>, CrossbeamReceiver<LogEntry>) = crossbeam_channel::bounded(200);
 
     let log_level = env::var("RUST_LOG")
         .ok()
         .and_then(|s| s.parse::<LevelFilter>().ok())
         .unwrap_or(LevelFilter::Info);
 
-    if let Err(e) = init_tui_logger(log_level, log_tx) {
+    if let Err(e) = init_tui_logger(log_level, log_tx.clone()) { // Clone log_tx for init
         eprintln!("FATAL: Failed to initialize TUI logger: {e}");
         return Err(e.into());
     }
@@ -205,6 +247,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
+        // Usage message as before
         eprintln!("Usage: {} <serial_port>", args[0]);
         eprintln!("Example: {} /dev/cu.usbmodemXXX", args[0]);
         eprintln!("\nAvailable ports:");
@@ -224,8 +267,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         return Err("Serial port argument missing".into());
     }
-    let port_name = &args[1];
-    info!("Attempting to use port: {port_name}");
+    let port_name = args[1].clone();
+    info!("Attempting to use port: {}", port_name);
 
     let mut terminal = match setup_terminal() {
         Ok(term) => term,
@@ -234,115 +277,273 @@ fn main() -> Result<(), Box<dyn Error>> {
             return Err(e);
         }
     };
+    
+    // Create Esp32SourceConfig
+    let esp_config = Esp32SourceConfig {
+        port_name: port_name.clone(),
+        baud_rate: 3_000_000, // Default from old code
+        csi_buffer_size: Some(100), // Default, can be adjusted
+        ack_timeout_ms: Some(2000), // Default
+    };
 
-    let esp_mutex = match Esp32::new(port_name, 3_000_000) {
-        Ok(esp_instance) => Arc::new(Mutex::new(esp_instance)),
+    // Add explicit type annotation for esp_source_instance
+    let esp_source_instance: Esp32Source = match Esp32Source::new(esp_config) {
+        Ok(src) => src,
         Err(e) => {
             let _ = restore_terminal(&mut terminal);
-            error!("Failed to initialize ESP32: {e}");
-            return Err(e.into());
+            error!("Failed to initialize ESP32Source: {e}");
+            return Err(Box::new(e));
         }
     };
+    // Wrap Esp32Source in Arc<TokioMutex> for safe async sharing
+    let esp_source: Arc<TokioMutex<Esp32Source>> = Arc::new(TokioMutex::new(esp_source_instance));
 
-    let initial_esp_config_for_appstate: EspDeviceConfig = match esp_mutex.lock() {
-        Ok(mut esp_guard) => {
-            if let Err(e) = esp_guard.connect() {
-                let _ = restore_terminal(&mut terminal);
-                error!("Failed to connect to ESP32: {e}");
-                return Err(e.into());
-            }
-            info!("ESP32 connected, basic configuration applied.");
-            info!("Attempting to clear MAC address whitelist...");
-            if let Err(e) = esp_guard.clear_mac_filters() {
-                warn!("Failed to clear MAC whitelist: {e}. CSI reception might be filtered.");
-            } else {
-                info!("MAC address whitelist cleared successfully.");
-            }
-            esp_guard.config.clone()
-        }
-        Err(poisoned) => {
+
+    // AppState initialization
+    let initial_cli_config = CliEspConfig::default(); // Start with default
+    let app_state = Arc::new(StdMutex::new(AppState::new(initial_cli_config.clone())));
+
+    // Attempt to connect and apply initial config
+    {
+        let mut esp_guard = esp_source.lock().await;
+        if let Err(e) = esp_guard.start().await {
             let _ = restore_terminal(&mut terminal);
-            error!("ESP32 Mutex poisoned during initial connect: {poisoned}");
-            return Err("Mutex poisoned".into());
+            error!("Failed to connect to ESP32 (start source): {e}");
+            return Err(Box::new(e));
         }
-    };
+        app_state.lock().unwrap().connection_status = "CONNECTED (Source Started)".to_string();
+        info!("ESP32 source started. Applying initial configuration...");
+
+        // Apply the default AppState config to the device
+        // This includes setting mode to Receive and attempting to unpause acquisition
+        let initial_payload = Esp32DeviceConfigPayload {
+            mode: initial_cli_config.mode,
+            bandwidth: initial_cli_config.bandwidth,
+            secondary_channel: initial_cli_config.secondary_channel,
+            csi_type: initial_cli_config.csi_type,
+            manual_scale: initial_cli_config.manual_scale,
+        };
+        let mut cmd_data = Vec::new();
+        cmd_data.push(initial_payload.mode as u8);
+        cmd_data.push(initial_payload.bandwidth as u8);
+        cmd_data.push(initial_payload.secondary_channel as u8);
+        cmd_data.push(initial_payload.csi_type as u8);
+        cmd_data.push(initial_payload.manual_scale);
+
+        if let Err(e) = esp_guard.send_esp32_command(Esp32Command::ApplyDeviceConfig, Some(cmd_data)).await {
+             warn!("Failed to apply initial device config: {}. Continuing with defaults.", e);
+             app_state.lock().unwrap().last_error = Some(format!("Initial config failed: {}",e));
+        } else {
+            info!("Initial device config applied (includes mode and acquisition state).");
+            // Also set initial channel
+            if let Err(e) = esp_guard.send_esp32_command(Esp32Command::SetChannel, Some(vec![initial_cli_config.channel])).await {
+                warn!("Failed to set initial channel {}: {}", initial_cli_config.channel, e);
+                 app_state.lock().unwrap().last_error = Some(format!("Initial channel set failed: {}",e));
+            } else {
+                info!("Initial channel {} set.", initial_cli_config.channel);
+            }
+        }
+        
+        // Clear MAC filters
+        info!("Attempting to clear MAC address filters...");
+        if let Err(e) = esp_guard.send_esp32_command(Esp32Command::WhitelistClear, None).await {
+            warn!("Failed to clear MAC filters: {e}. CSI reception might be filtered.");
+            app_state.lock().unwrap().last_error = Some(format!("MAC filter clear failed: {}",e));
+        } else {
+            info!("MAC address filters cleared successfully.");
+        }
+
+        // Synchronize time
+        info!("Attempting to synchronize time...");
+        if let Err(e) = esp_guard.send_esp32_command(Esp32Command::SynchronizeTimeInit, None).await {
+             warn!("Time sync init failed: {}", e);
+        } else {
+            let time_us = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as u64;
+            if let Err(e) = esp_guard.send_esp32_command(Esp32Command::SynchronizeTimeApply, Some(time_us.to_le_bytes().to_vec())).await {
+                warn!("Time sync apply failed: {}", e);
+            } else {
+                info!("Time synchronized with ESP32.");
+            }
+        }
+    }
     info!("ESP32 setup complete.");
 
-    let app_state = Arc::new(Mutex::new(AppState::new(initial_esp_config_for_appstate)));
-    app_state.lock().unwrap().connection_status = "CONNECTED".to_string();
 
+    // Log message receiving thread (remains mostly the same)
     let app_state_log_clone = Arc::clone(&app_state);
-    thread::spawn(move || {
-        while let Ok(log_msg) = log_rx.recv() {
+    tokio::spawn(async move { // Changed to tokio::spawn
+        while let Ok(log_msg) = log_rx.recv() { // log_rx is crossbeam, recv is blocking
             if let Ok(mut state_guard) = app_state_log_clone.lock() {
                 state_guard.add_log_message(log_msg);
             } else {
-                break;
+                break; 
             }
         }
     });
 
-    let state_clone_csi = app_state.clone();
-    let csi_rx_channel = esp_mutex.lock().unwrap().csi_receiver();
-
-    thread::spawn(move || {
+    // CSI listener thread
+    // Add explicit type annotation for esp_source_csi_reader_clone
+    let esp_source_csi_reader_clone: Arc<TokioMutex<Esp32Source>> = Arc::clone(&esp_source);
+    let app_state_csi_clone = Arc::clone(&app_state);
+    
+    tokio::spawn(async move {
         info!("CSI listener thread started.");
+        let mut read_buffer = vec![0u8; 4096]; // Max expected CSI payload size
+        let mut esp_adapter = ESP32Adapter::new(false); // Assuming no scaling
+
         loop {
-            match csi_rx_channel.recv_timeout(Duration::from_secs(1)) {
-                Ok(packet) => {
-                    info!(
-                        "CSI LISTENER THREAD RECEIVED PACKET: ts={}",
-                        packet.timestamp_us
-                    );
-                    if let Ok(mut state_guard) = state_clone_csi.lock() {
-                        state_guard.csi_data.push(packet);
-                        if state_guard.csi_data.len() > 1000 {
-                            state_guard.csi_data.remove(0);
+            let data_result = {
+                let mut source_guard = esp_source_csi_reader_clone.lock().await;
+                // Check if source is still running before attempting to read
+                if !source_guard.is_running.load(std::sync::atomic::Ordering::Relaxed) {
+                     info!("CSI listener: Source reported as not running. Exiting.");
+                     if let Ok(mut state_guard) = app_state_csi_clone.lock() {
+                        state_guard.connection_status = "DISCONNECTED (Source Not Running)".to_string();
+                     }
+                     break;
+                }
+                source_guard.read(&mut read_buffer).await
+            };
+
+            match data_result {
+                Ok(0) => { /* timeout or no data, yield for a bit */ tokio::time::sleep(Duration::from_millis(10)).await; }
+                Ok(n) => {
+                    let raw_csi_payload = read_buffer[..n].to_vec();
+                    let data_msg = DataMsg::RawFrame {
+                        // The adapter uses the timestamp from the packet bytes.
+                        // `ts` here is a frame timestamp if source provides one, ESP32Source doesn't directly.
+                        ts: Local::now().timestamp_micros() as f64 / 1_000_000.0, 
+                        bytes: raw_csi_payload,
+                        source_type: SourceType::ESP32,
+                    };
+
+                    match esp_adapter.produce(data_msg).await {
+                        Ok(Some(DataMsg::CsiFrame { csi })) => {
+                            if let Ok(mut state_guard) = app_state_csi_clone.lock() {
+                                state_guard.csi_data.push(csi);
+                                if state_guard.csi_data.len() > 1000 { // Max buffer for UI
+                                    state_guard.csi_data.remove(0);
+                                }
+                            }
                         }
-                    } else {
-                        break;
+                        Ok(None) => { /* Adapter needs more data or empty frame */ }
+                        Err(e) => { warn!("ESP32Adapter failed to parse CSI: {:?}", e); }
+                        Ok(Some(DataMsg::RawFrame{..})) => { /* Should not happen if adapter produces CsiFrame */ }
                     }
                 }
-                Err(crossbeam_channel::RecvTimeoutError::Timeout) => { /* Continue */ }
-                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
-                    info!("CSI channel disconnected.");
-                    if let Ok(mut state_guard) = state_clone_csi.lock() {
-                        state_guard.connection_status =
-                            "DISCONNECTED (CSI Channel Closed)".to_string();
+                Err(DataSourceError::Controller(msg)) if msg.contains("Source stopped") || msg.contains("CSI data channel disconnected") => {
+                    info!("CSI listener: Source stopped or channel disconnected. Error: {}", msg);
+                    if let Ok(mut state_guard) = app_state_csi_clone.lock() {
+                         state_guard.connection_status = "DISCONNECTED (CSI Read Error)".to_string();
                     }
                     break;
                 }
+                Err(DataSourceError::Io(io_err)) if io_err.kind() == std::io::ErrorKind::BrokenPipe || io_err.kind() == std::io::ErrorKind::NotConnected || io_err.kind() == std::io::ErrorKind::PermissionDenied => {
+                    info!("CSI listener: Serial port disconnected or permission error ({:?}).", io_err.kind());
+                     if let Ok(mut state_guard) = app_state_csi_clone.lock() {
+                         state_guard.connection_status = format!("DISCONNECTED (IO: {:?})", io_err.kind()).to_string();
+                     }
+                    break;
+                }
+                Err(e) => {
+                    warn!("CSI listener: error reading from ESP32 source: {:?}", e);
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+            }
+            
+            // Check global connection status
+            if let Ok(state) = app_state_csi_clone.lock() {
+                if state.connection_status.starts_with("DISCONNECTED") {
+                    info!("CSI listener detected global DISCONNECTED status. Stopping.");
+                    break;
+                }
+            } else {
+                error!("CSI listener: AppState mutex poisoned. Stopping.");
+                break;
             }
         }
         info!("CSI listener thread stopped.");
     });
 
-    // Main UI loop
+
+    // Main UI loop with async event handling
+    let mut event_stream = EventStream::new();
+
     loop {
         {
             let app_state_guard = app_state.lock().unwrap();
             terminal.draw(|f| ui(f, &app_state_guard))?;
         }
-        if crossterm::event::poll(Duration::from_millis(100))? {
-            if let CEvent::Key(key_event) = crossterm::event::read()? {
-                if handle_input(key_event.code, &esp_mutex, &app_state)? {
-                    break;
+
+        let event_future = event_stream.next();
+        tokio::select! {
+            maybe_event = event_future => {
+                match maybe_event {
+                    Some(Ok(event)) => {
+                        if let CEvent::Key(key_event) = event {
+                            if handle_input(key_event.code, &esp_source, &app_state).await? {
+                                break; // Quit
+                            }
+                        }
+                    }
+                    Some(Err(e)) => {
+                        error!("Error reading input event: {}", e);
+                        // Potentially break or handle error
+                    }
+                    None => break, // Event stream closed
                 }
             }
+            _ = tokio::time::sleep(Duration::from_millis(200)) => {
+                // Timeout: This allows the loop to periodically check other conditions
+                // or refresh UI even if no input events occur.
+                // Useful if there are background tasks that might change app_state.
+            }
+        }
+         // Check global connection status for loop exit outside of handle_input
+        if let Ok(state) = app_state.lock() {
+            if state.connection_status.starts_with("DISCONNECTED") {
+                 // If it's a controlled disconnect by 'q', handle_input already signals break.
+                 // This is for other disconnects detected by the listener thread.
+                if state.last_error.as_deref() != Some("DISCONNECTED (by user)") {
+                    info!("Main loop detected DISCONNECTED state (not by user 'q'). Shutting down.");
+                    break; 
+                }
+            }
+        } else {
+            error!("Main loop: AppState mutex poisoned. Shutting down.");
+            break;
+        }
+    }
+    
+    // Ensure ESP source is stopped before exiting
+    info!("Shutting down ESP32 source...");
+    {
+        let mut esp_guard = esp_source.lock().await;
+        if esp_guard.is_running.load(std::sync::atomic::Ordering::Relaxed) { // Check if running before stopping
+            if let Err(e) = esp_guard.stop().await {
+                error!("Error stopping ESP32 source: {}", e);
+            } else {
+                info!("ESP32 source stopped.");
+            }
+        } else {
+            info!("ESP32 source was already stopped or not started.");
         }
     }
 
     restore_terminal(&mut terminal)?;
-    sleep(Duration::from_millis(100));
+    sleep(Duration::from_millis(100)); 
     info!("CLI tool shutting down.");
     Ok(())
 }
 
 // Returns true if the application should exit
-fn handle_input(
+async fn handle_input(
     key: KeyCode,
-    esp_mutex: &Arc<Mutex<Esp32>>,
-    app_state_mutex: &Arc<Mutex<AppState>>,
+    esp_source_mutex: &Arc<TokioMutex<Esp32Source>>,
+    app_state_mutex: &Arc<StdMutex<AppState>>,
 ) -> Result<bool, Box<dyn Error>> {
     let mut app_state_guard = app_state_mutex.lock().unwrap();
     if key != KeyCode::Char('r') {
@@ -350,6 +551,7 @@ fn handle_input(
     }
 
     if app_state_guard.is_editing_spam_config && app_state_guard.ui_mode == UiMode::Spam {
+        // Editing logic remains synchronous as it only changes AppState
         match key {
             KeyCode::Char('e') | KeyCode::Esc => {
                 app_state_guard.is_editing_spam_config = false;
@@ -401,33 +603,28 @@ fn handle_input(
         }
         return Ok(false);
     }
+    
+    // Drop guard before await points if possible, or re-acquire if state modified after await
+    // For now, most ESP interactions are atomic from AppState's perspective for one key press.
+    // So we hold the guard. If complex multi-await logic is needed, this might change.
+    
+    let mut esp_guard = esp_source_mutex.lock().await;
 
     match key {
         KeyCode::Char('q') => {
-            info!("'q' pressed, attempting to disconnect ESP32.");
-            match esp_mutex.lock() {
-                Ok(mut esp_guard) => {
-                    if app_state_guard.ui_mode == UiMode::Spam {
-                        info!("Pausing WiFi transmit before disconnecting...");
-                        if let Err(e) = esp_guard.pause_wifi_transmit() {
-                            warn!("Failed to pause WiFi transmit: {e}");
-                        }
-                    }
-                    if let Err(e) = esp_guard.disconnect() {
-                        app_state_guard.last_error = Some(format!("Error during disconnect: {e}"));
-                        error!("Error disconnecting ESP32: {e}");
-                    } else {
-                        info!("ESP32 disconnected successfully by user.");
-                    }
-                }
-                Err(poisoned) => {
-                    let err_msg = format!("ESP32 Mutex poisoned on disconnect: {poisoned}");
-                    app_state_guard.last_error = Some(err_msg.clone());
-                    error!("{err_msg}");
+            info!("'q' pressed, attempting to disconnect ESP32 source.");
+            if app_state_guard.ui_mode == UiMode::Spam {
+                info!("Pausing WiFi transmit before disconnecting...");
+                if let Err(e) = esp_guard.send_esp32_command(Esp32Command::PauseWifiTransmit, None).await {
+                    warn!("Failed to pause WiFi transmit: {e}");
                 }
             }
+            // stop() will be called by main loop's cleanup
+            // Here we just signal the app to shut down.
             app_state_guard.connection_status = "DISCONNECTED (by user)".to_string();
-            return Ok(true);
+            app_state_guard.last_error = Some("DISCONNECTED (by user)".to_string()); // For footer display
+            // The main loop will detect this status and trigger stop() and exit.
+            return Ok(true); // Signal to exit application
         }
         KeyCode::Char('m') => {
             let new_ui_mode = match app_state_guard.ui_mode {
@@ -435,48 +632,48 @@ fn handle_input(
                 UiMode::Spam => UiMode::Csi,
             };
             let new_esp_op_mode = match new_ui_mode {
-                UiMode::Csi => OperationMode::Receive,
-                UiMode::Spam => OperationMode::Transmit,
+                UiMode::Csi => EspOperationMode::Receive,
+                UiMode::Spam => EspOperationMode::Transmit,
             };
 
-            match esp_mutex.lock() {
-                Ok(mut esp_guard) => {
-                    esp_guard.config.mode = new_esp_op_mode;
-                    if let Err(e) = esp_guard.apply_device_config() {
-                        app_state_guard.last_error =
-                            Some(format!("Failed to set ESP mode via ApplyDeviceConfig: {e}"));
-                        error!("Failed to apply device config for mode change: {e}");
-                    } else {
-                        app_state_guard.ui_mode = new_ui_mode;
-                        app_state_guard.current_esp_config.mode = new_esp_op_mode;
-                        info!("ESP32 mode set to {new_esp_op_mode:?} via ApplyDeviceConfig");
+            let new_config_payload = Esp32DeviceConfigPayload { // Renamed variable to avoid conflict
+                mode: new_esp_op_mode,
+                bandwidth: app_state_guard.current_cli_config.bandwidth,
+                secondary_channel: app_state_guard.current_cli_config.secondary_channel,
+                csi_type: app_state_guard.current_cli_config.csi_type,
+                manual_scale: app_state_guard.current_cli_config.manual_scale,
+            };
+            
+            let mut cmd_data = Vec::new();
+            cmd_data.push(new_config_payload.mode as u8);
+            cmd_data.push(new_config_payload.bandwidth as u8);
+            cmd_data.push(new_config_payload.secondary_channel as u8);
+            cmd_data.push(new_config_payload.csi_type as u8);
+            cmd_data.push(new_config_payload.manual_scale);
 
-                        if new_esp_op_mode == OperationMode::Transmit {
-                            info!(
-                                "ESP32 in Transmit mode. WiFi transmit task will be explicitly PAUSED initially."
-                            );
-                            info!("Use 's' to send configured custom frames.");
-                            if let Err(e_pause) = esp_guard.pause_wifi_transmit() {
-                                app_state_guard.last_error = Some(format!(
-                                    "Failed to initially PAUSE transmit in Spam mode: {e_pause}"
-                                ));
-                                error!(
-                                    "Failed to PAUSE WiFi transmit after switching to Spam mode: {e_pause}"
-                                );
-                            } else {
-                                info!("WiFi transmit task PAUSED. Ready for custom frames.");
-                            }
-                        } else {
-                            info!(
-                                "Switched to CSI mode. ESP32 general WiFi transmit task should be inactive."
-                            );
-                        }
+            if let Err(e) = esp_guard.send_esp32_command(Esp32Command::ApplyDeviceConfig, Some(cmd_data)).await {
+                let err_msg = format!("Failed to set ESP mode via ApplyDeviceConfig: {e}");
+                app_state_guard.last_error = Some(err_msg.clone());
+                error!("{err_msg}");
+            } else {
+                app_state_guard.ui_mode = new_ui_mode;
+                app_state_guard.current_cli_config.mode = new_esp_op_mode;
+                info!("ESP32 mode set to {:?} via ApplyDeviceConfig", new_esp_op_mode);
+
+                // ESP32Source's ApplyDeviceConfig should implicitly handle Pause/Unpause Acquisition based on mode.
+                // Additionally, for Spam mode, explicitly pause general transmit task.
+                if new_esp_op_mode == EspOperationMode::Transmit {
+                    info!("ESP32 in Transmit mode. WiFi transmit task will be explicitly PAUSED initially.");
+                    if let Err(e_pause) = esp_guard.send_esp32_command(Esp32Command::PauseWifiTransmit, None).await {
+                        let err_msg = format!("Failed to initially PAUSE transmit in Spam mode: {e_pause}");
+                        app_state_guard.last_error = Some(err_msg.clone());
+                        error!("{err_msg}");
+                    } else {
+                        info!("WiFi transmit task PAUSED. Ready for custom frames ('s').");
                     }
-                }
-                Err(p) => {
-                    let err_msg = format!("Mutex error during mode toggle: {p}");
-                    app_state_guard.last_error = Some(err_msg.clone());
-                    error!("{err_msg}");
+                } else { // CSI Mode (Receive)
+                    // Ensure transmit is paused (or let ESP handle it) and acquisition is unpaused (handled by ApplyDeviceConfig)
+                     info!("Switched to CSI mode. ESP32 general WiFi transmit task should be inactive. CSI acquisition should be active.");
                 }
             }
         }
@@ -484,9 +681,7 @@ fn handle_input(
             if app_state_guard.ui_mode == UiMode::Spam {
                 app_state_guard.is_editing_spam_config = !app_state_guard.is_editing_spam_config;
                 if app_state_guard.is_editing_spam_config {
-                    info!(
-                        "Entered spam config editing mode. Use Tab, Up/Down. 'e' or Esc to exit."
-                    );
+                    info!("Entered spam config editing mode. Use Tab, Up/Down. 'e' or Esc to exit.");
                     app_state_guard.current_editing_field = SpamConfigField::SrcMacOctet(0);
                 } else {
                     info!("Exited spam config editing mode.");
@@ -497,7 +692,7 @@ fn handle_input(
                 );
             }
         }
-        KeyCode::Char('s') => {
+        KeyCode::Char('s') => { // Send Spam
             if app_state_guard.ui_mode == UiMode::Spam {
                 if app_state_guard.is_editing_spam_config {
                     app_state_guard.last_error = Some(
@@ -510,28 +705,24 @@ fn handle_input(
                     let n_reps = app_state_guard.spam_config_n_reps;
                     let pause_ms = app_state_guard.spam_config_pause_ms;
 
-                    match esp_mutex.lock() {
-                        Ok(mut esp_guard) => {
-                            if app_state_guard.current_esp_config.mode != OperationMode::Transmit {
-                                let err_msg = "ESP32 not in Transmit mode. This shouldn't happen if UI mode is Spam.".to_string();
-                                app_state_guard.last_error = Some(err_msg.clone());
-                                warn!("{err_msg}");
-                            } else if let Err(e) = esp_guard
-                                .transmit_custom_frame(&src_mac, &dst_mac, n_reps, pause_ms)
-                            {
-                                let err_msg = format!("Failed to send custom frame: {e}");
-                                app_state_guard.last_error = Some(err_msg.clone());
-                                error!("TUI: {err_msg}");
-                            } else {
-                                info!(
-                                    "TransmitCustomFrame command sent to ESP32 with configured parameters."
-                                );
-                            }
-                        }
-                        Err(p_err) => {
-                            let err_msg = format!("ESP32 Mutex error for custom frame: {p_err}");
+                    // Ensure ESP32 is in Transmit mode before sending
+                    if app_state_guard.current_cli_config.mode != EspOperationMode::Transmit {
+                        let err_msg = "ESP32 not in Transmit mode. Switch mode first ('m').".to_string();
+                        app_state_guard.last_error = Some(err_msg.clone());
+                        warn!("{}", err_msg);
+                    } else {
+                        let mut tx_data = Vec::with_capacity(20);
+                        tx_data.extend_from_slice(&dst_mac); // Note: firmware expects dst_mac first
+                        tx_data.extend_from_slice(&src_mac);
+                        tx_data.extend_from_slice(&n_reps.to_le_bytes());
+                        tx_data.extend_from_slice(&pause_ms.to_le_bytes());
+                        
+                        if let Err(e) = esp_guard.send_esp32_command(Esp32Command::TransmitCustomFrame, Some(tx_data)).await {
+                            let err_msg = format!("Failed to send custom frame: {e}");
                             app_state_guard.last_error = Some(err_msg.clone());
-                            error!("TUI: {err_msg}");
+                            error!("TUI: {}",err_msg);
+                        } else {
+                            info!("TransmitCustomFrame command sent to ESP32.");
                         }
                     }
                 }
@@ -540,97 +731,104 @@ fn handle_input(
                     Some("Send Spam ('s') command only active in Spam mode ('m').".to_string());
             }
         }
-        KeyCode::Char('c') => {
-            let mut new_channel = app_state_guard.current_esp_config.channel + 1;
-            if new_channel > 11 {
+        KeyCode::Char('c') => { // Change Channel
+            let mut new_channel = app_state_guard.current_cli_config.channel + 1;
+            if new_channel > 11 { // Common 2.4GHz channels limit
                 new_channel = 1;
             }
-
-            match esp_mutex.lock() {
-                Ok(mut esp_guard) => {
-                    if let Err(e) = esp_guard.set_channel(new_channel) {
-                        app_state_guard.last_error = Some(format!("Failed to set channel: {e}"));
-                    } else {
-                        app_state_guard.current_esp_config.channel = new_channel;
-                        info!("ESP32 channel changed to {new_channel}");
-                    }
-                }
-                Err(p) => app_state_guard.last_error = Some(format!("Mutex error: {p}")),
+            if let Err(e) = esp_guard.send_esp32_command(Esp32Command::SetChannel, Some(vec![new_channel])).await {
+                app_state_guard.last_error = Some(format!("Failed to set channel: {e}"));
+            } else {
+                app_state_guard.current_cli_config.channel = new_channel;
+                info!("ESP32 channel changed to {}", new_channel);
             }
         }
-        KeyCode::Char('b') => {
-            let new_bandwidth_is_40 =
-                app_state_guard.current_esp_config.bandwidth == Bandwidth::Twenty;
-            match esp_mutex.lock() {
-                Ok(mut esp_guard) => {
-                    let new_esp_bw = if new_bandwidth_is_40 {
-                        Bandwidth::Forty
-                    } else {
-                        Bandwidth::Twenty
-                    };
-                    esp_guard.config.bandwidth = new_esp_bw;
-                    let new_secondary_chan = if new_bandwidth_is_40 {
-                        SecondaryChannel::Above
-                    } else {
-                        SecondaryChannel::None
-                    };
-                    esp_guard.config.secondary_channel = new_secondary_chan;
+         KeyCode::Char('b') => { // Toggle Bandwidth (20/40)
+            let new_bandwidth_is_40 = app_state_guard.current_cli_config.bandwidth == EspBandwidth::Twenty;
+            
+            let new_esp_bw = if new_bandwidth_is_40 { EspBandwidth::Forty } else { EspBandwidth::Twenty };
+            let new_secondary_chan = if new_bandwidth_is_40 {
+                // Default to Above for 40MHz, could be configurable or cycle
+                EspSecondaryChannel::Above 
+            } else {
+                EspSecondaryChannel::None
+            };
 
-                    if let Err(e) = esp_guard.apply_device_config() {
-                        app_state_guard.last_error = Some(format!("Failed to set bandwidth: {e}"));
-                    } else {
-                        app_state_guard.current_esp_config.bandwidth = new_esp_bw;
-                        app_state_guard.current_esp_config.secondary_channel = new_secondary_chan;
-                        info!(
-                            "ESP32 bandwidth set to {new_esp_bw:?}, secondary {new_secondary_chan:?}"
-                        );
-                    }
-                }
-                Err(p) => app_state_guard.last_error = Some(format!("Mutex error: {p}")),
+            let mut current_config = app_state_guard.current_cli_config.clone();
+            current_config.bandwidth = new_esp_bw;
+            current_config.secondary_channel = new_secondary_chan;
+            
+            let payload = Esp32DeviceConfigPayload {
+                mode: current_config.mode,
+                bandwidth: current_config.bandwidth,
+                secondary_channel: current_config.secondary_channel,
+                csi_type: current_config.csi_type,
+                manual_scale: current_config.manual_scale,
+            };
+            let mut cmd_data = Vec::new();
+            cmd_data.push(payload.mode as u8);
+            cmd_data.push(payload.bandwidth as u8);
+            cmd_data.push(payload.secondary_channel as u8);
+            cmd_data.push(payload.csi_type as u8);
+            cmd_data.push(payload.manual_scale);
+
+            if let Err(e) = esp_guard.send_esp32_command(Esp32Command::ApplyDeviceConfig, Some(cmd_data)).await {
+                app_state_guard.last_error = Some(format!("Failed to set bandwidth: {e}"));
+            } else {
+                app_state_guard.current_cli_config = current_config;
+                info!("ESP32 bandwidth set to {:?}, secondary {:?}", new_esp_bw, new_secondary_chan);
             }
         }
-        KeyCode::Char('l') => {
-            let new_csi_type_is_legacy =
-                app_state_guard.current_esp_config.csi_type == CsiType::HighThroughputLTF;
-            match esp_mutex.lock() {
-                Ok(mut esp_guard) => {
-                    let new_esp_csi_type = if new_csi_type_is_legacy {
-                        CsiType::LegacyLTF
-                    } else {
-                        CsiType::HighThroughputLTF
-                    };
-                    esp_guard.config.csi_type = new_esp_csi_type;
-                    if let Err(e) = esp_guard.apply_device_config() {
-                        app_state_guard.last_error = Some(format!("Failed to set CSI type: {e}"));
-                    } else {
-                        app_state_guard.current_esp_config.csi_type = new_esp_csi_type;
-                        info!("ESP32 CSI type set to {new_esp_csi_type:?}");
-                    }
-                }
-                Err(p) => app_state_guard.last_error = Some(format!("Mutex error: {p}")),
+        KeyCode::Char('l') => { // Toggle LTF Type
+            let new_csi_type_is_legacy = app_state_guard.current_cli_config.csi_type == EspCsiType::HighThroughputLTF;
+            let new_esp_csi_type = if new_csi_type_is_legacy { EspCsiType::LegacyLTF } else { EspCsiType::HighThroughputLTF };
+
+            let mut current_config = app_state_guard.current_cli_config.clone();
+            current_config.csi_type = new_esp_csi_type;
+
+            let payload = Esp32DeviceConfigPayload {
+                mode: current_config.mode,
+                bandwidth: current_config.bandwidth,
+                secondary_channel: current_config.secondary_channel,
+                csi_type: current_config.csi_type,
+                manual_scale: current_config.manual_scale,
+            };
+             let mut cmd_data = Vec::new();
+            cmd_data.push(payload.mode as u8);
+            cmd_data.push(payload.bandwidth as u8);
+            cmd_data.push(payload.secondary_channel as u8);
+            cmd_data.push(payload.csi_type as u8);
+            cmd_data.push(payload.manual_scale);
+
+            if let Err(e) = esp_guard.send_esp32_command(Esp32Command::ApplyDeviceConfig, Some(cmd_data)).await {
+                app_state_guard.last_error = Some(format!("Failed to set CSI type: {e}"));
+            } else {
+                app_state_guard.current_cli_config = current_config;
+                info!("ESP32 CSI type set to {:?}", new_esp_csi_type);
             }
         }
         KeyCode::Char('r') => { /* No action, error cleared by other keys */ }
-        KeyCode::Up => {
+        KeyCode::Up => { // Clear CSI data buffer
             if !app_state_guard.is_editing_spam_config {
                 app_state_guard.csi_data.clear();
                 info!("CSI data buffer cleared.");
             }
         }
-        KeyCode::Down => {
+        KeyCode::Down => { // Synchronize Time
             if !app_state_guard.is_editing_spam_config {
-                match esp_mutex.lock() {
-                    Ok(mut esp_guard) => {
-                        if let Err(e) = esp_guard.synchronize_time() {
-                            app_state_guard.last_error = Some(format!("Failed to sync time: {e}"));
-                        } else {
-                            info!("Time synchronization requested.");
-                        }
+                 if let Err(e) = esp_guard.send_esp32_command(Esp32Command::SynchronizeTimeInit, None).await {
+                    app_state_guard.last_error = Some(format!("Time sync init failed: {e}"));
+                 } else {
+                    let time_us = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_err(|se| ControllerError::Execution(format!("SystemTimeError: {}", se)))?
+                        .as_micros() as u64;
+                    if let Err(e) = esp_guard.send_esp32_command(Esp32Command::SynchronizeTimeApply, Some(time_us.to_le_bytes().to_vec())).await {
+                        app_state_guard.last_error = Some(format!("Time sync apply failed: {e}"));
+                    } else {
+                        info!("Time synchronization requested with ESP32.");
                     }
-                    Err(p_err) => {
-                        app_state_guard.last_error = Some(format!("Mutex error: {p_err}"))
-                    }
-                }
+                 }
             }
         }
         _ => {}
@@ -638,13 +836,14 @@ fn handle_input(
     Ok(false)
 }
 
+
 fn ui(f: &mut Frame, app_state: &AppState) {
     let main_horizontal_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .margin(1)
         .constraints([
-            Constraint::Percentage(60), // Left panel
-            Constraint::Percentage(40), // Right panel (Logs)
+            Constraint::Percentage(70), // Wider main panel
+            Constraint::Percentage(30), // Log panel
         ])
         .split(f.size());
 
@@ -652,20 +851,16 @@ fn ui(f: &mut Frame, app_state: &AppState) {
     let log_panel_area = main_horizontal_chunks[1];
 
     let status_area_height = if app_state.ui_mode == UiMode::Spam {
-        if app_state.is_editing_spam_config {
-            8
-        } else {
-            6
-        }
+        if app_state.is_editing_spam_config { 8 } else { 6 }
     } else {
-        3
+        3 // Reduced CSI status height
     };
 
     let left_vertical_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(status_area_height),
-            Constraint::Min(0),
+            Constraint::Min(0),    // Table area
             Constraint::Length(3), // Footer area
         ])
         .split(left_panel_area);
@@ -674,17 +869,18 @@ fn ui(f: &mut Frame, app_state: &AppState) {
     let table_area = left_vertical_chunks[1];
     let footer_area = left_vertical_chunks[2];
 
+    // Status Block
     let mode_str = match app_state.ui_mode {
         UiMode::Csi => "CSI RX",
         UiMode::Spam => "WiFi SPAM",
     };
-    let bw_str = match app_state.current_esp_config.bandwidth {
-        Bandwidth::Twenty => "20MHz",
-        Bandwidth::Forty => "40MHz",
+    let bw_str = match app_state.current_cli_config.bandwidth {
+        EspBandwidth::Twenty => "20MHz",
+        EspBandwidth::Forty => "40MHz",
     };
-    let ltf_str = match app_state.current_esp_config.csi_type {
-        CsiType::HighThroughputLTF => "HT-LTF",
-        CsiType::LegacyLTF => "L-LTF",
+    let ltf_str = match app_state.current_cli_config.csi_type {
+        EspCsiType::HighThroughputLTF => "HT-LTF",
+        EspCsiType::LegacyLTF => "L-LTF",
     };
 
     let mut status_lines = vec![
@@ -693,14 +889,14 @@ fn ui(f: &mut Frame, app_state: &AppState) {
             Span::styled(mode_str, Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(format!(
                 " | Chan: {} | BW: {} ({:?}) | LTF: {}",
-                app_state.current_esp_config.channel,
+                app_state.current_cli_config.channel,
                 bw_str,
-                app_state.current_esp_config.secondary_channel,
+                app_state.current_cli_config.secondary_channel, // This is EspSecondaryChannel
                 ltf_str
             )),
         ]),
         Line::from(vec![
-            Span::raw(format!("Buf: {} | Status: ", app_state.csi_data.len())),
+            Span::raw(format!("CSI Buf: {} | Status: ", app_state.csi_data.len())),
             Span::styled(
                 app_state.connection_status.clone(),
                 match app_state.connection_status.as_str() {
@@ -712,149 +908,97 @@ fn ui(f: &mut Frame, app_state: &AppState) {
     ];
 
     if app_state.ui_mode == UiMode::Spam {
+        // Spam config display (remains largely the same)
         let mut src_mac_spans = vec![Span::raw("  Src MAC: ")];
         for i in 0..6 {
             let val_str = format!("{:02X}", app_state.spam_config_src_mac[i]);
-            let style = if app_state.is_editing_spam_config
-                && app_state.current_editing_field == SpamConfigField::SrcMacOctet(i)
-            {
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::REVERSED)
-            } else {
-                Style::default()
-            };
+            let style = if app_state.is_editing_spam_config && app_state.current_editing_field == SpamConfigField::SrcMacOctet(i) {
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::REVERSED)
+            } else { Style::default() };
             src_mac_spans.push(Span::styled(val_str, style));
-            if i < 5 {
-                src_mac_spans.push(Span::raw(":"));
-            }
+            if i < 5 { src_mac_spans.push(Span::raw(":")); }
         }
 
         let mut dst_mac_spans = vec![Span::raw("  Dst MAC: ")];
         for i in 0..6 {
             let val_str = format!("{:02X}", app_state.spam_config_dst_mac[i]);
-            let style = if app_state.is_editing_spam_config
-                && app_state.current_editing_field == SpamConfigField::DstMacOctet(i)
-            {
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::REVERSED)
-            } else {
-                Style::default()
-            };
+            let style = if app_state.is_editing_spam_config && app_state.current_editing_field == SpamConfigField::DstMacOctet(i) {
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::REVERSED)
+            } else { Style::default() };
             dst_mac_spans.push(Span::styled(val_str, style));
-            if i < 5 {
-                dst_mac_spans.push(Span::raw(":"));
-            }
+            if i < 5 { dst_mac_spans.push(Span::raw(":")); }
         }
+        
+        let reps_style = if app_state.is_editing_spam_config && app_state.current_editing_field == SpamConfigField::Reps {
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::REVERSED)
+        } else { Style::default() };
+        let pause_style = if app_state.is_editing_spam_config && app_state.current_editing_field == SpamConfigField::PauseMs {
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::REVERSED)
+        } else { Style::default() };
 
-        let reps_style = if app_state.is_editing_spam_config
-            && app_state.current_editing_field == SpamConfigField::Reps
-        {
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::REVERSED)
-        } else {
-            Style::default()
-        };
-
-        let pause_style = if app_state.is_editing_spam_config
-            && app_state.current_editing_field == SpamConfigField::PauseMs
-        {
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::REVERSED)
-        } else {
-            Style::default()
-        };
-
-        status_lines.push(Line::from("Spam Configuration:")); // Line::from can take &str
+        status_lines.push(Line::from("Spam Configuration:"));
         status_lines.push(Line::from(src_mac_spans));
         status_lines.push(Line::from(dst_mac_spans));
         status_lines.push(Line::from(vec![
-            Span::raw("  Reps: "),
-            Span::styled(app_state.spam_config_n_reps.to_string(), reps_style),
-            Span::raw(" | Pause: "),
-            Span::styled(app_state.spam_config_pause_ms.to_string(), pause_style),
-            Span::raw("ms"),
+            Span::raw("  Reps: "), Span::styled(app_state.spam_config_n_reps.to_string(), reps_style),
+            Span::raw(" | Pause: "), Span::styled(app_state.spam_config_pause_ms.to_string(), pause_style), Span::raw("ms"),
         ]));
     }
-
-    let header_paragraph = Paragraph::new(Text::from(status_lines)) // Text::from(Vec<Line>)
+    
+    let header_paragraph = Paragraph::new(Text::from(status_lines))
         .block(Block::default().borders(Borders::ALL).title(" Status "));
     f.render_widget(header_paragraph, status_area);
 
+    // CSI Data Table - Updated for CsiData struct
     let table_header_cells = [
-        "Timestamp (us)",
-        "Src MAC",
-        "Dst MAC",
-        "Seq",
-        "RSSI",
-        "AGC Gain",
-        "FFT Gain",
-        "CSI Len",
+        "Timestamp (s)", "Seq", "RSSI (Rx0)", "Subcarriers", /* Removed MACs, AGC, FFT Gain */
     ]
     .iter()
-    .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow))); // Can use .yellow() with Stylize trait
+    .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow)));
     let table_header = Row::new(table_header_cells).height(1).bottom_margin(0);
 
     let rows: Vec<Row> = app_state
         .csi_data
         .iter()
-        .rev()
-        .take(table_area.height.saturating_sub(2) as usize)
-        .map(|p| {
-            let src_mac_str = format!(
-                "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-                p.src_mac[0], p.src_mac[1], p.src_mac[2], p.src_mac[3], p.src_mac[4], p.src_mac[5]
-            );
-            let dst_mac_str = format!(
-                "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-                p.dst_mac[0], p.dst_mac[1], p.dst_mac[2], p.dst_mac[3], p.dst_mac[4], p.dst_mac[5]
-            );
+        .rev() // Show newest first
+        .take(table_area.height.saturating_sub(2) as usize) // -2 for header and border
+        .map(|p: &CsiData| { // p is &CsiData
+            let num_subcarriers = if !p.csi.is_empty() && !p.csi[0].is_empty() {
+                p.csi[0][0].len()
+            } else {
+                0
+            };
+            let rssi_str = p.rssi.get(0).map_or_else(|| "N/A".to_string(), |r| r.to_string());
+
             Row::new(vec![
-                Cell::from(p.timestamp_us.to_string()),
-                Cell::from(src_mac_str),
-                Cell::from(dst_mac_str),
-                Cell::from(p.seq.to_string()),
-                Cell::from(p.rssi.to_string()),
-                Cell::from(p.agc_gain.to_string()),
-                Cell::from(p.fft_gain.to_string()),
-                Cell::from(p.csi_data.len().to_string()),
+                Cell::from(format!("{:.6}", p.timestamp)), // Display f64 timestamp
+                Cell::from(p.sequence_number.to_string()),
+                Cell::from(rssi_str),
+                Cell::from(num_subcarriers.to_string()),
             ])
         })
         .collect();
 
-    let table_widths = [
-        Constraint::Length(18),
-        Constraint::Length(18),
-        Constraint::Length(18),
-        Constraint::Length(6),
-        Constraint::Length(6),
-        Constraint::Length(9),
-        Constraint::Length(9),
-        Constraint::Length(8),
+    let table_widths = [ // Adjusted widths
+        Constraint::Length(18), // Timestamp
+        Constraint::Length(8),  // Seq
+        Constraint::Length(12), // RSSI
+        Constraint::Length(12), // Subcarriers
     ];
-    let table = Table::new(rows, &table_widths) // Pass widths to constructor (Ratatui specific) or use .widths()
+    let table = Table::new(rows, &table_widths)
         .header(table_header)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" CSI Data Packets "),
-        )
-        // .widths(&table_widths) // Alternative: use builder method if not in constructor
+        .block(Block::default().borders(Borders::ALL).title(" CSI Data Packets "))
         .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
         .highlight_symbol(">> ");
     f.render_widget(table, table_area);
 
+    // Log Output List (remains largely the same)
     let log_items_list: Vec<ListItem> = app_state
         .log_messages
         .iter()
         .map(|entry| {
             let timestamp_str = entry.timestamp.format("%H:%M:%S").to_string();
-            let display_msg_with_timestamp =
-                format!("{timestamp_str} [{}] {}", entry.level, entry.message);
-
+            let display_msg_with_timestamp = format!("{timestamp_str} [{}] {}", entry.level, entry.message);
             let style = match entry.level {
                 log::Level::Error => Style::default().fg(Color::Red),
                 log::Level::Warn => Style::default().fg(Color::Yellow),
@@ -862,17 +1006,14 @@ fn ui(f: &mut Frame, app_state: &AppState) {
                 log::Level::Debug => Style::default().fg(Color::Blue),
                 log::Level::Trace => Style::default().fg(Color::Magenta),
             };
-            ListItem::new(display_msg_with_timestamp).style(style) // String auto-converts to Text
+            ListItem::new(display_msg_with_timestamp).style(style)
         })
         .collect();
-
+    
     let num_logs_to_show = log_panel_area.height.saturating_sub(2) as usize;
     let current_log_count = log_items_list.len();
     let visible_log_items: Vec<ListItem> = if current_log_count > num_logs_to_show {
-        log_items_list
-            .into_iter()
-            .skip(current_log_count - num_logs_to_show)
-            .collect()
+        log_items_list.into_iter().skip(current_log_count - num_logs_to_show).collect()
     } else {
         log_items_list
     };
@@ -881,6 +1022,7 @@ fn ui(f: &mut Frame, app_state: &AppState) {
         .block(Block::default().borders(Borders::ALL).title(" Log Output "));
     f.render_widget(logs_list_widget, log_panel_area);
 
+    // Footer (Info/Errors)
     let footer_text_str = if let Some(err_msg) = &app_state.last_error {
         format!("ERROR: {err_msg} (Press 'R' to keep, other keys clear error)")
     } else if app_state.is_editing_spam_config && app_state.ui_mode == UiMode::Spam {
@@ -892,23 +1034,15 @@ fn ui(f: &mut Frame, app_state: &AppState) {
         };
         format!("[E]xit Edit | [Tab]Next Field | [↑↓]Modify | Editing: {field_name}")
     } else {
-        "Controls: [Q]uit | [M]ode | [S]end Spam | [E]dit Spam Cfg (in Spam mode) | [C]hannel | [B]W | [L]TF | [↑]Clr CSI | [↓]Sync Time"
+        "Controls: [Q]uit | [M]ode | [S]end Spam | [E]dit Spam Cfg (Spam mode) | [C]hannel | [B]W | [L]TF | [↑]Clr CSI | [↓]Sync Time"
             .to_string()
     };
-    let footer_style = if app_state.last_error.is_some() {
-        Style::default().fg(Color::Red)
-    } else if app_state.is_editing_spam_config {
-        Style::default().fg(Color::Cyan)
-    } else {
-        Style::default().fg(Color::DarkGray)
-    };
+    let footer_style = if app_state.last_error.is_some() { Style::default().fg(Color::Red) }
+    else if app_state.is_editing_spam_config { Style::default().fg(Color::Cyan) }
+    else { Style::default().fg(Color::DarkGray) };
 
-    let footer_paragraph = Paragraph::new(footer_text_str) // String auto-converts to Text
+    let footer_paragraph = Paragraph::new(footer_text_str)
         .style(footer_style)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Info/Errors "),
-        );
+        .block(Block::default().borders(Borders::ALL).title(" Info/Errors "));
     f.render_widget(footer_paragraph, footer_area);
 }

@@ -17,12 +17,13 @@ bincode = "1.3"
 # Dependencies from HEAD
 serialport = "4.7.1"
 byteorder = "1.5.0"
-crossterm = "0.29.0"
-ratatui = { version = "0.26.3", features = ["all-widgets"] }
+crossterm = { version = "0.29.0", features = ["event-stream"] }
+ratatui = { version = "0.27.0", features = ["all-widgets", "crossterm"] }
 crossbeam-channel = "0.5.15"
 # Dependencies from dev
 argh = "0.1"
 tokio = { version = "1.44.2", features = ["full"] }
+futures = "0.3"
 simplelog = "0.12.2"
 serde_json = "1.0.140"
 async-trait = "0.1.88"
