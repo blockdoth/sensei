@@ -1,11 +1,14 @@
 mod controllers;
 pub mod netlink;
+pub mod esp32;
 
 use crate::FromConfig;
 use crate::errors::DataSourceError;
 use crate::errors::TaskError;
 use crate::sources::controllers::Controller;
 use std::net::SocketAddr;
+pub use crate::sources::controllers::Controller; // Re-export Controller trait
+use std::any::Any;
 
 /// Data Source Trait
 /// -----------------
@@ -43,7 +46,6 @@ pub trait DataSourceT: Send {
 pub enum ControllerParams {
     Netlink(controllers::netlink_controller::NetlinkControllerParams),
     Esp32(controllers::esp32_controller::Esp32ControllerParams),
-    // TODO ADD ESP32
     // Extendable
 }
 
@@ -51,15 +53,21 @@ pub enum ControllerParams {
 #[serde(tag = "type")]
 pub enum DataSourceConfig {
     Netlink(netlink::NetlinkConfig),
-    // TODO ADD ESP32
+    Esp32(esp32_source::Esp32SourceConfig)
 }
 
 #[async_trait::async_trait]
 impl FromConfig<DataSourceConfig> for dyn DataSourceT {
     async fn from_config(config: DataSourceConfig) -> Result<Box<Self>, TaskError> {
         let source: Box<dyn DataSourceT> = match config {
-            DataSourceConfig::Netlink(cfg) => Box::new(netlink::NetlinkSource::new(cfg)?),
-            // TODO ADD ESP32
+            DataSourceConfig::Netlink(cfg) => {
+                Box::new(netlink::NetlinkSource::new(cfg)
+                    .map_err(TaskError::DataSourceError)?)
+            },
+            DataSourceConfig::Esp32(cfg) => {
+                Box::new(esp32_source::Esp32Source::new(cfg)
+                    .map_err(TaskError::DataSourceError)?)
+            }
         };
         Ok(source)
     }
