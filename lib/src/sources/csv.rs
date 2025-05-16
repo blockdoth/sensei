@@ -5,9 +5,9 @@ use crate::sources::controllers::Controller;
 use log::trace;
 use serde::Deserialize;
 use std::fs::File;
+use std::io::Write;
 use std::io::{BufRead, BufReader};
 use std::{path, vec};
-use std::io::Write;
 use tempfile::NamedTempFile;
 
 /// Config struct which can be parsed from a toml config
@@ -49,18 +49,18 @@ impl CsvSource {
                 e
             ))
         })?);
-        let mut buffer = Vec::new();
-        buffer.resize(8192, 0); // Preallocate buffer with a size of 8192 bytes;
+        let mut buffer = vec![0; 8192];
 
         if config.header {
-            reader.read_until(config.row_delimiter, &mut Vec::new()).map_err(|e| {
-                DataSourceError::GenericError(
-                    format!(
-                    "Failed to read header from CSV file: {}: {}",
-                    config.path.display(),
-                    e
-                ))
-            })?;
+            reader
+                .read_until(config.row_delimiter, &mut Vec::new())
+                .map_err(|e| {
+                    DataSourceError::GenericError(format!(
+                        "Failed to read header from CSV file: {}: {}",
+                        config.path.display(),
+                        e
+                    ))
+                })?;
         }
         Ok(Self {
             config,
@@ -82,13 +82,16 @@ impl DataSourceT for CsvSource {
         // create str buff
         let mut line: &mut Vec<u8> = &mut Vec::new();
         // read line from file
-        let bytes_read = self.reader.read_until(self.config.row_delimiter, line).map_err(|e| {
-            DataSourceError::GenericError(format!(
-                "Failed to read from CSV file: {}: {}",
-                self.config.path.display(),
-                e
-            ))
-        })?;
+        let bytes_read = self
+            .reader
+            .read_until(self.config.row_delimiter, line)
+            .map_err(|e| {
+                DataSourceError::GenericError(format!(
+                    "Failed to read from CSV file: {}: {}",
+                    self.config.path.display(),
+                    e
+                ))
+            })?;
         // put the line into the buffer
         buf[..bytes_read].copy_from_slice(line);
         // sleep for the delay
@@ -99,7 +102,7 @@ impl DataSourceT for CsvSource {
     /// Configure a source
     /// ------------------
     /// Try to configure a source with a given set of control parameters. These are
-    /// tool/protocol specific, and sources must decide what they can and can't handle. 
+    /// tool/protocol specific, and sources must decide what they can and can't handle.
     async fn configure(&mut self, params: Box<dyn Controller>) -> Result<(), DataSourceError> {
         trace!("Invoking configuration for CSV source");
         params
