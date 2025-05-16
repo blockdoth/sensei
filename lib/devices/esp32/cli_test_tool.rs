@@ -120,15 +120,6 @@ fn init_tui_logger(
 }
 // --- End Custom TUI Logger ---
 
-// old setup_logging that uses env_logger
-// fn setup_logging() {
-//     env_logger::Builder::from_default_env()
-//         .format_timestamp_millis()
-//         .target(env_logger::Target::Stderr)
-//         .filter_level(log::LevelFilter::Info)
-//         .init();
-// }
-
 fn setup_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>, Box<dyn Error>> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
