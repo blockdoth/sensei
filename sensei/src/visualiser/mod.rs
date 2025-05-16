@@ -96,7 +96,7 @@ impl FromStr for GraphType {
 
 impl fmt::Display for GraphType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -282,7 +282,7 @@ impl Visualiser {
                         let chart = Chart::new(vec![dataset])
                             .block(
                                 Block::default()
-                                    .title(format!("Chart {}", i)) // TODO: Add descriptive title to chart
+                                    .title(format!("Chart {i}")) // TODO: Add descriptive title to chart
                                     .borders(Borders::ALL),
                             )
                             .x_axis(
