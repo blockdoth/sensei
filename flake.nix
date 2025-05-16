@@ -44,6 +44,7 @@
                 nixfmt-rfc-style
                 rust-analyzer-unwrapped
                 mprocs
+                pkg-config
               ]
               ++ lib.optionals pkgs.stdenv.isLinux [ pkgs.udev ];
             RUST_SRC_PATH = "${toolchain}/lib/rustlib/src/rust/library";
