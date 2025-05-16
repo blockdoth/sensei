@@ -2,6 +2,7 @@ use crate::adapters::CsiDataAdapter;
 use crate::adapters::iwl::header::IwlHeader;
 use crate::csi_types::{Complex, CsiData};
 use crate::errors::CsiAdapterError;
+use crate::network::rpc_message::DataMsg;
 
 const NUM_SUBCARRIER: usize = 30;
 
@@ -38,73 +39,85 @@ impl CsiDataAdapter for IwlAdapter {
     ///
     /// # Arguments
     ///
-    /// * `buf` - A byte slice containing the raw CSI data.
+    /// * `msg` - DataMsg containing frames either raw or cooked
     ///
     /// # Returns
     ///
-    /// * `Ok(Some(CsiData))` if parsing is successful.
-    /// * 'Ok(None)' if parsing is not yet done, call the function again
-    /// * `Err(CsiAdapterError)` if parsing fails.
-    async fn produce(&mut self, buf: &[u8]) -> Result<CsiData, CsiAdapterError> {
+    /// * `Ok(Some(DataMsg))` if parsing is successful.
+    /// * `Err(CsiAdapterError) or Some(None)` if parsing fails.
+    async fn produce(&mut self, msg: DataMsg) -> Result<Option<DataMsg>, CsiAdapterError> {
         // Parse header information and extract payload slice
-        let (header, payload) = IwlHeader::parse(buf)?;
+        match msg {
+            DataMsg::RawFrame {
+                ts: _,
+                bytes,
+                source_type: _,
+            } => {
+                let (header, payload) = IwlHeader::parse(&bytes)?;
 
-        // Initialize CSI matrix based on NRX and NTX
-        let mut csi = vec![vec![vec![Complex::new(0.0, 0.0); 30]; header.nrx]; header.ntx];
-        let mut index = 0;
+                // Initialize CSI matrix based on NRX and NTX
+                let mut csi = vec![vec![vec![Complex::new(0.0, 0.0); 30]; header.nrx]; header.ntx];
+                let mut index = 0;
 
-        // Populate CSI matrix with values from payload
-        for i in 0..NUM_SUBCARRIER {
-            index += 3;
-            let remainder = index % 8;
+                // Populate CSI matrix with values from payload
+                for i in 0..NUM_SUBCARRIER {
+                    index += 3;
+                    let remainder = index % 8;
 
-            (0..header.ntx).for_each(|tx| {
-                (0..header.nrx).for_each(|rx| {
-                    let permuted_rx = header.perm[rx];
+                    (0..header.ntx).for_each(|tx| {
+                        (0..header.nrx).for_each(|rx| {
+                            let permuted_rx = header.perm[rx];
 
-                    // Important: We need to cast the values here to u16, since rust's left-shift
-                    // operator acts cyclically; if a value leaves the boundary, its shifted back
-                    // in on the other side. We don't want that.
-                    let p1 = payload[index / 8] as u16;
-                    let p2 = payload[index / 8 + 1] as u16;
-                    let p3 = payload[index / 8 + 2] as u16;
+                            // Important: We need to cast the values here to u16, since rust's left-shift
+                            // operator acts cyclically; if a value leaves the boundary, its shifted back
+                            // in on the other side. We don't want that.
+                            let p1 = payload[index / 8] as u16;
+                            let p2 = payload[index / 8 + 1] as u16;
+                            let p3 = payload[index / 8 + 2] as u16;
 
-                    // Calculate real and imag directly as i8 values
-                    let real = (((p1 >> remainder) | (p2 << (8 - remainder))) as i8) as f64;
-                    let imag = (((p2 >> remainder) | (p3 << (8 - remainder))) as i8) as f64;
+                            // Calculate real and imag directly as i8 values
+                            let real = (((p1 >> remainder) | (p2 << (8 - remainder))) as i8) as f64;
+                            let imag = (((p2 >> remainder) | (p3 << (8 - remainder))) as i8) as f64;
 
-                    csi[tx][permuted_rx][i] = Complex::new(real, imag);
-                    index += 16;
-                });
-            });
+                            csi[tx][permuted_rx][i] = Complex::new(real, imag);
+                            index += 16;
+                        });
+                    });
+                }
+
+                // Scale CSI values
+                if self.scale_csi {
+                    scale_csi(
+                        &mut csi,
+                        &header.rssi,
+                        header.noise,
+                        header.agc,
+                        header.ntx,
+                        header.nrx,
+                    );
+                }
+
+                // Unpermute RSSI values using the header's permutation array
+                let rssi: Vec<_> = header
+                    .perm
+                    .iter()
+                    .take(header.nrx)
+                    .map(|&permuted_rx| header.rssi[permuted_rx])
+                    .collect();
+                Ok(Some(DataMsg::CsiFrame {
+                    csi: CsiData {
+                        timestamp: header.timestamp,
+                        sequence_number: header.sequence_number,
+                        rssi,
+                        csi,
+                    },
+                }))
+            }
+            DataMsg::CsiFrame { csi } => {
+                // Already parsed — just forward
+                Ok(Some(DataMsg::CsiFrame { csi }))
+            }
         }
-
-        // Scale CSI values
-        if self.scale_csi {
-            scale_csi(
-                &mut csi,
-                &header.rssi,
-                header.noise,
-                header.agc,
-                header.ntx,
-                header.nrx,
-            );
-        }
-
-        // Unpermute RSSI values using the header's permutation array
-        let rssi: Vec<_> = header
-            .perm
-            .iter()
-            .take(header.nrx)
-            .map(|&permuted_rx| header.rssi[permuted_rx])
-            .collect();
-
-        Ok(CsiData {
-            timestamp: header.timestamp,
-            sequence_number: header.sequence_number,
-            rssi,
-            csi,
-        })
     }
 }
 

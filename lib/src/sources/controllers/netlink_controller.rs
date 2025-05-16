@@ -1,15 +1,15 @@
 #![cfg(target_os = "linux")]
 
 use crate::errors::ControllerError;
-use crate::controllers::Controller;
+use crate::sources::DataSourceT;
+use crate::sources::controllers::Controller;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use tokio::process::Command;
 
-#[cfg_attr(feature = "docs", derive(schemars::JsonSchema))]
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, schemars::JsonSchema)]
 #[serde(default)]
-pub struct NetworkCardControlParams {
+pub struct NetlinkControllerParams {
     pub interface: String,
     pub center_freq_mhz: u32,
     pub bandwidth_mhz: u32,
@@ -17,7 +17,7 @@ pub struct NetworkCardControlParams {
     pub antenna_mask: Option<u8>,
 }
 
-impl Default for NetworkCardControlParams {
+impl Default for NetlinkControllerParams {
     fn default() -> Self {
         Self {
             interface: "wlp1s0".into(),
@@ -31,8 +31,8 @@ impl Default for NetworkCardControlParams {
 
 #[typetag::serde(name = "NetLink")]
 #[async_trait::async_trait]
-impl Controller for NetworkCardControlParams {
-    async fn configure(&self) -> Result<(), ControllerError> {
+impl Controller for NetlinkControllerParams {
+    async fn apply(&self, _source: &mut dyn DataSourceT) -> Result<(), ControllerError> {
         let mut freq_args = vec![
             self.center_freq_mhz.to_string(),
             self.bandwidth_mhz.to_string(),
@@ -49,30 +49,59 @@ impl Controller for NetworkCardControlParams {
         }
 
         Command::new("sudo")
-            .arg("ip").arg("link").arg("set").arg("dev")
-            .arg(&self.interface).arg("down")
-            .spawn()?.wait().await?;
+            .arg("ip")
+            .arg("link")
+            .arg("set")
+            .arg("dev")
+            .arg(&self.interface)
+            .arg("down")
+            .spawn()?
+            .wait()
+            .await?;
 
         Command::new("sudo")
-            .arg("ifconfig").arg(&self.interface).arg("down")
-            .spawn()?.wait().await?;
+            .arg("ifconfig")
+            .arg(&self.interface)
+            .arg("down")
+            .spawn()?
+            .wait()
+            .await?;
 
         Command::new("sudo")
-            .arg("iwconfig").arg(&self.interface).arg("mode").arg("monitor")
-            .spawn()?.wait().await?;
+            .arg("iwconfig")
+            .arg(&self.interface)
+            .arg("mode")
+            .arg("monitor")
+            .spawn()?
+            .wait()
+            .await?;
 
         Command::new("sudo")
-            .arg("ifconfig").arg(&self.interface).arg("up")
-            .spawn()?.wait().await?;
+            .arg("ifconfig")
+            .arg(&self.interface)
+            .arg("up")
+            .spawn()?
+            .wait()
+            .await?;
 
         Command::new("sudo")
-            .arg("iw").arg("reg").arg("set").arg("US")
-            .spawn()?.wait().await?;
+            .arg("iw")
+            .arg("reg")
+            .arg("set")
+            .arg("US")
+            .spawn()?
+            .wait()
+            .await?;
 
         Command::new("sudo")
-            .arg("iw").arg(&self.interface).arg("set").arg("freq")
+            .arg("iw")
+            .arg(&self.interface)
+            .arg("set")
+            .arg("freq")
             .args(&freq_args)
-            .spawn()?.wait().await?;
+            .spawn()?
+            .wait()
+            .await?;
 
         if let Some(rx_chainmask) = self.antenna_mask {
             let phy_name = get_phy_name(&self.interface)?;
@@ -86,7 +115,7 @@ impl Controller for NetworkCardControlParams {
 /// Get the phy name (e.g., "phy0") for a wireless interface
 fn get_phy_name(interface: &str) -> Result<String, ControllerError> {
     // Path to the phy80211 symlink
-    let phy_symlink = format!("/sys/class/net/{}/phy80211", interface);
+    let phy_symlink = format!("/sys/class/net/{interface}/phy80211");
 
     // Resolve the symlink to find the corresponding phyX
     let phy_path = fs::read_link(&phy_symlink)?;
@@ -101,11 +130,8 @@ fn get_phy_name(interface: &str) -> Result<String, ControllerError> {
 
 /// Set receive antenna chainmask
 fn set_rx_chainmask(phy_name: &str, chainmask: u8) -> Result<(), ControllerError> {
-    let path = format!(
-        "/sys/kernel/debug/ieee80211/{}/iwlwifi/iwlmvm/rx_chainmask",
-        phy_name
-    );
+    let path = format!("/sys/kernel/debug/ieee80211/{phy_name}/iwlwifi/iwlmvm/rx_chainmask");
     let mut file = OpenOptions::new().write(true).open(path)?;
-    writeln!(file, "{}", chainmask)?;
+    writeln!(file, "{chainmask}")?;
     Ok(())
 }
