@@ -74,8 +74,22 @@ pub enum CsiAdapterError {
     #[error("IWL Adapter Error: {0}")]
     IWL(#[from] IwlAdapterError),
 
+    #[error("ESP32 Adapter Error: {0}")]
+    ESP32(#[from] Esp32AdapterError),
+    
     #[error("Invalid input, give a raw frame")]
     InvalidInput,
+}
+
+/// Specific errors for the ESP32 adapter.
+#[derive(Error, Debug)]
+pub enum Esp32AdapterError {
+    #[error("Payload too short: expected at least {expected} bytes, got {actual}")]
+    PayloadTooShort { expected: usize, actual: usize },
+
+    #[error("ESP32 CSI data parsing error: {0}")]
+    ParseError(String),
+    // Add other ESP32-specific errors here if they arise.
 }
 
 /// Specific errors of the Iwl adapter
