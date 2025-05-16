@@ -26,13 +26,32 @@ pub struct Orchestrator {
     client: Arc<Mutex<TcpClient>>,
 }
 
+impl Run<OrchestratorConfig> for Orchestrator {
+  fn new() -> Self {
+      Orchestrator {
+          client: Arc::new(Mutex::new(TcpClient::new())),
+      }
+  }
+
+  async fn run(&self, config: OrchestratorConfig) -> Result<(), Box<dyn std::error::Error>> {
+      for target_addr in config.targets.into_iter() {
+          Self::connect(&self.client, target_addr).await
+      }
+      self.cli_interface().await;
+      Ok(())
+  }
+}
+
 impl Orchestrator {
+    
     async fn connect(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr) {
         client.lock().await.connect(target_addr).await;
     }
+    
     async fn disconnect(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr) {
         client.lock().await.disconnect(target_addr).await;
     }
+    
     async fn subscribe(
         client: &Arc<Mutex<TcpClient>>,
         target_addr: SocketAddr,
@@ -48,6 +67,7 @@ impl Orchestrator {
         client.lock().await.send_message(target_addr, msg).await;
     }
 
+    // Temporary, refactor once TUI gets added
     async fn cli_interface(&self) -> Result<(), Box<dyn std::error::Error>> {
         let (send_commands_channel, mut recv_commands_channel) =
             watch::channel::<ChannelMsg>(ChannelMsg::Empty);
@@ -167,22 +187,6 @@ impl Orchestrator {
         command_task.abort();
         recv_task.abort();
 
-        Ok(())
-    }
-}
-
-impl Run<OrchestratorConfig> for Orchestrator {
-    fn new() -> Self {
-        Orchestrator {
-            client: Arc::new(Mutex::new(TcpClient::new())),
-        }
-    }
-
-    async fn run(&self, config: OrchestratorConfig) -> Result<(), Box<dyn std::error::Error>> {
-        for target_addr in config.targets.into_iter() {
-            Self::connect(&self.client, target_addr).await
-        }
-        self.cli_interface().await;
         Ok(())
     }
 }

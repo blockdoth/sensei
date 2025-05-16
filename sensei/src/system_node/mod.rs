@@ -59,8 +59,6 @@ impl ConnectionHandler for SystemNode {
                 }
                 Disconnect => {
                     send_channel.send(ChannelMsg::Disconnect);
-
-                    // todo!("disconnect logic")
                     return Err(NetworkError::Closed);
                 }
                 Subscribe { device_id, mode } => {
@@ -72,17 +70,8 @@ impl ConnectionHandler for SystemNode {
                     send_channel.send(ChannelMsg::Unsubscribe);
                     println!("Unsubscribed from data stream");
                 }
-                Configure { device_id, cfg } => {
-                    todo!("Configure")
-                }
-                PollDevices => {
-                    send_channel.send(ChannelMsg::Poll);
-                }
-                Heartbeat => {
-                    todo!("Heartbeat")
-                    // More of a test message for, can add other test functionality for messages here
-                    // Nodes are supposed to send heartbeats, not receive them
-                    // TODO: Maybe nodes can be pinged using heartbeats?
+                m => {
+                  todo!("{:?}", m);
                 }
             },
             Data(data_msg) => todo!(),
@@ -139,6 +128,8 @@ impl Run<SystemNodeConfig> for SystemNode {
 
         let sender_data_channel = connection_handler.send_data_channel.clone();
 
+        // Example sender which just spams packets 
+        // The most important thing is the ability to clone send ends of channels arround
         tokio::spawn(async move {
             let mut i = 0;
             loop {
@@ -155,7 +146,7 @@ impl Run<SystemNodeConfig> for SystemNode {
                 if i > 1_000_000 {
                     i = 0;
                 }
-                // tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
             }
         });
 
