@@ -23,6 +23,7 @@
           inputs',
           pkgs,
           system,
+          lib,
           ...
         }:
         let
