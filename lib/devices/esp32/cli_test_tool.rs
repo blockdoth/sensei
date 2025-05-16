@@ -13,21 +13,22 @@ use chrono::{DateTime, Local};
 
 // Logging facade and our custom logger components
 use crossbeam_channel::{Receiver, Sender};
-use log::{error, info, warn, Level, LevelFilter, Metadata, Record, SetLoggerError};
+use log::{Level, LevelFilter, Metadata, Record, SetLoggerError, error, info, warn};
 
 use crossterm::{
     event::{Event as CEvent, KeyCode},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 // Ratatui imports
 use ratatui::{
+    Frame,
+    Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style, Stylize}, // Stylize can be useful for .fg(Color), .bold(), etc.
-    text::{Line, Span, Text},                 // Replaced Spans with Line, Text is a collection of Lines
+    text::{Line, Span, Text}, // Replaced Spans with Line, Text is a collection of Lines
     widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table},
-    Frame, Terminal,
 };
 
 mod esp32;
@@ -451,7 +452,9 @@ fn handle_input(
                         info!("ESP32 mode set to {new_esp_op_mode:?} via ApplyDeviceConfig");
 
                         if new_esp_op_mode == OperationMode::Transmit {
-                            info!("ESP32 in Transmit mode. WiFi transmit task will be explicitly PAUSED initially.");
+                            info!(
+                                "ESP32 in Transmit mode. WiFi transmit task will be explicitly PAUSED initially."
+                            );
                             info!("Use 's' to send configured custom frames.");
                             if let Err(e_pause) = esp_guard.pause_wifi_transmit() {
                                 app_state_guard.last_error = Some(format!(
@@ -464,7 +467,9 @@ fn handle_input(
                                 info!("WiFi transmit task PAUSED. Ready for custom frames.");
                             }
                         } else {
-                            info!("Switched to CSI mode. ESP32 general WiFi transmit task should be inactive.");
+                            info!(
+                                "Switched to CSI mode. ESP32 general WiFi transmit task should be inactive."
+                            );
                         }
                     }
                 }
@@ -479,7 +484,9 @@ fn handle_input(
             if app_state_guard.ui_mode == UiMode::Spam {
                 app_state_guard.is_editing_spam_config = !app_state_guard.is_editing_spam_config;
                 if app_state_guard.is_editing_spam_config {
-                    info!("Entered spam config editing mode. Use Tab, Up/Down. 'e' or Esc to exit.");
+                    info!(
+                        "Entered spam config editing mode. Use Tab, Up/Down. 'e' or Esc to exit."
+                    );
                     app_state_guard.current_editing_field = SpamConfigField::SrcMacOctet(0);
                 } else {
                     info!("Exited spam config editing mode.");
@@ -516,7 +523,9 @@ fn handle_input(
                                 app_state_guard.last_error = Some(err_msg.clone());
                                 error!("TUI: {err_msg}");
                             } else {
-                                info!("TransmitCustomFrame command sent to ESP32 with configured parameters.");
+                                info!(
+                                    "TransmitCustomFrame command sent to ESP32 with configured parameters."
+                                );
                             }
                         }
                         Err(p_err) => {
@@ -709,7 +718,9 @@ fn ui(f: &mut Frame, app_state: &AppState) {
             let style = if app_state.is_editing_spam_config
                 && app_state.current_editing_field == SpamConfigField::SrcMacOctet(i)
             {
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::REVERSED)
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::REVERSED)
             } else {
                 Style::default()
             };
@@ -725,7 +736,9 @@ fn ui(f: &mut Frame, app_state: &AppState) {
             let style = if app_state.is_editing_spam_config
                 && app_state.current_editing_field == SpamConfigField::DstMacOctet(i)
             {
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::REVERSED)
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::REVERSED)
             } else {
                 Style::default()
             };
@@ -738,7 +751,9 @@ fn ui(f: &mut Frame, app_state: &AppState) {
         let reps_style = if app_state.is_editing_spam_config
             && app_state.current_editing_field == SpamConfigField::Reps
         {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::REVERSED)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::REVERSED)
         } else {
             Style::default()
         };
@@ -746,7 +761,9 @@ fn ui(f: &mut Frame, app_state: &AppState) {
         let pause_style = if app_state.is_editing_spam_config
             && app_state.current_editing_field == SpamConfigField::PauseMs
         {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::REVERSED)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::REVERSED)
         } else {
             Style::default()
         };
@@ -768,7 +785,14 @@ fn ui(f: &mut Frame, app_state: &AppState) {
     f.render_widget(header_paragraph, status_area);
 
     let table_header_cells = [
-        "Timestamp (us)", "Src MAC", "Dst MAC", "Seq", "RSSI", "AGC Gain", "FFT Gain", "CSI Len",
+        "Timestamp (us)",
+        "Src MAC",
+        "Dst MAC",
+        "Seq",
+        "RSSI",
+        "AGC Gain",
+        "FFT Gain",
+        "CSI Len",
     ]
     .iter()
     .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow))); // Can use .yellow() with Stylize trait
@@ -802,13 +826,22 @@ fn ui(f: &mut Frame, app_state: &AppState) {
         .collect();
 
     let table_widths = [
-        Constraint::Length(18), Constraint::Length(18), Constraint::Length(18),
-        Constraint::Length(6), Constraint::Length(6), Constraint::Length(9),
-        Constraint::Length(9), Constraint::Length(8),
+        Constraint::Length(18),
+        Constraint::Length(18),
+        Constraint::Length(18),
+        Constraint::Length(6),
+        Constraint::Length(6),
+        Constraint::Length(9),
+        Constraint::Length(9),
+        Constraint::Length(8),
     ];
     let table = Table::new(rows, &table_widths) // Pass widths to constructor (Ratatui specific) or use .widths()
         .header(table_header)
-        .block(Block::default().borders(Borders::ALL).title(" CSI Data Packets "))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" CSI Data Packets "),
+        )
         // .widths(&table_widths) // Alternative: use builder method if not in constructor
         .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
         .highlight_symbol(">> ");
@@ -836,7 +869,10 @@ fn ui(f: &mut Frame, app_state: &AppState) {
     let num_logs_to_show = log_panel_area.height.saturating_sub(2) as usize;
     let current_log_count = log_items_list.len();
     let visible_log_items: Vec<ListItem> = if current_log_count > num_logs_to_show {
-        log_items_list.into_iter().skip(current_log_count - num_logs_to_show).collect()
+        log_items_list
+            .into_iter()
+            .skip(current_log_count - num_logs_to_show)
+            .collect()
     } else {
         log_items_list
     };
@@ -869,6 +905,10 @@ fn ui(f: &mut Frame, app_state: &AppState) {
 
     let footer_paragraph = Paragraph::new(footer_text_str) // String auto-converts to Text
         .style(footer_style)
-        .block(Block::default().borders(Borders::ALL).title(" Info/Errors "));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Info/Errors "),
+        );
     f.render_widget(footer_paragraph, footer_area);
 }
