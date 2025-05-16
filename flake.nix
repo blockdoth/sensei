@@ -35,7 +35,7 @@
         in
         {
           devShells.default = pkgs.mkShell {
-            packages = with pkgs;[
+            packages = with pkgs; [
               toolchain
               ruff
               shellcheck
@@ -56,9 +56,9 @@
             };
             cargoToml = ./Cargo.toml;
             buildInputs = lib.optionals pkgs.stdenv.isLinux [ pkgs.udev ];
-            nativeBuildInputs = with pkgs; [ 
-              toolchain 
-              pkg-config  
+            nativeBuildInputs = with pkgs; [
+              toolchain
+              pkg-config
             ];
           };
 
