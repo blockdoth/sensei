@@ -114,25 +114,22 @@ impl Visualiser {
                             msg,
                             src_addr,
                             target_addr,
-                        } => match msg {
-                            Data(data_msg) => match data_msg {
-                                CsiFrame { csi } => {
-                                    // Fukcing magic
-                                    data.lock()
-                                        .await
-                                        .entry(src_addr)
-                                        .and_modify(|devices| {
-                                            devices
-                                                .entry(device_id)
-                                                .and_modify(|csi_data| csi_data.push(csi.clone()))
-                                                .or_insert(vec![csi.clone()]);
-                                        })
-                                        .or_insert(HashMap::new());
-                                }
-                                _ => {} // Does not process raw frames
-                            },
-                            _ => {}
-                        },
+                        } => if let Data(data_msg) = msg { match data_msg {
+                            CsiFrame { csi } => {
+                                // Fukcing magic
+                                data.lock()
+                                    .await
+                                    .entry(src_addr)
+                                    .and_modify(|devices| {
+                                        devices
+                                            .entry(device_id)
+                                            .and_modify(|csi_data| csi_data.push(csi.clone()))
+                                            .or_insert(vec![csi.clone()]);
+                                    })
+                                    .or_insert(HashMap::new());
+                            }
+                            _ => {} // Does not process raw frames
+                        } },
                     },
                     _ => return, // Connection with node is not established, ends the process
                 }
@@ -233,7 +230,7 @@ impl Visualiser {
                 let mut types = Vec::new();
 
                 for graph in graphs.lock().await.iter() {
-                    current_data.push(self.process_data(graph.clone()).await);
+                    current_data.push(self.process_data(*graph).await);
                     types.push(graph.0.clone().to_string());
                 }
 
@@ -246,7 +243,7 @@ impl Visualiser {
                         .constraints([Constraint::Percentage(80), Constraint::Length(3)].as_ref())
                         .split(size);
 
-                    let graph_count = if (current_data.len() == 0) {
+                    let graph_count = if (current_data.is_empty()) {
                         1
                     } else {
                         current_data.len()
@@ -350,7 +347,7 @@ impl Visualiser {
         text_input: String,
         graphs: Arc<Mutex<Vec<(GraphType, SocketAddr, u64, usize, usize, usize)>>>,
     ) {
-        let parts: Vec<&str> = text_input.trim().split_whitespace().collect();
+        let parts: Vec<&str> = text_input.split_whitespace().collect();
         if parts.is_empty() {
             return;
         }
@@ -450,7 +447,7 @@ impl Visualiser {
 
                 let msg = RpcMessage {
                     src_addr: client.self_addr.unwrap(),
-                    target_addr: target_addr,
+                    target_addr,
                     msg: Ctrl(CtrlMsg::Connect),
                 };
 
@@ -459,7 +456,7 @@ impl Visualiser {
                 let src_addr = client.self_addr.unwrap();
                 let msg = RpcMessage {
                     src_addr,
-                    target_addr: target_addr,
+                    target_addr,
                     msg: Ctrl(CtrlMsg::Subscribe {
                         device_id: 0,
                         mode: AdapterMode::RAW,
