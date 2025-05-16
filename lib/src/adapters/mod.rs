@@ -15,6 +15,7 @@ use crate::csi_types::CsiData;
 use crate::errors::CsiAdapterError;
 use crate::errors::TaskError;
 use crate::network::rpc_message::DataMsg;
+use crate::network::rpc_message::DataMsg::CsiFrame;
 pub mod csv;
 pub mod iwl;
 
@@ -37,13 +38,10 @@ pub trait CsiDataAdapter: Send {
     /// * `msg` - A DataMsg enum (either raw bytes or already parsed CSI).
     ///
     /// # Returns
-    /// * `Ok(Some(CsiData))` - When a complete and valid frame is assembled.
-    /// * `OK(none) or Err(CsiAdapterError)` - On malformed input or internal parsing error.
-    ///
-    /// # Notes
-    /// - Adapters do not handle packet fragmentation logic. Callers must ensure
-    ///   that only complete packets are passed in (unless fragmentation is internally supported).
-    async fn produce(&mut self, buf: &[u8]) -> Result<Option<CsiData>, CsiAdapterError>;
+    /// * `Ok(Some(DataMsg::CsiFrame))` - When a CSI frame is ready.
+    /// * `Ok(None)` - When more data is needed (e.g. fragmented input).
+    /// * `Err(CsiAdapterError)` - On decoding error.
+    async fn produce(&mut self, msg: DataMsg) -> Result<Option<DataMsg>, CsiAdapterError>;
 }
 
 /// Adapter type tag for configuration-based instantiation.
@@ -63,12 +61,13 @@ pub enum DataAdapterConfig {
 /// boxed dynamic adapter instance.
 ///
 ///
-impl From<DataAdapterTag> for Box<dyn CsiDataAdapter> {
-    fn from(tag: DataAdapterTag) -> Box<dyn CsiDataAdapter> {
-        match tag {
-            DataAdapterTag::Iwl { scale_csi } => Box::new(iwl::IwlAdapter::new(scale_csi)),
-            DataAdapterTag::CSV {} => Box::new(csv::CSVAdapter::default()),
-            _ => panic!("No data adapter specified"),
-        }
+#[async_trait::async_trait]
+impl FromConfig<DataAdapterConfig> for dyn CsiDataAdapter {
+    async fn from_config(tag: DataAdapterConfig) -> Result<Box<Self>, TaskError> {
+        let adapter: Box<dyn CsiDataAdapter> = match tag {
+            DataAdapterConfig::Iwl { scale_csi } => Box::new(iwl::IwlAdapter::new(scale_csi)),
+            DataAdapterConfig::CSV {} => Box::new(csv::CSVAdapter::default()),
+        };
+        Ok(adapter)
     }
 }

@@ -99,17 +99,6 @@ impl DataSourceT for CsvSource {
         Ok(bytes_read)
     }
 
-    /// Configure a source
-    /// ------------------
-    /// Try to configure a source with a given set of control parameters. These are
-    /// tool/protocol specific, and sources must decide what they can and can't handle.
-    async fn configure(&mut self, params: Box<dyn Controller>) -> Result<(), DataSourceError> {
-        trace!("Invoking configuration for CSV source");
-        params
-            .configure()
-            .await
-            .map_err(|e| DataSourceError::Controller(e.to_string()))
-    }
     /// Start the data source
     /// -------------------
     /// Start the data source and prepare it for reading data. This may involve

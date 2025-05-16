@@ -43,10 +43,9 @@ impl CsiDataAdapter for IwlAdapter {
     ///
     /// # Returns
     ///
-    /// * `Ok(Some(CsiData))` if parsing is successful.
-    /// * 'Ok(None)' if parsing is not yet done, call the function again
-    /// * `Err(CsiAdapterError)` if parsing fails.
-    async fn produce(&mut self, buf: &[u8]) -> Result<Option<CsiData>, CsiAdapterError> {
+    /// * `Ok(Some(DataMsg))` if parsing is successful.
+    /// * `Err(CsiAdapterError) or Some(None)` if parsing fails.
+    async fn produce(&mut self, msg: DataMsg) -> Result<Option<DataMsg>, CsiAdapterError> {
         // Parse header information and extract payload slice
         match msg {
             DataMsg::RawFrame {
@@ -119,33 +118,6 @@ impl CsiDataAdapter for IwlAdapter {
                 Ok(Some(DataMsg::CsiFrame { csi }))
             }
         }
-
-        // Scale CSI values
-        if self.scale_csi {
-            scale_csi(
-                &mut csi,
-                &header.rssi,
-                header.noise,
-                header.agc,
-                header.ntx,
-                header.nrx,
-            );
-        }
-
-        // Unpermute RSSI values using the header's permutation array
-        let rssi: Vec<_> = header
-            .perm
-            .iter()
-            .take(header.nrx)
-            .map(|&permuted_rx| header.rssi[permuted_rx])
-            .collect();
-
-        Ok(Some(CsiData {
-            timestamp: header.timestamp,
-            sequence_number: header.sequence_number,
-            rssi,
-            csi,
-        }))
     }
 }
 

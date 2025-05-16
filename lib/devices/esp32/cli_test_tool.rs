@@ -20,12 +20,14 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use tui::{
-    Frame, Terminal,
+// Ratatui imports
+use ratatui::{
+    Frame,
+    Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
-    style::{Color, Modifier, Style},
-    text::{Span, Spans},
+    style::{Color, Modifier, Style, Stylize}, // Stylize can be useful for .fg(Color), .bold(), etc.
+    text::{Line, Span, Text}, // Replaced Spans with Line, Text is a collection of Lines
     widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table},
 };
 
@@ -76,7 +78,7 @@ pub struct LogEntry {
 // --- Custom TUI Logger ---
 struct TuiLogger {
     log_sender: Sender<LogEntry>,
-    level: Level, // This field is used by the enabled() method
+    level: Level,
 }
 
 impl log::Log for TuiLogger {
@@ -86,7 +88,6 @@ impl log::Log for TuiLogger {
 
     fn log(&self, record: &Record) {
         if self.enabled(record.metadata()) {
-            // Create a LogEntry with the current timestamp
             let log_entry = LogEntry {
                 timestamp: Local::now(),
                 level: record.level(),
@@ -112,7 +113,7 @@ fn init_tui_logger(
 ) -> Result<(), SetLoggerError> {
     let logger = TuiLogger {
         log_sender: sender,
-        level: log_level_filter.to_level().unwrap_or(log::Level::Error), // Ensure TuiLogger.level is initialized
+        level: log_level_filter.to_level().unwrap_or(log::Level::Error),
     };
     log::set_boxed_logger(Box::new(logger))?;
     log::set_max_level(log_level_filter);
@@ -150,7 +151,7 @@ struct AppState {
     csi_data: Vec<CsiPacket>,
     connection_status: String,
     last_error: Option<String>,
-    log_messages: VecDeque<LogEntry>, // MODIFIED: Was VecDeque<String>
+    log_messages: VecDeque<LogEntry>,
     max_log_messages: usize,
     spam_config_src_mac: [u8; 6],
     spam_config_dst_mac: [u8; 6],
@@ -168,19 +169,18 @@ impl AppState {
             csi_data: Vec::with_capacity(1000),
             connection_status: "CONNECTING...".into(),
             last_error: None,
-            log_messages: VecDeque::with_capacity(200), // Stores LogEntry now
+            log_messages: VecDeque::with_capacity(200),
             max_log_messages: 200,
             spam_config_src_mac: [0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC],
             spam_config_dst_mac: [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF], // Broadcast
             spam_config_n_reps: 100,
             spam_config_pause_ms: 20,
             is_editing_spam_config: false,
-            current_editing_field: SpamConfigField::SrcMacOctet(0), // Default editing field
+            current_editing_field: SpamConfigField::SrcMacOctet(0),
         }
     }
 
     fn add_log_message(&mut self, entry: LogEntry) {
-        // MODIFIED: Accepts LogEntry
         if self.log_messages.len() >= self.max_log_messages {
             self.log_messages.pop_front();
         }
@@ -189,11 +189,8 @@ impl AppState {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    // Create a channel for log messages
-    let (log_tx, log_rx): (Sender<LogEntry>, Receiver<LogEntry>) = crossbeam_channel::bounded(200); // MODIFIED: Channel type
+    let (log_tx, log_rx): (Sender<LogEntry>, Receiver<LogEntry>) = crossbeam_channel::bounded(200);
 
-    // Initialize our TUI logger INSTEAD of env_logger
-    // Default to Info, can be changed via RUST_LOG or a command-line arg later
     let log_level = env::var("RUST_LOG")
         .ok()
         .and_then(|s| s.parse::<LevelFilter>().ok())
@@ -201,15 +198,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     if let Err(e) = init_tui_logger(log_level, log_tx) {
         eprintln!("FATAL: Failed to initialize TUI logger: {e}");
-        // No TUI at this point, so direct eprintln is fine.
         return Err(e.into());
     }
 
-    info!("CLI tool starting up..."); // This will now go to our TUI logger
+    info!("CLI tool starting up...");
 
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        // These eprintsln! are fine as TUI is not active yet.
         eprintln!("Usage: {} <serial_port>", args[0]);
         eprintln!("Example: {} /dev/cu.usbmodemXXX", args[0]);
         eprintln!("\nAvailable ports:");
@@ -235,7 +230,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut terminal = match setup_terminal() {
         Ok(term) => term,
         Err(e) => {
-            error!("Failed to setup terminal: {e}"); // This log will go to TUI if logger init worked
+            error!("Failed to setup terminal: {e}");
             return Err(e);
         }
     };
@@ -276,28 +271,22 @@ fn main() -> Result<(), Box<dyn Error>> {
     let app_state = Arc::new(Mutex::new(AppState::new(initial_esp_config_for_appstate)));
     app_state.lock().unwrap().connection_status = "CONNECTED".to_string();
 
-    // --- Log processing thread ---
     let app_state_log_clone = Arc::clone(&app_state);
     thread::spawn(move || {
-        // info!("Log listener thread started."); // This info log is fine
         while let Ok(log_msg) = log_rx.recv() {
             if let Ok(mut state_guard) = app_state_log_clone.lock() {
                 state_guard.add_log_message(log_msg);
             } else {
-                // Fallback if app_state mutex is poisoned
-                // eprintln!("TUI_LOG_THREAD_ERR (Mutex): {}", log_msg);
-                break; // Exit thread if AppState is inaccessible
+                break;
             }
         }
-        // eprintln!("Log listener thread stopped."); // Log to stderr when TUI might be gone
     });
-    // --- End Log processing thread ---
 
     let state_clone_csi = app_state.clone();
-    let csi_rx_channel = esp_mutex.lock().unwrap().csi_receiver(); // Ensure lock is released
+    let csi_rx_channel = esp_mutex.lock().unwrap().csi_receiver();
 
     thread::spawn(move || {
-        info!("CSI listener thread started."); // Log through TUI logger
+        info!("CSI listener thread started.");
         loop {
             match csi_rx_channel.recv_timeout(Duration::from_secs(1)) {
                 Ok(packet) => {
@@ -312,7 +301,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         }
                     } else {
                         break;
-                    } // Mutex poisoned
+                    }
                 }
                 Err(crossbeam_channel::RecvTimeoutError::Timeout) => { /* Continue */ }
                 Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
@@ -344,7 +333,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     restore_terminal(&mut terminal)?;
-    sleep(Duration::from_millis(100)); // Give time for terminal to restore
+    sleep(Duration::from_millis(100));
     info!("CLI tool shutting down.");
     Ok(())
 }
@@ -360,11 +349,9 @@ fn handle_input(
         app_state_guard.last_error = None;
     }
 
-    // Handle spam config editing mode inputs first if active
     if app_state_guard.is_editing_spam_config && app_state_guard.ui_mode == UiMode::Spam {
         match key {
             KeyCode::Char('e') | KeyCode::Esc => {
-                // Exit editing mode
                 app_state_guard.is_editing_spam_config = false;
                 info!("Exited spam config editing mode.");
             }
@@ -372,53 +359,47 @@ fn handle_input(
                 app_state_guard.current_editing_field =
                     app_state_guard.current_editing_field.next();
             }
-            // Consider adding Shift+Tab for previous field if crossterm event supports it easily
-            // For now, only Tab for next.
-            KeyCode::Up => {
-                match app_state_guard.current_editing_field {
-                    SpamConfigField::SrcMacOctet(i) => {
-                        app_state_guard.spam_config_src_mac[i] =
-                            app_state_guard.spam_config_src_mac[i].wrapping_add(1);
-                    }
-                    SpamConfigField::DstMacOctet(i) => {
-                        app_state_guard.spam_config_dst_mac[i] =
-                            app_state_guard.spam_config_dst_mac[i].wrapping_add(1);
-                    }
-                    SpamConfigField::Reps => {
-                        app_state_guard.spam_config_n_reps =
-                            app_state_guard.spam_config_n_reps.saturating_add(1).max(0); // Prevent negative, allow large
-                    }
-                    SpamConfigField::PauseMs => {
-                        app_state_guard.spam_config_pause_ms = app_state_guard
-                            .spam_config_pause_ms
-                            .saturating_add(1)
-                            .max(0);
-                    }
+            KeyCode::Up => match app_state_guard.current_editing_field {
+                SpamConfigField::SrcMacOctet(i) => {
+                    app_state_guard.spam_config_src_mac[i] =
+                        app_state_guard.spam_config_src_mac[i].wrapping_add(1);
                 }
-            }
-            KeyCode::Down => {
-                match app_state_guard.current_editing_field {
-                    SpamConfigField::SrcMacOctet(i) => {
-                        app_state_guard.spam_config_src_mac[i] =
-                            app_state_guard.spam_config_src_mac[i].wrapping_sub(1);
-                    }
-                    SpamConfigField::DstMacOctet(i) => {
-                        app_state_guard.spam_config_dst_mac[i] =
-                            app_state_guard.spam_config_dst_mac[i].wrapping_sub(1);
-                    }
-                    SpamConfigField::Reps => {
-                        app_state_guard.spam_config_n_reps =
-                            (app_state_guard.spam_config_n_reps - 1).max(0); // Min 0
-                    }
-                    SpamConfigField::PauseMs => {
-                        app_state_guard.spam_config_pause_ms =
-                            (app_state_guard.spam_config_pause_ms - 1).max(0); // Min 0
-                    }
+                SpamConfigField::DstMacOctet(i) => {
+                    app_state_guard.spam_config_dst_mac[i] =
+                        app_state_guard.spam_config_dst_mac[i].wrapping_add(1);
                 }
-            }
-            _ => {} // Other keys do nothing in edit mode
+                SpamConfigField::Reps => {
+                    app_state_guard.spam_config_n_reps =
+                        app_state_guard.spam_config_n_reps.saturating_add(1).max(0);
+                }
+                SpamConfigField::PauseMs => {
+                    app_state_guard.spam_config_pause_ms = app_state_guard
+                        .spam_config_pause_ms
+                        .saturating_add(1)
+                        .max(0);
+                }
+            },
+            KeyCode::Down => match app_state_guard.current_editing_field {
+                SpamConfigField::SrcMacOctet(i) => {
+                    app_state_guard.spam_config_src_mac[i] =
+                        app_state_guard.spam_config_src_mac[i].wrapping_sub(1);
+                }
+                SpamConfigField::DstMacOctet(i) => {
+                    app_state_guard.spam_config_dst_mac[i] =
+                        app_state_guard.spam_config_dst_mac[i].wrapping_sub(1);
+                }
+                SpamConfigField::Reps => {
+                    app_state_guard.spam_config_n_reps =
+                        (app_state_guard.spam_config_n_reps - 1).max(0);
+                }
+                SpamConfigField::PauseMs => {
+                    app_state_guard.spam_config_pause_ms =
+                        (app_state_guard.spam_config_pause_ms - 1).max(0);
+                }
+            },
+            _ => {}
         }
-        return Ok(false); // Consume the input
+        return Ok(false);
     }
 
     match key {
@@ -426,12 +407,10 @@ fn handle_input(
             info!("'q' pressed, attempting to disconnect ESP32.");
             match esp_mutex.lock() {
                 Ok(mut esp_guard) => {
-                    // If current mode is Spam, pause transmission before disconnecting
                     if app_state_guard.ui_mode == UiMode::Spam {
                         info!("Pausing WiFi transmit before disconnecting...");
                         if let Err(e) = esp_guard.pause_wifi_transmit() {
                             warn!("Failed to pause WiFi transmit: {e}");
-                            // Log but continue with disconnect
                         }
                     }
                     if let Err(e) = esp_guard.disconnect() {
@@ -451,7 +430,6 @@ fn handle_input(
             return Ok(true);
         }
         KeyCode::Char('m') => {
-            // Toggle UI Mode (CSI/Spam) and apply to ESP32
             let new_ui_mode = match app_state_guard.ui_mode {
                 UiMode::Csi => UiMode::Spam,
                 UiMode::Spam => UiMode::Csi,
@@ -474,8 +452,6 @@ fn handle_input(
                         info!("ESP32 mode set to {new_esp_op_mode:?} via ApplyDeviceConfig");
 
                         if new_esp_op_mode == OperationMode::Transmit {
-                            // Now, instead of just resuming, we ensure it's paused by default.
-                            // TransmitCustomFrame will be the sole trigger for sending.
                             info!(
                                 "ESP32 in Transmit mode. WiFi transmit task will be explicitly PAUSED initially."
                             );
@@ -491,10 +467,6 @@ fn handle_input(
                                 info!("WiFi transmit task PAUSED. Ready for custom frames.");
                             }
                         } else {
-                            // Switched to Receive (UiMode::Csi)
-                            // The apply_device_config for Receive mode should handle unpausing CSI acquisition.
-                            // If there was a general transmit task, it's implicitly stopped by changing mode or should be
-                            // handled by the firmware when not in Transmit operation mode.
                             info!(
                                 "Switched to CSI mode. ESP32 general WiFi transmit task should be inactive."
                             );
@@ -509,14 +481,12 @@ fn handle_input(
             }
         }
         KeyCode::Char('e') => {
-            // Enter/Toggle Spam Config Editing Mode
             if app_state_guard.ui_mode == UiMode::Spam {
                 app_state_guard.is_editing_spam_config = !app_state_guard.is_editing_spam_config;
                 if app_state_guard.is_editing_spam_config {
                     info!(
                         "Entered spam config editing mode. Use Tab, Up/Down. 'e' or Esc to exit."
                     );
-                    // Set to first field if just entered
                     app_state_guard.current_editing_field = SpamConfigField::SrcMacOctet(0);
                 } else {
                     info!("Exited spam config editing mode.");
@@ -528,7 +498,6 @@ fn handle_input(
             }
         }
         KeyCode::Char('s') => {
-            // Send custom spam
             if app_state_guard.ui_mode == UiMode::Spam {
                 if app_state_guard.is_editing_spam_config {
                     app_state_guard.last_error = Some(
@@ -582,7 +551,7 @@ fn handle_input(
                     if let Err(e) = esp_guard.set_channel(new_channel) {
                         app_state_guard.last_error = Some(format!("Failed to set channel: {e}"));
                     } else {
-                        app_state_guard.current_esp_config.channel = new_channel; // esp32.set_channel updates its internal config
+                        app_state_guard.current_esp_config.channel = new_channel;
                         info!("ESP32 channel changed to {new_channel}");
                     }
                 }
@@ -641,20 +610,15 @@ fn handle_input(
                 Err(p) => app_state_guard.last_error = Some(format!("Mutex error: {p}")),
             }
         }
-        KeyCode::Char('r') => { /* Pressing 'r' does nothing to the error; it's cleared by other keys */
-        }
+        KeyCode::Char('r') => { /* No action, error cleared by other keys */ }
         KeyCode::Up => {
-            // Note: Up/Down are now used for editing when is_editing_spam_config is true
             if !app_state_guard.is_editing_spam_config {
-                // Only if NOT editing spam config
                 app_state_guard.csi_data.clear();
                 info!("CSI data buffer cleared.");
             }
         }
         KeyCode::Down => {
-            // Note: Up/Down are now used for editing
             if !app_state_guard.is_editing_spam_config {
-                // Only if NOT editing spam config
                 match esp_mutex.lock() {
                     Ok(mut esp_guard) => {
                         if let Err(e) = esp_guard.synchronize_time() {
@@ -674,51 +638,42 @@ fn handle_input(
     Ok(false)
 }
 
-fn ui<B: tui::backend::Backend>(f: &mut Frame<B>, app_state: &AppState) {
-    // Main layout: Horizontally split screen
+fn ui(f: &mut Frame, app_state: &AppState) {
     let main_horizontal_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .margin(1) // Apply a margin around the entire UI
-        .constraints(
-            [
-                Constraint::Percentage(60), // Left panel
-                Constraint::Percentage(40), // Right panel (Logs)
-            ]
-            .as_ref(),
-        )
+        .margin(1)
+        .constraints([
+            Constraint::Percentage(60), // Left panel
+            Constraint::Percentage(40), // Right panel (Logs)
+        ])
         .split(f.size());
 
     let left_panel_area = main_horizontal_chunks[0];
     let log_panel_area = main_horizontal_chunks[1];
 
-    // Left panel layout: Vertically split for Status, Table, Footer
     let status_area_height = if app_state.ui_mode == UiMode::Spam {
         if app_state.is_editing_spam_config {
-            8 // Base general + title + 3 lines of config + 1 for breathing room or edit prompts
+            8
         } else {
-            6 // Base general + title + 3 lines of config
+            6
         }
     } else {
-        3 // Default status area height for CSI mode
+        3
     };
 
     let left_vertical_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints(
-            [
-                Constraint::Length(status_area_height), // Dynamic status area height
-                Constraint::Min(0),
-                Constraint::Length(3), // Footer area
-            ]
-            .as_ref(),
-        )
+        .constraints([
+            Constraint::Length(status_area_height),
+            Constraint::Min(0),
+            Constraint::Length(3), // Footer area
+        ])
         .split(left_panel_area);
 
     let status_area = left_vertical_chunks[0];
     let table_area = left_vertical_chunks[1];
     let footer_area = left_vertical_chunks[2];
 
-    // --- Status Header (top-left) ---
     let mode_str = match app_state.ui_mode {
         UiMode::Csi => "CSI RX",
         UiMode::Spam => "WiFi SPAM",
@@ -732,8 +687,8 @@ fn ui<B: tui::backend::Backend>(f: &mut Frame<B>, app_state: &AppState) {
         CsiType::LegacyLTF => "L-LTF",
     };
 
-    let mut status_spans = vec![
-        Spans::from(vec![
+    let mut status_lines = vec![
+        Line::from(vec![
             Span::raw("ESP32 | "),
             Span::styled(mode_str, Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(format!(
@@ -744,7 +699,7 @@ fn ui<B: tui::backend::Backend>(f: &mut Frame<B>, app_state: &AppState) {
                 ltf_str
             )),
         ]),
-        Spans::from(vec![
+        Line::from(vec![
             Span::raw(format!("Buf: {} | Status: ", app_state.csi_data.len())),
             Span::styled(
                 app_state.connection_status.clone(),
@@ -813,10 +768,10 @@ fn ui<B: tui::backend::Backend>(f: &mut Frame<B>, app_state: &AppState) {
             Style::default()
         };
 
-        status_spans.push(Spans::from(Span::raw("Spam Configuration:")));
-        status_spans.push(Spans::from(src_mac_spans));
-        status_spans.push(Spans::from(dst_mac_spans));
-        status_spans.push(Spans::from(vec![
+        status_lines.push(Line::from("Spam Configuration:")); // Line::from can take &str
+        status_lines.push(Line::from(src_mac_spans));
+        status_lines.push(Line::from(dst_mac_spans));
+        status_lines.push(Line::from(vec![
             Span::raw("  Reps: "),
             Span::styled(app_state.spam_config_n_reps.to_string(), reps_style),
             Span::raw(" | Pause: "),
@@ -825,11 +780,10 @@ fn ui<B: tui::backend::Backend>(f: &mut Frame<B>, app_state: &AppState) {
         ]));
     }
 
-    let header_paragraph = Paragraph::new(status_spans)
+    let header_paragraph = Paragraph::new(Text::from(status_lines)) // Text::from(Vec<Line>)
         .block(Block::default().borders(Borders::ALL).title(" Status "));
     f.render_widget(header_paragraph, status_area);
 
-    // --- CSI Data Table (middle-left) ---
     let table_header_cells = [
         "Timestamp (us)",
         "Src MAC",
@@ -841,10 +795,10 @@ fn ui<B: tui::backend::Backend>(f: &mut Frame<B>, app_state: &AppState) {
         "CSI Len",
     ]
     .iter()
-    .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow)));
+    .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow))); // Can use .yellow() with Stylize trait
     let table_header = Row::new(table_header_cells).height(1).bottom_margin(0);
 
-    let rows = app_state
+    let rows: Vec<Row> = app_state
         .csi_data
         .iter()
         .rev()
@@ -868,7 +822,8 @@ fn ui<B: tui::backend::Backend>(f: &mut Frame<B>, app_state: &AppState) {
                 Cell::from(p.fft_gain.to_string()),
                 Cell::from(p.csi_data.len().to_string()),
             ])
-        });
+        })
+        .collect();
 
     let table_widths = [
         Constraint::Length(18),
@@ -880,30 +835,26 @@ fn ui<B: tui::backend::Backend>(f: &mut Frame<B>, app_state: &AppState) {
         Constraint::Length(9),
         Constraint::Length(8),
     ];
-    let table = Table::new(rows)
+    let table = Table::new(rows, &table_widths) // Pass widths to constructor (Ratatui specific) or use .widths()
         .header(table_header)
         .block(
             Block::default()
                 .borders(Borders::ALL)
                 .title(" CSI Data Packets "),
         )
-        .widths(&table_widths)
+        // .widths(&table_widths) // Alternative: use builder method if not in constructor
         .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
         .highlight_symbol(">> ");
     f.render_widget(table, table_area);
 
-    // --- Log Messages (right panel) ---
     let log_items_list: Vec<ListItem> = app_state
         .log_messages
         .iter()
         .map(|entry| {
-            // Format the LogEntry for display
             let timestamp_str = entry.timestamp.format("%H:%M:%S").to_string();
-
             let display_msg_with_timestamp =
                 format!("{timestamp_str} [{}] {}", entry.level, entry.message);
 
-            // Determine style based on entry.level
             let style = match entry.level {
                 log::Level::Error => Style::default().fg(Color::Red),
                 log::Level::Warn => Style::default().fg(Color::Yellow),
@@ -911,18 +862,17 @@ fn ui<B: tui::backend::Backend>(f: &mut Frame<B>, app_state: &AppState) {
                 log::Level::Debug => Style::default().fg(Color::Blue),
                 log::Level::Trace => Style::default().fg(Color::Magenta),
             };
-
-            //ListItem::new(String) converts to Text, which enables wrapping.
-            ListItem::new(display_msg_with_timestamp).style(style)
+            ListItem::new(display_msg_with_timestamp).style(style) // String auto-converts to Text
         })
         .collect();
 
     let num_logs_to_show = log_panel_area.height.saturating_sub(2) as usize;
-
     let current_log_count = log_items_list.len();
-    let visible_log_items = if current_log_count > num_logs_to_show {
-        let items_to_skip = current_log_count - num_logs_to_show;
-        log_items_list.into_iter().skip(items_to_skip).collect()
+    let visible_log_items: Vec<ListItem> = if current_log_count > num_logs_to_show {
+        log_items_list
+            .into_iter()
+            .skip(current_log_count - num_logs_to_show)
+            .collect()
     } else {
         log_items_list
     };
@@ -931,8 +881,7 @@ fn ui<B: tui::backend::Backend>(f: &mut Frame<B>, app_state: &AppState) {
         .block(Block::default().borders(Borders::ALL).title(" Log Output "));
     f.render_widget(logs_list_widget, log_panel_area);
 
-    // --- Footer / Controls (bottom-left) ---
-    let footer_text = if let Some(err_msg) = &app_state.last_error {
+    let footer_text_str = if let Some(err_msg) = &app_state.last_error {
         format!("ERROR: {err_msg} (Press 'R' to keep, other keys clear error)")
     } else if app_state.is_editing_spam_config && app_state.ui_mode == UiMode::Spam {
         let field_name = match app_state.current_editing_field {
@@ -949,15 +898,17 @@ fn ui<B: tui::backend::Backend>(f: &mut Frame<B>, app_state: &AppState) {
     let footer_style = if app_state.last_error.is_some() {
         Style::default().fg(Color::Red)
     } else if app_state.is_editing_spam_config {
-        Style::default().fg(Color::Cyan) // Editing mode footer style
+        Style::default().fg(Color::Cyan)
     } else {
         Style::default().fg(Color::DarkGray)
     };
 
-    let footer_paragraph = Paragraph::new(footer_text).style(footer_style).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(" Info/Errors "),
-    );
+    let footer_paragraph = Paragraph::new(footer_text_str) // String auto-converts to Text
+        .style(footer_style)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Info/Errors "),
+        );
     f.render_widget(footer_paragraph, footer_area);
 }

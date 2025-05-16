@@ -1,6 +1,7 @@
 use crate::adapters::CsiDataAdapter;
 use crate::csi_types::{Complex, CsiData};
 use crate::errors::CsiAdapterError;
+use crate::network::rpc_message::DataMsg;
 use std::fs::File;
 use std::io::Write;
 use std::io::{self, Read, Seek, SeekFrom};
@@ -34,38 +35,8 @@ impl<'a> CSVAdapter<'a> {
             line_delimiter,
         }
     }
-}
 
-impl std::default::Default for CSVAdapter<'_> {
-    fn default() -> Self {
-        CSVAdapter::new(Vec::new(), None, &DEFAULT_CELL_DELIM, &DEFAULT_LINE_DELIM)
-    }
-}
-
-#[async_trait::async_trait]
-impl CsiDataAdapter for CSVAdapter<'_> {
-    /// Consumes bytes from the provided buffer and processes them into CSI data if a complete row is found.
-    ///
-    /// This function appends the incoming bytes to an internal buffer. If the buffer contains a complete
-    /// CSV row (determined by the presence of a newline character not preceded by a backslash), it parses
-    /// the row into a `CsiData` structure. The parsed data is temporarily stored and can be retrieved
-    /// using the `reap` method. If the data is incomplete or invalid, the function will either wait for
-    /// more data or return an error.
-    ///
-    /// # Arguments
-    ///
-    /// * `buf` - A slice of bytes representing the incoming data to be consumed.
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(())` if the data is successfully consumed and processed or if the data is incomplete.
-    /// * `Err(CsiAdapterError)` if an error occurs during parsing or processing.
-    ///
-    /// # Errors
-    ///
-    /// This function returns an error if the CSV row contains invalid data or if parsing fails.
-    ///
-    async fn produce(&mut self, buf: &[u8]) -> Result<Option<CsiData>, CsiAdapterError> {
+    fn consume(&mut self, buf: &[u8]) -> Result<Option<CsiData>, CsiAdapterError> {
         // Append the incoming bytes to the buffer
         self.buffer.extend_from_slice(buf);
         // Check if the buffer contains a complete row
@@ -210,6 +181,58 @@ impl CsiDataAdapter for CSVAdapter<'_> {
     }
 }
 
+impl std::default::Default for CSVAdapter<'_> {
+    fn default() -> Self {
+        CSVAdapter::new(Vec::new(), None, &DEFAULT_CELL_DELIM, &DEFAULT_LINE_DELIM)
+    }
+}
+
+#[async_trait::async_trait]
+impl CsiDataAdapter for CSVAdapter<'_> {
+    /// Consumes bytes from the provided buffer and processes them into CSI data if a complete row is found.
+    ///
+    /// This function appends the incoming bytes to an internal buffer. If the buffer contains a complete
+    /// CSV row (determined by the presence of a newline character not preceded by a backslash), it parses
+    /// the row into a `CsiData` structure. The parsed data is temporarily stored and can be retrieved
+    /// using the `reap` method. If the data is incomplete or invalid, the function will either wait for
+    /// more data or return an error.
+    ///
+    /// # Arguments
+    ///
+    /// * `buf` - A slice of bytes representing the incoming data to be consumed.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the data is successfully consumed and processed or if the data is incomplete.
+    /// * `Err(CsiAdapterError)` if an error occurs during parsing or processing.
+    ///
+    /// # Errors
+    ///
+    /// This function returns an error if the CSV row contains invalid data or if parsing fails.
+    ///
+    async fn produce(&mut self, msg: DataMsg) -> Result<Option<DataMsg>, CsiAdapterError> {
+        // Check if the message is a raw frame
+        match msg {
+            DataMsg::RawFrame { bytes, .. } => {
+                let csi = self.consume(&bytes)?;
+                if csi.is_none() {
+                    // If no complete row is found, return None
+                    return Ok(None);
+                }
+                // Call the consume function with the raw bytes
+                Ok(Some(DataMsg::CsiFrame { csi: csi.unwrap() }))
+            }
+            DataMsg::CsiFrame { csi } => {
+                // If the message is already a CsiFrame, we can directly return it
+                Ok(Some(DataMsg::CsiFrame { csi }))
+            }
+            _ => Err(CsiAdapterError::CSV(super::CSVAdapterError::InvalidData(
+                "Invalid message type".to_string(),
+            ))),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -218,7 +241,15 @@ mod tests {
     async fn test_consume_valid_data() {
         let mut adapter = CSVAdapter::default();
         let csv_data = b"9457616.210305953,45040,1,1,1,97,(0.4907193796689-0.684063352438993j)\n";
-        let data = adapter.produce(csv_data).await.unwrap().unwrap();
+        let msg = DataMsg::RawFrame {
+            ts: 0.0,
+            bytes: csv_data.to_vec(),
+            source_type: crate::network::rpc_message::SourceType::ESP32,
+        };
+        let data = match adapter.produce(msg).await.unwrap().unwrap() {
+            DataMsg::CsiFrame { csi } => csi,
+            _ => panic!("Expected CsiFrame"),
+        };
 
         assert_eq!(data.timestamp, 9457616.210305953);
         assert_eq!(data.sequence_number, 45040);
@@ -236,8 +267,13 @@ mod tests {
     async fn test_consume_incomplete_data() {
         let mut adapter = CSVAdapter::default();
         let csv_data = b"1627584000.0,1,2,3,10;20,1+2i|3+4i;5+6i|7+8i";
+        let msg = DataMsg::RawFrame {
+            ts: 0.0,
+            bytes: csv_data.to_vec(),
+            source_type: crate::network::rpc_message::SourceType::ESP32,
+        };
         // this should throw an error
-        let result = adapter.produce(csv_data).await.unwrap();
+        let result = adapter.produce(msg).await.unwrap();
         assert!(result.is_none());
     }
 
@@ -245,15 +281,24 @@ mod tests {
     async fn test_consume_invalid_data() {
         let mut adapter = CSVAdapter::default();
         let csv_data = b"invalid,data,here\n";
-        let result = adapter.produce(csv_data).await;
-
+        let msg = DataMsg::RawFrame {
+            ts: 0.0,
+            bytes: csv_data.to_vec(),
+            source_type: crate::network::rpc_message::SourceType::ESP32,
+        };
+        let result = adapter.produce(msg).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_reap_without_consume() {
         let mut adapter = CSVAdapter::default();
-        let data = adapter.produce(b"").await.unwrap();
+        let msg = DataMsg::RawFrame {
+            ts: 0.0,
+            bytes: b"".to_vec(),
+            source_type: crate::network::rpc_message::SourceType::ESP32,
+        };
+        let data = adapter.produce(msg).await.unwrap();
         assert!(data.is_none());
     }
 
@@ -261,8 +306,15 @@ mod tests {
     async fn test_consume_multiple_rows() {
         let mut adapter = CSVAdapter::default();
         let csv_data = b"5139255.620319567,13657,2,1,2,\"48,27\",\"(-0.24795687792212684-0.7262670239309299j),(0.8454303851106912+0.7649475667253236j),(-0.8925048482423406+0.35672177778974534j),(0.5601050369340623-0.9757985075283211j)\"\n1627584001.0,51825,2,1,2,\"10,53\",\"(-0.9336763181483387+0.9137239452950752j),(0.04222732682994734+0.4741629187802445j),(-0.24923809791108553-0.6532018904054162j),(-0.13563524299387808+0.8352370739609778j)\"\n";
-
-        let data1 = adapter.produce(csv_data).await.unwrap().unwrap();
+        let msg = DataMsg::RawFrame {
+            ts: 0.0,
+            bytes: csv_data.to_vec(),
+            source_type: crate::network::rpc_message::SourceType::ESP32,
+        };
+        let data1 = match adapter.produce(msg).await.unwrap().unwrap() {
+            DataMsg::CsiFrame { csi } => csi,
+            _ => panic!("Expected CsiFrame"),
+        };
         assert_eq!(data1.timestamp, 1627584001.0);
         assert_eq!(data1.sequence_number, 51825);
     }
@@ -272,17 +324,41 @@ mod tests {
         let mut adapter = CSVAdapter::default();
 
         let csv_data_1 = b"5139255.620319567,13657,2,1,2,\"48,27\",\"(-0.24795687792212684-0.7262670239309299j),(0.8454303851106912+0.7649475667253236j),(-0.8925048482423406+0.35672177778974534j),(0.5601050369340623-0.9757985075283211j)\"\n";
-        let data1 = adapter.produce(csv_data_1).await.unwrap().unwrap();
+        let msg1 = DataMsg::RawFrame {
+            ts: 0.0,
+            bytes: csv_data_1.to_vec(),
+            source_type: crate::network::rpc_message::SourceType::ESP32,
+        };
+        let data1 = match adapter.produce(msg1).await.unwrap().unwrap() {
+            DataMsg::CsiFrame { csi } => csi,
+            _ => panic!("Expected CsiFrame"),
+        };
         assert_eq!(data1.timestamp, 5139255.620319567);
         assert_eq!(data1.sequence_number, 13657);
 
         let csv_data_2 = b"1627584001.0,51825,2,1,2,\"10,53\",\"(-0.9336763181483387+0.9137239452950752j),(0.04222732682994734+0.4741629187802445j),(-0.24923809791108553-0.6532018904054162j),(-0.13563524299387808+0.8352370739609778j)\"\n";
-        let data2 = adapter.produce(csv_data_2).await.unwrap().unwrap();
+        let msg2 = DataMsg::RawFrame {
+            ts: 0.0,
+            bytes: csv_data_2.to_vec(),
+            source_type: crate::network::rpc_message::SourceType::ESP32,
+        };
+        let data2 = match adapter.produce(msg2).await.unwrap().unwrap() {
+            DataMsg::CsiFrame { csi } => csi,
+            _ => panic!("Expected CsiFrame"),
+        };
         assert_eq!(data2.timestamp, 1627584001.0);
         assert_eq!(data2.sequence_number, 51825);
 
         let csv_data_3 = b"1627584001.0,51825,2,1,2,\"10,53\",\"(-0.9336763181483387+0.9137239452950752j),(0.04222732682994734+0.4741629187802445j),(-0.24923809791108553-0.6532018904054162j),(-0.13563524299387808+0.8352370739609778j)\"\n";
-        let data3 = adapter.produce(csv_data_3).await.unwrap().unwrap();
+        let msg3 = DataMsg::RawFrame {
+            ts: 0.0,
+            bytes: csv_data_3.to_vec(),
+            source_type: crate::network::rpc_message::SourceType::ESP32,
+        };
+        let data3 = match adapter.produce(msg3).await.unwrap().unwrap() {
+            DataMsg::CsiFrame { csi } => csi,
+            _ => panic!("Expected CsiFrame"),
+        };
         assert_eq!(data3.timestamp, 1627584001.0);
         assert_eq!(data3.sequence_number, 51825);
     }
