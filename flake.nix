@@ -34,13 +34,13 @@
         in
         {
           devShells.default = pkgs.mkShell {
-            packages = [
+            packages = with pkgs;[
               toolchain
-              pkgs.ruff
-              pkgs.shellcheck
-              pkgs.nixfmt-rfc-style
-              pkgs.rust-analyzer-unwrapped
-              pkgs.mprocs
+              ruff
+              shellcheck
+              nixfmt-rfc-style
+              rust-analyzer-unwrapped
+              mprocs
             ];
             RUST_SRC_PATH = "${toolchain}/lib/rustlib/src/rust/library";
           };
@@ -54,7 +54,13 @@
               lockFile = ./Cargo.lock;
             };
             cargoToml = ./Cargo.toml;
-            nativeBuildInputs = [ toolchain ];
+            buildInputs = with pkgs; [
+              udev
+            ];
+            nativeBuildInputs = with pkgs; [ 
+              toolchain 
+              pkg-config  
+            ];
           };
 
           # broken because clippy doesnt work in the sandboxed nix env
