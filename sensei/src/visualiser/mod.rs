@@ -48,11 +48,33 @@ use warp::Filter;
 
 pub struct Visualiser {
     // This seemed to me the best way to structure the data, as the socketaddr is a primary key for each node, and each device has a unique id only within a node
+    #[allow(clippy::type_complexity)]
     data: Arc<Mutex<HashMap<SocketAddr, HashMap<u64, Vec<CsiData>>>>>, // Nodes x Devices x CsiData over time
     width: usize,
     height: usize,
     target_addr: SocketAddr,
     ui_type: String,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Graph {
+    graph_type: GraphType,
+    target_addr: SocketAddr,
+    device: u64,
+    core: usize,
+    stream: usize,
+    subcarrier: usize,
+}
+
+impl PartialEq for Graph {
+    fn eq(&self, other: &Self) -> bool {
+        self.graph_type == other.graph_type
+            && self.target_addr == other.target_addr
+            && self.device == other.device
+            && self.core == other.core
+            && self.stream == other.stream
+            && self.subcarrier == other.subcarrier
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -97,6 +119,7 @@ impl CliInit<VisualiserSubcommandArgs> for Visualiser {
 }
 
 impl Visualiser {
+    #[allow(clippy::type_complexity)]
     fn receive_data_task(
         &self,
         data: Arc<Mutex<HashMap<SocketAddr, HashMap<u64, Vec<CsiData>>>>>,
@@ -109,28 +132,25 @@ impl Visualiser {
                 let device_id = 0; // TODO: Change this. Hard coded device id, since this is missing from the rpc message for now
                 let mut client = client.lock().await;
                 match client.read_message(target_addr).await {
-                    Ok(msg) => match msg {
-                        RpcMessage {
+                    Ok(msg) => {
+                        let RpcMessage {
                             msg,
                             src_addr,
                             target_addr,
-                        } => if let Data(data_msg) = msg { match data_msg {
-                            CsiFrame { csi } => {
-                                // Fukcing magic
-                                data.lock()
-                                    .await
-                                    .entry(src_addr)
-                                    .and_modify(|devices| {
-                                        devices
-                                            .entry(device_id)
-                                            .and_modify(|csi_data| csi_data.push(csi.clone()))
-                                            .or_insert(vec![csi.clone()]);
-                                    })
-                                    .or_insert(HashMap::new());
-                            }
-                            _ => {} // Does not process raw frames
-                        } },
-                    },
+                        } = msg;
+                        if let Data(CsiFrame { csi }) = msg {
+                            data.lock()
+                                .await
+                                .entry(src_addr)
+                                .and_modify(|devices| {
+                                    devices
+                                        .entry(device_id)
+                                        .and_modify(|csi_data| csi_data.push(csi.clone()))
+                                        .or_insert(vec![csi.clone()]);
+                                })
+                                .or_insert(HashMap::new());
+                        }
+                    }
                     _ => return, // Connection with node is not established, ends the process
                 }
             }
@@ -147,16 +167,13 @@ impl Visualiser {
     /// There is a timestamp for each csi data, and that data can be reduced by core, stream and subcarrier.
     ///
     /// Processing data turns each data point into a vec of tuples (timestamp, datapoint), such that it can be charted easily.
-    async fn process_data(
-        &self,
-        graph: (GraphType, SocketAddr, u64, usize, usize, usize),
-    ) -> Vec<(f64, f64)> {
+    async fn process_data(&self, graph: Graph) -> Vec<(f64, f64)> {
         // TODO: More processing types
-        let target_addr = graph.1;
-        let device = graph.2;
-        let core = graph.3;
-        let stream = graph.4;
-        let subcarrier = graph.5;
+        let target_addr = graph.target_addr;
+        let device = graph.device;
+        let core = graph.core;
+        let stream = graph.stream;
+        let subcarrier = graph.subcarrier;
 
         let data = match self.data.lock().await.get(&target_addr) {
             Some(data) => match data.get(&device) {
@@ -198,8 +215,7 @@ impl Visualiser {
         let mut text_input: String = String::new();
 
         // Source address, device id, core, stream, subcarrier
-        let graphs: Arc<Mutex<Vec<(GraphType, SocketAddr, u64, usize, usize, usize)>>> =
-            Arc::new(Mutex::new(Vec::new()));
+        let graphs: Arc<Mutex<Vec<Graph>>> = Arc::new(Mutex::new(Vec::new()));
 
         loop {
             let timeout = tick_rate
@@ -231,7 +247,7 @@ impl Visualiser {
 
                 for graph in graphs.lock().await.iter() {
                     current_data.push(self.process_data(*graph).await);
-                    types.push(graph.0.clone().to_string());
+                    types.push(graph.graph_type.clone().to_string());
                 }
 
                 terminal.draw(|f| {
@@ -258,7 +274,7 @@ impl Visualiser {
 
                     for (i, data) in current_data.iter().enumerate() {
                         let dataset = Dataset::default()
-                            .name(format!("Graph #{}", i))
+                            .name(format!("Graph #{i}"))
                             .marker(ratatui::symbols::Marker::Dot)
                             .style(Style::default().fg(Color::Cyan))
                             .data(data);
@@ -311,9 +327,7 @@ impl Visualiser {
         }
     }
 
-    fn entry_from_command(
-        parts: Vec<&str>,
-    ) -> Option<(GraphType, SocketAddr, u64, usize, usize, usize)> {
+    fn entry_from_command(parts: Vec<&str>) -> Option<Graph> {
         let graph_type: GraphType = match parts[1].parse() {
             Ok(addr) => addr,
             Err(_) => return None, // Exit on invalid input
@@ -340,13 +354,17 @@ impl Visualiser {
             Err(_) => return None, // Exit on invalid input
         };
 
-        Some((graph_type, addr, device_id, core, stream, subcarrier))
+        Some(Graph {
+            graph_type,
+            target_addr: addr,
+            device: device_id,
+            core,
+            stream,
+            subcarrier,
+        })
     }
 
-    async fn execute_command(
-        text_input: String,
-        graphs: Arc<Mutex<Vec<(GraphType, SocketAddr, u64, usize, usize, usize)>>>,
-    ) {
+    async fn execute_command(text_input: String, graphs: Arc<Mutex<Vec<Graph>>>) {
         let parts: Vec<&str> = text_input.split_whitespace().collect();
         if parts.is_empty() {
             return;
@@ -386,8 +404,7 @@ impl Visualiser {
         let mut last_tick = Instant::now();
 
         // Source address, device id, core, stream, subcarrier
-        let graphs: Arc<Mutex<Vec<(GraphType, SocketAddr, u64, usize, usize, usize)>>> =
-            Arc::new(Mutex::new(Vec::new()));
+        let graphs: Arc<Mutex<Vec<Graph>>> = Arc::new(Mutex::new(Vec::new()));
         let graphs_2 = graphs.clone();
 
         tokio::spawn(async move {
@@ -463,7 +480,7 @@ impl Visualiser {
                     }),
                 };
                 client.send_message(target_addr, msg).await;
-                info!("Subscribed to node {}", target_addr)
+                info!("Subscribed to node {target_addr}")
             }
         });
     }
