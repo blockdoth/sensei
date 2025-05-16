@@ -1,0 +1,73 @@
+//!
+//! Data Adapters
+//! -------------
+//!
+//! Brokernet deals with brokering binary data extracted from "Sources", such as files
+//! or sockets. Different sources provide different data formats, which must be handled
+//! accordingly. This is the dask of Data Adapters.
+//!
+//! Module for adapters
+//! Mofidied based on: wisense/sensei/lib/src/adapters/mod.rs
+//! Originally authored by: Fabian Portner
+
+use crate::FromConfig;
+use crate::csi_types::CsiData;
+use crate::errors::CsiAdapterError;
+use crate::errors::TaskError;
+use crate::network::rpc_message::DataMsg;
+use crate::network::rpc_message::DataMsg::CsiFrame;
+pub mod csv;
+pub mod iwl;
+
+/// Csi Data Adapter Trait
+/// ----------------------
+///
+/// The data we stream from sources is always in some binary format.
+/// Csi Data Adapters take on the task of processing this data into
+/// the desired CsiData format.
+///
+/// NOTE: Adapters may hold data internally because the bytestream may
+/// be fragmented over multiple packets. To this end, we split the API
+/// the function only starts reutrning data once the CSIData frame has been collected
+/// otherwise returns None
+#[async_trait::async_trait]
+pub trait CsiDataAdapter: Send {
+    /// Attempts to consume a DataMsg and produce a CsiFrame variant.
+    ///
+    /// # Arguments
+    /// * `msg` - A DataMsg enum (either raw bytes or already parsed CSI).
+    ///
+    /// # Returns
+    /// * `Ok(Some(DataMsg::CsiFrame))` - When a CSI frame is ready.
+    /// * `Ok(None)` - When more data is needed (e.g. fragmented input).
+    /// * `Err(CsiAdapterError)` - On decoding error.
+    async fn produce(&mut self, msg: DataMsg) -> Result<Option<DataMsg>, CsiAdapterError>;
+}
+
+/// Adapter type tag for configuration-based instantiation.
+///
+/// This enum allows adapters to be specified via configuration files and deserialized
+/// automatically. Each variant contains options specific to the corresponding adapter.
+#[derive(serde::Deserialize, Debug, Clone, Copy)]
+#[serde(tag = "type")]
+pub enum DataAdapterConfig {
+    Iwl { scale_csi: bool },
+    CSV {},
+}
+
+/// Instantiates a boxed CSI data adapter from a configuration tag.
+///
+/// This implementation allows you to convert a `DataAdapterConfig` into a
+/// boxed dynamic adapter instance.
+///
+///
+#[async_trait::async_trait]
+impl FromConfig<DataAdapterConfig> for dyn CsiDataAdapter {
+    async fn from_config(tag: DataAdapterConfig) -> Result<Box<Self>, TaskError> {
+        let adapter: Box<dyn CsiDataAdapter> = match tag {
+            DataAdapterConfig::Iwl { scale_csi } => Box::new(iwl::IwlAdapter::new(scale_csi)),
+            DataAdapterConfig::CSV {} => Box::new(csv::CSVAdapter::default()),
+        };
+        Ok(adapter)
+    }
+}

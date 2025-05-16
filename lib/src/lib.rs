@@ -1,12 +1,18 @@
-pub fn get_message() -> String {
-    "Hello Nix flake!".to_string()
-}
+use crate::errors::TaskError;
+use async_trait::async_trait;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn get_message_test() {
-        assert_eq!(get_message(), "Hello Nix flake!");
-    }
+pub mod adapters;
+pub mod csi_types;
+pub mod devices;
+pub mod errors;
+pub mod handler;
+pub mod network;
+pub mod sinks;
+pub mod sources;
+
+// Trait to create an instance from a configuration, needs to be implemented for all configurable things
+// Like sources, controllers, adapters and sinks
+#[async_trait]
+pub trait FromConfig<C> {
+    async fn from_config(config: C) -> Result<Box<Self>, TaskError>;
 }

@@ -1,8 +1,36 @@
-.idea
+# ================================
+# Rust build artifacts
+# ================================
+target/
+**/*.rs.bk
+/lib/target
+
+# ================================
+# Nix builds
+# ================================
+
+/result
+
+# ================================
+# Cargo package manager files
+# ================================
+/Cargo.lock
+/.cargo/
+
+# ================================
+# RustRover / JetBrains IDE files
+# ================================
+.idea/
+*.iml
+
+# ================================
+# Miscellaneous OS / Editor files
+# ================================
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
 .envrc
 .direnv/
+sensei.log
  
-/lib/target
-/target
-result
-# /vendor
