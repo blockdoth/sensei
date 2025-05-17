@@ -23,6 +23,7 @@
           inputs',
           pkgs,
           system,
+          lib,
           ...
         }:
         let
@@ -31,36 +32,21 @@
             overlays = [ inputs.rust-overlay.overlays.default ];
           };
           toolchain = pkgs.rust-bin.fromRustupToolchainFile ./toolchain.toml;
-
-          runtimeLibs = with pkgs; [
-            fontconfig
-            freetype
-            xorg.libX11
-            xorg.libXcursor
-            xorg.libXrandr
-            xorg.libXi
-            xorg.libxcb
-            xorg.libXext
-            libGL
-            libxkbcommon
-            wayland
-          ];
-
-          libPath = pkgs.lib.makeLibraryPath runtimeLibs;
-
         in
         {
           devShells.default = pkgs.mkShell {
-            packages = [
-              toolchain
-              pkgs.ruff
-              pkgs.shellcheck
-              pkgs.nixfmt-rfc-style
-              pkgs.rust-analyzer-unwrapped
-              pkgs.fontconfig
-              pkgs.pkg-config
-              pkgs.mprocs
-            ];
+            packages =
+              with pkgs;
+              [
+                toolchain
+                ruff
+                shellcheck
+                nixfmt-rfc-style
+                rust-analyzer-unwrapped
+                mprocs
+                pkg-config
+              ]
+              ++ lib.optionals pkgs.stdenv.isLinux [ pkgs.udev ];
             RUST_SRC_PATH = "${toolchain}/lib/rustlib/src/rust/library";
           };
 
@@ -73,18 +59,11 @@
               lockFile = ./Cargo.lock;
             };
             cargoToml = ./Cargo.toml;
-
-            nativeBuildInputs = [
+            buildInputs = lib.optionals pkgs.stdenv.isLinux [ pkgs.udev ];
+            nativeBuildInputs = with pkgs; [
               toolchain
-              pkgs.pkg-config
-              pkgs.makeWrapper
+              pkg-config
             ];
-            buildInputs = runtimeLibs;
-
-            postInstall = ''
-              wrapProgram $out/bin/sensei \
-                --prefix LD_LIBRARY_PATH : ${libPath}
-            '';
           };
 
           # broken because clippy doesnt work in the sandboxed nix env

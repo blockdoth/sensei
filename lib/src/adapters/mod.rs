@@ -10,11 +10,14 @@
 //! Mofidied based on: wisense/sensei/lib/src/adapters/mod.rs
 //! Originally authored by: Fabian Portner
 
+use crate::FromConfig;
 use crate::csi_types::CsiData;
 use crate::errors::CsiAdapterError;
+use crate::errors::TaskError;
 use crate::network::rpc_message::DataMsg;
+use crate::network::rpc_message::DataMsg::CsiFrame;
+pub mod csv;
 pub mod iwl;
-pub mod passive;
 
 /// Csi Data Adapter Trait
 /// ----------------------
@@ -25,52 +28,46 @@ pub mod passive;
 ///
 /// NOTE: Adapters may hold data internally because the bytestream may
 /// be fragmented over multiple packets. To this end, we split the API
-/// into consumption (data from a packet) and reaping (after assembly).
+/// the function only starts reutrning data once the CSIData frame has been collected
+/// otherwise returns None
 #[async_trait::async_trait]
 pub trait CsiDataAdapter: Send {
-    /// Consume a packet to parse CSI from.
+    /// Attempts to consume a DataMsg and produce a CsiFrame variant.
     ///
-    /// NOTE: The packet must be of appropriate size. Adapters are not expected
-    /// to handle fragmentation, caching, or anything. This must be done by the
-    /// caller.
-    async fn consume(&mut self, buf: &[u8]) -> Result<(), CsiAdapterError>;
-
-    /// Reap CSI Data from this adapter.
-    /// If there is no data to reap, this function returns None.
-    /// If the data is corrupted or the adapter meets an internal problem, it
-    /// returns an error.
-    async fn reap(&mut self) -> Result<Option<CsiData>, CsiAdapterError>;
-
-    /// Consume a raw CSI frame by extracting the payload and passing it to `consume`
-    async fn consume_raw(&mut self, rawframe: DataMsg) -> Result<(), CsiAdapterError> {
-        match rawframe {
-            DataMsg::RawFrame { bytes, .. } => self.consume(&bytes).await,
-            _ => Err(CsiAdapterError::InvalidInput),
-        }
-    }
-
-    /// Reap CSI and wrap it into a cooked CSI frame with timestamp
-    async fn reap_cooked(&mut self) -> Result<Option<DataMsg>, CsiAdapterError> {
-        match self.reap().await? {
-            Some(csi) => Ok(Some(DataMsg::CsiFrame { csi })),
-            None => Ok(None),
-        }
-    }
+    /// # Arguments
+    /// * `msg` - A DataMsg enum (either raw bytes or already parsed CSI).
+    ///
+    /// # Returns
+    /// * `Ok(Some(DataMsg::CsiFrame))` - When a CSI frame is ready.
+    /// * `Ok(None)` - When more data is needed (e.g. fragmented input).
+    /// * `Err(CsiAdapterError)` - On decoding error.
+    async fn produce(&mut self, msg: DataMsg) -> Result<Option<DataMsg>, CsiAdapterError>;
 }
 
-/// Just a tag for directly deserializing an adapter from a config
+/// Adapter type tag for configuration-based instantiation.
+///
+/// This enum allows adapters to be specified via configuration files and deserialized
+/// automatically. Each variant contains options specific to the corresponding adapter.
 #[derive(serde::Deserialize, Debug, Clone, Copy)]
 #[serde(tag = "type")]
-pub enum DataAdapterTag {
+pub enum DataAdapterConfig {
     Iwl { scale_csi: bool },
+    CSV {},
 }
 
-impl From<DataAdapterTag> for Box<dyn CsiDataAdapter> {
-    fn from(tag: DataAdapterTag) -> Box<dyn CsiDataAdapter> {
-        panic!("No data adapter specified");
-        // match tag {
-        //     DataAdapterTag::Nexmon => Box::new(nexmon::NexmonDataAdapter::default()),
-        //     DataAdapterTag::Iwl { scale_csi } => Box::new(iwl::IwlAdapter::new(scale_csi)),
-        // }
+/// Instantiates a boxed CSI data adapter from a configuration tag.
+///
+/// This implementation allows you to convert a `DataAdapterConfig` into a
+/// boxed dynamic adapter instance.
+///
+///
+#[async_trait::async_trait]
+impl FromConfig<DataAdapterConfig> for dyn CsiDataAdapter {
+    async fn from_config(tag: DataAdapterConfig) -> Result<Box<Self>, TaskError> {
+        let adapter: Box<dyn CsiDataAdapter> = match tag {
+            DataAdapterConfig::Iwl { scale_csi } => Box::new(iwl::IwlAdapter::new(scale_csi)),
+            DataAdapterConfig::CSV {} => Box::new(csv::CSVAdapter::default()),
+        };
+        Ok(adapter)
     }
 }

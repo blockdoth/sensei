@@ -1,5 +1,4 @@
 use crate::cli::{GlobalConfig, OrchestratorSubcommandArgs, VisualiserSubcommandArgs};
-use crate::module::{CliInit, RunsServer};
 use crate::visualiser::GraphType::Amplitude;
 use async_trait::async_trait;
 use charming::series::Scatter;
@@ -45,6 +44,10 @@ use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::{Mutex, watch};
 use warp::Filter;
+use lib::network::rpc_message::AdapterMode::SOURCE;
+use crate::config::{OrchestratorConfig, VisualiserConfig, DEFAULT_ADDRESS};
+use crate::module::Run;
+use crate::orchestrator::Orchestrator;
 
 pub struct Visualiser {
     // This seemed to me the best way to structure the data, as the socketaddr is a primary key for each node, and each device has a unique id only within a node
@@ -54,6 +57,35 @@ pub struct Visualiser {
     height: usize,
     target_addr: SocketAddr,
     ui_type: String,
+}
+
+impl Run<VisualiserConfig> for Visualiser {
+    fn new() -> Self {
+        Visualiser {
+            data: Arc::new(Default::default()),
+            width: 800,
+            height: 600,
+            target_addr: DEFAULT_ADDRESS,
+            ui_type: "tui".to_string(),
+        }
+    }
+
+    async fn run(&self, config: VisualiserConfig) -> Result<(), Box<dyn std::error::Error>> {
+        // Technically, the visualiser has cli tools for connecting to multiple nodes
+        // At the moment, it is sufficient to connect to one target node on startup
+        // Manually start the subscription by typing subscribe
+        let client = Arc::new(Mutex::new(TcpClient::new()));
+        self.client_task(client.clone(), self.target_addr);
+        self.receive_data_task(self.data.clone(), client.clone(), self.target_addr);
+
+        if (self.ui_type == "tui") {
+            self.plot_data_tui().await?;
+        } else {
+            self.plot_data_gui().await?;
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -103,18 +135,6 @@ impl fmt::Display for GraphType {
 impl PartialEq for GraphType {
     fn eq(&self, other: &Self) -> bool {
         self.to_string() == other.to_string()
-    }
-}
-
-impl CliInit<VisualiserSubcommandArgs> for Visualiser {
-    fn init(config: &VisualiserSubcommandArgs, global: &GlobalConfig) -> Self {
-        Visualiser {
-            data: Arc::new(Mutex::new(HashMap::new())),
-            width: config.width,
-            height: config.height,
-            target_addr: global.socket_addr,
-            ui_type: config.ui_type.clone(),
-        }
     }
 }
 
@@ -462,44 +482,10 @@ impl Visualiser {
                 let mut client = client.lock().await;
                 client.connect(target_addr).await;
 
-                let msg = RpcMessage {
-                    src_addr: client.self_addr.unwrap(),
-                    target_addr,
-                    msg: Ctrl(CtrlMsg::Connect),
-                };
-
-                client.send_message(target_addr, msg).await;
-
-                let src_addr = client.self_addr.unwrap();
-                let msg = RpcMessage {
-                    src_addr,
-                    target_addr,
-                    msg: Ctrl(CtrlMsg::Subscribe {
-                        device_id: 0,
-                        mode: AdapterMode::RAW,
-                    }),
-                };
+                let msg = Ctrl(CtrlMsg::Subscribe { device_id: 0, mode: SOURCE });
                 client.send_message(target_addr, msg).await;
                 info!("Subscribed to node {target_addr}")
             }
         });
-    }
-}
-impl RunsServer for Visualiser {
-    async fn start_server(self: Arc<Visualiser>) -> Result<(), Box<dyn std::error::Error>> {
-        // Technically, the visualiser has cli tools for connecting to multiple nodes
-        // At the moment, it is sufficient to connect to one target node on startup
-        // Manually start the subscription by typing subscribe
-        let client = Arc::new(Mutex::new(TcpClient::new().await));
-        self.client_task(client.clone(), self.target_addr);
-        self.receive_data_task(self.data.clone(), client.clone(), self.target_addr);
-
-        if (self.ui_type == "tui") {
-            self.plot_data_tui().await?;
-        } else {
-            self.plot_data_gui().await?;
-        }
-
-        Ok(())
     }
 }
