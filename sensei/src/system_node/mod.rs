@@ -119,7 +119,7 @@ impl ConnectionHandler for SystemNode {
 }
 
 impl Run<SystemNodeConfig> for SystemNode {
-    fn new() -> Self {
+    fn new(config: SystemNodeConfig) -> Self {
         let (send_data_channel, _) = broadcast::channel::<DataMsg>(16);
         SystemNode { send_data_channel }
     }

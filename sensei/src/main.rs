@@ -47,10 +47,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .unwrap();
 
     match &args.subcommand {
-        SubCommandsArgs::One(args) => SystemNode::new().run(args.parse()?).await?,
-        SubCommandsArgs::Two(args) => Registry::new().run(args.parse()?).await?,
-        SubCommandsArgs::Three(args) => Orchestrator::new().run(args.parse()?).await?,
-        SubCommandsArgs::Four(args) => Visualiser::new().run(args.parse()?).await?,
+        SubCommandsArgs::One(args) => SystemNode::new(args.parse()?).run(args.parse()?).await?,
+        SubCommandsArgs::Two(args) => Registry::new(args.parse()?).run(args.parse()?).await?,
+        SubCommandsArgs::Three(args) => Orchestrator::new(args.parse()?).run(args.parse()?).await?,
+        SubCommandsArgs::Four(args) => Visualiser::new(args.parse()?).run(args.parse()?).await?,
     }
     Ok(())
 }

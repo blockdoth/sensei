@@ -38,7 +38,7 @@ struct DeviceInfo {
 }
 
 impl Run<RegistryConfig> for Registry {
-    fn new() -> Self {
+    fn new(config: RegistryConfig) -> Self {
         Registry {
             host_table: HashMap::new(),
             device_table: HashMap::new(),

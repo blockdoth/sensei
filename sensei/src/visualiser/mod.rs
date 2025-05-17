@@ -60,12 +60,12 @@ pub struct Visualiser {
 }
 
 impl Run<VisualiserConfig> for Visualiser {
-    fn new() -> Self {
+    fn new(config: VisualiserConfig) -> Self {
         Visualiser {
             data: Arc::new(Default::default()),
             width: 800,
             height: 600,
-            target_addr: DEFAULT_ADDRESS,
+            target_addr: config.target,
             ui_type: "tui".to_string(),
         }
     }

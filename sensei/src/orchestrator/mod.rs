@@ -27,7 +27,7 @@ pub struct Orchestrator {
 }
 
 impl Run<OrchestratorConfig> for Orchestrator {
-    fn new() -> Self {
+    fn new(config: OrchestratorConfig) -> Self {
         Orchestrator {
             client: Arc::new(Mutex::new(TcpClient::new())),
         }
