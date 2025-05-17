@@ -45,7 +45,7 @@ pub struct Esp32SourceConfig {
 pub struct Esp32Source {
     config: Esp32SourceConfig,
     port: Arc<Mutex<Option<Box<dyn SerialPort>>>>,
-    is_running: Arc<AtomicBool>,
+    pub is_running: Arc<AtomicBool>,
     reader_handle: Option<JoinHandle<()>>,
     csi_data_rx: Receiver<Vec<u8>>,
     csi_data_tx: Sender<Vec<u8>>,

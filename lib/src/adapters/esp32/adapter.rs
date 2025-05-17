@@ -1,10 +1,10 @@
 use crate::adapters::CsiDataAdapter;
 use crate::csi_types::{Complex, CsiData};
-use crate::errors::CsiAdapterError;
+use crate::errors::{CsiAdapterError, Esp32AdapterError}; // Import Esp32AdapterError
 use crate::network::rpc_message::DataMsg;
 
 use byteorder::{LittleEndian, ReadBytesExt};
-use std::io::Cursor;
+use std::io::{Cursor, Read}; // <-- Added std::io::Read
 
 // ESP32 typically operates in SISO mode (1 Transmit, 1 Receive antenna).
 // If future ESP32 variants support MIMO CSI and the format changes to include Ntx/Nrx,
@@ -58,10 +58,9 @@ impl CsiDataAdapter for ESP32Adapter {
     async fn produce(&mut self, msg: DataMsg) -> Result<Option<DataMsg>, CsiAdapterError> {
         match msg {
             DataMsg::RawFrame {
-                ts: _frame_ts, // This is the timestamp from the data source/broker.
-                               // The ESP32 packet itself contains a more precise device timestamp.
+                ts: _frame_ts, 
                 bytes,
-                source_type: _, // Optionally, could verify source_type == SourceType::ESP32
+                source_type: _, 
             } => {
                 // The expected ESP32 CSI payload structure (after any transport framing):
                 // - timestamp_us (u64, 8 bytes)
@@ -76,93 +75,79 @@ impl CsiDataAdapter for ESP32Adapter {
                 const MIN_ESP32_CSI_HEADER_SIZE: usize = 8 + 6 + 6 + 2 + 1 + 1 + 1 + 2;
 
                 if bytes.len() < MIN_ESP32_CSI_HEADER_SIZE {
-                    return Err(CsiAdapterError::PayloadTooShort {
+                    return Err(CsiAdapterError::ESP32(Esp32AdapterError::PayloadTooShort { // Corrected Error Construction
                         expected: MIN_ESP32_CSI_HEADER_SIZE,
                         actual: bytes.len(),
-                    });
+                    }));
                 }
 
                 let mut cursor = Cursor::new(&bytes);
 
                 let timestamp_us = cursor.read_u64::<LittleEndian>().map_err(|e| {
-                    CsiAdapterError::Esp32ParseError(format!("Failed to read timestamp_us: {e}"))
+                    CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!("Failed to read timestamp_us: {e}"))) // Corrected
                 })?;
-                let mut _src_mac = [0u8; 6]; // Parsed but not used in CsiData for now
-                cursor.read_exact(&mut _src_mac).map_err(|e| {
-                    CsiAdapterError::Esp32ParseError(format!("Failed to read src_mac: {e}"))
+                let mut _src_mac = [0u8; 6]; 
+                cursor.read_exact(&mut _src_mac).map_err(|e| { // std::io::Read::read_exact
+                    CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!("Failed to read src_mac: {e}"))) // Corrected
                 })?;
-                let mut _dst_mac = [0u8; 6]; // Parsed but not used in CsiData for now
-                cursor.read_exact(&mut _dst_mac).map_err(|e| {
-                    CsiAdapterError::Esp32ParseError(format!("Failed to read dst_mac: {e}"))
+                let mut _dst_mac = [0u8; 6]; 
+                cursor.read_exact(&mut _dst_mac).map_err(|e| { // std::io::Read::read_exact
+                    CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!("Failed to read dst_mac: {e}"))) // Corrected
                 })?;
                 let sequence_number = cursor.read_u16::<LittleEndian>().map_err(|e| {
-                    CsiAdapterError::Esp32ParseError(format!("Failed to read sequence_number: {e}"))
+                    CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!("Failed to read sequence_number: {e}"))) // Corrected
                 })?;
                 let rssi_val = cursor.read_i8().map_err(|e| {
-                    CsiAdapterError::Esp32ParseError(format!("Failed to read rssi: {e}"))
+                    CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!("Failed to read rssi: {e}"))) // Corrected
                 })?;
                 let _agc_gain = cursor.read_u8().map_err(|e| {
-                    CsiAdapterError::Esp32ParseError(format!("Failed to read agc_gain: {e}"))
-                })?; // Placeholder for potential future use in scaling
+                    CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!("Failed to read agc_gain: {e}"))) // Corrected
+                })?; 
                 let _fft_gain = cursor.read_u8().map_err(|e| {
-                    CsiAdapterError::Esp32ParseError(format!("Failed to read fft_gain: {e}"))
-                })?; // Placeholder for potential future use in scaling
+                    CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!("Failed to read fft_gain: {e}"))) // Corrected
+                })?; 
                 let csi_data_len_bytes = cursor.read_u16::<LittleEndian>().map_err(|e| {
-                    CsiAdapterError::Esp32ParseError(format!("Failed to read csi_data_len: {e}"))
+                    CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!("Failed to read csi_data_len: {e}"))) // Corrected
                 })? as usize;
 
                 let current_pos = cursor.position() as usize;
                 if bytes.len() < current_pos + csi_data_len_bytes {
-                    return Err(CsiAdapterError::PayloadTooShort {
+                    return Err(CsiAdapterError::ESP32(Esp32AdapterError::PayloadTooShort { // Corrected
                         expected: current_pos + csi_data_len_bytes,
                         actual: bytes.len(),
-                    });
+                    }));
                 }
 
                 if csi_data_len_bytes == 0 {
-                     // Valid case for no CSI data, but still create a frame.
-                     // Or return Ok(None) or an error if 0-length CSI is not meaningful.
-                     // For now, assume it's valid and results in empty CSI.
-                     Ok(None)
+                    return Ok(None); // Corrected: Added return for early exit
                 } else if csi_data_len_bytes % 2 != 0 {
-                    return Err(CsiAdapterError::Esp32ParseError(format!(
+                    return Err(CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!( // Corrected
                         "CSI data length ({csi_data_len_bytes}) must be even (I/Q pairs)."
-                    )));
+                    ))));
                 }
 
                 let mut csi_byte_buffer = vec![0u8; csi_data_len_bytes];
-                cursor.read_exact(&mut csi_byte_buffer).map_err(|e| {
-                    CsiAdapterError::Esp32ParseError(format!("Failed to read CSI data block: {e}"))
+                cursor.read_exact(&mut csi_byte_buffer).map_err(|e| { // std::io::Read::read_exact
+                    CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!("Failed to read CSI data block: {e}"))) // Corrected
                 })?;
 
                 let num_complex_values = csi_data_len_bytes / 2;
                 let mut csi_subcarriers: Vec<Complex> = Vec::with_capacity(num_complex_values);
 
                 for i in 0..num_complex_values {
-                    // ESP32 CSI data is typically [imaginary_sc1, real_sc1, imaginary_sc2, real_sc2, ...]
                     let imag_val = csi_byte_buffer[2 * i] as i8 as f64;
                     let real_val = csi_byte_buffer[2 * i + 1] as i8 as f64;
                     csi_subcarriers.push(Complex::new(real_val, imag_val));
                 }
 
-                // Structure CSI data as Vec<Vec<Vec<Complex>>>: [TxAntenna][RxAntenna][Subcarrier]
                 let csi_structured = if NUM_TX_ANTENNAS_ESP32 > 0 && NUM_RX_ANTENNAS_ESP32 > 0 {
                     vec![vec![csi_subcarriers; NUM_RX_ANTENNAS_ESP32]; NUM_TX_ANTENNAS_ESP32]
                 } else {
-                    // Handle case with no antennas, though unlikely for valid CSI
                     vec![]
                 };
 
-
-                // Convert ESP32's microsecond timestamp to seconds (f64)
                 let timestamp_sec = timestamp_us as f64 / 1_000_000.0;
-
-                // Format RSSI for CsiData (Vec<u16>)
                 let rssi_vec = vec![rssi_val as u16];
-
-                // TODO: Implement CSI scaling if self.scale_csi is true.
-                // This would potentially use _agc_gain, _fft_gain, and other parameters
-                // if a scaling algorithm for ESP32 CSI is defined. Currently, no scaling is applied.
 
                 Ok(Some(DataMsg::CsiFrame {
                     csi: CsiData {
@@ -174,7 +159,6 @@ impl CsiDataAdapter for ESP32Adapter {
                 }))
             }
             DataMsg::CsiFrame { csi } => {
-                // If the message is already a CsiFrame, pass it through.
                 Ok(Some(DataMsg::CsiFrame { csi }))
             }
         }

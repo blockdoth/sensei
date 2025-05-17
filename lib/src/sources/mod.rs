@@ -1,4 +1,4 @@
-mod controllers;
+pub mod controllers;
 pub mod esp32;
 #[cfg(target_os = "linux")]
 pub mod netlink;

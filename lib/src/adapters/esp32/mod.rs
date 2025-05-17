@@ -3,7 +3,7 @@
 //! This module provides support for parsing and interacting with ESP32 CSI data,
 //!
 //! - adapter: Contains the logic for interfacing with ESP32 devices.
-mod adapter;
+pub mod adapter;
 
 /// Re-export of the main adapter interface for ESP32 devices.
 ///

@@ -16,6 +16,7 @@ use crate::errors::CsiAdapterError;
 use crate::errors::TaskError;
 use crate::network::rpc_message::DataMsg;
 pub mod iwl;
+pub mod esp32;
 
 /// Csi Data Adapter Trait
 /// ----------------------
@@ -50,6 +51,7 @@ pub trait CsiDataAdapter: Send {
 #[serde(tag = "type")]
 pub enum DataAdapterConfig {
     Iwl { scale_csi: bool },
+    Esp32 { scale_csi: bool },
 }
 
 /// Instantiates a boxed CSI data adapter from a configuration tag.
@@ -63,6 +65,7 @@ impl FromConfig<DataAdapterConfig> for dyn CsiDataAdapter {
     async fn from_config(tag: DataAdapterConfig) -> Result<Box<Self>, TaskError> {
         let adapter: Box<dyn CsiDataAdapter> = match tag {
             DataAdapterConfig::Iwl { scale_csi } => Box::new(iwl::IwlAdapter::new(scale_csi)),
+            DataAdapterConfig::Esp32 { scale_csi } => Box::new(esp32::ESP32Adapter::new(scale_csi)),
         };
         Ok(adapter)
     }

@@ -33,10 +33,13 @@ use ratatui::{
     widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table},
 };
 
+use lib::sources::DataSourceT;
+
 // Project-specific imports - Changed csi_collection_lib to crate
-use crate::csi_types::{CsiData, Complex};
-use crate::sources::esp32::{Esp32Source, Esp32SourceConfig};
-use crate::sources::controllers::esp32_controller::{
+// Project-specific imports - Changed crate:: to lib::
+use lib::csi_types::{CsiData, Complex};
+use lib::sources::esp32::{Esp32Source, Esp32SourceConfig};
+use lib::sources::controllers::esp32_controller::{
     Esp32Command,
     OperationMode as EspOperationMode,
     Bandwidth as EspBandwidth,
@@ -46,10 +49,10 @@ use crate::sources::controllers::esp32_controller::{
     // CustomFrameParams, // Needed for spamming
     // MacFilterPair, // If MAC filtering is added back
 };
-use crate::adapters::esp32::ESP32Adapter;
-use crate::adapters::CsiDataAdapter;
-use crate::network::rpc_message::{DataMsg, SourceType};
-use crate::errors::{DataSourceError, ControllerError}; // Assuming ControllerError is also in crate::errors
+use lib::adapters::esp32::ESP32Adapter;
+use lib::adapters::CsiDataAdapter;
+use lib::network::rpc_message::{DataMsg, SourceType};
+use lib::errors::{DataSourceError, ControllerError};
 
 use tokio::sync::Mutex as TokioMutex; // Tokio Mutex for Esp32Source
 
