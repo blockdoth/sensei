@@ -5,17 +5,16 @@ edition = "2024"
 
 [dependencies]
 lib = { path = "../lib" }
-colored = "2.0.4"
-ratatui = "0.28.1"
-crossterm = "0.28.1"
 tokio = { version = "1.44.2", features = ["full"] }
 anyhow = "1.0.98"
 async-trait = "0.1.88"
-serde = { version = "1.0.219", features = ["derive"] }
-bincode = "2.0"
 argh = "0.1.12"
 log = "0.4.27"
 simplelog = "0.12.2"
+ratatui = "0.29.0"
+charming = "0.4.0"
+notify = "6.1.1"
+warp = "0.3.7"
 
 [lints]
 workspace = true

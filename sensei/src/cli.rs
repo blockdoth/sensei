@@ -4,7 +4,7 @@ use argh::FromArgs;
 
 use simplelog::{ColorChoice, CombinedLogger, LevelFilter, TermLogger, TerminalMode, WriteLogger};
 
-use crate::config::{OrchestratorConfig, RegistryConfig, SystemNodeConfig};
+use crate::config::{OrchestratorConfig, RegistryConfig, SystemNodeConfig, VisualiserConfig};
 
 /// A simple app to perform collection from configured sources
 #[derive(FromArgs)]
@@ -28,6 +28,7 @@ pub enum SubCommandsArgs {
     One(SystemNodeSubcommandArgs),
     Two(RegistrySubcommandArgs),
     Three(OrchestratorSubcommandArgs),
+    Four(VisualiserSubcommandArgs),
 }
 
 /// System node commands
@@ -83,6 +84,45 @@ impl OrchestratorSubcommandArgs {
                 .iter()
                 .map(|addr| addr.parse().unwrap())
                 .collect(),
+        })
+    }
+}
+
+/// Visualiser commands
+#[derive(FromArgs)]
+#[argh(subcommand, name = "visualiser")]
+pub struct VisualiserSubcommandArgs {
+    /// server port (default: 6969)
+    #[argh(option, default = "String::from(\"127.0.0.1:6969\")")]
+    pub target: String,
+    
+    /// height of the eventual window
+    #[argh(option, default = "default_height()")]
+    pub height: usize,
+
+    /// width of the eventual window
+    #[argh(option, default = "default_width()")]
+    pub width: usize,
+
+    /// using tui (ratatui, default) or gui (plotters, minifb)
+    #[argh(option, default = "String::from(\"tui\")")]
+    pub ui_type: String,
+}
+
+fn default_height() -> usize {
+    600
+}
+
+fn default_width() -> usize {
+    800
+}
+
+impl VisualiserSubcommandArgs {
+    pub fn parse(&self) -> Result<VisualiserConfig, AddrParseError> {
+        // TODO input validation
+        Ok(VisualiserConfig {
+            target: self.target.parse()?,
+            ui_type: self.ui_type.clone(),
         })
     }
 }

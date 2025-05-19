@@ -108,7 +108,8 @@ impl ConnectionHandler for SystemNode {
                 }
             }
 
-            if sending && let Ok(date_msg) = recv_data_channel.recv().await {
+            if sending {
+                let Ok(date_msg) = recv_data_channel.recv().await else { todo!() };
                 tcp::send_message(&mut send_stream, Data(date_msg)).await;
                 info!("Sending")
             }
@@ -118,7 +119,7 @@ impl ConnectionHandler for SystemNode {
 }
 
 impl Run<SystemNodeConfig> for SystemNode {
-    fn new() -> Self {
+    fn new(config: SystemNodeConfig) -> Self {
         let (send_data_channel, _) = broadcast::channel::<DataMsg>(16);
         SystemNode { send_data_channel }
     }

@@ -15,8 +15,14 @@ pub struct RegistryConfig {
     pub targets: Vec<SocketAddr>,
 }
 
+pub struct VisualiserConfig {
+    pub target: SocketAddr,
+    pub ui_type: String,
+}
+
 pub enum ServiceConfig {
     One(OrchestratorConfig),
     Two(RegistryConfig),
     Three(SystemNodeConfig),
+    Four(VisualiserConfig),
 }

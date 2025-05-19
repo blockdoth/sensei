@@ -42,6 +42,8 @@ pub trait DataSourceT: Send {
 #[derive(serde::Serialize, serde::Deserialize, Debug, schemars::JsonSchema)]
 #[serde(tag = "type", content = "params")]
 pub enum ControllerParams {
+
+    #[cfg(target_os = "linux")]
     Netlink(controllers::netlink_controller::NetlinkControllerParams),
     // Extendable
 }
@@ -49,6 +51,8 @@ pub enum ControllerParams {
 #[derive(serde::Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum DataSourceConfig {
+
+    #[cfg(target_os = "linux")]
     Netlink(netlink::NetlinkConfig),
 }
 
@@ -56,6 +60,7 @@ pub enum DataSourceConfig {
 impl FromConfig<DataSourceConfig> for dyn DataSourceT {
     async fn from_config(config: DataSourceConfig) -> Result<Box<Self>, TaskError> {
         let source: Box<dyn DataSourceT> = match config {
+            #[cfg(target_os = "linux")]
             DataSourceConfig::Netlink(cfg) => Box::new(netlink::NetlinkSource::new(cfg)?),
         };
         Ok(source)
