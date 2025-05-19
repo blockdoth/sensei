@@ -39,7 +39,7 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use std::{fs, sync::mpsc::channel};
 use tokio::io;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::{Mutex, watch};
@@ -53,8 +53,6 @@ pub struct Visualiser {
     // This seemed to me the best way to structure the data, as the socketaddr is a primary key for each node, and each device has a unique id only within a node
     #[allow(clippy::type_complexity)]
     data: Arc<Mutex<HashMap<SocketAddr, HashMap<u64, Vec<CsiData>>>>>, // Nodes x Devices x CsiData over time
-    width: usize,
-    height: usize,
     target_addr: SocketAddr,
     ui_type: String,
 }
@@ -63,8 +61,6 @@ impl Run<VisualiserConfig> for Visualiser {
     fn new(config: VisualiserConfig) -> Self {
         Visualiser {
             data: Arc::new(Default::default()),
-            width: 800,
-            height: 600,
             target_addr: config.target,
             ui_type: config.ui_type,
         }
@@ -75,8 +71,10 @@ impl Run<VisualiserConfig> for Visualiser {
         // At the moment, it is sufficient to connect to one target node on startup
         // Manually start the subscription by typing subscribe
         let client = Arc::new(Mutex::new(TcpClient::new()));
-        self.client_task(client.clone(), self.target_addr);
+        self.client_task(client.clone(), self.target_addr).await;
         self.receive_data_task(self.data.clone(), client.clone(), self.target_addr);
+
+        io::stdout().flush().await;
 
         if (self.ui_type == "tui") {
             self.plot_data_tui().await?;
@@ -149,8 +147,8 @@ impl Visualiser {
         tokio::spawn(async move {
             debug!("Receive task");
             loop {
-                let device_id = 0; // TODO: Change this. Hard coded device id, since this is missing from the rpc message for now
                 let mut client = client.lock().await;
+                info!("Received message");
                 match client.read_message(target_addr).await {
                     Ok(msg) => {
                         let RpcMessage {
@@ -158,7 +156,7 @@ impl Visualiser {
                             src_addr,
                             target_addr,
                         } = msg;
-                        if let Data(CsiFrame { csi }) = msg {
+                        if let Data{data_msg: CsiFrame { csi }, device_id} = msg {
                             data.lock()
                                 .await
                                 .entry(src_addr)
@@ -471,21 +469,19 @@ impl Visualiser {
             .series(Line::new().data(data))
     }
 
-    fn client_task(&self, client: Arc<Mutex<TcpClient>>, target_addr: SocketAddr) {
-        tokio::spawn(async move {
-            debug!("Client task");
+    async fn client_task(&self, client: Arc<Mutex<TcpClient>>, target_addr: SocketAddr) {
+        info!("Client task");
 
-            // Visualiser connects and subscribes to the target node on startup
-            {
-                // Locking the client within this lifetime ensures that the receiver task
-                // only starts once the lock in this lifetime has been released
-                let mut client = client.lock().await;
-                client.connect(target_addr).await;
+        // Visualiser connects and subscribes to the target node on startup
+        {
+            // Locking the client within this lifetime ensures that the receiver task
+            // only starts once the lock in this lifetime has been released
+            let mut client = client.lock().await;
+            client.connect(target_addr).await;
 
-                let msg = Ctrl(CtrlMsg::Subscribe { device_id: 0, mode: SOURCE });
-                client.send_message(target_addr, msg).await;
-                info!("Subscribed to node {target_addr}")
-            }
-        });
+            let msg = Ctrl(CtrlMsg::Subscribe { device_id: 0, mode: SOURCE });
+            client.send_message(target_addr, msg).await;
+            info!("Subscribed to node {target_addr}")
+        }
     }
 }

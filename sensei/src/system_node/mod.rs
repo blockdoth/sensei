@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use crate::cli::*;
 use crate::cli::{SubCommandsArgs, SystemNodeSubcommandArgs};
 use crate::config::{OrchestratorConfig, SystemNodeConfig};
@@ -28,6 +29,8 @@ use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::{Mutex, broadcast, watch};
 use tokio::task::JoinHandle;
+use lib::sources::csv::CsvSource;
+use lib::sources::DataSourceT;
 
 #[derive(Clone)]
 pub struct SystemNode {
@@ -74,7 +77,7 @@ impl ConnectionHandler for SystemNode {
                     todo!("{:?}", m);
                 }
             },
-            Data(data_msg) => todo!(),
+            Data{data_msg, device_id } => todo!(),
         }
         Ok(())
     }
@@ -109,8 +112,9 @@ impl ConnectionHandler for SystemNode {
             }
 
             if sending {
-                let Ok(date_msg) = recv_data_channel.recv().await else { todo!() };
-                tcp::send_message(&mut send_stream, Data(date_msg)).await;
+                let Ok(data_msg) = recv_data_channel.recv().await else { todo!() };
+                let device_id = 0;
+                tcp::send_message(&mut send_stream, Data{data_msg, device_id}).await;
                 info!("Sending")
             }
         }
@@ -128,9 +132,11 @@ impl Run<SystemNodeConfig> for SystemNode {
         let connection_handler = Arc::new(self.clone());
 
         let sender_data_channel = connection_handler.send_data_channel.clone();
+        
+        let devices: HashMap<u64, Box<dyn DataSourceT>> = HashMap::new();
 
         // Example sender which just spams packets
-        // The most important thing is the ability to clone send ends of channels arround
+        // The most important thing is the ability to clone send ends of channels around
         tokio::spawn(async move {
             let mut i = 0;
             loop {

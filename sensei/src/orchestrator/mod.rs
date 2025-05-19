@@ -169,14 +169,14 @@ impl Orchestrator {
                             .await
                             .unwrap();
                         match msg.msg {
-                            Data(DataMsg::CsiFrame { csi }) => {
+                            Data{data_msg: DataMsg::CsiFrame { csi }, device_id} => {
                                 info!("{}: {}", msg.src_addr, csi.timestamp)
                             }
-                            Data(DataMsg::RawFrame {
+                            Data{data_msg: DataMsg::RawFrame {
                                 ts,
                                 bytes,
                                 source_type,
-                            }) => info!("{}: {ts}", msg.src_addr),
+                            }, device_id} => info!("{}: {ts}", msg.src_addr),
                             _ => (),
                         }
                     }
