@@ -217,50 +217,41 @@ impl Esp32Source {
                     let mut temp_read_buf = [0u8; SERIAL_READ_BUFFER_SIZE];
                     match port.read(&mut temp_read_buf) {
                         Ok(0) => {
-                            // Depending on OS/driver, 0 bytes might mean disconnect or just no data with timeout
-                            // Given serialport timeout, this often means no data. Let timeout handle it.
-                            // If it consistently returns 0, it might be a closed port.
-                            // For robustness, treat as "no data" unless it persists.
-                            // warn!("Serial port read 0 bytes. ESP32 might have disconnected or no data.");
                             thread::sleep(Duration::from_millis(10)); // Small pause if 0 bytes read
                             Ok(vec![]) // Treat as no new data
                         }
                         Ok(n) => Ok(temp_read_buf[..n].to_vec()),
                         Err(e) if e.kind() == std::io::ErrorKind::TimedOut => Ok(Vec::new()),
                         Err(e) => {
-                            error!("Serial read error in reader task: {e}. Terminating.");
+                            error!("Serial read error in reader task: {}. Terminating.", e);
                             Err(e) // Fatal error for this iteration, will break loop
                         }
                     }
                 } else {
-                    // Port not open or has been taken.
                     if !is_running.load(AtomicOrdering::Relaxed) {
                         break;
-                    } // Exit if stopping
-                    thread::sleep(Duration::from_millis(200)); // Wait for port to become available or stop signal
-                    continue; // Re-check conditions
+                    } 
+                    thread::sleep(Duration::from_millis(200)); 
+                    continue; 
                 }
             };
 
-            let mut new_data_was_read_in_this_iteration = false; // Track if new data was actually read
+            let mut new_data_was_read_in_this_iteration = false;
 
             match bytes_read_from_port {
                 Ok(new_bytes) => {
                     if !new_bytes.is_empty() {
                         partial_buffer.extend_from_slice(&new_bytes);
-                        new_data_was_read_in_this_iteration = true; // Mark that we got new data
+                        new_data_was_read_in_this_iteration = true;
                     }
-                    // new_bytes is dropped here if it was Ok
                 }
                 Err(_) => {
-                    // Serial read error, break the loop.
-                    is_running.store(false, AtomicOrdering::Relaxed); // Signal termination
+                    is_running.store(false, AtomicOrdering::Relaxed); 
                     break;
                 }
             }
 
-            // Process buffer logic (simplified from before, but similar principle)
-            loop {
+            loop { // Inner loop for processing partial_buffer
                 if partial_buffer.len() < ESP_TO_HOST_MIN_HEADER_SIZE {
                     break;
                 }
@@ -270,39 +261,72 @@ impl Esp32Source {
                     .position(|w| w == ESP_PACKET_PREAMBLE_ESP_TO_HOST)
                 {
                     if pos > 0 {
+                        debug!("Preamble found at pos {}. Discarding {} bytes before preamble.", pos, pos);
                         partial_buffer.drain(0..pos);
                     }
-                    if partial_buffer.len() < ESP_TO_HOST_MIN_HEADER_SIZE {
+                    if partial_buffer.len() < ESP_TO_HOST_MIN_HEADER_SIZE { // Check again after drain
                         break;
                     }
 
                     let len_bytes = &partial_buffer
                         [ESP_PACKET_PREAMBLE_ESP_TO_HOST.len()..ESP_TO_HOST_MIN_HEADER_SIZE];
-                    let payload_len_signed = i16::from_le_bytes([len_bytes[0], len_bytes[1]]);
+                    let esp_length_field_val_signed = i16::from_le_bytes([len_bytes[0], len_bytes[1]]);
+                    debug!("Raw length field from ESP32: {}", esp_length_field_val_signed);
 
-                    if payload_len_signed == 0 {
-                        warn!("ESP32 packet with declared length 0. Discarding header.");
-                        partial_buffer.drain(0..ESP_TO_HOST_MIN_HEADER_SIZE);
+                    if esp_length_field_val_signed == 0 {
+                        warn!("ESP32 packet with declared length field 0. Discarding header to attempt recovery.");
+                        partial_buffer.drain(0..std::cmp::min(ESP_TO_HOST_MIN_HEADER_SIZE, partial_buffer.len()));
+                        continue;
+                    }
+                    
+                    let declared_length_from_esp = esp_length_field_val_signed.unsigned_abs() as usize;
+                    debug!("Declared length from ESP32 (abs value of field): {}", declared_length_from_esp);
+
+                    // *** ASSUMPTION CHANGE FOR THIS FIX: ***
+                    // The value `declared_length_from_esp` IS the total length of the packet on the wire,
+                    // including preamble and the length field itself.
+                    let total_packet_len_on_wire = declared_length_from_esp;
+
+                    // Sanity check: total length must be at least header size.
+                    if total_packet_len_on_wire < ESP_TO_HOST_MIN_HEADER_SIZE {
+                        error!(
+                            "Declared total packet length {} is less than minimum header size {}. Corrupted packet. Discarding.",
+                            total_packet_len_on_wire, ESP_TO_HOST_MIN_HEADER_SIZE
+                        );
+                        partial_buffer.drain(0..std::cmp::min(total_packet_len_on_wire, partial_buffer.len()));
                         continue;
                     }
 
-                    let actual_payload_len = payload_len_signed.unsigned_abs() as usize;
-                    let total_packet_len_on_wire = ESP_TO_HOST_MIN_HEADER_SIZE + actual_payload_len;
-
                     if partial_buffer.len() < total_packet_len_on_wire {
+                        debug!("Buffer (len {}) too short for full packet (need {} based on ESP field). Waiting for more.", partial_buffer.len(), total_packet_len_on_wire);
                         break;
                     }
 
+                    debug!("Extracting full packet of len: {} from buffer", total_packet_len_on_wire);
                     let packet_data_with_header = partial_buffer
                         .drain(0..total_packet_len_on_wire)
                         .collect::<Vec<_>>();
+                    
+                    // The actual payload is after the header
+                    // This check ensures that we can safely slice the payload.
+                    // If total_packet_len_on_wire was < ESP_TO_HOST_MIN_HEADER_SIZE, the previous check would have caught it.
+                    // This mainly guards against total_packet_len_on_wire being exactly ESP_TO_HOST_MIN_HEADER_SIZE for non-ACKs,
+                    // or if the drain somehow returned less than expected (though drain(0..X) should give X bytes if available).
+                    if packet_data_with_header.len() < ESP_TO_HOST_MIN_HEADER_SIZE {
+                        warn!("Drained packet (len {}) is smaller than header size ({}). Should not happen if previous checks passed. Skipping.", packet_data_with_header.len(), ESP_TO_HOST_MIN_HEADER_SIZE);
+                        continue;
+                    }
                     let actual_payload_content =
                         packet_data_with_header[ESP_TO_HOST_MIN_HEADER_SIZE..].to_vec();
 
-                    if payload_len_signed < 0 {
+                    let is_ack_packet = esp_length_field_val_signed < 0;
+
+                    if is_ack_packet {
                         // ACK
                         if actual_payload_content.is_empty() {
-                            warn!("ACK packet with empty payload.");
+                            // This implies total_packet_len_on_wire was exactly ESP_TO_HOST_MIN_HEADER_SIZE,
+                            // and esp_length_field_val_signed was negative.
+                            warn!("ACK packet payload is empty (command byte expected). Length field: {}, Total packet len: {}", esp_length_field_val_signed, total_packet_len_on_wire);
                             continue;
                         }
                         let cmd_byte = actual_payload_content[0];
@@ -312,6 +336,7 @@ impl Esp32Source {
                             Vec::new()
                         };
 
+                        debug!("Received ACK for command byte 0x{:02X} with data len {}", cmd_byte, ack_data.len());
                         let mut waiters_guard = match ack_waiters.lock() {
                             Ok(g) => g,
                             Err(_) => {
@@ -320,51 +345,50 @@ impl Esp32Source {
                             }
                         };
                         if let Some(ack_tx_specific) = waiters_guard.remove(&cmd_byte) {
-                            // Remove to consume the waiter
                             if let Err(e) = ack_tx_specific.try_send(Ok(ack_data)) {
                                 warn!(
-                                    "Failed to send ACK for cmd 0x{cmd_byte:02X} to specific waiter: {e}"
+                                    "Failed to send ACK for cmd 0x{:02X} to specific waiter: {}",
+                                    cmd_byte, e
                                 );
+                            } else {
+                                debug!("Successfully sent ACK for 0x{:02X} to waiting task.", cmd_byte);
                             }
                         } else {
-                            // This can happen if a command timed out and its waiter was removed, but ACK arrived late.
-                            // Or if an unsolicited ACK is received.
-                            // debug!("Received ACK for cmd 0x{:02X} but no specific waiter was registered.", cmd_byte);
+                            debug!("Received ACK for cmd 0x{:02X} but no specific waiter was registered.", cmd_byte);
                         }
                     } else {
                         // CSI Data
+                        debug!("Received CSI Data packet. Payload len: {}. Sending to CSI channel.", actual_payload_content.len());
                         if csi_data_tx.is_full() {
                             warn!(
                                 "CSI data channel full. Discarding ESP32 CSI packet. Consider increasing csi_buffer_size."
                             );
                         } else if let Err(e) = csi_data_tx.try_send(actual_payload_content) {
-                            warn!("Failed to send CSI data to channel: {e}");
+                            warn!("Failed to send CSI data to channel: {}", e);
                         }
                     }
-                } else {
-                    // No preamble found
+                } else { // No preamble found
                     if partial_buffer.len() >= ESP_PACKET_PREAMBLE_ESP_TO_HOST.len() {
                         let discard_len =
                             partial_buffer.len() - (ESP_PACKET_PREAMBLE_ESP_TO_HOST.len() - 1);
+                        debug!("No preamble found, buffer len {}. Discarding {} bytes.", partial_buffer.len(), discard_len);
                         partial_buffer.drain(0..discard_len);
                     }
                     break;
                 }
-            }
+            } // End inner loop
 
-            // Sleep if the last read attempt yielded no new bytes AND the partial_buffer is still too small.
-            // We use the boolean flag new_data_was_read_in_this_iteration
             if !new_data_was_read_in_this_iteration
                 && partial_buffer.len() < ESP_TO_HOST_MIN_HEADER_SIZE
             {
-                if !is_running.load(AtomicOrdering::Relaxed) {
-                    break;
-                } // Exit if stopping
-                thread::sleep(Duration::from_millis(10));
+                if !is_running.load(AtomicOrdering::Relaxed) { 
+                    break; 
+                }
+                thread::sleep(Duration::from_millis(10)); 
             }
-        }
+        } // End while is_running
+
         is_running.store(false, AtomicOrdering::Relaxed);
-        // Clean up any remaining waiters on stop to prevent deadlocks if send_command is called later
         ack_waiters.lock().unwrap().clear();
         info!("ESP32Source reader task finished.");
     }
