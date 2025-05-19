@@ -1,6 +1,8 @@
 // cli_test_tool.rs
 //! Robust CLI tool for ESP32 CSI monitoring
 
+#![allow(clippy::await_holding_lock)]
+
 use core::time;
 use std::collections::VecDeque; // For log buffer
 use std::env;
@@ -278,7 +280,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         return Err("Serial port argument missing".into());
     }
     let port_name = args[1].clone();
-    info!("Attempting to use port: {}", port_name);
+    info!("Attempting to use port: {port_name}");
 
     let mut terminal = match setup_terminal() {
         Ok(term) => term,
@@ -335,23 +337,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
             csi_type: initial_cli_config.csi_type,
             manual_scale: initial_cli_config.manual_scale,
         };
-        let mut cmd_data_config = Vec::new(); // Renamed to avoid conflict
-        cmd_data_config.push(initial_payload_config.mode as u8);
-        cmd_data_config.push(initial_payload_config.bandwidth as u8);
-        cmd_data_config.push(initial_payload_config.secondary_channel as u8);
-        cmd_data_config.push(initial_payload_config.csi_type as u8);
-        cmd_data_config.push(initial_payload_config.manual_scale);
+        let cmd_data_config = vec![
+            initial_payload_config.mode as u8,
+            initial_payload_config.bandwidth as u8,
+            initial_payload_config.secondary_channel as u8,
+            initial_payload_config.csi_type as u8,
+            initial_payload_config.manual_scale,
+        ];
 
         // 1. ApplyDeviceConfig
         if let Err(e) = esp_guard
             .send_esp32_command(Esp32Command::ApplyDeviceConfig, Some(cmd_data_config))
             .await
         {
-            warn!(
-                "Failed to apply initial device config: {}. Continuing with defaults.",
-                e
-            );
-            app_state.lock().unwrap().last_error = Some(format!("Initial config failed: {}", e));
+            warn!("Failed to apply initial device config: {e}. Continuing with defaults.",);
+            app_state.lock().unwrap().last_error = Some(format!("Initial config failed: {e}"));
         } else {
             info!("Initial device config (mode, BW, etc.) applied.");
             // 2. Set Initial Channel (only after ApplyDeviceConfig is successful)
@@ -367,7 +367,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     initial_cli_config.channel, e
                 );
                 app_state.lock().unwrap().last_error =
-                    Some(format!("Initial channel set failed: {}", e));
+                    Some(format!("Initial channel set failed: {e}"));
             } else {
                 info!("Initial channel {} set.", initial_cli_config.channel);
             }
@@ -383,10 +383,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     .send_esp32_command(Esp32Command::UnpauseAcquisition, None)
                     .await
                 {
-                    warn!(
-                        "Failed to send UnpauseAcquisition after initial config: {}",
-                        e
-                    );
+                    warn!("Failed to send UnpauseAcquisition after initial config: {e}",);
                 } else {
                     info!("UnpauseAcquisition command sent after initial config.");
                 }
@@ -400,7 +397,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .await
         {
             warn!("Failed to clear MAC filters: {e}. CSI reception might be filtered.");
-            app_state.lock().unwrap().last_error = Some(format!("MAC filter clear failed: {}", e));
+            app_state.lock().unwrap().last_error = Some(format!("MAC filter clear failed: {e}"));
         } else {
             info!("MAC address filters cleared successfully.");
         }
@@ -411,8 +408,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .send_esp32_command(Esp32Command::SynchronizeTimeInit, None)
             .await
         {
-            warn!("Time sync init failed: {}", e);
-            app_state.lock().unwrap().last_error = Some(format!("Time sync init failed: {}", e));
+            warn!("Time sync init failed: {e}");
+            app_state.lock().unwrap().last_error = Some(format!("Time sync init failed: {e}"));
         } else {
             let time_us = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -425,9 +422,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 )
                 .await
             {
-                warn!("Time sync apply failed: {}", e);
-                app_state.lock().unwrap().last_error =
-                    Some(format!("Time sync apply failed: {}", e));
+                warn!("Time sync apply failed: {e}");
+                app_state.lock().unwrap().last_error = Some(format!("Time sync apply failed: {e}"));
             } else {
                 info!("Time synchronized with ESP32.");
             }
@@ -517,7 +513,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         }
                         Ok(None) => { /* Adapter needs more data or empty frame */ }
                         Err(e) => {
-                            warn!("ESP32Adapter failed to parse CSI: {:?}", e);
+                            warn!("ESP32Adapter failed to parse CSI: {e:?}");
                         }
                         Ok(Some(DataMsg::RawFrame { .. })) => { /* Should not happen if adapter produces CsiFrame */
                         }
@@ -527,10 +523,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     if msg.contains("Source stopped")
                         || msg.contains("CSI data channel disconnected") =>
                 {
-                    info!(
-                        "CSI listener: Source stopped or channel disconnected. Error: {}",
-                        msg
-                    );
+                    info!("CSI listener: Source stopped or channel disconnected. Error: {msg:?}",);
                     if let Ok(mut state_guard) = app_state_csi_clone.lock() {
                         state_guard.connection_status = "DISCONNECTED (CSI Read Error)".to_string();
                     }
@@ -552,7 +545,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     break;
                 }
                 Err(e) => {
-                    warn!("CSI listener: error reading from ESP32 source: {:?}", e);
+                    warn!("CSI listener: error reading from ESP32 source: {e:?}");
                     tokio::time::sleep(Duration::from_secs(1)).await;
                 }
             }
@@ -592,7 +585,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         }
                     }
                     Some(Err(e)) => {
-                        error!("Error reading input event: {}", e);
+                        error!("Error reading input event: {e}");
                         // Potentially break or handle error
                     }
                     None => break, // Event stream closed
@@ -636,8 +629,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .load(std::sync::atomic::Ordering::Relaxed)
         {
             if let Err(e) = esp_guard.stop().await {
-                error!("Error stopping ESP32 source: {}", e); // TuiLogger
-                eprintln!("[DEBUG] Error stopping ESP32 source: {}", e);
+                error!("Error stopping ESP32 source: {e}"); // TuiLogger
+                eprintln!("[DEBUG] Error stopping ESP32 source: {e}");
             } else {
                 info!("ESP32 source stop command issued successfully."); // TuiLogger
                 eprintln!("[DEBUG] ESP32 source stop command issued successfully.");
@@ -656,8 +649,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
             eprintln!("[DEBUG] CSI listener task finished gracefully.");
         }
         Ok(Err(e)) => {
-            error!("CSI listener task panicked: {:?}", e); // TuiLogger
-            eprintln!("[DEBUG] CSI listener task panicked: {:?}", e);
+            error!("CSI listener task panicked: {e:?}"); // TuiLogger
+            eprintln!("[DEBUG] CSI listener task panicked: {e:?}");
         }
         Err(_) => {
             warn!("CSI listener task timed out during shutdown."); // TuiLogger
@@ -680,10 +673,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         Ok(Err(e)) => {
             // Task panicked
-            eprintln!(
-                "[DEBUG] Log listener task panicked during shutdown: {:?}",
-                e
-            );
+            eprintln!("[DEBUG] Log listener task panicked during shutdown: {e:?}",);
         }
         Err(_) => {
             // Timeout
@@ -827,10 +817,7 @@ async fn handle_input(
             } else {
                 app_state_guard.ui_mode = new_ui_mode;
                 app_state_guard.current_cli_config.mode = new_esp_op_mode;
-                info!(
-                    "ESP32 mode set to {:?} via ApplyDeviceConfig",
-                    new_esp_op_mode
-                );
+                info!("ESP32 mode set to {new_esp_op_mode:?} via ApplyDeviceConfig",);
 
                 // ESP32Source's ApplyDeviceConfig should implicitly handle Pause/Unpause Acquisition based on mode.
                 // Additionally, for Spam mode, explicitly pause general transmit task.
@@ -894,7 +881,7 @@ async fn handle_input(
                         let err_msg =
                             "ESP32 not in Transmit mode. Switch mode first ('m').".to_string();
                         app_state_guard.last_error = Some(err_msg.clone());
-                        warn!("{}", err_msg);
+                        warn!("{err_msg}");
                     } else {
                         let mut tx_data = Vec::with_capacity(20);
                         tx_data.extend_from_slice(&dst_mac); // Note: firmware expects dst_mac first
@@ -908,7 +895,7 @@ async fn handle_input(
                         {
                             let err_msg = format!("Failed to send custom frame: {e}");
                             app_state_guard.last_error = Some(err_msg.clone());
-                            error!("TUI: {}", err_msg);
+                            error!("TUI: {err_msg}");
                         } else {
                             info!("TransmitCustomFrame command sent to ESP32.");
                         }
@@ -933,7 +920,7 @@ async fn handle_input(
                 app_state_guard.last_error = Some(format!("Failed to set channel: {e}"));
             } else {
                 app_state_guard.current_cli_config.channel = new_channel;
-                info!("ESP32 channel changed to {}", new_channel);
+                info!("ESP32 channel changed to {new_channel}");
             }
         }
         KeyCode::Char('b') => {
@@ -978,10 +965,7 @@ async fn handle_input(
                 app_state_guard.last_error = Some(format!("Failed to set bandwidth: {e}"));
             } else {
                 app_state_guard.current_cli_config = current_config;
-                info!(
-                    "ESP32 bandwidth set to {:?}, secondary {:?}",
-                    new_esp_bw, new_secondary_chan
-                );
+                info!("ESP32 bandwidth set to {new_esp_bw:?}, secondary {new_secondary_chan:?}",);
             }
         }
         KeyCode::Char('l') => {
@@ -1018,7 +1002,7 @@ async fn handle_input(
                 app_state_guard.last_error = Some(format!("Failed to set CSI type: {e}"));
             } else {
                 app_state_guard.current_cli_config = current_config;
-                info!("ESP32 CSI type set to {:?}", new_esp_csi_type);
+                info!("ESP32 CSI type set to {new_esp_csi_type:?}");
             }
         }
         KeyCode::Char('r') => { /* No action, error cleared by other keys */ }
@@ -1040,9 +1024,7 @@ async fn handle_input(
                 } else {
                     let time_us = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
-                        .map_err(|se| {
-                            ControllerError::Execution(format!("SystemTimeError: {}", se))
-                        })?
+                        .map_err(|se| ControllerError::Execution(format!("SystemTimeError: {se}")))?
                         .as_micros() as u64;
                     if let Err(e) = esp_guard
                         .send_esp32_command(
@@ -1232,7 +1214,7 @@ fn ui(f: &mut Frame, app_state: &AppState) {
             };
             let rssi_str = p
                 .rssi
-                .get(0)
+                .first()
                 .map_or_else(|| "N/A".to_string(), |r| r.to_string());
 
             Row::new(vec![

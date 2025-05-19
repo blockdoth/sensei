@@ -223,7 +223,7 @@ impl Esp32Source {
                         Ok(n) => Ok(temp_read_buf[..n].to_vec()),
                         Err(e) if e.kind() == std::io::ErrorKind::TimedOut => Ok(Vec::new()),
                         Err(e) => {
-                            error!("Serial read error in reader task: {}. Terminating.", e);
+                            error!("Serial read error in reader task: {e}. Terminating.");
                             Err(e) // Fatal error for this iteration, will break loop
                         }
                     }
@@ -263,8 +263,7 @@ impl Esp32Source {
                 {
                     if pos > 0 {
                         debug!(
-                            "Preamble found at pos {}. Discarding {} bytes before preamble.",
-                            pos, pos
+                            "Preamble found at pos {pos}. Discarding {pos} bytes before preamble.",
                         );
                         partial_buffer.drain(0..pos);
                     }
@@ -277,10 +276,7 @@ impl Esp32Source {
                         [ESP_PACKET_PREAMBLE_ESP_TO_HOST.len()..ESP_TO_HOST_MIN_HEADER_SIZE];
                     let esp_length_field_val_signed =
                         i16::from_le_bytes([len_bytes[0], len_bytes[1]]);
-                    debug!(
-                        "Raw length field from ESP32: {}",
-                        esp_length_field_val_signed
-                    );
+                    debug!("Raw length field from ESP32: {esp_length_field_val_signed}",);
 
                     if esp_length_field_val_signed == 0 {
                         warn!(
@@ -295,8 +291,7 @@ impl Esp32Source {
                     let declared_length_from_esp =
                         esp_length_field_val_signed.unsigned_abs() as usize;
                     debug!(
-                        "Declared length from ESP32 (abs value of field): {}",
-                        declared_length_from_esp
+                        "Declared length from ESP32 (abs value of field): {declared_length_from_esp}",
                     );
 
                     // *** ASSUMPTION CHANGE FOR THIS FIX: ***
@@ -307,8 +302,7 @@ impl Esp32Source {
                     // Sanity check: total length must be at least header size.
                     if total_packet_len_on_wire < ESP_TO_HOST_MIN_HEADER_SIZE {
                         error!(
-                            "Declared total packet length {} is less than minimum header size {}. Corrupted packet. Discarding.",
-                            total_packet_len_on_wire, ESP_TO_HOST_MIN_HEADER_SIZE
+                            "Declared total packet length {total_packet_len_on_wire} is less than minimum header size {ESP_TO_HOST_MIN_HEADER_SIZE}. Corrupted packet. Discarding.",
                         );
                         partial_buffer.drain(
                             0..std::cmp::min(total_packet_len_on_wire, partial_buffer.len()),
@@ -325,10 +319,7 @@ impl Esp32Source {
                         break;
                     }
 
-                    debug!(
-                        "Extracting full packet of len: {} from buffer",
-                        total_packet_len_on_wire
-                    );
+                    debug!("Extracting full packet of len: {total_packet_len_on_wire} from buffer",);
                     let packet_data_with_header = partial_buffer
                         .drain(0..total_packet_len_on_wire)
                         .collect::<Vec<_>>();
@@ -357,8 +348,7 @@ impl Esp32Source {
                             // This implies total_packet_len_on_wire was exactly ESP_TO_HOST_MIN_HEADER_SIZE,
                             // and esp_length_field_val_signed was negative.
                             warn!(
-                                "ACK packet payload is empty (command byte expected). Length field: {}, Total packet len: {}",
-                                esp_length_field_val_signed, total_packet_len_on_wire
+                                "ACK packet payload is empty (command byte expected). Length field: {esp_length_field_val_signed}, Total packet len: {total_packet_len_on_wire}",
                             );
                             continue;
                         }
@@ -384,19 +374,16 @@ impl Esp32Source {
                         if let Some(ack_tx_specific) = waiters_guard.remove(&cmd_byte) {
                             if let Err(e) = ack_tx_specific.try_send(Ok(ack_data)) {
                                 warn!(
-                                    "Failed to send ACK for cmd 0x{:02X} to specific waiter: {}",
-                                    cmd_byte, e
+                                    "Failed to send ACK for cmd 0x{cmd_byte:02X} to specific waiter: {e}",
                                 );
                             } else {
                                 debug!(
-                                    "Successfully sent ACK for 0x{:02X} to waiting task.",
-                                    cmd_byte
+                                    "Successfully sent ACK for 0x{cmd_byte:02X} to waiting task.",
                                 );
                             }
                         } else {
                             debug!(
-                                "Received ACK for cmd 0x{:02X} but no specific waiter was registered.",
-                                cmd_byte
+                                "Received ACK for cmd 0x{cmd_byte:02X} but no specific waiter was registered.",
                             );
                         }
                     } else {
@@ -410,7 +397,7 @@ impl Esp32Source {
                                 "CSI data channel full. Discarding ESP32 CSI packet. Consider increasing csi_buffer_size."
                             );
                         } else if let Err(e) = csi_data_tx.try_send(actual_payload_content) {
-                            warn!("Failed to send CSI data to channel: {}", e);
+                            warn!("Failed to send CSI data to channel: {e}");
                         }
                     }
                 } else {

@@ -29,8 +29,7 @@ impl ESP32Adapter {
     ///
     /// # Arguments
     ///
-    /// * `scale_csi` - A boolean flag indicating whether CSI data should be scaled.
-    ///                 (Currently, this parameter is a placeholder and does not affect behavior).
+    /// * `scale_csi` - A boolean flag indicating whether CSI data should be scaled. (Currently, this parameter is a placeholder and does not affect behavior).
     pub fn new(scale_csi: bool) -> Self {
         Self { scale_csi }
     }
