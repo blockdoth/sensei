@@ -1,6 +1,7 @@
 // cli_test_tool.rs
 //! Robust CLI tool for ESP32 CSI monitoring
 
+use core::time;
 use std::collections::VecDeque; // For log buffer
 use std::env;
 use std::error::Error;
@@ -55,6 +56,8 @@ use lib::network::rpc_message::{DataMsg, SourceType};
 use lib::errors::{DataSourceError, ControllerError};
 
 use tokio::sync::Mutex as TokioMutex; // Tokio Mutex for Esp32Source
+use tokio::task::JoinHandle;
+use tokio::sync::Notify;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum SpamConfigField {
@@ -114,8 +117,12 @@ impl log::Log for TuiLogger {
             };
 
             if self.log_sender.try_send(log_entry).is_err() {
+                // This eprintln should appear on the console after the alternate screen is left
+                // if the log_listener_handle task has already stopped.
                 eprintln!(
-                    "TUI_LOGGER_ERROR: Failed to send log to TUI: {} - {}",
+                    "[TUI_LOGGER_FALLBACK] {}: {} [{}] - {}", // Added timestamp and level for clarity
+                    Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
+                    std::thread::current().name().unwrap_or("unknown_thread"), // Log current thread
                     record.level(),
                     record.args()
                 );
@@ -395,24 +402,37 @@ async fn main() -> Result<(), Box<dyn Error>> {
     info!("ESP32 initial setup sequence complete.");
 
 
-    // Log message receiving thread (remains mostly the same)
+    // Log message receiving thread - MODIFIED for mutability
     let app_state_log_clone = Arc::clone(&app_state);
-    tokio::spawn(async move { // Changed to tokio::spawn
-        while let Ok(log_msg) = log_rx.recv() { // log_rx is crossbeam, recv is blocking
-            if let Ok(mut state_guard) = app_state_log_clone.lock() {
-                state_guard.add_log_message(log_msg);
-            } else {
-                break; 
+    // Make log_listener_handle mutable
+    let mut log_listener_handle: JoinHandle<()> = tokio::spawn(async move { // Added mut
+        eprintln!("[LOG_LISTENER_TASK] Started (abort strategy).");
+        loop {
+            match tokio::task::block_in_place(|| log_rx.recv_timeout(Duration::from_millis(500))) {
+                Ok(log_msg) => {
+                    if let Ok(mut state_guard) = app_state_log_clone.lock() {
+                        state_guard.add_log_message(log_msg);
+                    } else {
+                        eprintln!("[LOG_LISTENER_TASK] AppState mutex poisoned, exiting.");
+                        break;
+                    }
+                }
+                Err(_) => {
+                    eprintln!("[LOG_LISTENER_TASK] log_rx.recv() returned Err (channel closed or task aborting?), exiting.");
+                    break;
+                }
             }
         }
+        eprintln!("[LOG_LISTENER_TASK] Terminated.");
     });
 
+    
     // CSI listener thread
     // Add explicit type annotation for esp_source_csi_reader_clone
     let esp_source_csi_reader_clone: Arc<TokioMutex<Esp32Source>> = Arc::clone(&esp_source);
     let app_state_csi_clone = Arc::clone(&app_state);
     
-    tokio::spawn(async move {
+    let csi_listener_handle: JoinHandle<()> = tokio::spawn(async move {
         info!("CSI listener thread started.");
         let mut read_buffer = vec![0u8; 4096]; // Max expected CSI payload size
         let mut esp_adapter = ESP32Adapter::new(false); // Assuming no scaling
@@ -540,25 +560,78 @@ async fn main() -> Result<(), Box<dyn Error>> {
             break;
         }
     }
+
     
-    // Ensure ESP source is stopped before exiting
-    info!("Shutting down ESP32 source...");
+    restore_terminal(&mut terminal)?;
+    eprintln!("[DEBUG] Terminal restored.");
+    
+    // Graceful shutdown sequence
+    eprintln!("[DEBUG] Main UI loop exited. Beginning shutdown sequence...");
+
+
+    eprintln!("[DEBUG] Attempting to stop ESP32 source...");
     {
         let mut esp_guard = esp_source.lock().await;
-        if esp_guard.is_running.load(std::sync::atomic::Ordering::Relaxed) { // Check if running before stopping
+        if esp_guard.is_running.load(std::sync::atomic::Ordering::Relaxed) {
             if let Err(e) = esp_guard.stop().await {
-                error!("Error stopping ESP32 source: {}", e);
+                error!("Error stopping ESP32 source: {}", e); // TuiLogger
+                eprintln!("[DEBUG] Error stopping ESP32 source: {}", e);
             } else {
-                info!("ESP32 source stopped.");
+                info!("ESP32 source stop command issued successfully."); // TuiLogger
+                eprintln!("[DEBUG] ESP32 source stop command issued successfully.");
             }
         } else {
-            info!("ESP32 source was already stopped or not started.");
+            info!("ESP32 source was already stopped or not initially started."); // TuiLogger
+            eprintln!("[DEBUG] ESP32 source was already stopped or not initially started.");
+        }
+    }
+    eprintln!("[DEBUG] ESP32 source stop sequence finished.");
+
+
+    
+    eprintln!("[DEBUG] Waiting for CSI listener task to complete (max 5s)...");
+    match tokio::time::timeout(Duration::from_secs(5), csi_listener_handle).await {
+        Ok(Ok(_)) => {
+            info!("CSI listener task finished gracefully."); // TuiLogger
+            eprintln!("[DEBUG] CSI listener task finished gracefully.");
+        }
+        Ok(Err(e)) => {
+            error!("CSI listener task panicked: {:?}", e); // TuiLogger
+            eprintln!("[DEBUG] CSI listener task panicked: {:?}", e);
+        }
+        Err(_) => {
+            warn!("CSI listener task timed out during shutdown."); // TuiLogger
+            eprintln!("[DEBUG] CSI listener task timed out during shutdown.");
         }
     }
 
-    restore_terminal(&mut terminal)?;
-    sleep(Duration::from_millis(100)); 
-    info!("CLI tool shutting down.");
+
+    eprintln!("[DEBUG] Signaling log listener task to stop (dropping log_tx)...");
+    drop(log_tx);
+
+    eprintln!("[DEBUG] Attempting to shutdown log listener task...");
+    // The log_listener_handle is now the one spawned with the recv_timeout loop.
+    log_listener_handle.abort(); // Signal the task to abort.
+
+    // Wait for it to actually terminate. With the recv_timeout loop, it should.
+    eprintln!("[DEBUG] Waiting for log listener task to complete after abort (max 2s)...");
+    match tokio::time::timeout(Duration::from_secs(2), log_listener_handle).await {
+        Ok(Ok(_)) => {
+            eprintln!("[DEBUG] Log listener task finished gracefully after abort.");
+        }
+        Ok(Err(e)) => { // Task panicked
+            eprintln!("[DEBUG] Log listener task panicked during shutdown: {:?}", e);
+        }
+        Err(_) => { // Timeout
+            eprintln!("[DEBUG] Log listener task did NOT terminate even after abort and timeout. This is unexpected with recv_timeout loop.");
+            // This case should ideally not happen if the recv_timeout loop is implemented correctly.
+        }
+    }
+    
+    eprintln!("[DEBUG] All tasks awaited. About to restore terminal.");
+    
+    eprintln!("[DEBUG] Rust main function is completing NOW.");
+    std::thread::sleep(Duration::from_millis(500)); // Increased sleep
     Ok(())
 }
 
