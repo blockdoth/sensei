@@ -17,6 +17,7 @@ pub struct RegistryConfig {
 
 pub struct VisualiserConfig {
     pub target: SocketAddr,
+    pub ui_type: String,
 }
 
 pub enum ServiceConfig {

@@ -66,7 +66,7 @@ impl Run<VisualiserConfig> for Visualiser {
             width: 800,
             height: 600,
             target_addr: config.target,
-            ui_type: "tui".to_string(),
+            ui_type: config.ui_type,
         }
     }
 

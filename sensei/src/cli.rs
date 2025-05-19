@@ -121,7 +121,8 @@ impl VisualiserSubcommandArgs {
     pub fn parse(&self) -> Result<VisualiserConfig, AddrParseError> {
         // TODO input validation
         Ok(VisualiserConfig {
-            target: self.target.parse()?
+            target: self.target.parse()?,
+            ui_type: self.ui_type.clone(),
         })
     }
 }
