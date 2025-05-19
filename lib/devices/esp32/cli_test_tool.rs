@@ -285,11 +285,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let esp_config = Esp32SourceConfig {
         port_name: port_name.clone(),
         baud_rate: 3_000_000, // Default from old code
-        csi_buffer_size: Some(100), // Default, can be adjusted
-        ack_timeout_ms: Some(2000), // Default
+        csi_buffer_size: Some(100),
+        ack_timeout_ms: Some(2000), // Default ACK timeout from new Esp32Source
     };
 
-    // Add explicit type annotation for esp_source_instance
     let esp_source_instance: Esp32Source = match Esp32Source::new(esp_config) {
         Ok(src) => src,
         Err(e) => {
@@ -303,7 +302,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 
     // AppState initialization
-    let initial_cli_config = CliEspConfig::default(); // Start with default
+    let initial_cli_config = CliEspConfig::default();
     let app_state = Arc::new(StdMutex::new(AppState::new(initial_cli_config.clone())));
 
     // Attempt to connect and apply initial config
@@ -315,39 +314,58 @@ async fn main() -> Result<(), Box<dyn Error>> {
             return Err(Box::new(e));
         }
         app_state.lock().unwrap().connection_status = "CONNECTED (Source Started)".to_string();
+
+        info!("Giving reader thread a moment to start...");
+        tokio::time::sleep(Duration::from_millis(300)).await;
+
         info!("ESP32 source started. Applying initial configuration...");
 
         // Apply the default AppState config to the device
-        // This includes setting mode to Receive and attempting to unpause acquisition
-        let initial_payload = Esp32DeviceConfigPayload {
+        let initial_payload_config = Esp32DeviceConfigPayload { // Renamed to avoid conflict
             mode: initial_cli_config.mode,
             bandwidth: initial_cli_config.bandwidth,
             secondary_channel: initial_cli_config.secondary_channel,
             csi_type: initial_cli_config.csi_type,
             manual_scale: initial_cli_config.manual_scale,
         };
-        let mut cmd_data = Vec::new();
-        cmd_data.push(initial_payload.mode as u8);
-        cmd_data.push(initial_payload.bandwidth as u8);
-        cmd_data.push(initial_payload.secondary_channel as u8);
-        cmd_data.push(initial_payload.csi_type as u8);
-        cmd_data.push(initial_payload.manual_scale);
+        let mut cmd_data_config = Vec::new(); // Renamed to avoid conflict
+        cmd_data_config.push(initial_payload_config.mode as u8);
+        cmd_data_config.push(initial_payload_config.bandwidth as u8);
+        cmd_data_config.push(initial_payload_config.secondary_channel as u8);
+        cmd_data_config.push(initial_payload_config.csi_type as u8);
+        cmd_data_config.push(initial_payload_config.manual_scale);
 
-        if let Err(e) = esp_guard.send_esp32_command(Esp32Command::ApplyDeviceConfig, Some(cmd_data)).await {
-             warn!("Failed to apply initial device config: {}. Continuing with defaults.", e);
-             app_state.lock().unwrap().last_error = Some(format!("Initial config failed: {}",e));
+        // 1. ApplyDeviceConfig
+        if let Err(e) = esp_guard.send_esp32_command(Esp32Command::ApplyDeviceConfig, Some(cmd_data_config)).await {
+            warn!("Failed to apply initial device config: {}. Continuing with defaults.", e);
+            app_state.lock().unwrap().last_error = Some(format!("Initial config failed: {}",e));
         } else {
-            info!("Initial device config applied (includes mode and acquisition state).");
-            // Also set initial channel
+            info!("Initial device config (mode, BW, etc.) applied.");
+            // 2. Set Initial Channel (only after ApplyDeviceConfig is successful)
             if let Err(e) = esp_guard.send_esp32_command(Esp32Command::SetChannel, Some(vec![initial_cli_config.channel])).await {
                 warn!("Failed to set initial channel {}: {}", initial_cli_config.channel, e);
-                 app_state.lock().unwrap().last_error = Some(format!("Initial channel set failed: {}",e));
+                app_state.lock().unwrap().last_error = Some(format!("Initial channel set failed: {}",e));
             } else {
                 info!("Initial channel {} set.", initial_cli_config.channel);
             }
+            // Note: The old apply_device_config also handled unpausing acquisition.
+            // The new send_esp32_command for ApplyDeviceConfig does not inherently do this.
+            // If the firmware expects an explicit UnpauseAcquisition after mode set to Receive,
+            // that would need to be sent separately here.
+            // For now, we address the ACK timeout. If ApplyDeviceConfig sets mode to Receive,
+            // an explicit UnpauseAcquisition might be needed if the firmware doesn't auto-unpause.
+            if initial_payload_config.mode == EspOperationMode::Receive {
+                info!("Initial mode is Receive. Attempting to unpause CSI acquisition.");
+                if let Err(e) = esp_guard.send_esp32_command(Esp32Command::UnpauseAcquisition, None).await {
+                    warn!("Failed to send UnpauseAcquisition after initial config: {}", e);
+                } else {
+                    info!("UnpauseAcquisition command sent after initial config.");
+                }
+            }
+
         }
         
-        // Clear MAC filters
+        // 3. Clear MAC filters
         info!("Attempting to clear MAC address filters...");
         if let Err(e) = esp_guard.send_esp32_command(Esp32Command::WhitelistClear, None).await {
             warn!("Failed to clear MAC filters: {e}. CSI reception might be filtered.");
@@ -356,23 +374,25 @@ async fn main() -> Result<(), Box<dyn Error>> {
             info!("MAC address filters cleared successfully.");
         }
 
-        // Synchronize time
+        // 4. Synchronize time
         info!("Attempting to synchronize time...");
         if let Err(e) = esp_guard.send_esp32_command(Esp32Command::SynchronizeTimeInit, None).await {
-             warn!("Time sync init failed: {}", e);
+            warn!("Time sync init failed: {}", e);
+            app_state.lock().unwrap().last_error = Some(format!("Time sync init failed: {}",e));
         } else {
             let time_us = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap() // Or handle error appropriately
                 .as_micros() as u64;
             if let Err(e) = esp_guard.send_esp32_command(Esp32Command::SynchronizeTimeApply, Some(time_us.to_le_bytes().to_vec())).await {
                 warn!("Time sync apply failed: {}", e);
+                app_state.lock().unwrap().last_error = Some(format!("Time sync apply failed: {}",e));
             } else {
                 info!("Time synchronized with ESP32.");
             }
         }
-    }
-    info!("ESP32 setup complete.");
+    } // esp_guard (MutexGuard) is dropped here
+    info!("ESP32 initial setup sequence complete.");
 
 
     // Log message receiving thread (remains mostly the same)
