@@ -438,20 +438,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
         // Added mut
         eprintln!("[LOG_LISTENER_TASK] Started (abort strategy).");
         loop {
-            match tokio::task::block_in_place(|| log_rx.recv_timeout(Duration::from_millis(500))) {
+            match tokio::task::block_in_place(|| log_rx.recv()) {
                 Ok(log_msg) => {
                     if let Ok(mut state_guard) = app_state_log_clone.lock() {
                         state_guard.add_log_message(log_msg);
                     } else {
                         eprintln!("[LOG_LISTENER_TASK] AppState mutex poisoned, exiting.");
-                        break;
                     }
                 }
                 Err(_) => {
-                    eprintln!(
+                    warn!(
                         "[LOG_LISTENER_TASK] log_rx.recv() returned Err (channel closed or task aborting?), exiting."
                     );
-                    break;
                 }
             }
         }
