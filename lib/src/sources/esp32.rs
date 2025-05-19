@@ -230,9 +230,9 @@ impl Esp32Source {
                 } else {
                     if !is_running.load(AtomicOrdering::Relaxed) {
                         break;
-                    } 
-                    thread::sleep(Duration::from_millis(200)); 
-                    continue; 
+                    }
+                    thread::sleep(Duration::from_millis(200));
+                    continue;
                 }
             };
 
@@ -246,12 +246,13 @@ impl Esp32Source {
                     }
                 }
                 Err(_) => {
-                    is_running.store(false, AtomicOrdering::Relaxed); 
+                    is_running.store(false, AtomicOrdering::Relaxed);
                     break;
                 }
             }
 
-            loop { // Inner loop for processing partial_buffer
+            loop {
+                // Inner loop for processing partial_buffer
                 if partial_buffer.len() < ESP_TO_HOST_MIN_HEADER_SIZE {
                     break;
                 }
@@ -261,26 +262,42 @@ impl Esp32Source {
                     .position(|w| w == ESP_PACKET_PREAMBLE_ESP_TO_HOST)
                 {
                     if pos > 0 {
-                        debug!("Preamble found at pos {}. Discarding {} bytes before preamble.", pos, pos);
+                        debug!(
+                            "Preamble found at pos {}. Discarding {} bytes before preamble.",
+                            pos, pos
+                        );
                         partial_buffer.drain(0..pos);
                     }
-                    if partial_buffer.len() < ESP_TO_HOST_MIN_HEADER_SIZE { // Check again after drain
+                    if partial_buffer.len() < ESP_TO_HOST_MIN_HEADER_SIZE {
+                        // Check again after drain
                         break;
                     }
 
                     let len_bytes = &partial_buffer
                         [ESP_PACKET_PREAMBLE_ESP_TO_HOST.len()..ESP_TO_HOST_MIN_HEADER_SIZE];
-                    let esp_length_field_val_signed = i16::from_le_bytes([len_bytes[0], len_bytes[1]]);
-                    debug!("Raw length field from ESP32: {}", esp_length_field_val_signed);
+                    let esp_length_field_val_signed =
+                        i16::from_le_bytes([len_bytes[0], len_bytes[1]]);
+                    debug!(
+                        "Raw length field from ESP32: {}",
+                        esp_length_field_val_signed
+                    );
 
                     if esp_length_field_val_signed == 0 {
-                        warn!("ESP32 packet with declared length field 0. Discarding header to attempt recovery.");
-                        partial_buffer.drain(0..std::cmp::min(ESP_TO_HOST_MIN_HEADER_SIZE, partial_buffer.len()));
+                        warn!(
+                            "ESP32 packet with declared length field 0. Discarding header to attempt recovery."
+                        );
+                        partial_buffer.drain(
+                            0..std::cmp::min(ESP_TO_HOST_MIN_HEADER_SIZE, partial_buffer.len()),
+                        );
                         continue;
                     }
-                    
-                    let declared_length_from_esp = esp_length_field_val_signed.unsigned_abs() as usize;
-                    debug!("Declared length from ESP32 (abs value of field): {}", declared_length_from_esp);
+
+                    let declared_length_from_esp =
+                        esp_length_field_val_signed.unsigned_abs() as usize;
+                    debug!(
+                        "Declared length from ESP32 (abs value of field): {}",
+                        declared_length_from_esp
+                    );
 
                     // *** ASSUMPTION CHANGE FOR THIS FIX: ***
                     // The value `declared_length_from_esp` IS the total length of the packet on the wire,
@@ -293,27 +310,40 @@ impl Esp32Source {
                             "Declared total packet length {} is less than minimum header size {}. Corrupted packet. Discarding.",
                             total_packet_len_on_wire, ESP_TO_HOST_MIN_HEADER_SIZE
                         );
-                        partial_buffer.drain(0..std::cmp::min(total_packet_len_on_wire, partial_buffer.len()));
+                        partial_buffer.drain(
+                            0..std::cmp::min(total_packet_len_on_wire, partial_buffer.len()),
+                        );
                         continue;
                     }
 
                     if partial_buffer.len() < total_packet_len_on_wire {
-                        debug!("Buffer (len {}) too short for full packet (need {} based on ESP field). Waiting for more.", partial_buffer.len(), total_packet_len_on_wire);
+                        debug!(
+                            "Buffer (len {}) too short for full packet (need {} based on ESP field). Waiting for more.",
+                            partial_buffer.len(),
+                            total_packet_len_on_wire
+                        );
                         break;
                     }
 
-                    debug!("Extracting full packet of len: {} from buffer", total_packet_len_on_wire);
+                    debug!(
+                        "Extracting full packet of len: {} from buffer",
+                        total_packet_len_on_wire
+                    );
                     let packet_data_with_header = partial_buffer
                         .drain(0..total_packet_len_on_wire)
                         .collect::<Vec<_>>();
-                    
+
                     // The actual payload is after the header
                     // This check ensures that we can safely slice the payload.
                     // If total_packet_len_on_wire was < ESP_TO_HOST_MIN_HEADER_SIZE, the previous check would have caught it.
                     // This mainly guards against total_packet_len_on_wire being exactly ESP_TO_HOST_MIN_HEADER_SIZE for non-ACKs,
                     // or if the drain somehow returned less than expected (though drain(0..X) should give X bytes if available).
                     if packet_data_with_header.len() < ESP_TO_HOST_MIN_HEADER_SIZE {
-                        warn!("Drained packet (len {}) is smaller than header size ({}). Should not happen if previous checks passed. Skipping.", packet_data_with_header.len(), ESP_TO_HOST_MIN_HEADER_SIZE);
+                        warn!(
+                            "Drained packet (len {}) is smaller than header size ({}). Should not happen if previous checks passed. Skipping.",
+                            packet_data_with_header.len(),
+                            ESP_TO_HOST_MIN_HEADER_SIZE
+                        );
                         continue;
                     }
                     let actual_payload_content =
@@ -326,7 +356,10 @@ impl Esp32Source {
                         if actual_payload_content.is_empty() {
                             // This implies total_packet_len_on_wire was exactly ESP_TO_HOST_MIN_HEADER_SIZE,
                             // and esp_length_field_val_signed was negative.
-                            warn!("ACK packet payload is empty (command byte expected). Length field: {}, Total packet len: {}", esp_length_field_val_signed, total_packet_len_on_wire);
+                            warn!(
+                                "ACK packet payload is empty (command byte expected). Length field: {}, Total packet len: {}",
+                                esp_length_field_val_signed, total_packet_len_on_wire
+                            );
                             continue;
                         }
                         let cmd_byte = actual_payload_content[0];
@@ -336,7 +369,11 @@ impl Esp32Source {
                             Vec::new()
                         };
 
-                        debug!("Received ACK for command byte 0x{:02X} with data len {}", cmd_byte, ack_data.len());
+                        debug!(
+                            "Received ACK for command byte 0x{:02X} with data len {}",
+                            cmd_byte,
+                            ack_data.len()
+                        );
                         let mut waiters_guard = match ack_waiters.lock() {
                             Ok(g) => g,
                             Err(_) => {
@@ -351,14 +388,23 @@ impl Esp32Source {
                                     cmd_byte, e
                                 );
                             } else {
-                                debug!("Successfully sent ACK for 0x{:02X} to waiting task.", cmd_byte);
+                                debug!(
+                                    "Successfully sent ACK for 0x{:02X} to waiting task.",
+                                    cmd_byte
+                                );
                             }
                         } else {
-                            debug!("Received ACK for cmd 0x{:02X} but no specific waiter was registered.", cmd_byte);
+                            debug!(
+                                "Received ACK for cmd 0x{:02X} but no specific waiter was registered.",
+                                cmd_byte
+                            );
                         }
                     } else {
                         // CSI Data
-                        debug!("Received CSI Data packet. Payload len: {}. Sending to CSI channel.", actual_payload_content.len());
+                        debug!(
+                            "Received CSI Data packet. Payload len: {}. Sending to CSI channel.",
+                            actual_payload_content.len()
+                        );
                         if csi_data_tx.is_full() {
                             warn!(
                                 "CSI data channel full. Discarding ESP32 CSI packet. Consider increasing csi_buffer_size."
@@ -367,11 +413,16 @@ impl Esp32Source {
                             warn!("Failed to send CSI data to channel: {}", e);
                         }
                     }
-                } else { // No preamble found
+                } else {
+                    // No preamble found
                     if partial_buffer.len() >= ESP_PACKET_PREAMBLE_ESP_TO_HOST.len() {
                         let discard_len =
                             partial_buffer.len() - (ESP_PACKET_PREAMBLE_ESP_TO_HOST.len() - 1);
-                        debug!("No preamble found, buffer len {}. Discarding {} bytes.", partial_buffer.len(), discard_len);
+                        debug!(
+                            "No preamble found, buffer len {}. Discarding {} bytes.",
+                            partial_buffer.len(),
+                            discard_len
+                        );
                         partial_buffer.drain(0..discard_len);
                     }
                     break;
@@ -381,10 +432,10 @@ impl Esp32Source {
             if !new_data_was_read_in_this_iteration
                 && partial_buffer.len() < ESP_TO_HOST_MIN_HEADER_SIZE
             {
-                if !is_running.load(AtomicOrdering::Relaxed) { 
-                    break; 
+                if !is_running.load(AtomicOrdering::Relaxed) {
+                    break;
                 }
-                thread::sleep(Duration::from_millis(10)); 
+                thread::sleep(Duration::from_millis(10));
             }
         } // End while is_running
 

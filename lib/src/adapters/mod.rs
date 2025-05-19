@@ -15,8 +15,8 @@ use crate::csi_types::CsiData;
 use crate::errors::CsiAdapterError;
 use crate::errors::TaskError;
 use crate::network::rpc_message::DataMsg;
-pub mod iwl;
 pub mod esp32;
+pub mod iwl;
 
 /// Csi Data Adapter Trait
 /// ----------------------
