@@ -1,11 +1,11 @@
+use crate::FromConfig;
+use crate::adapters::{CsiDataAdapter, DataAdapterConfig};
+use crate::errors::{CsiAdapterError, DataSourceError, SinkError, TaskError};
+use crate::network::rpc_message::{DataMsg, SourceType};
+use crate::sinks::{Sink, SinkConfig};
+use crate::sources::{DataSourceConfig, DataSourceT};
 use std::sync::Arc;
 use tokio::task::JoinHandle;
-use crate::errors::{DataSourceError, CsiAdapterError, SinkError, TaskError};
-use crate::network::rpc_message::{DataMsg, SourceType};
-use crate::sources::{DataSourceT, DataSourceConfig};
-use crate::adapters::{CsiDataAdapter, DataAdapterConfig};
-use crate::sinks::{Sink, SinkConfig};
-use crate::FromConfig;
 
 /// Configuration for a device handler
 #[derive(serde::Deserialize, Debug, Clone)]
@@ -39,7 +39,7 @@ impl DeviceHandler {
         tokio::spawn(async move {
             // activate source
             if let Err(e) = source.start().await {
-                log::error!("Device {} source start failed: {:?}", device_id, e);
+                log::error!("Device {device_id} source start failed: {e:?}");
                 return;
             }
 
@@ -60,7 +60,7 @@ impl DeviceHandler {
                                         Ok(Some(csi_msg)) => vec![csi_msg],
                                         Ok(None) => continue, // need more data
                                         Err(err) => {
-                                            log::error!("Adapter error on device {}: {:?}", device_id, err);
+                                            log::error!("Adapter error on device {device_id}: {err:?}");
                                             continue;
                                         }
                                     }
@@ -71,13 +71,13 @@ impl DeviceHandler {
                                 for mut sink in sinks.iter_mut() {
                                     for msg in outgoing.iter().cloned() {
                                         if let Err(err) = sink.provide(msg).await {
-                                            log::error!("Sink error on device {}: {:?}", device_id, err);
+                                            log::error!("Sink error on device {device_id}: {err:?}" );
                                         }
                                     }
                                 }
                             }
                             Err(e) => {
-                                log::error!("Device {} read error: {:?}", device_id, e);
+                                log::error!("Device {device_id} read error: {e:?}");
                                 break;
                             }
                         }
