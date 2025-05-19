@@ -431,38 +431,37 @@ async fn main() -> Result<(), Box<dyn Error>> {
     } // esp_guard (MutexGuard) is dropped here
     info!("ESP32 initial setup sequence complete.");
 
-    // Log message receiving thread - MODIFIED for mutability
+    // In main, the log_listener_handle task:
     let app_state_log_clone = Arc::clone(&app_state);
-    // Make log_listener_handle mutable
     let mut log_listener_handle: JoinHandle<()> = tokio::spawn(async move {
-        // Added mut
-        eprintln!("[LOG_LISTENER_TASK] Started (abort strategy).");
         loop {
-            match tokio::task::block_in_place(|| log_rx.recv_timeout(Duration::from_millis(500))) {
-                Ok(log_msg) => {
-                    if let Ok(mut state_guard) = app_state_log_clone.lock() {
-                        state_guard.add_log_message(log_msg);
-                    } else {
-                        // This eprintln will go to the original console, not the TUI log
-                        eprintln!("[LOG_LISTENER_TASK] AppState mutex poisoned, exiting log listener task.");
-                        break; // Exit loop if mutex is poisoned
+            // ADD THIS LINE: Explicitly yield to the Tokio scheduler.
+            // If abort() has been called, the task should terminate here.
+            tokio::task::yield_now().await;
+
+            // If the task was not aborted, proceed with the loop.
+            match tokio::task::block_in_place(|| log_rx.recv_timeout(Duration::from_secs(1))) {
+                Ok(log_msg) => { // An *external* log message was received
+                    match app_state_log_clone.try_lock() {
+                        Ok(mut state_guard) => {
+                            state_guard.add_log_message(log_msg);
+                        }
+                        Err(std::sync::TryLockError::Poisoned(_)) => {
+                            break;
+                        }
+                        Err(std::sync::TryLockError::WouldBlock) => {
+                            // This should not happen since we are in block_in_place.
+                        }
                     }
                 }
                 Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
-                    // This is expected if no logs are being sent.
-                    // The loop should continue to wait for more messages or for the channel to close.
-                    // This also allows the task to be responsive to `abort()` if called,
-                    // as `block_in_place` cooperates with task cancellation.
                     continue;
                 }
                 Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
-                    // This means log_tx was dropped, indicating shutdown.
-                    eprintln!("[LOG_LISTENER_TASK] Log channel disconnected (sender dropped), exiting log listener task.");
-                    break; // Exit the loop, so the task terminates gracefully.
+                    break;
                 }
             }
         }
-        eprintln!("[LOG_LISTENER_TASK] Terminated.");
     });
 
     // CSI listener thread
@@ -665,29 +664,39 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    eprintln!("[DEBUG] Signaling log listener task to stop (dropping log_tx)...");
-    drop(log_tx);
+    eprintln!("[DEBUG] Signaling log listener task to stop (dropping main's log_tx)...");
+    drop(log_tx); // Drops main's instance of the sender. TuiLogger still holds one.
 
-    eprintln!("[DEBUG] Attempting to shutdown log listener task...");
-    // The log_listener_handle is now the one spawned with the recv_timeout loop.
-    
+    eprintln!("[DEBUG] Attempting to shutdown log listener task via abort()...");
+    log_listener_handle.abort(); // Crucial: This is the primary signal to stop the task.
 
-    // Wait for it to actually terminate. With the recv_timeout loop, it should.
-    eprintln!("[DEBUG] Waiting for log listener task to complete (max 3s)..."); // Increased slightly to allow recv_timeout and processing
+    eprintln!("[DEBUG] Waiting for log listener task to complete after abort (max 3s)...");
+    // Increased timeout slightly to be safe, 2s was in your original
     match tokio::time::timeout(Duration::from_secs(3), log_listener_handle).await {
         Ok(Ok(_)) => {
-            eprintln!("[DEBUG] Log listener task finished gracefully (likely due to channel disconnect).");
+            // This outcome means the task completed its work and exited without being forcefully cancelled
+            // (e.g. if it hit a 'break' in its loop before the abort was fully processed).
+            // Given we called abort(), this is slightly less expected than Err(e) where e.is_cancelled().
+            eprintln!("[DEBUG] Log listener task completed normally (Ok result after abort signal). This means it exited its loop before cancellation fully unwound it.");
         }
-        Ok(Err(e)) => {
-            // Task panicked or was aborted and errored.
-            eprintln!("[DEBUG] Log listener task did not finish cleanly: {e:?}");
-            // If it was aborted, e will be a JoinError indicating cancellation.
+        Ok(Err(e)) => { // This is the most expected outcome when aborting a task.
+            if e.is_cancelled() {
+                eprintln!("[DEBUG] Log listener task aborted successfully as expected.");
+            } else {
+                // Task panicked or encountered some other error during join.
+                eprintln!("[DEBUG] Log listener task failed or panicked: {e:?}");
+            }
         }
-        Err(_) => {
-            // Timeout waiting for the task to finish.
+        Err(_) => { // tokio::time::TimeoutError
             eprintln!(
-                "[DEBUG] Log listener task did NOT terminate within the timeout after log_tx drop. This is unexpected."
+                "[DEBUG] Log listener task did NOT terminate within the timeout even after abort(). THIS IS THE PROBLEM TO DEBUG."
             );
+            // If this happens, the task is not responding to the abort signal.
+            // This could mean:
+            // 1. block_in_place isn't yielding control back in a way Tokio can interrupt. (Unlikely for basic recv_timeout)
+            // 2. Something *inside* the Ok(log_msg) arm is blocking indefinitely AFTER block_in_place returns
+            //    but before the task can be cancelled (e.g. app_state_log_clone.lock() is deadlocked).
+            // 3. The `log_listener_handle` awaited is not the one aborted (shadowing - check carefully).
         }
     }
 
