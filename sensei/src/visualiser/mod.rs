@@ -20,6 +20,7 @@ use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture, Event, 
 use ratatui::crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
+use ratatui::symbols::line;
 use ratatui::crossterm::{event, execute};
 use ratatui::layout::{Constraint, Layout, Position};
 use ratatui::prelude::Direction;
@@ -148,7 +149,6 @@ impl Visualiser {
             debug!("Receive task");
             loop {
                 let mut client = client.lock().await;
-                info!("Received message");
                 match client.read_message(target_addr).await {
                     Ok(msg) => {
                         let RpcMessage {
@@ -268,6 +268,11 @@ impl Visualiser {
                     types.push(graph.graph_type.clone().to_string());
                 }
 
+                let debug_addr = &self.target_addr;
+                let data_debug = self.data.lock().await.get(debug_addr).unwrap().get(&0u64).unwrap().clone();
+                let debug2 = &data_debug.clone()[0].csi[0][0];
+
+
                 terminal.draw(|f| {
                     let size = f.area();
 
@@ -293,9 +298,31 @@ impl Visualiser {
                     for (i, data) in current_data.iter().enumerate() {
                         let dataset = Dataset::default()
                             .name(format!("Graph #{i}"))
-                            .marker(ratatui::symbols::Marker::Dot)
+                            .marker(ratatui::symbols::Marker::Braille)
                             .style(Style::default().fg(Color::Cyan))
                             .data(data);
+
+                        let time_bounds = [
+                            data.iter()
+                                .min_by(|x, y| x.0.total_cmp(&y.0))
+                                .unwrap_or(&(0f64, 10000f64))
+                                .0,
+                            data.iter()
+                                .max_by(|x, y| x.0.total_cmp(&y.0))
+                                .unwrap_or(&(0f64, 10000f64))
+                                .0,
+                        ];
+
+                        let data_bounds = [
+                            data.iter()
+                                .min_by(|x, y| x.1.total_cmp(&y.1))
+                                .unwrap_or(&(0f64, 10000f64))
+                                .1 - 1f64,
+                            data.iter()
+                                .max_by(|x, y| x.1.total_cmp(&y.1))
+                                .unwrap_or(&(0f64, 10000f64))
+                                .1 + 1f64,
+                        ];
 
                         let chart = Chart::new(vec![dataset])
                             .block(
@@ -304,28 +331,10 @@ impl Visualiser {
                                     .borders(Borders::ALL),
                             )
                             .x_axis(
-                                Axis::default().title("Time").bounds([
-                                    data.iter()
-                                        .min_by(|x, y| x.0.total_cmp(&y.0))
-                                        .unwrap_or(&(0f64, 0f64))
-                                        .0,
-                                    data.iter()
-                                        .max_by(|x, y| x.0.total_cmp(&y.0))
-                                        .unwrap_or(&(0f64, 0f64))
-                                        .0,
-                                ]),
+                                Axis::default().title("Time").bounds(time_bounds),
                             )
                             .y_axis(
-                                Axis::default().title(types[i].clone()).bounds([
-                                    data.iter()
-                                        .min_by(|x, y| x.1.total_cmp(&y.1))
-                                        .unwrap_or(&(0f64, 10f64))
-                                        .0,
-                                    data.iter()
-                                        .max_by(|x, y| x.1.total_cmp(&y.1))
-                                        .unwrap_or(&(0f64, 10f64))
-                                        .0,
-                                ]),
+                                Axis::default().title(types[i].clone()).bounds(data_bounds),
                             );
                         f.render_widget(chart, chart_area[i]);
                     }

@@ -7,7 +7,7 @@ use crate::module::*;
 use crate::system_node::rpc_message::RpcMessageKind::*;
 use argh::{CommandInfo, FromArgs};
 use async_trait::async_trait;
-use lib::csi_types::CsiData;
+use lib::csi_types::{Complex, CsiData};
 use lib::errors::NetworkError;
 use lib::network::rpc_message::RpcMessage;
 use lib::network::rpc_message::SourceType::*;
@@ -145,7 +145,7 @@ impl Run<SystemNodeConfig> for SystemNode {
                         timestamp: i as f64,
                         sequence_number: 0,
                         rssi: vec![],
-                        csi: vec![],
+                        csi: vec![vec![vec![Complex::new((i % 100) as f64, 2 as f64)]]],
                     },
                 });
                 i += 1;
