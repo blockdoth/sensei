@@ -865,8 +865,8 @@ fn ui(f: &mut Frame, app_state: &AppState) {
         .direction(Direction::Horizontal)
         .margin(1)
         .constraints([
-            Constraint::Percentage(70), // Wider main panel
-            Constraint::Percentage(30), // Log panel
+            Constraint::Percentage(40),
+            Constraint::Percentage(60),
         ])
         .split(f.size());
 
