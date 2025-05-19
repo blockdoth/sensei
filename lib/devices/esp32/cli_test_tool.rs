@@ -438,18 +438,27 @@ async fn main() -> Result<(), Box<dyn Error>> {
         // Added mut
         eprintln!("[LOG_LISTENER_TASK] Started (abort strategy).");
         loop {
-            match tokio::task::block_in_place(|| log_rx.recv()) {
+            match tokio::task::block_in_place(|| log_rx.recv_timeout(Duration::from_millis(500))) {
                 Ok(log_msg) => {
                     if let Ok(mut state_guard) = app_state_log_clone.lock() {
                         state_guard.add_log_message(log_msg);
                     } else {
-                        eprintln!("[LOG_LISTENER_TASK] AppState mutex poisoned, exiting.");
+                        // This eprintln will go to the original console, not the TUI log
+                        eprintln!("[LOG_LISTENER_TASK] AppState mutex poisoned, exiting log listener task.");
+                        break; // Exit loop if mutex is poisoned
                     }
                 }
-                Err(_) => {
-                    warn!(
-                        "[LOG_LISTENER_TASK] log_rx.recv() returned Err (channel closed or task aborting?), exiting."
-                    );
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                    // This is expected if no logs are being sent.
+                    // The loop should continue to wait for more messages or for the channel to close.
+                    // This also allows the task to be responsive to `abort()` if called,
+                    // as `block_in_place` cooperates with task cancellation.
+                    continue;
+                }
+                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+                    // This means log_tx was dropped, indicating shutdown.
+                    eprintln!("[LOG_LISTENER_TASK] Log channel disconnected (sender dropped), exiting log listener task.");
+                    break; // Exit the loop, so the task terminates gracefully.
                 }
             }
         }
@@ -661,24 +670,24 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     eprintln!("[DEBUG] Attempting to shutdown log listener task...");
     // The log_listener_handle is now the one spawned with the recv_timeout loop.
-    log_listener_handle.abort(); // Signal the task to abort.
+    
 
     // Wait for it to actually terminate. With the recv_timeout loop, it should.
-    eprintln!("[DEBUG] Waiting for log listener task to complete after abort (max 2s)...");
-    match tokio::time::timeout(Duration::from_secs(2), log_listener_handle).await {
+    eprintln!("[DEBUG] Waiting for log listener task to complete (max 3s)..."); // Increased slightly to allow recv_timeout and processing
+    match tokio::time::timeout(Duration::from_secs(3), log_listener_handle).await {
         Ok(Ok(_)) => {
-            eprintln!("[DEBUG] Log listener task finished gracefully after abort.");
+            eprintln!("[DEBUG] Log listener task finished gracefully (likely due to channel disconnect).");
         }
         Ok(Err(e)) => {
-            // Task panicked
-            eprintln!("[DEBUG] Log listener task panicked during shutdown: {e:?}",);
+            // Task panicked or was aborted and errored.
+            eprintln!("[DEBUG] Log listener task did not finish cleanly: {e:?}");
+            // If it was aborted, e will be a JoinError indicating cancellation.
         }
         Err(_) => {
-            // Timeout
+            // Timeout waiting for the task to finish.
             eprintln!(
-                "[DEBUG] Log listener task did NOT terminate even after abort and timeout. This is unexpected with recv_timeout loop."
+                "[DEBUG] Log listener task did NOT terminate within the timeout after log_tx drop. This is unexpected."
             );
-            // This case should ideally not happen if the recv_timeout loop is implemented correctly.
         }
     }
 
