@@ -1,5 +1,7 @@
-use super::rpc_message::{self, DataMsg, RpcMessage};
-use crate::errors::NetworkError;
+use std::net::SocketAddr;
+
+use super::rpc_message::{self, DataMsg, RpcMessage, RpcMessageKind};
+use crate::{errors::NetworkError, network::rpc_message::make_msg};
 use async_trait::async_trait;
 use log::{debug, error, info, trace};
 use serde::Deserialize;
@@ -9,7 +11,10 @@ use tokio::{
         TcpStream,
         tcp::{OwnedReadHalf, OwnedWriteHalf},
     },
-    sync::watch::{Receiver, Sender},
+    sync::{
+        broadcast,
+        watch::{self, Receiver, Sender},
+    },
 };
 
 pub mod client;
@@ -63,9 +68,10 @@ pub async fn read_message(
 
 pub async fn send_message(
     stream: &mut OwnedWriteHalf,
-    msg: RpcMessage,
+    msg: RpcMessageKind,
 ) -> Result<(), NetworkError> {
-    let msg_serialized = serialize_rpc_message(msg)?;
+    let msg_wrapped = make_msg(&stream, msg);
+    let msg_serialized = serialize_rpc_message(msg_wrapped)?;
     let msg_length: u32 = msg_serialized.len().try_into().unwrap();
 
     if msg_length as usize > MAX_MESSAGE_LENGTH {
@@ -106,14 +112,20 @@ pub trait ConnectionHandler: Send + Sync {
     async fn handle_recv(
         &self,
         request: RpcMessage,
-        send_channel: Sender<ChannelMsg>,
+        send_commands_channel: watch::Sender<ChannelMsg>,
     ) -> Result<(), NetworkError>;
 
     async fn handle_send(
         &self,
-        mut recv_channel: Receiver<ChannelMsg>,
+        mut recv_commands_channel: watch::Receiver<ChannelMsg>,
+        mut recv_data_channel: broadcast::Receiver<DataMsg>,
         mut send_stream: OwnedWriteHalf,
     ) -> Result<(), NetworkError>;
+}
+
+#[async_trait]
+pub trait SubscribeDataChannel {
+    fn subscribe_data_channel(&self) -> broadcast::Receiver<DataMsg>;
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -121,7 +133,8 @@ pub enum ChannelMsg {
     Empty,
     Disconnect,
     Subscribe,
+    ListenSubscribe { addr: SocketAddr },
+    ListenUnsubscribe { addr: SocketAddr },
     Unsubscribe,
     Poll,
-    Data(DataMsg),
 }

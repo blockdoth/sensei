@@ -1,5 +1,6 @@
 use crate::csi_types::CsiData;
 use crate::devices::DeviceCfg;
+use crate::network::rpc_message::RpcMessageKind::Ctrl;
 use bincode::Error;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -7,7 +8,10 @@ use std::{
     str::FromStr,
     sync::Arc,
 };
-use tokio::net::UdpSocket;
+use tokio::net::{TcpStream, UdpSocket};
+use tokio_stream::Stream;
+
+const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RpcMessage {
@@ -73,8 +77,6 @@ impl FromStr for AdapterMode {
     }
 }
 
-const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
-
 // FromStr implementations for easy cli usage
 impl FromStr for CtrlMsg {
     type Err = String;
@@ -115,5 +117,17 @@ impl FromStr for CtrlMsg {
             "heartbeat" => Ok(CtrlMsg::Heartbeat),
             s => Err(s.to_owned()),
         }
+    }
+}
+
+// Convenient wrapper to add src/target data to RpcMessage's
+// Takes any type that implements AsRef, such as TcpStream/OwnedReadHalf/OwnedWriteHalf
+// as refs (&), Arc<>, Box<> and Rc<>
+pub fn make_msg<S: AsRef<TcpStream>>(stream: S, msg: RpcMessageKind) -> RpcMessage {
+    let stream_ref = stream.as_ref();
+    RpcMessage {
+        msg,
+        src_addr: stream_ref.local_addr().unwrap(),
+        target_addr: stream_ref.peer_addr().unwrap(),
     }
 }

@@ -868,6 +868,9 @@ async fn handle_input(
                     info!(
                         "Entered spam config editing mode. Use Tab, Up/Down. 'e' or Esc to exit."
                     );
+                    info!(
+                        "Entered spam config editing mode. Use Tab, Up/Down. 'e' or Esc to exit."
+                    );
                     app_state_guard.current_editing_field = SpamConfigField::SrcMacOctet(0);
                 } else {
                     info!("Exited spam config editing mode.");
