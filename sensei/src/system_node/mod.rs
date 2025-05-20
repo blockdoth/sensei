@@ -9,7 +9,7 @@ use argh::{CommandInfo, FromArgs};
 use async_trait::async_trait;
 use lib::csi_types::{Complex, CsiData};
 use lib::errors::NetworkError;
-use lib::network::rpc_message::RpcMessage;
+use lib::network::rpc_message::{RpcMessage, SourceType};
 use lib::network::rpc_message::SourceType::*;
 use lib::network::rpc_message::{AdapterMode, CtrlMsg};
 use lib::network::rpc_message::{CtrlMsg::*, DataMsg};
@@ -29,8 +29,11 @@ use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::{Mutex, broadcast, watch};
 use tokio::task::JoinHandle;
-use lib::sources::csv::CsvSource;
+use lib::adapters::{DataAdapterConfig, CsiDataAdapter};
+use lib::FromConfig;
+use lib::sources::csv::{CsvConfig, CsvSource};
 use lib::sources::DataSourceT;
+use lib::sources::netlink::NetlinkConfig;
 
 #[derive(Clone)]
 pub struct SystemNode {
@@ -133,32 +136,45 @@ impl Run<SystemNodeConfig> for SystemNode {
 
         let sender_data_channel = connection_handler.send_data_channel.clone();
         
-        let devices: HashMap<u64, Box<dyn DataSourceT>> = HashMap::new();
+        // TODO: For every possible device, acquire a configuration
+        // TODO: Also acquire an adapter configuration
         
-        // TODO: Configure devices onto node from a configuration
+        let csv_config = CsvConfig { path: "resources/test_data/csv/csi_data.csv".parse().unwrap(), cell_delimiter: b',', row_delimiter: b'\n', header: true, delay: 50};
+        let csv_adapter_config = DataAdapterConfig::CSV {};
+        let mut csv_adapter = <dyn CsiDataAdapter>::from_config(csv_adapter_config).await?;
         
-        for mut device in devices {
-            device.1.start();
-        }
+        //let netlink_config =  NetlinkConfig { group };
+        
+        let devices: Arc<Mutex<HashMap<u64, Box<dyn DataSourceT>>>> = Arc::new(Mutex::new(HashMap::new()));
+
+        // TODO: Store devices onto node from a configuration
+        
+        let csv_source = Box::new(CsvSource::new(csv_config).unwrap());
+        
+        devices.lock().await.insert(0, csv_source);
+        
+        // TODO: Start the read processes (tokio task per device?) and send read data to main thread
+        
+        
 
         // Example sender which just spams packets
         // The most important thing is the ability to clone send ends of channels around
         tokio::spawn(async move {
             let mut i = 0;
             loop {
-                sender_data_channel.send(CsiFrame {
-                    csi: CsiData {
-                        timestamp: i as f64,
-                        sequence_number: 0,
-                        rssi: vec![],
-                        csi: vec![vec![vec![Complex::new((i % 100) as f64, 2 as f64)]]],
-                    },
-                });
-                i += 1;
-                if i > 1_000_000 {
-                    i = 0;
+                let mut output_buf: &mut [u8] = &mut  [0u8; 4096];
+
+                for mut device in devices.lock().await.iter_mut() {
+                    let test_out = device.1.read(output_buf).await.unwrap();
+                    let test_data_msg = RawFrame {
+                        ts: 0f64,
+                        bytes: Vec::from(&mut *output_buf),
+                        source_type: SourceType::CSV
+                    };
+                    let test_out_csi = csv_adapter.produce(test_data_msg).await.unwrap();
+                    sender_data_channel.send(test_out_csi.unwrap());
                 }
-                tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
             }
         });
 

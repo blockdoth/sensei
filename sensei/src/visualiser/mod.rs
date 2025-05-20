@@ -25,7 +25,7 @@ use ratatui::crossterm::{event, execute};
 use ratatui::layout::{Constraint, Layout, Position};
 use ratatui::prelude::Direction;
 use ratatui::style::{Color, Style};
-use ratatui::text::ToLine;
+use ratatui::text::{Span, ToLine};
 use ratatui::widgets::{Axis, Block, Borders, Chart, Dataset};
 use ratatui::{Frame, Terminal, symbols};
 use std::cell::RefCell;
@@ -96,6 +96,7 @@ struct Graph {
     core: usize,
     stream: usize,
     subcarrier: usize,
+    time_interval: usize,
 }
 
 impl PartialEq for Graph {
@@ -264,10 +265,12 @@ impl Visualiser {
             if last_tick.elapsed() >= tick_rate {
                 let mut current_data = Vec::new();
                 let mut types = Vec::new();
+                let mut intervals = Vec::new();
 
                 for graph in graphs.lock().await.iter() {
                     current_data.push(self.process_data(*graph).await);
                     types.push(graph.graph_type.clone().to_string());
+                    intervals.push(graph.time_interval);
                 }
 
                 terminal.draw(|f| {
@@ -296,30 +299,34 @@ impl Visualiser {
                         let dataset = Dataset::default()
                             .name(format!("Graph #{i}"))
                             .marker(ratatui::symbols::Marker::Braille)
+                            .graph_type(ratatui::widgets::GraphType::Line)
                             .style(Style::default().fg(Color::Cyan))
                             .data(data);
 
+                        let time_max = data.iter()
+                            .max_by(|x, y| x.0.total_cmp(&y.0))
+                            .unwrap_or(&(0f64, 10000f64))
+                            .0;
+
                         let time_bounds = [
-                            data.iter()
-                                .min_by(|x, y| x.0.total_cmp(&y.0))
-                                .unwrap_or(&(0f64, 10000f64))
-                                .0,
-                            data.iter()
-                                .max_by(|x, y| x.0.total_cmp(&y.0))
-                                .unwrap_or(&(0f64, 10000f64))
-                                .0,
+                            (time_max - intervals[i] as f64 - 1f64).round(),
+                            (time_max + 1f64).round(),
                         ];
+                        let time_labels: Vec<Span> = time_bounds.iter().map(|n| Span::from(n.to_string())).collect();
 
                         let data_bounds = [
-                            data.iter()
+                            (data.iter()
                                 .min_by(|x, y| x.1.total_cmp(&y.1))
                                 .unwrap_or(&(0f64, 10000f64))
-                                .1 - 1f64,
-                            data.iter()
+                                .1 - 1f64)
+                                .round(),
+                            (data.iter()
                                 .max_by(|x, y| x.1.total_cmp(&y.1))
                                 .unwrap_or(&(0f64, 10000f64))
-                                .1 + 1f64,
+                                .1 + 1f64)
+                                .round(),
                         ];
+                        let data_labels: Vec<Span> = data_bounds.iter().map(|n| Span::from(n.to_string())).collect();
 
                         let chart = Chart::new(vec![dataset])
                             .block(
@@ -328,10 +335,10 @@ impl Visualiser {
                                     .borders(Borders::ALL),
                             )
                             .x_axis(
-                                Axis::default().title("Time").bounds(time_bounds),
+                                Axis::default().title("Time").bounds(time_bounds).labels(time_labels),
                             )
                             .y_axis(
-                                Axis::default().title(types[i].clone()).bounds(data_bounds),
+                                Axis::default().title(types[i].clone()).bounds(data_bounds).labels(data_labels),
                             );
                         f.render_widget(chart, chart_area[i]);
                     }
@@ -379,6 +386,7 @@ impl Visualiser {
             core,
             stream,
             subcarrier,
+            time_interval: 1000,
         })
     }
 
@@ -403,10 +411,13 @@ impl Visualiser {
                 };
                 graphs.lock().await.retain(|x| *x != entry)
             }
+            "interval" if parts.len() == 3 => {
+                graphs.lock().await[parts[1].parse::<usize>().unwrap()].time_interval = parts[2].parse::<usize>().unwrap();
+            }
             "clear" => {
                 graphs.lock().await.clear();
             }
-            _ => {} // Exit on invalid input
+            _ => {} // Dont execute on invalid input
         }
     }
 

@@ -55,6 +55,7 @@ pub enum SourceType {
     AX200,
     AX210,
     AtherosQCA,
+    CSV,
     Unknown,
 }
 
