@@ -1,9 +1,10 @@
 use crate::FromConfig;
 use crate::adapters::{CsiDataAdapter, DataAdapterConfig};
-use crate::errors::{CsiAdapterError, DataSourceError, SinkError, TaskError};
+use crate::errors::{CsiAdapterError, DataSourceError, SinkError, TaskError, ControllerError};
 use crate::network::rpc_message::{DataMsg, SourceType};
 use crate::sinks::{Sink, SinkConfig};
 use crate::sources::{DataSourceConfig, DataSourceT};
+use crate::sources::controllers::{Controller, ControllerParams};
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 
@@ -13,6 +14,8 @@ pub struct DeviceHandlerConfig {
     pub device_id: u64,
     pub stype: SourceType,
     pub source: DataSourceConfig,
+    #[serde(default)]
+    pub controller: Option<ControllerParams>, 
     #[serde(default)]
     pub adapter: Option<DataAdapterConfig>,
     pub sinks: Vec<SinkConfig>,
@@ -93,7 +96,13 @@ impl DeviceHandler {
 impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
     async fn from_config(config: DeviceHandlerConfig) -> Result<Box<Self>, TaskError> {
         // instantiate source
-        let source = <dyn DataSourceT>::from_config(config.source).await?;
+        let mut source = <dyn DataSourceT>::from_config(config.source).await?;
+
+        // apply controller if configured
+        if let Some(controller_cfg) = config.controller {
+            let controller: Box<dyn Controller> = <dyn Controller>::from_config(controller_cfg).await?; 
+            controller.apply(source.as_mut()).await?;       
+        }
         // instantiate adapter if configured
         let adapter = if let Some(adapt_cfg) = config.adapter {
             Some(<dyn CsiDataAdapter>::from_config(adapt_cfg).await?)
