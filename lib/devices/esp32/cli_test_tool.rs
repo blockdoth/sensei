@@ -441,7 +441,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
             // If the task was not aborted, proceed with the loop.
             match tokio::task::block_in_place(|| log_rx.recv_timeout(Duration::from_secs(1))) {
-                Ok(log_msg) => { // An *external* log message was received
+                Ok(log_msg) => {
+                    // An *external* log message was received
                     match app_state_log_clone.try_lock() {
                         Ok(mut state_guard) => {
                             state_guard.add_log_message(log_msg);
@@ -677,9 +678,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
             // This outcome means the task completed its work and exited without being forcefully cancelled
             // (e.g. if it hit a 'break' in its loop before the abort was fully processed).
             // Given we called abort(), this is slightly less expected than Err(e) where e.is_cancelled().
-            eprintln!("[DEBUG] Log listener task completed normally (Ok result after abort signal). This means it exited its loop before cancellation fully unwound it.");
+            eprintln!(
+                "[DEBUG] Log listener task completed normally (Ok result after abort signal). This means it exited its loop before cancellation fully unwound it."
+            );
         }
-        Ok(Err(e)) => { // This is the most expected outcome when aborting a task.
+        Ok(Err(e)) => {
+            // This is the most expected outcome when aborting a task.
             if e.is_cancelled() {
                 eprintln!("[DEBUG] Log listener task aborted successfully as expected.");
             } else {
@@ -687,7 +691,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 eprintln!("[DEBUG] Log listener task failed or panicked: {e:?}");
             }
         }
-        Err(_) => { // tokio::time::TimeoutError
+        Err(_) => {
+            // tokio::time::TimeoutError
             eprintln!(
                 "[DEBUG] Log listener task did NOT terminate within the timeout even after abort(). THIS IS THE PROBLEM TO DEBUG."
             );
