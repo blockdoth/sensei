@@ -21,12 +21,13 @@ bincode = "1.3"
 # Dependencies from HEAD
 serialport = "4.7.1"
 byteorder = "1.5.0"
-crossterm = "0.29.0"
-ratatui = { version = "0.26.3", features = ["all-widgets"] }
+crossterm = { version = "0.29.0", features = ["event-stream"] }
+ratatui = { version = "0.27.0", features = ["all-widgets", "crossterm"] }
 crossbeam-channel = "0.5.15"
 # Dependencies from dev
 argh = "0.1"
 tokio = { version = "1.44.2", features = ["full"] }
+futures = "0.3"
 simplelog = "0.12.2"
 serde_json = "1.0.140"
 async-trait = "0.1.88"
@@ -37,8 +38,6 @@ queue = "0.3.1" # Note: 'queue' might be a very generic name, ensure it's the co
 tcpserver = "2.2.0"
 tokio-stream = "0.1.17"
 async-stream = "0.3.6"
-netlink-sys = "0.8.7"
-typetag = "0.2.20"
 schemars = "0.8.22"
 # Common dependencies (or versions resolved)
 log = "0.4.27"
@@ -54,6 +53,10 @@ netlink-sys = "0.8.7"
 
 typetag = "0.2.20"
 tempfile = "3.20.0"
+typetag = "0.2.20"
 
 [lints]
 workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+netlink-sys = "0.8.7"

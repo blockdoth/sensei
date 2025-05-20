@@ -4,6 +4,8 @@ use crate::sources::DataSourceT;
 use crate::errors::TaskError;
 use async_trait::async_trait;
 use typetag;
+pub mod esp32_controller;
+#[cfg(target_os = "linux")]
 pub mod netlink_controller;
 
 /// Trait that must be implemented by all source controller types
