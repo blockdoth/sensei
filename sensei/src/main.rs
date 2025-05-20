@@ -4,10 +4,12 @@ mod module;
 mod orchestrator;
 mod registry;
 mod system_node;
+mod visualiser;
 
 use crate::orchestrator::*;
 use crate::registry::*;
 use crate::system_node::*;
+use crate::visualiser::*;
 use cli::*;
 use log::*;
 use module::Run;
@@ -45,9 +47,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .unwrap();
 
     match &args.subcommand {
-        SubCommandsArgs::One(args) => SystemNode::new().run(args.parse()?).await?,
-        SubCommandsArgs::Two(args) => Registry::new().run(args.parse()?).await?,
-        SubCommandsArgs::Three(args) => Orchestrator::new().run(args.parse()?).await?,
+        SubCommandsArgs::One(args) => SystemNode::new(args.parse()?).run(args.parse()?).await?,
+        SubCommandsArgs::Two(args) => Registry::new(args.parse()?).run(args.parse()?).await?,
+        SubCommandsArgs::Three(args) => Orchestrator::new(args.parse()?).run(args.parse()?).await?,
+        SubCommandsArgs::Four(args) => Visualiser::new(args.parse()?).run(args.parse()?).await?,
     }
     Ok(())
 }
