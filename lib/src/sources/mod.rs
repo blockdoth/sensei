@@ -1,11 +1,14 @@
-mod controllers;
+pub mod controllers;
 pub mod csv;
+pub mod esp32;
+#[cfg(target_os = "linux")]
 pub mod netlink;
 
 use crate::FromConfig;
 use crate::errors::DataSourceError;
 use crate::errors::TaskError;
 use crate::sources::controllers::Controller;
+use std::any::Any;
 use std::net::SocketAddr;
 
 /// Data Source Trait
@@ -15,7 +18,7 @@ use std::net::SocketAddr;
 /// interpreted by CSI adapters. It is up to the user to correct a source
 /// sensibly with an adapter.
 #[async_trait::async_trait]
-pub trait DataSourceT: Send {
+pub trait DataSourceT: Send + Any {
     /// Start collecting data
     /// ---------------------
     /// Must activate the source, such that we can read from it. For example, starting
@@ -42,18 +45,18 @@ pub trait DataSourceT: Send {
 #[derive(serde::Serialize, serde::Deserialize, Debug, schemars::JsonSchema)]
 #[serde(tag = "type", content = "params")]
 pub enum ControllerParams {
-
     #[cfg(target_os = "linux")]
     Netlink(controllers::netlink_controller::NetlinkControllerParams),
+    Esp32(controllers::esp32_controller::Esp32ControllerParams),
     // Extendable
 }
 
 #[derive(serde::Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum DataSourceConfig {
-
     #[cfg(target_os = "linux")]
     Netlink(netlink::NetlinkConfig),
+    Esp32(esp32::Esp32SourceConfig),
 }
 
 #[async_trait::async_trait]
@@ -61,7 +64,12 @@ impl FromConfig<DataSourceConfig> for dyn DataSourceT {
     async fn from_config(config: DataSourceConfig) -> Result<Box<Self>, TaskError> {
         let source: Box<dyn DataSourceT> = match config {
             #[cfg(target_os = "linux")]
-            DataSourceConfig::Netlink(cfg) => Box::new(netlink::NetlinkSource::new(cfg)?),
+            DataSourceConfig::Netlink(cfg) => {
+                Box::new(netlink::NetlinkSource::new(cfg).map_err(TaskError::DataSourceError)?)
+            }
+            DataSourceConfig::Esp32(cfg) => {
+                Box::new(esp32::Esp32Source::new(cfg).map_err(TaskError::DataSourceError)?)
+            }
         };
         Ok(source)
     }
@@ -70,7 +78,7 @@ impl FromConfig<DataSourceConfig> for dyn DataSourceT {
 // Not sure if I need everything after this yet
 //
 //
-
+/* Fabian's stuff
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct RemoteSourceConfig {
     pub device_id: u64,
@@ -95,3 +103,4 @@ pub struct Configuration {
     pub device_id: u64,
     pub params: ControllerParams,
 }
+*/

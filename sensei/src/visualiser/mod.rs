@@ -1,4 +1,7 @@
 use crate::cli::{GlobalConfig, OrchestratorSubcommandArgs, VisualiserSubcommandArgs};
+use crate::config::{DEFAULT_ADDRESS, OrchestratorConfig, VisualiserConfig};
+use crate::module::Run;
+use crate::orchestrator::Orchestrator;
 use crate::visualiser::GraphType::Amplitude;
 use async_trait::async_trait;
 use charming::series::Scatter;
@@ -6,6 +9,7 @@ use charming::theme::Theme;
 use charming::{HtmlRenderer, component::Title, element::AxisType, series::Line};
 use lib::csi_types::{Complex, CsiData};
 use lib::errors::NetworkError;
+use lib::network::rpc_message::AdapterMode::SOURCE;
 use lib::network::rpc_message::CtrlMsg::*;
 use lib::network::rpc_message::DataMsg::*;
 use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
@@ -44,10 +48,6 @@ use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::{Mutex, watch};
 use warp::Filter;
-use lib::network::rpc_message::AdapterMode::SOURCE;
-use crate::config::{OrchestratorConfig, VisualiserConfig, DEFAULT_ADDRESS};
-use crate::module::Run;
-use crate::orchestrator::Orchestrator;
 
 pub struct Visualiser {
     // This seemed to me the best way to structure the data, as the socketaddr is a primary key for each node, and each device has a unique id only within a node
@@ -482,7 +482,10 @@ impl Visualiser {
                 let mut client = client.lock().await;
                 client.connect(target_addr).await;
 
-                let msg = Ctrl(CtrlMsg::Subscribe { device_id: 0, mode: SOURCE });
+                let msg = Ctrl(CtrlMsg::Subscribe {
+                    device_id: 0,
+                    mode: SOURCE,
+                });
                 client.send_message(target_addr, msg).await;
                 info!("Subscribed to node {target_addr}")
             }

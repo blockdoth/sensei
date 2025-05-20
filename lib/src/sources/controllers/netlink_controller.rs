@@ -1,5 +1,3 @@
-#![cfg(target_os = "linux")]
-
 use crate::errors::ControllerError;
 use crate::sources::DataSourceT;
 use crate::sources::controllers::Controller;

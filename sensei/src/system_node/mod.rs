@@ -109,7 +109,9 @@ impl ConnectionHandler for SystemNode {
             }
 
             if sending {
-                let Ok(date_msg) = recv_data_channel.recv().await else { todo!() };
+                let Ok(date_msg) = recv_data_channel.recv().await else {
+                    todo!()
+                };
                 tcp::send_message(&mut send_stream, Data(date_msg)).await;
                 info!("Sending")
             }
