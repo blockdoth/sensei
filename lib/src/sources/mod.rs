@@ -41,16 +41,6 @@ pub trait DataSourceT: Send + Any {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError>;
 }
 
-/// Unified controller parameters
-#[derive(serde::Serialize, serde::Deserialize, Debug, schemars::JsonSchema)]
-#[serde(tag = "type", content = "params")]
-pub enum ControllerParams {
-    #[cfg(target_os = "linux")]
-    Netlink(controllers::netlink_controller::NetlinkControllerParams),
-    Esp32(controllers::esp32_controller::Esp32ControllerParams),
-    // Extendable
-}
-
 #[derive(serde::Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum DataSourceConfig {
@@ -86,17 +76,17 @@ pub struct RemoteSourceConfig {
     pub raw: bool,
 }
 
-// #[derive(serde::Deserialize, serde::Serialize, Debug, schemars::JsonSchema)]
-// pub enum SourceRequest {
-//     Subscribe(Subscription),
-//     Configure(Configuration),
-// }
+#[derive(serde::Deserialize, serde::Serialize, Debug, schemars::JsonSchema)]
+pub enum SourceRequest {
+    Subscribe(Subscription),
+    Configure(Configuration),
+}
 
-// #[derive(serde::Deserialize, serde::Serialize, Debug, schemars::JsonSchema)]
-// pub struct Subscription {
-//     pub device_id: u64,
-//     pub raw: bool,
-// }
+#[derive(serde::Deserialize, serde::Serialize, Debug, schemars::JsonSchema)]
+pub struct Subscription {
+    pub device_id: u64,
+    pub raw: bool,
+}
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, schemars::JsonSchema)]
 pub struct Configuration {
