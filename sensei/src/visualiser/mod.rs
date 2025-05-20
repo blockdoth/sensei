@@ -39,6 +39,7 @@ use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use std::{fs, sync::mpsc::channel};
+use ratatui::crossterm::cursor::{Hide, Show};
 use tokio::io;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::tcp::OwnedWriteHalf;
@@ -209,7 +210,7 @@ impl Visualiser {
     async fn plot_data_tui(&self) -> Result<(), Box<dyn std::error::Error>> {
         enable_raw_mode()?;
         let mut stdout = stdout();
-        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+        execute!(stdout, EnterAlternateScreen, EnableMouseCapture, Hide)?;
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
@@ -220,7 +221,8 @@ impl Visualiser {
         execute!(
             terminal.backend_mut(),
             LeaveAlternateScreen,
-            DisableMouseCapture
+            DisableMouseCapture,
+            Show,
         )?;
         terminal.show_cursor()?;
 
@@ -267,11 +269,6 @@ impl Visualiser {
                     current_data.push(self.process_data(*graph).await);
                     types.push(graph.graph_type.clone().to_string());
                 }
-
-                let debug_addr = &self.target_addr;
-                let data_debug = self.data.lock().await.get(debug_addr).unwrap().get(&0u64).unwrap().clone();
-                let debug2 = &data_debug.clone()[0].csi[0][0];
-
 
                 terminal.draw(|f| {
                     let size = f.area();
@@ -342,12 +339,6 @@ impl Visualiser {
                     let input = ratatui::widgets::Paragraph::new(text_input.as_str())
                         .block(Block::default().title("Command").borders(Borders::ALL));
                     f.render_widget(input, chunks[1]);
-
-                    let input_area = chunks[1];
-                    let x = input_area.x + 1;
-                    let y = input_area.y + 1;
-                    let pos = Position::new(x + text_input.len() as u16, y);
-                    f.set_cursor_position(pos);
                 })?;
                 last_tick = Instant::now();
             }

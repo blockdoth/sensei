@@ -134,6 +134,12 @@ impl Run<SystemNodeConfig> for SystemNode {
         let sender_data_channel = connection_handler.send_data_channel.clone();
         
         let devices: HashMap<u64, Box<dyn DataSourceT>> = HashMap::new();
+        
+        // TODO: Configure devices onto node from a configuration
+        
+        for mut device in devices {
+            device.1.start();
+        }
 
         // Example sender which just spams packets
         // The most important thing is the ability to clone send ends of channels around
