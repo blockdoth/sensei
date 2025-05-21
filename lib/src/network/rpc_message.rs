@@ -23,7 +23,7 @@ pub struct RpcMessage {
 #[derive(Serialize, Deserialize, Debug)]
 pub enum RpcMessageKind {
     Ctrl(CtrlMsg),
-    Data{ data_msg: DataMsg, device_id: u64 },
+    Data { data_msg: DataMsg, device_id: u64 },
 }
 
 #[derive(Serialize, Deserialize, Debug)]

@@ -42,7 +42,6 @@ pub trait DataSourceT: Send {
 #[derive(serde::Serialize, serde::Deserialize, Debug, schemars::JsonSchema)]
 #[serde(tag = "type", content = "params")]
 pub enum ControllerParams {
-
     #[cfg(target_os = "linux")]
     Netlink(controllers::netlink_controller::NetlinkControllerParams),
     // Extendable
@@ -51,7 +50,6 @@ pub enum ControllerParams {
 #[derive(serde::Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum DataSourceConfig {
-
     #[cfg(target_os = "linux")]
     Netlink(netlink::NetlinkConfig),
 }

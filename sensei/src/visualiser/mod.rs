@@ -1,4 +1,7 @@
 use crate::cli::{GlobalConfig, OrchestratorSubcommandArgs, VisualiserSubcommandArgs};
+use crate::config::{DEFAULT_ADDRESS, OrchestratorConfig, VisualiserConfig};
+use crate::module::Run;
+use crate::orchestrator::Orchestrator;
 use crate::visualiser::GraphType::Amplitude;
 use async_trait::async_trait;
 use charming::series::Scatter;
@@ -6,6 +9,7 @@ use charming::theme::Theme;
 use charming::{HtmlRenderer, component::Title, element::AxisType, series::Line};
 use lib::csi_types::{Complex, CsiData};
 use lib::errors::NetworkError;
+use lib::network::rpc_message::AdapterMode::SOURCE;
 use lib::network::rpc_message::CtrlMsg::*;
 use lib::network::rpc_message::DataMsg::*;
 use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
@@ -16,15 +20,16 @@ use lib::network::tcp::{ChannelMsg, ConnectionHandler};
 use log::{debug, info, warn};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use ratatui::backend::{Backend, CrosstermBackend};
+use ratatui::crossterm::cursor::{Hide, Show};
 use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture, Event, KeyCode};
 use ratatui::crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use ratatui::symbols::line;
 use ratatui::crossterm::{event, execute};
 use ratatui::layout::{Constraint, Layout, Position};
 use ratatui::prelude::Direction;
 use ratatui::style::{Color, Style};
+use ratatui::symbols::line;
 use ratatui::text::{Span, ToLine};
 use ratatui::widgets::{Axis, Block, Borders, Chart, Dataset};
 use ratatui::{Frame, Terminal, symbols};
@@ -39,17 +44,12 @@ use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use std::{fs, sync::mpsc::channel};
-use ratatui::crossterm::cursor::{Hide, Show};
 use tokio::io;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::{Mutex, watch};
 use warp::Filter;
-use lib::network::rpc_message::AdapterMode::SOURCE;
-use crate::config::{OrchestratorConfig, VisualiserConfig, DEFAULT_ADDRESS};
-use crate::module::Run;
-use crate::orchestrator::Orchestrator;
 
 pub struct Visualiser {
     // This seemed to me the best way to structure the data, as the socketaddr is a primary key for each node, and each device has a unique id only within a node
@@ -158,7 +158,11 @@ impl Visualiser {
                             src_addr,
                             target_addr,
                         } = msg;
-                        if let Data{data_msg: CsiFrame { csi }, device_id} = msg {
+                        if let Data {
+                            data_msg: CsiFrame { csi },
+                            device_id,
+                        } = msg
+                        {
                             data.lock()
                                 .await
                                 .entry(src_addr)
@@ -303,7 +307,8 @@ impl Visualiser {
                             .style(Style::default().fg(Color::Cyan))
                             .data(data);
 
-                        let time_max = data.iter()
+                        let time_max = data
+                            .iter()
                             .max_by(|x, y| x.0.total_cmp(&y.0))
                             .unwrap_or(&(0f64, 10000f64))
                             .0;
@@ -312,21 +317,31 @@ impl Visualiser {
                             (time_max - intervals[i] as f64 - 1f64).round(),
                             (time_max + 1f64).round(),
                         ];
-                        let time_labels: Vec<Span> = time_bounds.iter().map(|n| Span::from(n.to_string())).collect();
+                        let time_labels: Vec<Span> = time_bounds
+                            .iter()
+                            .map(|n| Span::from(n.to_string()))
+                            .collect();
 
                         let data_bounds = [
-                            (data.iter()
+                            (data
+                                .iter()
                                 .min_by(|x, y| x.1.total_cmp(&y.1))
                                 .unwrap_or(&(0f64, 10000f64))
-                                .1 - 1f64)
+                                .1
+                                - 1f64)
                                 .round(),
-                            (data.iter()
+                            (data
+                                .iter()
                                 .max_by(|x, y| x.1.total_cmp(&y.1))
                                 .unwrap_or(&(0f64, 10000f64))
-                                .1 + 1f64)
+                                .1
+                                + 1f64)
                                 .round(),
                         ];
-                        let data_labels: Vec<Span> = data_bounds.iter().map(|n| Span::from(n.to_string())).collect();
+                        let data_labels: Vec<Span> = data_bounds
+                            .iter()
+                            .map(|n| Span::from(n.to_string()))
+                            .collect();
 
                         let chart = Chart::new(vec![dataset])
                             .block(
@@ -335,10 +350,16 @@ impl Visualiser {
                                     .borders(Borders::ALL),
                             )
                             .x_axis(
-                                Axis::default().title("Time").bounds(time_bounds).labels(time_labels),
+                                Axis::default()
+                                    .title("Time")
+                                    .bounds(time_bounds)
+                                    .labels(time_labels),
                             )
                             .y_axis(
-                                Axis::default().title(types[i].clone()).bounds(data_bounds).labels(data_labels),
+                                Axis::default()
+                                    .title(types[i].clone())
+                                    .bounds(data_bounds)
+                                    .labels(data_labels),
                             );
                         f.render_widget(chart, chart_area[i]);
                     }
@@ -412,7 +433,8 @@ impl Visualiser {
                 graphs.lock().await.retain(|x| *x != entry)
             }
             "interval" if parts.len() == 3 => {
-                graphs.lock().await[parts[1].parse::<usize>().unwrap()].time_interval = parts[2].parse::<usize>().unwrap();
+                graphs.lock().await[parts[1].parse::<usize>().unwrap()].time_interval =
+                    parts[2].parse::<usize>().unwrap();
             }
             "clear" => {
                 graphs.lock().await.clear();
@@ -490,7 +512,10 @@ impl Visualiser {
             let mut client = client.lock().await;
             client.connect(target_addr).await;
 
-            let msg = Ctrl(CtrlMsg::Subscribe { device_id: 0, mode: SOURCE });
+            let msg = Ctrl(CtrlMsg::Subscribe {
+                device_id: 0,
+                mode: SOURCE,
+            });
             client.send_message(target_addr, msg).await;
             info!("Subscribed to node {target_addr}")
         }

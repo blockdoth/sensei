@@ -2,11 +2,11 @@ use crate::adapters::CsiDataAdapter;
 use crate::csi_types::{Complex, CsiData};
 use crate::errors::CsiAdapterError;
 use crate::network::rpc_message::DataMsg;
+use log::info;
 use std::fs::File;
 use std::io::Write;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::vec;
-use log::info;
 
 const DEFAULT_LINE_DELIM: u8 = b'\n';
 const DEFAULT_CELL_DELIM: u8 = b',';
@@ -71,12 +71,15 @@ impl<'a> CSVAdapter<'a> {
                 format!("Invalid number of columns in CSV row: {}", row.len()),
             )));
         }
-        csi_data.timestamp = row[0].trim_matches(|c| c == '\n' || c == '\0').parse::<f64>().map_err(|_| {
-            CsiAdapterError::CSV(super::CSVAdapterError::InvalidData(format!(
-                "Invalid timestamp: {}",
-                row[0]
-            )))
-        })?;
+        csi_data.timestamp = row[0]
+            .trim_matches(|c| c == '\n' || c == '\0')
+            .parse::<f64>()
+            .map_err(|_| {
+                CsiAdapterError::CSV(super::CSVAdapterError::InvalidData(format!(
+                    "Invalid timestamp: {}",
+                    row[0]
+                )))
+            })?;
         csi_data.sequence_number = row[1].parse::<u16>().map_err(|_| {
             CsiAdapterError::CSV(super::CSVAdapterError::InvalidData(format!(
                 "Invalid sequence number: {}",

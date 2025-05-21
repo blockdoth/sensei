@@ -99,13 +99,19 @@ impl Orchestrator {
                         Self::connect(&send_client, target_addr).await;
                     }
                     Some("disconnect") => {
-                        let target_addr: SocketAddr =
-                            line_iter.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
+                        let target_addr: SocketAddr = line_iter
+                            .next()
+                            .unwrap_or("")
+                            .parse()
+                            .unwrap_or(DEFAULT_ADDRESS);
                         Self::disconnect(&send_client, target_addr).await;
                     }
                     Some("sub") => {
-                        let target_addr: SocketAddr =
-                            line_iter.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
+                        let target_addr: SocketAddr = line_iter
+                            .next()
+                            .unwrap_or("")
+                            .parse()
+                            .unwrap_or(DEFAULT_ADDRESS);
                         let device_id: u64 = line_iter.next().unwrap_or("0").parse().unwrap();
                         let mode: AdapterMode = match line_iter.next() {
                             Some("source") => AdapterMode::SOURCE,
@@ -169,14 +175,21 @@ impl Orchestrator {
                             .await
                             .unwrap();
                         match msg.msg {
-                            Data{data_msg: DataMsg::CsiFrame { csi }, device_id} => {
+                            Data {
+                                data_msg: DataMsg::CsiFrame { csi },
+                                device_id,
+                            } => {
                                 info!("{}: {}", msg.src_addr, csi.timestamp)
                             }
-                            Data{data_msg: DataMsg::RawFrame {
-                                ts,
-                                bytes,
-                                source_type,
-                            }, device_id} => info!("{}: {ts}", msg.src_addr),
+                            Data {
+                                data_msg:
+                                    DataMsg::RawFrame {
+                                        ts,
+                                        bytes,
+                                        source_type,
+                                    },
+                                device_id,
+                            } => info!("{}: {ts}", msg.src_addr),
                             _ => (),
                         }
                     }
