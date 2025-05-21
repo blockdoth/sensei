@@ -22,7 +22,6 @@ use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, sen
 use lib::network::*;
 use lib::sources::DataSourceT;
 use lib::sources::csv::{CsvConfig, CsvSource};
-use lib::sources::netlink::NetlinkConfig;
 use log::*;
 use std::env;
 use std::net::SocketAddr;
@@ -34,6 +33,8 @@ use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::{Mutex, broadcast, watch};
 use tokio::task::JoinHandle;
+#[cfg(target_os = "linux")]
+use lib::sources::netlink::NetlinkConfig;
 
 #[derive(Clone)]
 pub struct SystemNode {
@@ -160,9 +161,14 @@ impl Run<SystemNodeConfig> for SystemNode {
         };
         let csv_adapter_config = DataAdapterConfig::CSV {};
         let mut csv_adapter = <dyn CsiDataAdapter>::from_config(csv_adapter_config).await?;
-
-        let iwl_config = NetlinkConfig { group: 0 };
-        let iwl_adapter_config = DataAdapterConfig::Iwl { scale_csi: true };
+        
+        //only on linux
+        #[cfg(target_os = "linux")]
+        {
+            let iwl_config = NetlinkConfig { group: 0 };
+            let iwl_adapter_config = DataAdapterConfig::Iwl { scale_csi: true };
+        }
+        
 
         let devices: Arc<Mutex<HashMap<u64, Box<dyn DataSourceT>>>> =
             Arc::new(Mutex::new(HashMap::new()));
