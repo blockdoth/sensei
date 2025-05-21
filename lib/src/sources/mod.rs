@@ -41,7 +41,7 @@ pub trait DataSourceT: Send + Any {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError>;
 }
 
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum DataSourceConfig {
     #[cfg(target_os = "linux")]

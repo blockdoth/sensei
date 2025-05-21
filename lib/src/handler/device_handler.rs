@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tokio::task::JoinHandle;
 
 /// Configuration for a device handler
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct DeviceHandlerConfig {
     pub device_id: u64,
     pub stype: SourceType,

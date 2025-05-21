@@ -1,5 +1,5 @@
 use crate::csi_types::CsiData;
-use crate::devices::DeviceCfg;
+use crate::handler::device_handler::DeviceHandlerConfig;
 use crate::network::rpc_message::RpcMessageKind::Ctrl;
 use bincode::Error;
 use serde::{Deserialize, Serialize};
@@ -30,9 +30,17 @@ pub enum RpcMessageKind {
 pub enum CtrlMsg {
     Connect,
     Disconnect,
-    Configure { device_id: u64, cfg: DeviceCfg },
-    Subscribe { device_id: u64, mode: AdapterMode },
-    Unsubscribe { device_id: u64 },
+    Configure {
+        device_id: u64,
+        cfg: DeviceHandlerConfig,
+    },
+    Subscribe {
+        device_id: u64,
+        mode: AdapterMode,
+    },
+    Unsubscribe {
+        device_id: u64,
+    },
     PollDevices,
     Heartbeat,
 }

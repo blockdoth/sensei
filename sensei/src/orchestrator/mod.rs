@@ -1,7 +1,6 @@
 use crate::cli::{self, GlobalConfig, OrchestratorSubcommandArgs, SubCommandsArgs};
 use crate::config::{DEFAULT_ADDRESS, OrchestratorConfig};
 use crate::module::*;
-use lib::devices;
 use lib::network::rpc_message::CtrlMsg::*;
 use lib::network::rpc_message::RpcMessage;
 use lib::network::rpc_message::RpcMessageKind::Ctrl;

@@ -34,7 +34,7 @@ type AckWaiterMap = HashMap<u8, AckSender>;
 type SharedAckWaiters = Arc<Mutex<AckWaiterMap>>;
 // --- End Type Aliases ---
 
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct Esp32SourceConfig {
     pub port_name: String,
     pub baud_rate: u32,
