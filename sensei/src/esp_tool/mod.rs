@@ -66,7 +66,6 @@ use tokio::sync::Mutex as TokioMutex; // Tokio Mutex for Esp32Source
 // use tokio::sync::Notify; // Not used in the provided snippet, can be removed if not needed elsewhere
 use tokio::task::JoinHandle;
 
-
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum SpamConfigField {
     SrcMacOctet(usize), // 0-5
@@ -291,7 +290,6 @@ pub async fn run_esp_test_subcommand(args: EspToolSubcommandArgs) -> Result<(), 
         return Err("Serial port argument missing or invalid".into());
     }
 
-
     let mut terminal = match setup_terminal() {
         Ok(term) => term,
         Err(e) => {
@@ -424,21 +422,20 @@ pub async fn run_esp_test_subcommand(args: EspToolSubcommandArgs) -> Result<(), 
     info!("ESP32 initial setup sequence complete.");
 
     let app_state_log_clone = Arc::clone(&app_state);
-    let mut log_listener_handle: JoinHandle<()> = tokio::spawn(async move { // Changed variable name to avoid conflict
+    let mut log_listener_handle: JoinHandle<()> = tokio::spawn(async move {
+        // Changed variable name to avoid conflict
         loop {
             tokio::task::yield_now().await;
             match tokio::task::block_in_place(|| log_rx.recv_timeout(Duration::from_secs(1))) {
-                Ok(log_msg) => {
-                    match app_state_log_clone.try_lock() {
-                        Ok(mut state_guard) => {
-                            state_guard.add_log_message(log_msg);
-                        }
-                        Err(std::sync::TryLockError::Poisoned(_)) => {
-                            break;
-                        }
-                        Err(std::sync::TryLockError::WouldBlock) => {}
+                Ok(log_msg) => match app_state_log_clone.try_lock() {
+                    Ok(mut state_guard) => {
+                        state_guard.add_log_message(log_msg);
                     }
-                }
+                    Err(std::sync::TryLockError::Poisoned(_)) => {
+                        break;
+                    }
+                    Err(std::sync::TryLockError::WouldBlock) => {}
+                },
                 Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
                     continue;
                 }
@@ -451,7 +448,8 @@ pub async fn run_esp_test_subcommand(args: EspToolSubcommandArgs) -> Result<(), 
 
     let esp_source_csi_reader_clone: Arc<TokioMutex<Esp32Source>> = Arc::clone(&esp_source);
     let app_state_csi_clone = Arc::clone(&app_state);
-    let csi_listener_handle: JoinHandle<()> = tokio::spawn(async move { // Changed variable name
+    let csi_listener_handle: JoinHandle<()> = tokio::spawn(async move {
+        // Changed variable name
         info!("CSI listener thread started.");
         let mut read_buffer = vec![0u8; 4096];
         let mut esp_adapter = ESP32Adapter::new(false);
@@ -558,14 +556,14 @@ pub async fn run_esp_test_subcommand(args: EspToolSubcommandArgs) -> Result<(), 
                     Some(Ok(event)) => {
                         if let CEvent::Key(key_event) = event {
                             if handle_input(key_event.code, &esp_source, &app_state).await? {
-                                break; 
+                                break;
                             }
                         }
                     }
                     Some(Err(e)) => {
                         error!("Error reading input event: {e}");
                     }
-                    None => break, 
+                    None => break,
                 }
             }
             _ = tokio::time::sleep(Duration::from_millis(200)) => {
@@ -573,13 +571,11 @@ pub async fn run_esp_test_subcommand(args: EspToolSubcommandArgs) -> Result<(), 
             }
         }
         if let Ok(state) = app_state.lock() {
-            if state.connection_status.starts_with("DISCONNECTED") {
-                if state.last_error.as_deref() != Some("DISCONNECTED (by user)") {
-                    info!(
-                        "Main loop detected DISCONNECTED state (not by user 'q'). Shutting down."
-                    );
-                    break;
-                }
+            if state.connection_status.starts_with("DISCONNECTED")
+                && state.last_error.as_deref() != Some("DISCONNECTED (by user)")
+            {
+                info!("Main loop detected DISCONNECTED state (not by user 'q'). Shutting down.");
+                break;
             }
         } else {
             error!("Main loop: AppState mutex poisoned. Shutting down.");
@@ -609,15 +605,17 @@ pub async fn run_esp_test_subcommand(args: EspToolSubcommandArgs) -> Result<(), 
             .load(std::sync::atomic::Ordering::Relaxed)
         {
             if let Err(e) = esp_guard.stop().await {
-                error!("Error stopping ESP32 source: {e}"); 
+                error!("Error stopping ESP32 source: {e}");
                 eprintln!("[ESP_TOOL_DEBUG] Error stopping ESP32 source: {e}");
             } else {
-                info!("ESP32 source stop command issued successfully."); 
+                info!("ESP32 source stop command issued successfully.");
                 eprintln!("[ESP_TOOL_DEBUG] ESP32 source stop command issued successfully.");
             }
         } else {
-            info!("ESP32 source was already stopped or not initially started."); 
-            eprintln!("[ESP_TOOL_DEBUG] ESP32 source was already stopped or not initially started.");
+            info!("ESP32 source was already stopped or not initially started.");
+            eprintln!(
+                "[ESP_TOOL_DEBUG] ESP32 source was already stopped or not initially started."
+            );
         }
     }
     eprintln!("[ESP_TOOL_DEBUG] ESP32 source stop sequence finished.");
@@ -625,19 +623,19 @@ pub async fn run_esp_test_subcommand(args: EspToolSubcommandArgs) -> Result<(), 
     eprintln!("[ESP_TOOL_DEBUG] Waiting for CSI listener task to complete (max 5s)...");
     match tokio::time::timeout(Duration::from_secs(5), csi_listener_handle).await {
         Ok(Ok(_)) => {
-            info!("CSI listener task finished gracefully."); 
+            info!("CSI listener task finished gracefully.");
             eprintln!("[ESP_TOOL_DEBUG] CSI listener task finished gracefully.");
         }
         Ok(Err(e)) => {
-            error!("CSI listener task panicked: {e:?}"); 
+            error!("CSI listener task panicked: {e:?}");
             eprintln!("[ESP_TOOL_DEBUG] CSI listener task panicked: {e:?}");
         }
         Err(_) => {
-            warn!("CSI listener task timed out during shutdown."); 
+            warn!("CSI listener task timed out during shutdown.");
             eprintln!("[ESP_TOOL_DEBUG] CSI listener task timed out during shutdown.");
         }
     }
-    
+
     // IMPORTANT: The TuiLogger holds a clone of log_tx.
     // Dropping the log_tx here in run_esp_test_subcommand will make the log_listener_handle
     // exit when log::shutdown() is called (which drops the TuiLogger's sender)
@@ -646,17 +644,19 @@ pub async fn run_esp_test_subcommand(args: EspToolSubcommandArgs) -> Result<(), 
     // if this subcommand is not the end of the whole application.
     // For now, we assume TuiLogger's sender will be dropped when TuiLogger instance goes out of scope
     // or explicitly shut down if necessary.
-    
-    eprintln!("[ESP_TOOL_DEBUG] Signaling log listener task to stop (dropping this function's log_tx)...");
-    drop(log_tx); 
+
+    eprintln!(
+        "[ESP_TOOL_DEBUG] Signaling log listener task to stop (dropping this function's log_tx)..."
+    );
+    drop(log_tx);
 
     eprintln!("[ESP_TOOL_DEBUG] Attempting to shutdown log listener task via abort()...");
-    log_listener_handle.abort(); 
+    log_listener_handle.abort();
 
     eprintln!("[ESP_TOOL_DEBUG] Waiting for log listener task to complete after abort (max 3s)...");
     match tokio::time::timeout(Duration::from_secs(3), log_listener_handle).await {
         Ok(Ok(_)) => {
-             eprintln!(
+            eprintln!(
                 "[ESP_TOOL_DEBUG] Log listener task completed normally (Ok result after abort signal)."
             );
         }
@@ -673,22 +673,20 @@ pub async fn run_esp_test_subcommand(args: EspToolSubcommandArgs) -> Result<(), 
             );
         }
     }
-    
+
     // Restore terminal at the very end of this subcommand's TUI lifecycle
     // This is crucial for returning the terminal to a normal state.
     if let Err(e) = restore_terminal(&mut terminal) {
         // If restoring terminal fails, print to stderr (which should now be visible on the normal screen)
-        eprintln!("[ESP_TOOL_ERROR] Failed to restore terminal: {}", e);
+        eprintln!("[ESP_TOOL_ERROR] Failed to restore terminal: {e}");
     } else {
         eprintln!("[ESP_TOOL_DEBUG] Terminal restored by esp_tool subcommand.");
     }
-
 
     eprintln!("[ESP_TOOL_DEBUG] ESP Test Tool subcommand finishing.");
     // std::thread::sleep(Duration::from_millis(500)); // Probably not needed here
     Ok(())
 }
-
 
 // Returns true if the application should exit
 async fn handle_input(
@@ -770,7 +768,7 @@ async fn handle_input(
             }
             app_state_guard.connection_status = "DISCONNECTED (by user)".to_string();
             app_state_guard.last_error = Some("DISCONNECTED (by user)".to_string());
-            return Ok(true); 
+            return Ok(true);
         }
         KeyCode::Char('m') => {
             let new_ui_mode = match app_state_guard.ui_mode {
@@ -825,7 +823,7 @@ async fn handle_input(
                         info!("WiFi transmit task PAUSED. Ready for custom frames ('s').");
                     }
                 } else {
-                     info!(
+                    info!(
                         "Switched to CSI mode. ESP32 general WiFi transmit task should be inactive. CSI acquisition should be active."
                     );
                 }
@@ -868,7 +866,7 @@ async fn handle_input(
                         warn!("{err_msg}");
                     } else {
                         let mut tx_data = Vec::with_capacity(20);
-                        tx_data.extend_from_slice(&dst_mac); 
+                        tx_data.extend_from_slice(&dst_mac);
                         tx_data.extend_from_slice(&src_mac);
                         tx_data.extend_from_slice(&n_reps.to_le_bytes());
                         tx_data.extend_from_slice(&pause_ms.to_le_bytes());
@@ -1039,15 +1037,15 @@ fn ui(f: &mut Frame, app_state: &AppState) {
             6
         }
     } else {
-        3 
+        3
     };
 
     let left_vertical_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(status_area_height),
-            Constraint::Min(0), 
-            Constraint::Length(3), 
+            Constraint::Min(0),
+            Constraint::Length(3),
         ])
         .split(left_panel_area);
 
@@ -1076,7 +1074,7 @@ fn ui(f: &mut Frame, app_state: &AppState) {
                 " | Chan: {} | BW: {} ({:?}) | LTF: {}",
                 app_state.current_cli_config.channel,
                 bw_str,
-                app_state.current_cli_config.secondary_channel, 
+                app_state.current_cli_config.secondary_channel,
                 ltf_str
             )),
         ]),
@@ -1164,21 +1162,16 @@ fn ui(f: &mut Frame, app_state: &AppState) {
         .block(Block::default().borders(Borders::ALL).title(" Status "));
     f.render_widget(header_paragraph, status_area);
 
-    let table_header_cells = [
-        "Timestamp (s)",
-        "Seq",
-        "RSSI (Rx0)",
-        "Subcarriers",
-    ]
-    .iter()
-    .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow)));
+    let table_header_cells = ["Timestamp (s)", "Seq", "RSSI (Rx0)", "Subcarriers"]
+        .iter()
+        .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow)));
     let table_header = Row::new(table_header_cells).height(1).bottom_margin(0);
 
     let rows: Vec<Row> = app_state
         .csi_data
         .iter()
-        .rev() 
-        .take(table_area.height.saturating_sub(2) as usize) 
+        .rev()
+        .take(table_area.height.saturating_sub(2) as usize)
         .map(|p: &CsiData| {
             let num_subcarriers = if !p.csi.is_empty() && !p.csi[0].is_empty() {
                 p.csi[0][0].len()
@@ -1191,7 +1184,7 @@ fn ui(f: &mut Frame, app_state: &AppState) {
                 .map_or_else(|| "N/A".to_string(), |r| r.to_string());
 
             Row::new(vec![
-                Cell::from(format!("{:.6}", p.timestamp)), 
+                Cell::from(format!("{:.6}", p.timestamp)),
                 Cell::from(p.sequence_number.to_string()),
                 Cell::from(rssi_str),
                 Cell::from(num_subcarriers.to_string()),
@@ -1200,10 +1193,10 @@ fn ui(f: &mut Frame, app_state: &AppState) {
         .collect();
 
     let table_widths = [
-        Constraint::Length(18), 
-        Constraint::Length(8),  
-        Constraint::Length(12), 
-        Constraint::Length(12), 
+        Constraint::Length(18),
+        Constraint::Length(8),
+        Constraint::Length(12),
+        Constraint::Length(12),
     ];
     let table = Table::new(rows, &table_widths) // Pass Vec<Row>, not Vec<Vec<Cell>>
         .header(table_header)
@@ -1215,7 +1208,6 @@ fn ui(f: &mut Frame, app_state: &AppState) {
         .row_highlight_style(Style::default().add_modifier(Modifier::REVERSED))
         .highlight_symbol(">> ");
     f.render_widget(table, table_area);
-
 
     let log_items_list: Vec<ListItem> = app_state
         .log_messages

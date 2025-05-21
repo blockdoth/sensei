@@ -1,11 +1,11 @@
 mod cli;
 mod config;
+mod esp_tool;
 mod module;
 mod orchestrator;
 mod registry;
 mod system_node;
 mod visualiser;
-mod esp_tool;
 
 use crate::orchestrator::*;
 use crate::registry::*;
@@ -55,12 +55,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Starting ESP Test Tool..."); // Simple console feedback before TUI takes over
     }
 
-
     match &args.subcommand {
-        SubCommandsArgs::One(node_args) => SystemNode::new(node_args.parse()?).run(node_args.parse()?).await?,
-        SubCommandsArgs::Two(registry_args) => Registry::new(registry_args.parse()?).run(registry_args.parse()?).await?,
-        SubCommandsArgs::Three(orchestrator_args) => Orchestrator::new(orchestrator_args.parse()?).run(orchestrator_args.parse()?).await?,
-        SubCommandsArgs::Four(visualiser_args) => Visualiser::new(visualiser_args.parse()?).run(visualiser_args.parse()?).await?,
+        SubCommandsArgs::One(node_args) => {
+            SystemNode::new(node_args.parse()?)
+                .run(node_args.parse()?)
+                .await?
+        }
+        SubCommandsArgs::Two(registry_args) => {
+            Registry::new(registry_args.parse()?)
+                .run(registry_args.parse()?)
+                .await?
+        }
+        SubCommandsArgs::Three(orchestrator_args) => {
+            Orchestrator::new(orchestrator_args.parse()?)
+                .run(orchestrator_args.parse()?)
+                .await?
+        }
+        SubCommandsArgs::Four(visualiser_args) => {
+            Visualiser::new(visualiser_args.parse()?)
+                .run(visualiser_args.parse()?)
+                .await?
+        }
         SubCommandsArgs::Five(esp_tool_args) => {
             // Assuming cli.rs has `pub mod esp_tool;` and src/esp_tool.rs contains the function
             esp_tool::run_esp_test_subcommand(esp_tool_args.clone()).await?;
