@@ -160,7 +160,7 @@ impl Run<SystemNodeConfig> for SystemNode {
         };
         let csv_adapter_config = DataAdapterConfig::CSV {};
         let mut csv_adapter = <dyn CsiDataAdapter>::from_config(csv_adapter_config).await?;
-        
+
         let iwl_config = NetlinkConfig {
             group: 0,
         };

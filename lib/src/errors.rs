@@ -36,6 +36,9 @@ pub enum DataSourceError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
+    #[error("Serial port error: {0}")]
+    Serial(#[from] serialport::Error),
+
     #[error("Couldnt parse packet: {0}")]
     ParsingError(String),
 
@@ -78,11 +81,25 @@ pub enum CsiAdapterError {
     #[error("IWL Adapter Error: {0}")]
     IWL(#[from] IwlAdapterError),
 
+    #[error("ESP32 Adapter Error: {0}")]
+    ESP32(#[from] Esp32AdapterError),
+
     #[error("Invalid input, give a raw frame")]
     InvalidInput,
 
     #[error("CSV Adapter Error: {0}")]
     CSV(#[from] CSVAdapterError),
+}
+
+/// Specific errors for the ESP32 adapter.
+#[derive(Error, Debug)]
+pub enum Esp32AdapterError {
+    #[error("Payload too short: expected at least {expected} bytes, got {actual}")]
+    PayloadTooShort { expected: usize, actual: usize },
+
+    #[error("ESP32 CSI data parsing error: {0}")]
+    ParseError(String),
+    // Add other ESP32-specific errors here if they arise.
 }
 
 /// Specific errors of the Iwl adapter
@@ -178,6 +195,9 @@ pub enum ControllerError {
 
     #[error("Failed to extract PhyName due to string conversions")]
     PhyName,
+
+    #[error("Controller execution error: {0}")]
+    Execution(String),
 }
 
 #[derive(Error, Debug)]
@@ -205,4 +225,7 @@ pub enum TaskError {
 
     #[error("Data Source Error: {0}")]
     DataSourceError(#[from] DataSourceError),
+
+    #[error("Controller Error: {0}")]
+    ControllerError(#[from] ControllerError),
 }
