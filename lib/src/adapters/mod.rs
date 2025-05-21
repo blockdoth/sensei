@@ -2,9 +2,9 @@
 //! Data Adapters
 //! -------------
 //!
-//! Brokernet deals with brokering binary data extracted from "Sources", such as files
+//! Sensei deals with binary data extracted from "Sources", such as files
 //! or sockets. Different sources provide different data formats, which must be handled
-//! accordingly. This is the dask of Data Adapters.
+//! accordingly. This is the task of Data Adapters.
 //!
 //! Module for adapters
 //! Mofidied based on: wisense/sensei/lib/src/adapters/mod.rs
