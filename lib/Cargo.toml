@@ -11,6 +11,10 @@ path = "src/lib.rs"
 name = "cli"
 path = "devices/esp32/cli_test_tool.rs"
 
+[[bin]]
+name = "config"
+path = "src/bin/handler_tool.rs"
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 bincode = "1.3"
@@ -23,7 +27,6 @@ crossbeam-channel = "0.5.15"
 # Dependencies from dev
 argh = "0.1"
 tokio = { version = "1.44.2", features = ["full"] }
-futures = "0.3"
 simplelog = "0.12.2"
 serde_json = "1.0.140"
 async-trait = "0.1.88"
@@ -41,11 +44,15 @@ env_logger = "0.11.8" # Kept from HEAD, dev had simplelog which is also a logger
 thiserror = "2.0.12"
 anyhow = "1.0.98"
 chrono = "0.4.41"
-tempfile = "3.20.0"
+clap = { version = "4.5.38", features = ["derive"] }
+futures = "0.3.31"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+netlink-sys = "0.8.7"
+
 typetag = "0.2.20"
+tempfile = "3.20.0"
 
 [lints]
 workspace = true
 
-[target.'cfg(target_os = "linux")'.dependencies]
-netlink-sys = "0.8.7"

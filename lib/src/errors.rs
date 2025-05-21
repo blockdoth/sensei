@@ -225,4 +225,7 @@ pub enum TaskError {
 
     #[error("Data Source Error: {0}")]
     DataSourceError(#[from] DataSourceError),
+
+    #[error("Controller Error: {0}")]
+    ControllerError(#[from] ControllerError),
 }
