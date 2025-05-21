@@ -1,7 +1,6 @@
 use crate::cli::{self, GlobalConfig, OrchestratorSubcommandArgs, SubCommandsArgs};
 use crate::config::{DEFAULT_ADDRESS, OrchestratorConfig};
 use crate::module::*;
-use lib::devices;
 use lib::network::rpc_message::CtrlMsg::*;
 use lib::network::rpc_message::RpcMessage;
 use lib::network::rpc_message::RpcMessageKind::Ctrl;
@@ -175,14 +174,21 @@ impl Orchestrator {
                             .await
                             .unwrap();
                         match msg.msg {
-                            Data(DataMsg::CsiFrame { csi }) => {
+                            Data {
+                                data_msg: DataMsg::CsiFrame { csi },
+                                device_id,
+                            } => {
                                 info!("{}: {}", msg.src_addr, csi.timestamp)
                             }
-                            Data(DataMsg::RawFrame {
-                                ts,
-                                bytes,
-                                source_type,
-                            }) => info!("{}: {ts}", msg.src_addr),
+                            Data {
+                                data_msg:
+                                    DataMsg::RawFrame {
+                                        ts,
+                                        bytes,
+                                        source_type,
+                                    },
+                                device_id,
+                            } => info!("{}: {ts}", msg.src_addr),
                             _ => (),
                         }
                     }

@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct FileConfig {
     pub file: String,
 }

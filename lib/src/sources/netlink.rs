@@ -4,10 +4,10 @@ use crate::sources::controllers::Controller;
 
 use log::trace;
 use netlink_sys::{Socket, SocketAddr, protocols::NETLINK_CONNECTOR};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Config struct which can be parsed from a toml config
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Serialize, Debug, Deserialize, Clone)]
 pub struct NetlinkConfig {
     pub group: u32,
 }

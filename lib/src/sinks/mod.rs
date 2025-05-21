@@ -14,7 +14,7 @@ pub trait Sink: Send {
 }
 
 /// Possible sink configurations.
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum SinkConfig {
     File(file::FileConfig),
