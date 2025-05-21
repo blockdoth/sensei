@@ -22,6 +22,7 @@ use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, sen
 use lib::network::*;
 use lib::sources::DataSourceT;
 use lib::sources::csv::{CsvConfig, CsvSource};
+#[cfg(target_os = "linux")]
 use lib::sources::netlink::NetlinkConfig;
 use log::*;
 use std::env;
@@ -161,8 +162,12 @@ impl Run<SystemNodeConfig> for SystemNode {
         let csv_adapter_config = DataAdapterConfig::CSV {};
         let mut csv_adapter = <dyn CsiDataAdapter>::from_config(csv_adapter_config).await?;
 
-        let iwl_config = NetlinkConfig { group: 0 };
-        let iwl_adapter_config = DataAdapterConfig::Iwl { scale_csi: true };
+        //only on linux
+        #[cfg(target_os = "linux")]
+        {
+            let iwl_config = NetlinkConfig { group: 0 };
+            let iwl_adapter_config = DataAdapterConfig::Iwl { scale_csi: true };
+        }
 
         let devices: Arc<Mutex<HashMap<u64, Box<dyn DataSourceT>>>> =
             Arc::new(Mutex::new(HashMap::new()));

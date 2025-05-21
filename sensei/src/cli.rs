@@ -6,6 +6,8 @@ use simplelog::{ColorChoice, CombinedLogger, LevelFilter, TermLogger, TerminalMo
 
 use crate::config::{OrchestratorConfig, RegistryConfig, SystemNodeConfig, VisualiserConfig};
 
+use crate::esp_tool;
+
 /// A simple app to perform collection from configured sources
 #[derive(FromArgs)]
 pub struct Args {
@@ -29,6 +31,7 @@ pub enum SubCommandsArgs {
     Two(RegistrySubcommandArgs),
     Three(OrchestratorSubcommandArgs),
     Four(VisualiserSubcommandArgs),
+    Five(EspToolSubcommandArgs),
 }
 
 /// System node commands
@@ -125,4 +128,13 @@ impl VisualiserSubcommandArgs {
             ui_type: self.ui_type.clone(),
         })
     }
+}
+
+/// Arguments for the ESP Test Tool subcommand
+#[derive(FromArgs, Debug, Clone)]
+#[argh(subcommand, name = "esp-tool")]
+pub struct EspToolSubcommandArgs {
+    /// serial port at which the ESP32 is connected (e.g., /dev/ttyUSB0 or COM3)
+    #[argh(option)]
+    pub port: String,
 }
