@@ -443,13 +443,6 @@ impl Visualiser {
         }
     }
 
-    fn apply_n_times<T>(mut val: T, f: impl Fn(T) -> T, times: usize) -> T {
-        for _ in 0..times {
-            val = f(val);
-        }
-        val
-    }
-
     async fn plot_data_gui(&self) -> Result<(), Box<dyn std::error::Error>> {
         let tick_rate = Duration::from_millis(2000);
         let mut last_tick = Instant::now();

@@ -160,8 +160,13 @@ impl Run<SystemNodeConfig> for SystemNode {
         };
         let csv_adapter_config = DataAdapterConfig::CSV {};
         let mut csv_adapter = <dyn CsiDataAdapter>::from_config(csv_adapter_config).await?;
-
-        //let netlink_config =  NetlinkConfig { group };
+        
+        let iwl_config = NetlinkConfig {
+            group: 0,
+        };
+        let iwl_adapter_config = DataAdapterConfig::Iwl {
+            scale_csi: true,
+        };
 
         let devices: Arc<Mutex<HashMap<u64, Box<dyn DataSourceT>>>> =
             Arc::new(Mutex::new(HashMap::new()));
