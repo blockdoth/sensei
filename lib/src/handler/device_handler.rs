@@ -1,3 +1,5 @@
+use std::fs;
+use std::path::PathBuf;
 use crate::FromConfig;
 use crate::adapters::{CsiDataAdapter, DataAdapterConfig};
 use crate::errors::{ControllerError, CsiAdapterError, DataSourceError, SinkError, TaskError};
@@ -89,6 +91,12 @@ impl DeviceHandler {
             }
         });
         Ok(())
+    }
+    
+    pub async fn from_yaml(file: PathBuf) -> DeviceHandlerConfig {
+        let yaml = fs::read_to_string(file).unwrap();
+
+        serde_yaml::from_str(&yaml).unwrap()
     }
 }
 

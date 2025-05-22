@@ -34,6 +34,8 @@ use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::{Mutex, broadcast, watch};
 use tokio::task::JoinHandle;
+use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
+use lib::sinks::file::{FileConfig, FileSink};
 
 #[derive(Clone)]
 pub struct SystemNode {
@@ -147,6 +149,7 @@ impl Run<SystemNodeConfig> for SystemNode {
         let connection_handler = Arc::new(self.clone());
 
         let sender_data_channel = connection_handler.send_data_channel.clone();
+        
 
         // TODO: For every possible device, acquire a configuration
         // TODO: Also acquire an adapter configuration
@@ -160,9 +163,6 @@ impl Run<SystemNodeConfig> for SystemNode {
         };
         let csv_adapter_config = DataAdapterConfig::CSV {};
         let mut csv_adapter = <dyn CsiDataAdapter>::from_config(csv_adapter_config).await?;
-
-        let iwl_config = NetlinkConfig { group: 0 };
-        let iwl_adapter_config = DataAdapterConfig::Iwl { scale_csi: true };
 
         let devices: Arc<Mutex<HashMap<u64, Box<dyn DataSourceT>>>> =
             Arc::new(Mutex::new(HashMap::new()));
