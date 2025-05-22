@@ -8,13 +8,12 @@ use serde::{Deserialize, Serialize};
 
 // Configuration structure for a Netlink source.
 ///
-/// This struct is deserializable from YAML config files 
+/// This struct is deserializable from YAML config files
 #[derive(Serialize, Debug, Deserialize, Clone)]
 pub struct NetlinkConfig {
     /// Netlink connector group ID to subscribe to.
     pub group: u32,
 }
-
 
 /// Netlink-based implementation of the [`DataSourceT`] trait.
 ///
@@ -125,7 +124,6 @@ fn get_connector_payload(buf: &[u8]) -> Result<&[u8], DataSourceError> {
     let payload = &buf[offset..offset + cn_header.len as usize];
     Ok(payload)
 }
-
 
 /// Implements the CSI data source trait for netlink communication.
 ///

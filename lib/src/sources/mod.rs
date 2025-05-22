@@ -56,7 +56,6 @@ pub trait DataSourceT: Send + Any {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError>;
 }
 
-
 /// Configuration =for available data source types.
 ///
 /// This enum is tagged using Serde’s `tag = "type"`  Each variant

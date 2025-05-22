@@ -33,7 +33,7 @@ pub struct DeviceHandlerConfig {
 }
 
 /// A handler responsible for consuming data from a source,
-/// optionally adapting it, and dispatching it to one or more sinks. 
+/// optionally adapting it, and dispatching it to one or more sinks.
 /// It runs on it's own thread
 pub struct DeviceHandler {
     device_id: u64,

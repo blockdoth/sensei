@@ -1,9 +1,9 @@
 //!
 //!Sensei library
 //!
-//! Contains utility functions, structs and enums. 
+//! Contains utility functions, structs and enums.
 //! The network implements the tcp logic
-//! Device handling is implemented through adapters, sources and sinks, 
+//! Device handling is implemented through adapters, sources and sinks,
 //! All of them are commbined in the handler pipeline
 //! Usefull errors are also made available
 //!

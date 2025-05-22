@@ -8,7 +8,7 @@ use tokio::io::AsyncWriteExt;
 /// Configuration for a YAML-based file sink.
 ///
 /// This defines the output path.
-#[derive(serde::Serialize,serde::Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct FileConfig {
     /// Path to the output file.
     pub file: String,
@@ -43,8 +43,8 @@ impl Sink for FileSink {
     /// - Returns `SinkError::Serialize` if YAML serialization fails.
     /// - Returns `SinkError::Io` if writing to the file fails.
     async fn provide(&mut self, data: DataMsg) -> Result<(), SinkError> {
-        let serialized = serde_yaml::to_string(&data)
-            .map_err(|e| SinkError::Serialize(e.to_string()))?;
+        let serialized =
+            serde_yaml::to_string(&data).map_err(|e| SinkError::Serialize(e.to_string()))?;
         self.file
             .write_all(serialized.as_bytes())
             .await

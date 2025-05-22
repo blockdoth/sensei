@@ -2,7 +2,7 @@
 //!
 //! This module defines the [`Sink`] trait, which represents a consumer of [`DataMsg`] messages,
 //! and provides and writes or sends the data to somwhere[`SinkConfig`].
-//! 
+//!
 //! Sink implementations may write messages to files, send them over the network etc.
 //!
 //! # Example
@@ -40,7 +40,6 @@ pub trait Sink: Send {
     async fn provide(&mut self, data: DataMsg) -> Result<(), SinkError>;
 }
 
-
 /// Configuration options for available sink types.
 ///
 /// This enum is tagged using Serde's `tag`  meaning the configuration must specify
@@ -53,7 +52,6 @@ pub enum SinkConfig {
     File(file::FileConfig),
     // add other sink types here
 }
-
 
 /// Constructs a [`Sink`] implementation from a [`SinkConfig`] using the [`FromConfig`] trait.
 ///

@@ -67,8 +67,6 @@ pub enum ControllerParams {
     // Extendable
 }
 
-
-
 /// Instantiates a concrete [`Controller`] from its [`ControllerParams`]
 /// via the [`FromConfig`] trait.
 ///
