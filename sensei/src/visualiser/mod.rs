@@ -39,12 +39,12 @@ use std::collections::HashMap;
 use std::fmt;
 use std::io::stdout;
 use std::net::SocketAddr;
+use std::num::ParseIntError;
 use std::ops::DerefMut;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use std::{fs, sync::mpsc::channel};
-use std::num::ParseIntError;
 use tokio::io;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::tcp::OwnedWriteHalf;
@@ -428,8 +428,8 @@ impl Visualiser {
             }
             "remove" if parts.len() == 2 => {
                 let entry: usize = match parts[1].parse::<usize>() {
-                    Ok(number) => { number }
-                    Err(_) => return
+                    Ok(number) => number,
+                    Err(_) => return,
                 };
                 graphs.lock().await.remove(entry);
             }
