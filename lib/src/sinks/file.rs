@@ -8,7 +8,7 @@ use tokio::io::AsyncWriteExt;
 /// Configuration for a YAML-based file sink.
 ///
 /// This defines the output path.
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Serialize,serde::Deserialize, Debug, Clone)]
 pub struct FileConfig {
     /// Path to the output file.
     pub file: String,

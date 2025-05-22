@@ -61,6 +61,7 @@ pub trait Controller: Send + Sync {
 #[derive(serde::Serialize, serde::Deserialize, Debug, schemars::JsonSchema, Clone)]
 #[serde(tag = "type", content = "params")]
 pub enum ControllerParams {
+    #[cfg(target_os = "linux")]
     Netlink(netlink_controller::NetlinkControllerParams),
     Esp32(esp32_controller::Esp32ControllerParams),
     // Extendable
@@ -80,6 +81,7 @@ pub enum ControllerParams {
 impl FromConfig<ControllerParams> for dyn Controller {
     async fn from_config(config: ControllerParams) -> Result<Box<Self>, TaskError> {
         let controller: Box<dyn Controller> = match config {
+            #[cfg(target_os = "linux")]
             ControllerParams::Netlink(params) => Box::new(params),
             ControllerParams::Esp32(params) => Box::new(params),
             // Add more cases here as new controllers are added

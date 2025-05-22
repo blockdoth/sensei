@@ -2,21 +2,28 @@ use crate::cli::*;
 use crate::cli::{SubCommandsArgs, SystemNodeSubcommandArgs};
 use crate::config::{OrchestratorConfig, SystemNodeConfig};
 use crate::module::*;
+use std::collections::HashMap;
 
 use crate::system_node::rpc_message::RpcMessageKind::*;
 use argh::{CommandInfo, FromArgs};
 use async_trait::async_trait;
-use lib::csi_types::CsiData;
+use lib::FromConfig;
+use lib::adapters::{CsiDataAdapter, DataAdapterConfig};
+use lib::csi_types::{Complex, CsiData};
 use lib::errors::NetworkError;
-use lib::network::rpc_message::RpcMessage;
 use lib::network::rpc_message::SourceType::*;
 use lib::network::rpc_message::{AdapterMode, CtrlMsg};
 use lib::network::rpc_message::{CtrlMsg::*, DataMsg};
 use lib::network::rpc_message::{DataMsg::*, make_msg};
+use lib::network::rpc_message::{RpcMessage, SourceType};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
 use lib::network::*;
+use lib::sources::DataSourceT;
+use lib::sources::csv::{CsvConfig, CsvSource};
+#[cfg(target_os = "linux")]
+use lib::sources::netlink::NetlinkConfig;
 use log::*;
 use std::env;
 use std::net::SocketAddr;
@@ -74,7 +81,10 @@ impl ConnectionHandler for SystemNode {
                     todo!("{:?}", m);
                 }
             },
-            Data(data_msg) => todo!(),
+            Data {
+                data_msg,
+                device_id,
+            } => todo!(),
         }
         Ok(())
     }
@@ -109,10 +119,18 @@ impl ConnectionHandler for SystemNode {
             }
 
             if sending {
-                let Ok(date_msg) = recv_data_channel.recv().await else {
+                let Ok(data_msg) = recv_data_channel.recv().await else {
                     todo!()
                 };
-                tcp::send_message(&mut send_stream, Data(date_msg)).await;
+                let device_id = 0;
+                tcp::send_message(
+                    &mut send_stream,
+                    Data {
+                        data_msg,
+                        device_id,
+                    },
+                )
+                .await;
                 info!("Sending")
             }
         }
@@ -131,24 +149,55 @@ impl Run<SystemNodeConfig> for SystemNode {
 
         let sender_data_channel = connection_handler.send_data_channel.clone();
 
+        // TODO: For every possible device, acquire a configuration
+        // TODO: Also acquire an adapter configuration
+
+        let csv_config = CsvConfig {
+            path: "resources/test_data/csv/csi_data.csv".parse().unwrap(),
+            cell_delimiter: b',',
+            row_delimiter: b'\n',
+            header: true,
+            delay: 50,
+        };
+        let csv_adapter_config = DataAdapterConfig::CSV {};
+        let mut csv_adapter = <dyn CsiDataAdapter>::from_config(csv_adapter_config).await?;
+
+        //only on linux
+        #[cfg(target_os = "linux")]
+        {
+            let iwl_config = NetlinkConfig { group: 0 };
+            let iwl_adapter_config = DataAdapterConfig::Iwl { scale_csi: true };
+        }
+
+        let devices: Arc<Mutex<HashMap<u64, Box<dyn DataSourceT>>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+
+        // TODO: Store devices onto node from a configuration
+
+        let csv_source = Box::new(CsvSource::new(csv_config).unwrap());
+
+        devices.lock().await.insert(0, csv_source);
+
+        // TODO: Start the read processes (tokio task per device?) and send read data to main thread
+
         // Example sender which just spams packets
-        // The most important thing is the ability to clone send ends of channels arround
+        // The most important thing is the ability to clone send ends of channels around
         tokio::spawn(async move {
             let mut i = 0;
             loop {
-                sender_data_channel.send(CsiFrame {
-                    csi: CsiData {
-                        timestamp: i as f64,
-                        sequence_number: 0,
-                        rssi: vec![],
-                        csi: vec![],
-                    },
-                });
-                i += 1;
-                if i > 1_000_000 {
-                    i = 0;
+                let mut output_buf: &mut [u8] = &mut [0u8; 4096];
+
+                for mut device in devices.lock().await.iter_mut() {
+                    let test_out = device.1.read(output_buf).await.unwrap();
+                    let test_data_msg = RawFrame {
+                        ts: 0f64,
+                        bytes: Vec::from(&mut *output_buf),
+                        source_type: SourceType::CSV,
+                    };
+                    let test_out_csi = csv_adapter.produce(test_data_msg).await.unwrap();
+                    sender_data_channel.send(test_out_csi.unwrap());
                 }
-                tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
             }
         });
 

@@ -14,7 +14,7 @@ import random
 
 
 def generate_csi_row(
-    max_cores, max_streams, max_subcarriers, always_generate_max=False
+    max_cores, max_streams, max_subcarriers, row_num, always_generate_max=False
 ):
     """
     Generates a single row of random CSI data.
@@ -28,7 +28,7 @@ def generate_csi_row(
     Returns:
         list: A list representing a single row of CSI data.
     """
-    timestamp = random.uniform(1_000_000, 10_000_000)  # Random timestamp
+    timestamp = random.uniform(row_num, row_num + 1)  # Random timestamp
     sequence_number = random.randint(0, 65535)  # Random sequence number
     num_cores = (
         random.randint(1, max_cores) if not always_generate_max else max_cores
@@ -104,9 +104,9 @@ def generate_csi_data_csv(
         writer = csv.writer(csvfile)
         writer.writerow(headers)  # Write the headers
 
-        for _ in range(num_rows):
+        for i in range(num_rows):
             row = generate_csi_row(
-                max_cores, max_streams, max_subcarriers, always_generate_max
+                max_cores, max_streams, max_subcarriers, i, always_generate_max
             )
             writer.writerow(row)
     # headers for the CSV file
@@ -122,7 +122,7 @@ def generate_csi_data_csv(
 
 
 generate_csi_data_csv(
-    "csv/csi_data.csv",
+    "csi_data.csv",
     num_rows=100,
     max_cores=2,
     max_streams=2,

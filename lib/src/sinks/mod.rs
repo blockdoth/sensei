@@ -46,7 +46,7 @@ pub trait Sink: Send {
 /// This enum is tagged using Serde's `tag`  meaning the configuration must specify
 /// a `type` field (e.g., `{ "type": "File", ... }`). Each variant corresponds to a different
 /// kind of sink implementation.
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum SinkConfig {
     /// File sink configuration

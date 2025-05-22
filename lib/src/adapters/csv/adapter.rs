@@ -2,6 +2,7 @@ use crate::adapters::CsiDataAdapter;
 use crate::csi_types::{Complex, CsiData};
 use crate::errors::CsiAdapterError;
 use crate::network::rpc_message::DataMsg;
+use log::info;
 use std::fs::File;
 use std::io::Write;
 use std::io::{self, Read, Seek, SeekFrom};
@@ -70,12 +71,15 @@ impl<'a> CSVAdapter<'a> {
                 format!("Invalid number of columns in CSV row: {}", row.len()),
             )));
         }
-        csi_data.timestamp = row[0].trim_matches('\n').parse::<f64>().map_err(|_| {
-            CsiAdapterError::CSV(super::CSVAdapterError::InvalidData(format!(
-                "Invalid timestamp: {}",
-                row[0]
-            )))
-        })?;
+        csi_data.timestamp = row[0]
+            .trim_matches(|c| c == '\n' || c == '\0')
+            .parse::<f64>()
+            .map_err(|_| {
+                CsiAdapterError::CSV(super::CSVAdapterError::InvalidData(format!(
+                    "Invalid timestamp: {}",
+                    row[0]
+                )))
+            })?;
         csi_data.sequence_number = row[1].parse::<u16>().map_err(|_| {
             CsiAdapterError::CSV(super::CSVAdapterError::InvalidData(format!(
                 "Invalid sequence number: {}",
@@ -161,13 +165,6 @@ impl<'a> CSVAdapter<'a> {
             "Invalid number of subcarriers in CSV row: {}, expected: {}",
             csi_data.csi[0][0].len(),
             num_subcarriers
-        );
-        // check if the row has the expected number of columns
-        assert!(
-            csi_data.rssi.len() == num_cores as usize,
-            "Invalid number of cores in CSV row: {}, expected: {}",
-            csi_data.rssi.len(),
-            num_cores
         );
 
         self.tmp_data = Some(csi_data);

@@ -3,6 +3,7 @@ name = "sensei"
 version = "0.1.0"
 edition = "2024"
 
+
 [dependencies]
 lib = { path = "../lib" }
 tokio = { version = "1.44.2", features = ["full"] }
@@ -15,6 +16,11 @@ ratatui = "0.29.0"
 charming = "0.4.0"
 notify = "6.1.1"
 warp = "0.3.7"
+chrono = "0.4.41"
+crossterm = "0.29.0"
+futures = "0.3.31"
+crossbeam-channel = "0.5.15"
+serialport = "4.7.2"
 
 [lints]
 workspace = true

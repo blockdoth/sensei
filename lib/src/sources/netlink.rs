@@ -4,12 +4,12 @@ use crate::sources::controllers::Controller;
 
 use log::trace;
 use netlink_sys::{Socket, SocketAddr, protocols::NETLINK_CONNECTOR};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 // Configuration structure for a Netlink source.
 ///
 /// This struct is deserializable from YAML config files 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Serialize, Debug, Deserialize, Clone)]
 pub struct NetlinkConfig {
     /// Netlink connector group ID to subscribe to.
     pub group: u32,

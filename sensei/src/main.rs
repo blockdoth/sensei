@@ -1,5 +1,6 @@
 mod cli;
 mod config;
+mod esp_tool;
 mod module;
 mod orchestrator;
 mod registry;
@@ -26,31 +27,65 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Args = argh::from_env();
     debug!("Parsed args");
 
-    CombinedLogger::init(vec![
-        TermLogger::new(
-            args.level,
-            simplelog::ConfigBuilder::new()
-                // .add_filter_allow("sensei".into())
-                .build(),
-            TerminalMode::Mixed,
-            ColorChoice::Auto,
-        ),
-        WriteLogger::new(
-            LevelFilter::Error,
-            simplelog::ConfigBuilder::new()
-                // .add_filter_allow("sensei".into())
-                .set_location_level(LevelFilter::Error)
-                .build(),
-            File::create("sensei.log").unwrap(),
-        ),
-    ])
-    .unwrap();
+    if !matches!(&args.subcommand, SubCommandsArgs::Five(_)) {
+        CombinedLogger::init(vec![
+            TermLogger::new(
+                args.level,
+                simplelog::ConfigBuilder::new()
+                    // .add_filter_allow("sensei".into())
+                    .build(),
+                TerminalMode::Mixed,
+                ColorChoice::Auto,
+            ),
+            WriteLogger::new(
+                LevelFilter::Error, // You might want this to be args.level for file logging too
+                simplelog::ConfigBuilder::new()
+                    // .add_filter_allow("sensei".into())
+                    .set_location_level(LevelFilter::Error)
+                    .build(),
+                File::create("sensei.log").unwrap(),
+            ),
+        ])
+        .unwrap();
+        debug!("Parsed args and initialized CombinedLogger");
+    } else {
+        // For EspTest, logging will be handled by its TuiLogger.
+        // You might want a minimal print or log here indicating EspTest is starting,
+        // but TuiLogger in esp_tool.rs will print its own startup messages.
+        println!("Starting ESP Test Tool..."); // Simple console feedback before TUI takes over
+    }
 
     match &args.subcommand {
-        SubCommandsArgs::One(args) => SystemNode::new(args.parse()?).run(args.parse()?).await?,
-        SubCommandsArgs::Two(args) => Registry::new(args.parse()?).run(args.parse()?).await?,
-        SubCommandsArgs::Three(args) => Orchestrator::new(args.parse()?).run(args.parse()?).await?,
-        SubCommandsArgs::Four(args) => Visualiser::new(args.parse()?).run(args.parse()?).await?,
+        SubCommandsArgs::One(node_args) => {
+            SystemNode::new(node_args.parse()?)
+                .run(node_args.parse()?)
+                .await?
+        }
+        SubCommandsArgs::Two(registry_args) => {
+            Registry::new(registry_args.parse()?)
+                .run(registry_args.parse()?)
+                .await?
+        }
+        SubCommandsArgs::Three(orchestrator_args) => {
+            Orchestrator::new(orchestrator_args.parse()?)
+                .run(orchestrator_args.parse()?)
+                .await?
+        }
+        SubCommandsArgs::Four(visualiser_args) => {
+            Visualiser::new(visualiser_args.parse()?)
+                .run(visualiser_args.parse()?)
+                .await?
+        }
+        SubCommandsArgs::Five(esp_tool_args) => {
+            // Assuming cli.rs has `pub mod esp_tool;` and src/esp_tool.rs contains the function
+            esp_tool::run_esp_test_subcommand(esp_tool_args.clone()).await?;
+            // .clone() is used on esp_tool_args because the match arm borrows args.subcommand,
+            // and run_esp_test_subcommand takes ownership. EspToolSubcommandArgs should be Clone.
+            // Ensure EspToolSubcommandArgs in cli.rs derives Clone:
+            // #[derive(FromArgs, Debug, Clone)]
+            // #[argh(subcommand, name = "esp-tool")]
+            // pub struct EspToolSubcommandArgs { ... }
+        }
     }
     Ok(())
 }

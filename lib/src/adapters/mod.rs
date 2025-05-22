@@ -49,7 +49,7 @@ pub trait CsiDataAdapter: Send {
 ///
 /// This enum allows adapters to be specified via configuration files and deserialized
 /// automatically. Each variant contains options specific to the corresponding adapter.
-#[derive(serde::Deserialize, Debug, Clone, Copy)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy)]
 #[serde(tag = "type")]
 pub enum DataAdapterConfig {
     Iwl { scale_csi: bool },

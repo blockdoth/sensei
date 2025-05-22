@@ -14,7 +14,7 @@ use tokio::task::JoinHandle;
 /// parameters required to build a [`DeviceHandler`]: the device’s ID,
 /// the data source type, optional controller parameters, optional
 /// adapter configuration, and a list of sink configurations.
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct DeviceHandlerConfig {
     // Unique identifier for the device.
     pub device_id: u64,

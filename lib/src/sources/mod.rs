@@ -64,8 +64,7 @@ pub trait DataSourceT: Send + Any {
 /// - `Netlink`: Linux-only netlink-based capture (requires `target_os = "linux"`)
 /// - `Esp32`: ESP32-based data source
 /// - `Csv`: CSV-based playback source
-#[derive(serde::Deserialize, Debug, Clone)]
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum DataSourceConfig {
     /// Linux netlink source (packet capture via netlink sockets).
