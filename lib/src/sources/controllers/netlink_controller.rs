@@ -5,13 +5,19 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use tokio::process::Command;
 
+/// Parameters for the Netlink controller, typically parsed from yaml file
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone, schemars::JsonSchema)]
 #[serde(default)]
 pub struct NetlinkControllerParams {
+    /// Name of the wireless interface to configure (e.g., "wlp1s0").
     pub interface: String,
+    /// Center frequency in MHz (e.g., 2412 for channel 1 on 2.4GHz)
     pub center_freq_mhz: u32,
+    /// Bandwidth in MHz. Must be 20 unless `control_freq_mhz` is also specified.
     pub bandwidth_mhz: u32,
+    /// Optional control frequency in MHz for HT40/80/160 MHz configurations.
     pub control_freq_mhz: Option<u32>,
+    /// Optional antenna mask to set the RX chain mask (e.g., 7 for 3 chains).
     pub antenna_mask: Option<u8>,
 }
 
@@ -27,6 +33,10 @@ impl Default for NetlinkControllerParams {
     }
 }
 
+/// Implementation of the `Controller` trait for NetlinkControllerParams.
+///
+/// This implementation issues system commands to configure the wireless
+/// interface into monitor mode with the desired frequency and settings.
 #[typetag::serde(name = "NetLink")]
 #[async_trait::async_trait]
 impl Controller for NetlinkControllerParams {
