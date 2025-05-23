@@ -109,7 +109,7 @@ impl DeviceHandler {
                                         Ok(Some(csi_msg)) => vec![csi_msg],
                                         Ok(None) => continue, // need more data
                                         Err(err) => {
-                                            log::error!("Adapter error on device {device_id}: {err:?}");
+                                            //log::error!("Adapter error on device {device_id}: {err:?}"); THIS WILL LOG ERRORS IF THERE IS SIMPLY NO DATA
                                             continue;
                                         }
                                     }
@@ -158,6 +158,8 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
     async fn from_config(config: DeviceHandlerConfig) -> Result<Box<Self>, TaskError> {
         // instantiate source
         let mut source = <dyn DataSourceT>::from_config(config.source).await?;
+
+        source.start().await?;
 
         // apply controller if configured
         if let Some(controller_cfg) = config.controller {
