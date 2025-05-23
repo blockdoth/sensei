@@ -207,7 +207,7 @@ impl AppState {
             log_messages: VecDeque::with_capacity(200),
             max_log_messages: 200,
             spam_config_src_mac: [0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC],
-            spam_config_dst_mac: [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
+            spam_config_dst_mac: [0xB4, 0x82, 0xC5, 0x58, 0xA1, 0xC0],
             spam_config_n_reps: 2400,
             spam_config_pause_ms: 100,
             is_editing_spam_config: false,
