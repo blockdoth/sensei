@@ -24,6 +24,7 @@ use lib::network::*;
 use lib::sinks::file::{FileConfig, FileSink};
 use lib::sources::DataSourceT;
 use lib::sources::csv::{CsvConfig, CsvSource};
+#[cfg(target_os = "linux")]
 use lib::sources::netlink::NetlinkConfig;
 use log::*;
 use std::env;
@@ -41,13 +42,13 @@ use tokio::task::JoinHandle;
 
 /// The System Node is a sender and a receiver in the network of Sensei.
 /// It hosts the devices that send and receive CSI data, and is responsible for sending this data further to other receivers in the system.
-/// 
+///
 /// Devices can "ask" for the CSI data generated at a System Node by sending it a Subscribe message, specifying the device id.
-/// 
+///
 /// The System Node can also adapt this CSI data to our universal standard, which lets it be used by other parts of Sensei, like the Visualiser.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// send_data_channel: the System Node communicates which data should be sent to other receivers across its threads using this tokio channel
 #[derive(Clone)]
 pub struct SystemNode {
@@ -65,9 +66,9 @@ impl SubscribeDataChannel for SystemNode {
 impl ConnectionHandler for SystemNode {
     /// Handles receiving messages from other senders in the network.
     /// This communicates with the sender function using channel messages.
-    /// 
+    ///
     /// # Types
-    ///    
+    ///
     /// - Connect/Disconnect
     /// - Subscribe/Unsubscribe
     /// - Configure
@@ -111,8 +112,8 @@ impl ConnectionHandler for SystemNode {
         Ok(())
     }
 
-    /// Handles sending messages for the nodes to other receivers in the network. 
-    /// 
+    /// Handles sending messages for the nodes to other receivers in the network.
+    ///
     /// The node will only send messages to subscribers of relevant messages.
     async fn handle_send(
         &self,
@@ -170,9 +171,9 @@ impl Run<SystemNodeConfig> for SystemNode {
     }
 
     /// Starts the system node
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// SystemNodeConfig: Specifies the target address
     async fn run(&self, config: SystemNodeConfig) -> Result<(), Box<dyn std::error::Error>> {
         let connection_handler = Arc::new(self.clone());
@@ -184,11 +185,12 @@ impl Run<SystemNodeConfig> for SystemNode {
         let device_handler_configs: Vec<DeviceHandlerConfig> =
             DeviceHandlerConfig::from_yaml(default_config_path).await;
 
-        let handlers: Vec<Box<DeviceHandler>> = futures::future::join_all(device_handler_configs.iter().map(|x| {
-            async {
-                DeviceHandler::from_config(x.clone()).await.unwrap()
-            }
-        })).await;
+        let handlers: Vec<Box<DeviceHandler>> = futures::future::join_all(
+            device_handler_configs
+                .iter()
+                .map(|x| async { DeviceHandler::from_config(x.clone()).await.unwrap() }),
+        )
+        .await;
 
         TcpServer::serve(config.addr, connection_handler).await;
         Ok(())

@@ -1,15 +1,15 @@
-// cli_test_tool.rs
-//! Robust CLI tool for ESP32 CSI monitoring
+// src/esp_tool.rs
+//! Robust CLI tool for ESP32 CSI monitoring (now as a library module)
 
-#![allow(clippy::await_holding_lock)]
+#![allow(clippy::await_holding_lock)] // Kept as it was in the original file
 
 use core::time;
 use std::collections::VecDeque; // For log buffer
-use std::env;
+use std::env; // Keep for RUST_LOG, though port comes from args
 use std::error::Error;
 use std::io;
 use std::sync::{Arc, Mutex as StdMutex}; // Standard Mutex for AppState
-use std::thread::sleep;
+use std::thread::sleep; // May not be needed if all sleeps are tokio::time::sleep
 use std::time::Duration;
 
 use chrono::{DateTime, Local};
@@ -35,7 +35,13 @@ use ratatui::{
     widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table},
 };
 
-use lib::sources::DataSourceT;
+// Assuming CliTestToolSubcommandArgs is defined in the parent module (cli.rs)
+use super::EspToolSubcommandArgs;
+// If cli.rs is in src/main.rs or src/lib.rs and esp_tool.rs is src/esp_tool.rs,
+// and EspToolSubcommandArgs is in a cli module (e.g. src/cli/mod.rs)
+// you might need: use crate::cli::EspToolSubcommandArgs;
+
+use lib::sources::DataSourceT; // Keep as is, assuming 'lib' is a crate or accessible module
 
 // Project-specific imports - Changed csi_collection_lib to crate
 // Project-specific imports - Changed crate:: to lib::
@@ -57,7 +63,7 @@ use lib::sources::controllers::esp32_controller::{
 use lib::sources::esp32::{Esp32Source, Esp32SourceConfig};
 
 use tokio::sync::Mutex as TokioMutex; // Tokio Mutex for Esp32Source
-use tokio::sync::Notify;
+// use tokio::sync::Notify; // Not used in the provided snippet, can be removed if not needed elsewhere
 use tokio::task::JoinHandle;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -118,19 +124,16 @@ impl log::Log for TuiLogger {
             };
 
             if self.log_sender.try_send(log_entry).is_err() {
-                // This eprintln should appear on the console after the alternate screen is left
-                // if the log_listener_handle task has already stopped.
                 eprintln!(
-                    "[TUI_LOGGER_FALLBACK] {}: {} [{}] - {}", // Added timestamp and level for clarity
+                    "[TUI_LOGGER_FALLBACK] {}: {} [{}] - {}",
                     Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
-                    std::thread::current().name().unwrap_or("unknown_thread"), // Log current thread
+                    std::thread::current().name().unwrap_or("unknown_thread"),
                     record.level(),
                     record.args()
                 );
             }
         }
     }
-
     fn flush(&self) {}
 }
 
@@ -172,7 +175,6 @@ enum UiMode {
     Spam,
 }
 
-// NEW: Configuration struct for AppState, mirroring Esp32DeviceConfigPayload + channel
 #[derive(Clone, Debug)]
 struct CliEspConfig {
     channel: u8,
@@ -180,17 +182,17 @@ struct CliEspConfig {
     bandwidth: EspBandwidth,
     secondary_channel: EspSecondaryChannel,
     csi_type: EspCsiType,
-    manual_scale: u8, // Manual scale for CSI data (0 for auto)
+    manual_scale: u8,
 }
 
 impl Default for CliEspConfig {
     fn default() -> Self {
         Self {
-            channel: 1, // Default channel
+            channel: 1,
             mode: EspOperationMode::Receive,
             bandwidth: EspBandwidth::Twenty,
             secondary_channel: EspSecondaryChannel::None,
-            csi_type: EspCsiType::HighThroughputLTF, // Common default
+            csi_type: EspCsiType::HighThroughputLTF,
             manual_scale: 0,
         }
     }
@@ -198,8 +200,8 @@ impl Default for CliEspConfig {
 
 struct AppState {
     ui_mode: UiMode,
-    current_cli_config: CliEspConfig, // NEW
-    csi_data: Vec<CsiData>,           // NEW: Storing official CsiData
+    current_cli_config: CliEspConfig,
+    csi_data: Vec<CsiData>,
     connection_status: String,
     last_error: Option<String>,
     log_messages: VecDeque<LogEntry>,
@@ -223,7 +225,7 @@ impl AppState {
             log_messages: VecDeque::with_capacity(200),
             max_log_messages: 200,
             spam_config_src_mac: [0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC],
-            spam_config_dst_mac: [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF], // Broadcast
+            spam_config_dst_mac: [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
             spam_config_n_reps: 100,
             spam_config_pause_ms: 20,
             is_editing_spam_config: false,
@@ -239,8 +241,8 @@ impl AppState {
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+// Renamed main and changed signature to be callable as a subcommand
+pub async fn run_esp_test_subcommand(args: EspToolSubcommandArgs) -> Result<(), Box<dyn Error>> {
     let (log_tx, log_rx): (CrossbeamSender<LogEntry>, CrossbeamReceiver<LogEntry>) =
         crossbeam_channel::bounded(200);
 
@@ -249,19 +251,27 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .and_then(|s| s.parse::<LevelFilter>().ok())
         .unwrap_or(LevelFilter::Info);
 
+    // Initialize TUI logger. This might conflict if a global logger is already set.
+    // Consider making this conditional or integrating with a global logger strategy.
     if let Err(e) = init_tui_logger(log_level, log_tx.clone()) {
-        // Clone log_tx for init
         eprintln!("FATAL: Failed to initialize TUI logger: {e}");
         return Err(e.into());
     }
 
-    info!("CLI tool starting up...");
+    info!("ESP Test Tool subcommand starting...");
 
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        // Usage message as before
-        eprintln!("Usage: {} <serial_port>", args[0]);
-        eprintln!("Example: {} /dev/cu.usbmodemXXX", args[0]);
+    // Use port from subcommand arguments
+    let port_name = args.port;
+    info!("Attempting to use port: {port_name}");
+
+    // Check if port is empty, though argh might handle required options
+    if port_name.is_empty() {
+        // This part might be redundant if argh marks the option as required.
+        // Listing available ports here if no port is given could still be useful,
+        // but typically CLI argument parsing handles missing required args.
+        error!("Serial port argument was empty or not provided correctly.");
+        eprintln!("Usage: your_cli_app esp-tool --port <serial_port>");
+        eprintln!("Example: your_cli_app esp-tool --port /dev/cu.usbmodemXXX");
         eprintln!("\nAvailable ports:");
         match serialport::available_ports() {
             Ok(ports) => {
@@ -277,10 +287,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 eprintln!("  Error listing serial ports: {e}");
             }
         }
-        return Err("Serial port argument missing".into());
+        return Err("Serial port argument missing or invalid".into());
     }
-    let port_name = args[1].clone();
-    info!("Attempting to use port: {port_name}");
 
     let mut terminal = match setup_terminal() {
         Ok(term) => term,
@@ -290,12 +298,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     };
 
-    // Create Esp32SourceConfig
     let esp_config = Esp32SourceConfig {
-        port_name: port_name.clone(),
-        baud_rate: 3_000_000, // Default from old code
+        port_name: port_name.clone(), // Already cloned
+        baud_rate: 3_000_000,
         csi_buffer_size: Some(100),
-        ack_timeout_ms: Some(2000), // Default ACK timeout from new Esp32Source
+        ack_timeout_ms: Some(2000),
     };
 
     let esp_source_instance: Esp32Source = match Esp32Source::new(esp_config) {
@@ -306,14 +313,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
             return Err(Box::new(e));
         }
     };
-    // Wrap Esp32Source in Arc<TokioMutex> for safe async sharing
     let esp_source: Arc<TokioMutex<Esp32Source>> = Arc::new(TokioMutex::new(esp_source_instance));
 
-    // AppState initialization
     let initial_cli_config = CliEspConfig::default();
     let app_state = Arc::new(StdMutex::new(AppState::new(initial_cli_config.clone())));
 
-    // Attempt to connect and apply initial config
     {
         let mut esp_guard = esp_source.lock().await;
         if let Err(e) = esp_guard.start().await {
@@ -322,15 +326,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
             return Err(Box::new(e));
         }
         app_state.lock().unwrap().connection_status = "CONNECTED (Source Started)".to_string();
-
         info!("Giving reader thread a moment to start...");
         tokio::time::sleep(Duration::from_millis(300)).await;
-
         info!("ESP32 source started. Applying initial configuration...");
 
-        // Apply the default AppState config to the device
         let initial_payload_config = Esp32DeviceConfigPayload {
-            // Renamed to avoid conflict
             mode: initial_cli_config.mode,
             bandwidth: initial_cli_config.bandwidth,
             secondary_channel: initial_cli_config.secondary_channel,
@@ -345,7 +345,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
             initial_payload_config.manual_scale,
         ];
 
-        // 1. ApplyDeviceConfig
         if let Err(e) = esp_guard
             .send_esp32_command(Esp32Command::ApplyDeviceConfig, Some(cmd_data_config))
             .await
@@ -354,7 +353,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
             app_state.lock().unwrap().last_error = Some(format!("Initial config failed: {e}"));
         } else {
             info!("Initial device config (mode, BW, etc.) applied.");
-            // 2. Set Initial Channel (only after ApplyDeviceConfig is successful)
             if let Err(e) = esp_guard
                 .send_esp32_command(
                     Esp32Command::SetChannel,
@@ -371,12 +369,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
             } else {
                 info!("Initial channel {} set.", initial_cli_config.channel);
             }
-            // Note: The old apply_device_config also handled unpausing acquisition.
-            // The new send_esp32_command for ApplyDeviceConfig does not inherently do this.
-            // If the firmware expects an explicit UnpauseAcquisition after mode set to Receive,
-            // that would need to be sent separately here.
-            // For now, we address the ACK timeout. If ApplyDeviceConfig sets mode to Receive,
-            // an explicit UnpauseAcquisition might be needed if the firmware doesn't auto-unpause.
             if initial_payload_config.mode == EspOperationMode::Receive {
                 info!("Initial mode is Receive. Attempting to unpause CSI acquisition.");
                 if let Err(e) = esp_guard
@@ -390,7 +382,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
         }
 
-        // 3. Clear MAC filters
         info!("Attempting to clear MAC address filters...");
         if let Err(e) = esp_guard
             .send_esp32_command(Esp32Command::WhitelistClear, None)
@@ -402,7 +393,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
             info!("MAC address filters cleared successfully.");
         }
 
-        // 4. Synchronize time
         info!("Attempting to synchronize time...");
         if let Err(e) = esp_guard
             .send_esp32_command(Esp32Command::SynchronizeTimeInit, None)
@@ -413,7 +403,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         } else {
             let time_us = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap() // Or handle error appropriately
+                .unwrap()
                 .as_micros() as u64;
             if let Err(e) = esp_guard
                 .send_esp32_command(
@@ -428,33 +418,24 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 info!("Time synchronized with ESP32.");
             }
         }
-    } // esp_guard (MutexGuard) is dropped here
+    }
     info!("ESP32 initial setup sequence complete.");
 
-    // In main, the log_listener_handle task:
     let app_state_log_clone = Arc::clone(&app_state);
     let mut log_listener_handle: JoinHandle<()> = tokio::spawn(async move {
+        // Changed variable name to avoid conflict
         loop {
-            // ADD THIS LINE: Explicitly yield to the Tokio scheduler.
-            // If abort() has been called, the task should terminate here.
             tokio::task::yield_now().await;
-
-            // If the task was not aborted, proceed with the loop.
             match tokio::task::block_in_place(|| log_rx.recv_timeout(Duration::from_secs(1))) {
-                Ok(log_msg) => {
-                    // An *external* log message was received
-                    match app_state_log_clone.try_lock() {
-                        Ok(mut state_guard) => {
-                            state_guard.add_log_message(log_msg);
-                        }
-                        Err(std::sync::TryLockError::Poisoned(_)) => {
-                            break;
-                        }
-                        Err(std::sync::TryLockError::WouldBlock) => {
-                            // This should not happen since we are in block_in_place.
-                        }
+                Ok(log_msg) => match app_state_log_clone.try_lock() {
+                    Ok(mut state_guard) => {
+                        state_guard.add_log_message(log_msg);
                     }
-                }
+                    Err(std::sync::TryLockError::Poisoned(_)) => {
+                        break;
+                    }
+                    Err(std::sync::TryLockError::WouldBlock) => {}
+                },
                 Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
                     continue;
                 }
@@ -465,20 +446,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     });
 
-    // CSI listener thread
-    // Add explicit type annotation for esp_source_csi_reader_clone
     let esp_source_csi_reader_clone: Arc<TokioMutex<Esp32Source>> = Arc::clone(&esp_source);
     let app_state_csi_clone = Arc::clone(&app_state);
-
     let csi_listener_handle: JoinHandle<()> = tokio::spawn(async move {
+        // Changed variable name
         info!("CSI listener thread started.");
-        let mut read_buffer = vec![0u8; 4096]; // Max expected CSI payload size
-        let mut esp_adapter = ESP32Adapter::new(false); // Assuming no scaling
+        let mut read_buffer = vec![0u8; 4096];
+        let mut esp_adapter = ESP32Adapter::new(false);
 
         loop {
             let data_result = {
                 let mut source_guard = esp_source_csi_reader_clone.lock().await;
-                // Check if source is still running before attempting to read
                 if !source_guard
                     .is_running
                     .load(std::sync::atomic::Ordering::Relaxed)
@@ -495,35 +473,29 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
             match data_result {
                 Ok(0) => {
-                    /* timeout or no data, yield for a bit */
                     tokio::time::sleep(Duration::from_millis(10)).await;
                 }
                 Ok(n) => {
                     let raw_csi_payload = read_buffer[..n].to_vec();
                     let data_msg = DataMsg::RawFrame {
-                        // The adapter uses the timestamp from the packet bytes.
-                        // `ts` here is a frame timestamp if source provides one, ESP32Source doesn't directly.
                         ts: Local::now().timestamp_micros() as f64 / 1_000_000.0,
                         bytes: raw_csi_payload,
                         source_type: SourceType::ESP32,
                     };
-
                     match esp_adapter.produce(data_msg).await {
                         Ok(Some(DataMsg::CsiFrame { csi })) => {
                             if let Ok(mut state_guard) = app_state_csi_clone.lock() {
                                 state_guard.csi_data.push(csi);
                                 if state_guard.csi_data.len() > 1000 {
-                                    // Max buffer for UI
                                     state_guard.csi_data.remove(0);
                                 }
                             }
                         }
-                        Ok(None) => { /* Adapter needs more data or empty frame */ }
+                        Ok(None) => {}
                         Err(e) => {
                             warn!("ESP32Adapter failed to parse CSI: {e:?}");
                         }
-                        Ok(Some(DataMsg::RawFrame { .. })) => { /* Should not happen if adapter produces CsiFrame */
-                        }
+                        Ok(Some(DataMsg::RawFrame { .. })) => {}
                     }
                 }
                 Err(DataSourceError::Controller(msg))
@@ -557,7 +529,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
             }
 
-            // Check global connection status
             if let Ok(state) = app_state_csi_clone.lock() {
                 if state.connection_status.starts_with("DISCONNECTED") {
                     info!("CSI listener detected global DISCONNECTED status. Stopping.");
@@ -571,9 +542,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         info!("CSI listener thread stopped.");
     });
 
-    // Main UI loop with async event handling
     let mut event_stream = EventStream::new();
-
     loop {
         {
             let app_state_guard = app_state.lock().unwrap();
@@ -587,34 +556,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     Some(Ok(event)) => {
                         if let CEvent::Key(key_event) = event {
                             if handle_input(key_event.code, &esp_source, &app_state).await? {
-                                break; // Quit
+                                break;
                             }
                         }
                     }
                     Some(Err(e)) => {
                         error!("Error reading input event: {e}");
-                        // Potentially break or handle error
                     }
-                    None => break, // Event stream closed
+                    None => break,
                 }
             }
             _ = tokio::time::sleep(Duration::from_millis(200)) => {
-                // Timeout: This allows the loop to periodically check other conditions
-                // or refresh UI even if no input events occur.
-                // Useful if there are background tasks that might change app_state.
+                // Timeout for UI refresh
             }
         }
-        // Check global connection status for loop exit outside of handle_input
         if let Ok(state) = app_state.lock() {
-            if state.connection_status.starts_with("DISCONNECTED") {
-                // If it's a controlled disconnect by 'q', handle_input already signals break.
-                // This is for other disconnects detected by the listener thread.
-                if state.last_error.as_deref() != Some("DISCONNECTED (by user)") {
-                    info!(
-                        "Main loop detected DISCONNECTED state (not by user 'q'). Shutting down."
-                    );
-                    break;
-                }
+            if state.connection_status.starts_with("DISCONNECTED")
+                && state.last_error.as_deref() != Some("DISCONNECTED (by user)")
+            {
+                info!("Main loop detected DISCONNECTED state (not by user 'q'). Shutting down.");
+                break;
             }
         } else {
             error!("Main loop: AppState mutex poisoned. Shutting down.");
@@ -622,13 +583,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    restore_terminal(&mut terminal)?;
-    eprintln!("[DEBUG] Terminal restored.");
+    // restore_terminal must be called BEFORE log_listener_handle.abort() and other awaits
+    // if those operations might print to stderr, to ensure those prints are visible.
+    // However, the original code had it after awaiting tasks. For TUI, it's crucial to restore
+    // before any further console output that should appear on the normal screen.
+    // Let's try to restore it here, then perform cleanup.
+    // If tasks print after this, it will go to the restored terminal.
 
-    // Graceful shutdown sequence
-    eprintln!("[DEBUG] Main UI loop exited. Beginning shutdown sequence...");
+    // The original debug prints like "[DEBUG] Terminal restored." suggest it's fine here.
+    // Let's keep the original shutdown order for now.
+    // restore_terminal(&mut terminal)?;
+    // eprintln!("[DEBUG] Terminal restored by esp_tool."); // Differentiating from a potential main cli.rs restore
 
-    eprintln!("[DEBUG] Attempting to stop ESP32 source...");
+    eprintln!("[ESP_TOOL_DEBUG] Main UI loop exited. Beginning ESP_TOOL shutdown sequence...");
+
+    eprintln!("[ESP_TOOL_DEBUG] Attempting to stop ESP32 source...");
     {
         let mut esp_guard = esp_source.lock().await;
         if esp_guard
@@ -636,79 +605,86 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .load(std::sync::atomic::Ordering::Relaxed)
         {
             if let Err(e) = esp_guard.stop().await {
-                error!("Error stopping ESP32 source: {e}"); // TuiLogger
-                eprintln!("[DEBUG] Error stopping ESP32 source: {e}");
+                error!("Error stopping ESP32 source: {e}");
+                eprintln!("[ESP_TOOL_DEBUG] Error stopping ESP32 source: {e}");
             } else {
-                info!("ESP32 source stop command issued successfully."); // TuiLogger
-                eprintln!("[DEBUG] ESP32 source stop command issued successfully.");
+                info!("ESP32 source stop command issued successfully.");
+                eprintln!("[ESP_TOOL_DEBUG] ESP32 source stop command issued successfully.");
             }
         } else {
-            info!("ESP32 source was already stopped or not initially started."); // TuiLogger
-            eprintln!("[DEBUG] ESP32 source was already stopped or not initially started.");
+            info!("ESP32 source was already stopped or not initially started.");
+            eprintln!(
+                "[ESP_TOOL_DEBUG] ESP32 source was already stopped or not initially started."
+            );
         }
     }
-    eprintln!("[DEBUG] ESP32 source stop sequence finished.");
+    eprintln!("[ESP_TOOL_DEBUG] ESP32 source stop sequence finished.");
 
-    eprintln!("[DEBUG] Waiting for CSI listener task to complete (max 5s)...");
+    eprintln!("[ESP_TOOL_DEBUG] Waiting for CSI listener task to complete (max 5s)...");
     match tokio::time::timeout(Duration::from_secs(5), csi_listener_handle).await {
         Ok(Ok(_)) => {
-            info!("CSI listener task finished gracefully."); // TuiLogger
-            eprintln!("[DEBUG] CSI listener task finished gracefully.");
+            info!("CSI listener task finished gracefully.");
+            eprintln!("[ESP_TOOL_DEBUG] CSI listener task finished gracefully.");
         }
         Ok(Err(e)) => {
-            error!("CSI listener task panicked: {e:?}"); // TuiLogger
-            eprintln!("[DEBUG] CSI listener task panicked: {e:?}");
+            error!("CSI listener task panicked: {e:?}");
+            eprintln!("[ESP_TOOL_DEBUG] CSI listener task panicked: {e:?}");
         }
         Err(_) => {
-            warn!("CSI listener task timed out during shutdown."); // TuiLogger
-            eprintln!("[DEBUG] CSI listener task timed out during shutdown.");
+            warn!("CSI listener task timed out during shutdown.");
+            eprintln!("[ESP_TOOL_DEBUG] CSI listener task timed out during shutdown.");
         }
     }
 
-    eprintln!("[DEBUG] Signaling log listener task to stop (dropping main's log_tx)...");
-    drop(log_tx); // Drops main's instance of the sender. TuiLogger still holds one.
+    // IMPORTANT: The TuiLogger holds a clone of log_tx.
+    // Dropping the log_tx here in run_esp_test_subcommand will make the log_listener_handle
+    // exit when log::shutdown() is called (which drops the TuiLogger's sender)
+    // or if all other senders are dropped.
+    // log::set_logger(Box::new(NOPLogger())) or similar might be needed to truly shutdown TuiLogger
+    // if this subcommand is not the end of the whole application.
+    // For now, we assume TuiLogger's sender will be dropped when TuiLogger instance goes out of scope
+    // or explicitly shut down if necessary.
 
-    eprintln!("[DEBUG] Attempting to shutdown log listener task via abort()...");
-    log_listener_handle.abort(); // Crucial: This is the primary signal to stop the task.
+    eprintln!(
+        "[ESP_TOOL_DEBUG] Signaling log listener task to stop (dropping this function's log_tx)..."
+    );
+    drop(log_tx);
 
-    eprintln!("[DEBUG] Waiting for log listener task to complete after abort (max 3s)...");
-    // Increased timeout slightly to be safe, 2s was in your original
+    eprintln!("[ESP_TOOL_DEBUG] Attempting to shutdown log listener task via abort()...");
+    log_listener_handle.abort();
+
+    eprintln!("[ESP_TOOL_DEBUG] Waiting for log listener task to complete after abort (max 3s)...");
     match tokio::time::timeout(Duration::from_secs(3), log_listener_handle).await {
         Ok(Ok(_)) => {
-            // This outcome means the task completed its work and exited without being forcefully cancelled
-            // (e.g. if it hit a 'break' in its loop before the abort was fully processed).
-            // Given we called abort(), this is slightly less expected than Err(e) where e.is_cancelled().
             eprintln!(
-                "[DEBUG] Log listener task completed normally (Ok result after abort signal). This means it exited its loop before cancellation fully unwound it."
+                "[ESP_TOOL_DEBUG] Log listener task completed normally (Ok result after abort signal)."
             );
         }
         Ok(Err(e)) => {
-            // This is the most expected outcome when aborting a task.
             if e.is_cancelled() {
-                eprintln!("[DEBUG] Log listener task aborted successfully as expected.");
+                eprintln!("[ESP_TOOL_DEBUG] Log listener task aborted successfully as expected.");
             } else {
-                // Task panicked or encountered some other error during join.
-                eprintln!("[DEBUG] Log listener task failed or panicked: {e:?}");
+                eprintln!("[ESP_TOOL_DEBUG] Log listener task failed or panicked: {e:?}");
             }
         }
         Err(_) => {
-            // tokio::time::TimeoutError
             eprintln!(
-                "[DEBUG] Log listener task did NOT terminate within the timeout even after abort(). THIS IS THE PROBLEM TO DEBUG."
+                "[ESP_TOOL_DEBUG] Log listener task did NOT terminate within the timeout even after abort()."
             );
-            // If this happens, the task is not responding to the abort signal.
-            // This could mean:
-            // 1. block_in_place isn't yielding control back in a way Tokio can interrupt. (Unlikely for basic recv_timeout)
-            // 2. Something *inside* the Ok(log_msg) arm is blocking indefinitely AFTER block_in_place returns
-            //    but before the task can be cancelled (e.g. app_state_log_clone.lock() is deadlocked).
-            // 3. The `log_listener_handle` awaited is not the one aborted (shadowing - check carefully).
         }
     }
 
-    eprintln!("[DEBUG] All tasks awaited. About to restore terminal.");
+    // Restore terminal at the very end of this subcommand's TUI lifecycle
+    // This is crucial for returning the terminal to a normal state.
+    if let Err(e) = restore_terminal(&mut terminal) {
+        // If restoring terminal fails, print to stderr (which should now be visible on the normal screen)
+        eprintln!("[ESP_TOOL_ERROR] Failed to restore terminal: {e}");
+    } else {
+        eprintln!("[ESP_TOOL_DEBUG] Terminal restored by esp_tool subcommand.");
+    }
 
-    eprintln!("[DEBUG] Rust main function is completing NOW.");
-    std::thread::sleep(Duration::from_millis(500)); // Increased sleep
+    eprintln!("[ESP_TOOL_DEBUG] ESP Test Tool subcommand finishing.");
+    // std::thread::sleep(Duration::from_millis(500)); // Probably not needed here
     Ok(())
 }
 
@@ -724,7 +700,6 @@ async fn handle_input(
     }
 
     if app_state_guard.is_editing_spam_config && app_state_guard.ui_mode == UiMode::Spam {
-        // Editing logic remains synchronous as it only changes AppState
         match key {
             KeyCode::Char('e') | KeyCode::Esc => {
                 app_state_guard.is_editing_spam_config = false;
@@ -777,10 +752,6 @@ async fn handle_input(
         return Ok(false);
     }
 
-    // Drop guard before await points if possible, or re-acquire if state modified after await
-    // For now, most ESP interactions are atomic from AppState's perspective for one key press.
-    // So we hold the guard. If complex multi-await logic is needed, this might change.
-
     let mut esp_guard = esp_source_mutex.lock().await;
 
     match key {
@@ -795,12 +766,9 @@ async fn handle_input(
                     warn!("Failed to pause WiFi transmit: {e}");
                 }
             }
-            // stop() will be called by main loop's cleanup
-            // Here we just signal the app to shut down.
             app_state_guard.connection_status = "DISCONNECTED (by user)".to_string();
-            app_state_guard.last_error = Some("DISCONNECTED (by user)".to_string()); // For footer display
-            // The main loop will detect this status and trigger stop() and exit.
-            return Ok(true); // Signal to exit application
+            app_state_guard.last_error = Some("DISCONNECTED (by user)".to_string());
+            return Ok(true);
         }
         KeyCode::Char('m') => {
             let new_ui_mode = match app_state_guard.ui_mode {
@@ -813,7 +781,6 @@ async fn handle_input(
             };
 
             let new_config_payload = Esp32DeviceConfigPayload {
-                // Renamed variable to avoid conflict
                 mode: new_esp_op_mode,
                 bandwidth: app_state_guard.current_cli_config.bandwidth,
                 secondary_channel: app_state_guard.current_cli_config.secondary_channel,
@@ -840,8 +807,6 @@ async fn handle_input(
                 app_state_guard.current_cli_config.mode = new_esp_op_mode;
                 info!("ESP32 mode set to {new_esp_op_mode:?} via ApplyDeviceConfig",);
 
-                // ESP32Source's ApplyDeviceConfig should implicitly handle Pause/Unpause Acquisition based on mode.
-                // Additionally, for Spam mode, explicitly pause general transmit task.
                 if new_esp_op_mode == EspOperationMode::Transmit {
                     info!(
                         "ESP32 in Transmit mode. WiFi transmit task will be explicitly PAUSED initially."
@@ -858,8 +823,6 @@ async fn handle_input(
                         info!("WiFi transmit task PAUSED. Ready for custom frames ('s').");
                     }
                 } else {
-                    // CSI Mode (Receive)
-                    // Ensure transmit is paused (or let ESP handle it) and acquisition is unpaused (handled by ApplyDeviceConfig)
                     info!(
                         "Switched to CSI mode. ESP32 general WiFi transmit task should be inactive. CSI acquisition should be active."
                     );
@@ -870,9 +833,6 @@ async fn handle_input(
             if app_state_guard.ui_mode == UiMode::Spam {
                 app_state_guard.is_editing_spam_config = !app_state_guard.is_editing_spam_config;
                 if app_state_guard.is_editing_spam_config {
-                    info!(
-                        "Entered spam config editing mode. Use Tab, Up/Down. 'e' or Esc to exit."
-                    );
                     info!(
                         "Entered spam config editing mode. Use Tab, Up/Down. 'e' or Esc to exit."
                     );
@@ -887,7 +847,6 @@ async fn handle_input(
             }
         }
         KeyCode::Char('s') => {
-            // Send Spam
             if app_state_guard.ui_mode == UiMode::Spam {
                 if app_state_guard.is_editing_spam_config {
                     app_state_guard.last_error = Some(
@@ -900,7 +859,6 @@ async fn handle_input(
                     let n_reps = app_state_guard.spam_config_n_reps;
                     let pause_ms = app_state_guard.spam_config_pause_ms;
 
-                    // Ensure ESP32 is in Transmit mode before sending
                     if app_state_guard.current_cli_config.mode != EspOperationMode::Transmit {
                         let err_msg =
                             "ESP32 not in Transmit mode. Switch mode first ('m').".to_string();
@@ -908,7 +866,7 @@ async fn handle_input(
                         warn!("{err_msg}");
                     } else {
                         let mut tx_data = Vec::with_capacity(20);
-                        tx_data.extend_from_slice(&dst_mac); // Note: firmware expects dst_mac first
+                        tx_data.extend_from_slice(&dst_mac);
                         tx_data.extend_from_slice(&src_mac);
                         tx_data.extend_from_slice(&n_reps.to_le_bytes());
                         tx_data.extend_from_slice(&pause_ms.to_le_bytes());
@@ -931,10 +889,8 @@ async fn handle_input(
             }
         }
         KeyCode::Char('c') => {
-            // Change Channel
             let mut new_channel = app_state_guard.current_cli_config.channel + 1;
             if new_channel > 11 {
-                // Common 2.4GHz channels limit
                 new_channel = 1;
             }
             if let Err(e) = esp_guard
@@ -948,7 +904,6 @@ async fn handle_input(
             }
         }
         KeyCode::Char('b') => {
-            // Toggle Bandwidth (20/40)
             let new_bandwidth_is_40 =
                 app_state_guard.current_cli_config.bandwidth == EspBandwidth::Twenty;
 
@@ -958,7 +913,6 @@ async fn handle_input(
                 EspBandwidth::Twenty
             };
             let new_secondary_chan = if new_bandwidth_is_40 {
-                // Default to Above for 40MHz, could be configurable or cycle
                 EspSecondaryChannel::Above
             } else {
                 EspSecondaryChannel::None
@@ -993,7 +947,6 @@ async fn handle_input(
             }
         }
         KeyCode::Char('l') => {
-            // Toggle LTF Type
             let new_csi_type_is_legacy =
                 app_state_guard.current_cli_config.csi_type == EspCsiType::HighThroughputLTF;
             let new_esp_csi_type = if new_csi_type_is_legacy {
@@ -1031,14 +984,12 @@ async fn handle_input(
         }
         KeyCode::Char('r') => { /* No action, error cleared by other keys */ }
         KeyCode::Up => {
-            // Clear CSI data buffer
             if !app_state_guard.is_editing_spam_config {
                 app_state_guard.csi_data.clear();
                 info!("CSI data buffer cleared.");
             }
         }
         KeyCode::Down => {
-            // Synchronize Time
             if !app_state_guard.is_editing_spam_config {
                 if let Err(e) = esp_guard
                     .send_esp32_command(Esp32Command::SynchronizeTimeInit, None)
@@ -1074,7 +1025,7 @@ fn ui(f: &mut Frame, app_state: &AppState) {
         .direction(Direction::Horizontal)
         .margin(1)
         .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
-        .split(f.size());
+        .split(f.area());
 
     let left_panel_area = main_horizontal_chunks[0];
     let log_panel_area = main_horizontal_chunks[1];
@@ -1086,15 +1037,15 @@ fn ui(f: &mut Frame, app_state: &AppState) {
             6
         }
     } else {
-        3 // Reduced CSI status height
+        3
     };
 
     let left_vertical_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(status_area_height),
-            Constraint::Min(0),    // Table area
-            Constraint::Length(3), // Footer area
+            Constraint::Min(0),
+            Constraint::Length(3),
         ])
         .split(left_panel_area);
 
@@ -1102,7 +1053,6 @@ fn ui(f: &mut Frame, app_state: &AppState) {
     let table_area = left_vertical_chunks[1];
     let footer_area = left_vertical_chunks[2];
 
-    // Status Block
     let mode_str = match app_state.ui_mode {
         UiMode::Csi => "CSI RX",
         UiMode::Spam => "WiFi SPAM",
@@ -1124,7 +1074,7 @@ fn ui(f: &mut Frame, app_state: &AppState) {
                 " | Chan: {} | BW: {} ({:?}) | LTF: {}",
                 app_state.current_cli_config.channel,
                 bw_str,
-                app_state.current_cli_config.secondary_channel, // This is EspSecondaryChannel
+                app_state.current_cli_config.secondary_channel,
                 ltf_str
             )),
         ]),
@@ -1141,7 +1091,6 @@ fn ui(f: &mut Frame, app_state: &AppState) {
     ];
 
     if app_state.ui_mode == UiMode::Spam {
-        // Spam config display (remains largely the same)
         let mut src_mac_spans = vec![Span::raw("  Src MAC: ")];
         for i in 0..6 {
             let val_str = format!("{:02X}", app_state.spam_config_src_mac[i]);
@@ -1213,24 +1162,17 @@ fn ui(f: &mut Frame, app_state: &AppState) {
         .block(Block::default().borders(Borders::ALL).title(" Status "));
     f.render_widget(header_paragraph, status_area);
 
-    // CSI Data Table - Updated for CsiData struct
-    let table_header_cells = [
-        "Timestamp (s)",
-        "Seq",
-        "RSSI (Rx0)",
-        "Subcarriers", /* Removed MACs, AGC, FFT Gain */
-    ]
-    .iter()
-    .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow)));
+    let table_header_cells = ["Timestamp (s)", "Seq", "RSSI (Rx0)", "Subcarriers"]
+        .iter()
+        .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow)));
     let table_header = Row::new(table_header_cells).height(1).bottom_margin(0);
 
     let rows: Vec<Row> = app_state
         .csi_data
         .iter()
-        .rev() // Show newest first
-        .take(table_area.height.saturating_sub(2) as usize) // -2 for header and border
+        .rev()
+        .take(table_area.height.saturating_sub(2) as usize)
         .map(|p: &CsiData| {
-            // p is &CsiData
             let num_subcarriers = if !p.csi.is_empty() && !p.csi[0].is_empty() {
                 p.csi[0][0].len()
             } else {
@@ -1242,7 +1184,7 @@ fn ui(f: &mut Frame, app_state: &AppState) {
                 .map_or_else(|| "N/A".to_string(), |r| r.to_string());
 
             Row::new(vec![
-                Cell::from(format!("{:.6}", p.timestamp)), // Display f64 timestamp
+                Cell::from(format!("{:.6}", p.timestamp)),
                 Cell::from(p.sequence_number.to_string()),
                 Cell::from(rssi_str),
                 Cell::from(num_subcarriers.to_string()),
@@ -1251,24 +1193,22 @@ fn ui(f: &mut Frame, app_state: &AppState) {
         .collect();
 
     let table_widths = [
-        // Adjusted widths
-        Constraint::Length(18), // Timestamp
-        Constraint::Length(8),  // Seq
-        Constraint::Length(12), // RSSI
-        Constraint::Length(12), // Subcarriers
+        Constraint::Length(18),
+        Constraint::Length(8),
+        Constraint::Length(12),
+        Constraint::Length(12),
     ];
-    let table = Table::new(rows, &table_widths)
+    let table = Table::new(rows, &table_widths) // Pass Vec<Row>, not Vec<Vec<Cell>>
         .header(table_header)
         .block(
             Block::default()
                 .borders(Borders::ALL)
                 .title(" CSI Data Packets "),
         )
-        .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
+        .row_highlight_style(Style::default().add_modifier(Modifier::REVERSED))
         .highlight_symbol(">> ");
     f.render_widget(table, table_area);
 
-    // Log Output List (remains largely the same)
     let log_items_list: Vec<ListItem> = app_state
         .log_messages
         .iter()
@@ -1302,7 +1242,6 @@ fn ui(f: &mut Frame, app_state: &AppState) {
         .block(Block::default().borders(Borders::ALL).title(" Log Output "));
     f.render_widget(logs_list_widget, log_panel_area);
 
-    // Footer (Info/Errors)
     let footer_text_str = if let Some(err_msg) = &app_state.last_error {
         format!("ERROR: {err_msg} (Press 'R' to keep, other keys clear error)")
     } else if app_state.is_editing_spam_config && app_state.ui_mode == UiMode::Spam {

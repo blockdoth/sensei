@@ -1,10 +1,12 @@
+use argh::FromArgs;
 use std::net::{AddrParseError, SocketAddr};
 use std::path::PathBuf;
-use argh::FromArgs;
 
 use simplelog::{ColorChoice, CombinedLogger, LevelFilter, TermLogger, TerminalMode, WriteLogger};
 
 use crate::config::{OrchestratorConfig, RegistryConfig, SystemNodeConfig, VisualiserConfig};
+
+use crate::esp_tool;
 
 /// A simple app to perform collection from configured sources
 #[derive(FromArgs)]
@@ -29,6 +31,7 @@ pub enum SubCommandsArgs {
     Two(RegistrySubcommandArgs),
     Three(OrchestratorSubcommandArgs),
     Four(VisualiserSubcommandArgs),
+    Five(EspToolSubcommandArgs),
 }
 
 /// System node commands
@@ -42,21 +45,23 @@ pub struct SystemNodeSubcommandArgs {
     /// server port (default: 6969)
     #[argh(option, default = "6969")]
     pub port: u16,
-    
+
     /// location of config file (default sensei/src/system_node/example_config.yaml)
     #[argh(option, default = "default_device_configs()")]
     pub device_configs: PathBuf,
 }
 
 fn default_device_configs() -> PathBuf {
-    "sensei/src/system_node/example_config.yaml".parse().unwrap()
+    "sensei/src/system_node/example_config.yaml"
+        .parse()
+        .unwrap()
 }
 
 impl SystemNodeSubcommandArgs {
     pub fn parse(&self) -> Result<SystemNodeConfig, AddrParseError> {
         Ok(SystemNodeConfig {
             addr: format!("{}:{}", self.addr, self.port).parse()?,
-            device_configs: self.device_configs.clone()
+            device_configs: self.device_configs.clone(),
         })
     }
 }
@@ -134,4 +139,13 @@ impl VisualiserSubcommandArgs {
             ui_type: self.ui_type.clone(),
         })
     }
+}
+
+/// Arguments for the ESP Test Tool subcommand
+#[derive(FromArgs, Debug, Clone)]
+#[argh(subcommand, name = "esp-tool")]
+pub struct EspToolSubcommandArgs {
+    /// serial port at which the ESP32 is connected (e.g., /dev/ttyUSB0 or COM3)
+    #[argh(option)]
+    pub port: String,
 }

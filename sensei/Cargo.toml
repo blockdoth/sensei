@@ -16,6 +16,10 @@ charming = "0.4.0"
 notify = "6.1.1"
 warp = "0.3.7"
 futures = "0.3.31"
+chrono = "0.4.41"
+crossterm = "0.29.0"
+crossbeam-channel = "0.5.15"
+serialport = "4.7.2"
 
 [lints]
 workspace = true

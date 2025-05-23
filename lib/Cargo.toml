@@ -8,10 +8,6 @@ name = "lib"
 path = "src/lib.rs"
 
 [[bin]]
-name = "cli"
-path = "devices/esp32/cli_test_tool.rs"
-
-[[bin]]
 name = "config"
 path = "src/bin/handler_tool.rs"
 
@@ -46,12 +42,11 @@ anyhow = "1.0.98"
 chrono = "0.4.41"
 clap = { version = "4.5.38", features = ["derive"] }
 futures = "0.3.31"
+typetag = "0.2.20"
+tempfile = "3.20.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 netlink-sys = "0.8.7"
-
-typetag = "0.2.20"
-tempfile = "3.20.0"
 
 [lints]
 workspace = true

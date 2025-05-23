@@ -8,7 +8,10 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 
+/// Complex number type alias for CSI data representation.
 pub type Complex = Complex64;
+/// Alias for the CSI matrix:
+/// Dimensions: `num_cores x num_streams x num_subcarriers`
 type Csi = Vec<Vec<Vec<Complex>>>;
 
 /// Definition of a single CSI data point
@@ -42,6 +45,9 @@ pub enum Bandwidth {
 }
 
 impl Bandwidth {
+    /// Construct a `Bandwidth` from its numeric MHz value.
+    ///
+    /// Returns `DataSourceError::ParsingError` if the value is invalid.
     pub fn new(value: u16) -> Result<Self, DataSourceError> {
         match value {
             20 => Ok(Bandwidth::Bw20),
@@ -64,10 +70,15 @@ impl std::fmt::Display for Bandwidth {
 /// Frame Encoding
 #[derive(Debug, Clone, Copy)]
 pub enum FrameEncoding {
+    /// Legacy 802.11a/b/g frame
     NonHt = 0,
+    /// High Throughput (HT - 802.11n)
     Ht = 1,
+    /// Very High Throughput (VHT - 802.11ac)
     Vht = 2,
+    /// High-Efficiency (HE - 802.11ax)
     He = 3,
+    /// Extremely High Throughput (EHT - 802.11be)
     Eht = 4,
 }
 
