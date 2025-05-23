@@ -2,7 +2,7 @@ use crate::cli::*;
 use crate::cli::{SubCommandsArgs, SystemNodeSubcommandArgs};
 use crate::config::{OrchestratorConfig, SystemNodeConfig};
 use crate::module::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::system_node::rpc_message::RpcMessageKind::*;
 use argh::{CommandInfo, FromArgs};
@@ -92,12 +92,12 @@ impl ConnectionHandler for SystemNode {
                     return Err(NetworkError::Closed);
                 }
                 Subscribe { device_id, mode } => {
-                    send_channel.send(ChannelMsg::Subscribe);
+                    send_channel.send(ChannelMsg::Subscribe { device_id, mode } );
 
                     info!("Subscribed to data stream");
                 }
                 Unsubscribe { device_id } => {
-                    send_channel.send(ChannelMsg::Unsubscribe);
+                    send_channel.send(ChannelMsg::Unsubscribe{ device_id } );
                     println!("Unsubscribed from data stream");
                 }
                 m => {
@@ -121,7 +121,9 @@ impl ConnectionHandler for SystemNode {
         mut recv_data_channel: broadcast::Receiver<DataMsg>,
         mut send_stream: OwnedWriteHalf,
     ) -> Result<(), NetworkError> {
-        let mut sending = false;
+        // Devices that have been subscribed to along outgoing connection.
+        // As every device id is unique, a hashset is used to prevent duplicate subscriptions
+        let mut subscribed_ids: HashMap<u64, AdapterMode> = HashMap::new();
         loop {
             if recv_command_channel.has_changed().unwrap_or(false) {
                 let msg_opt = recv_command_channel.borrow_and_update().clone();
@@ -132,33 +134,35 @@ impl ConnectionHandler for SystemNode {
                         debug!("Send close confirmation");
                         break;
                     }
-                    ChannelMsg::Subscribe => {
+                    ChannelMsg::Subscribe { device_id, mode } => {
                         info!("Subscribed");
-                        sending = true;
+                        subscribed_ids.entry(device_id).or_insert(mode);
                     }
-                    ChannelMsg::Unsubscribe => {
+                    ChannelMsg::Unsubscribe { device_id } => {
                         info!("Unsubscribed");
-                        sending = false;
+                        subscribed_ids.remove(&device_id);
                     }
                     _ => (),
                 }
             }
+            
+            
 
-            if sending {
-                let Ok(data_msg) = recv_data_channel.recv().await else {
-                    todo!()
-                };
-                let device_id = 0;
-                tcp::send_message(
-                    &mut send_stream,
-                    Data {
-                        data_msg,
-                        device_id,
-                    },
-                )
-                .await;
-                info!("Sending")
-            }
+            // if sending {
+            //     let Ok(data_msg) = recv_data_channel.recv().await else {
+            //         todo!()
+            //     };
+            //     let device_id = 0;
+            //     tcp::send_message(
+            //         &mut send_stream,
+            //         Data {
+            //             data_msg,
+            //             device_id,
+            //         },
+            //     )
+            //     .await;
+            //     info!("Sending")
+            // }
         }
         Ok(())
     }

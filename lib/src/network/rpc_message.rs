@@ -41,6 +41,15 @@ pub enum CtrlMsg {
     Unsubscribe {
         device_id: u64,
     },
+    SubscribeTo {
+        device_id: u64,
+        mode: AdapterMode,
+        target: SocketAddr,
+    },
+    UnsubscribeFrom {
+        device_id: u64,
+        target: SocketAddr,
+    },
     PollDevices,
     Heartbeat,
 }

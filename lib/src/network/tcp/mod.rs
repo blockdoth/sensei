@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use super::rpc_message::{self, DataMsg, RpcMessage, RpcMessageKind};
+use super::rpc_message::{self, AdapterMode, DataMsg, RpcMessage, RpcMessageKind};
 use crate::{errors::NetworkError, network::rpc_message::make_msg};
 use async_trait::async_trait;
 use log::{debug, error, info, trace};
@@ -132,9 +132,9 @@ pub trait SubscribeDataChannel {
 pub enum ChannelMsg {
     Empty,
     Disconnect,
-    Subscribe,
+    Subscribe { device_id: u64, mode: AdapterMode },
     ListenSubscribe { addr: SocketAddr },
     ListenUnsubscribe { addr: SocketAddr },
-    Unsubscribe,
+    Unsubscribe { device_id: u64 },
     Poll,
 }
