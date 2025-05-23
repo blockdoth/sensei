@@ -185,12 +185,15 @@ impl Run<SystemNodeConfig> for SystemNode {
         let device_handler_configs: Vec<DeviceHandlerConfig> =
             DeviceHandlerConfig::from_yaml(default_config_path).await;
 
-        let handlers: Vec<Box<DeviceHandler>> = futures::future::join_all(
-            device_handler_configs
-                .iter()
-                .map(|x| async { DeviceHandler::from_config(x.clone()).await.unwrap() }),
-        )
-        .await;
+        let handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+
+        for cfg in device_handler_configs {
+            handlers.lock().await.insert(
+                cfg.device_id,
+                DeviceHandler::from_config(cfg.clone()).await.unwrap(),
+            );
+        }
 
         TcpServer::serve(config.addr, connection_handler).await;
         Ok(())
