@@ -5,6 +5,9 @@ use crate::sources::controllers::Controller;
 use log::trace;
 use netlink_sys::{Socket, SocketAddr, protocols::NETLINK_CONNECTOR};
 use serde::{Deserialize, Serialize};
+use crate::sources::BUFSIZE;
+
+
 
 /// Config struct which can be parsed from a toml config
 #[derive(Serialize, Debug, Deserialize, Clone)]
@@ -159,7 +162,7 @@ impl DataSourceT for NetlinkSource {
         Ok(())
     }
 
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError> {
+    async fn read_buf(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError> {
         if self.socket.is_none() {
             return Err(DataSourceError::ReadBeforeStart);
         }
@@ -172,6 +175,18 @@ impl DataSourceT for NetlinkSource {
         let payload = get_connector_payload(&self.buffer[..bytes_read])?;
         buf[..payload.len()].copy_from_slice(payload);
         Ok(payload.len())
+    }
+
+    async fn read(&mut self) -> Result<Option<DataMsg>, DataSourceError> {
+        let mut temp_buf = vec![0u8; BUFSIZE];
+        match self.read_buf(&mut temp_buf).await? {
+            0 => Ok(None)
+            n => Ok(Some(DataMsg::RawFrame {
+                    ts : chrono::Utc::now().timestamp_millis() as f64 / 1e3,
+                    bytes : temp_buf[..n].to_vec(),
+                    source_type: self.source_type.clone(),
+                }))
+        }
     }
 }
 

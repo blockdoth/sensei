@@ -45,18 +45,11 @@ impl DeviceHandler {
                 log::error!("Device {device_id} source start failed: {e:?}");
                 return;
             }
-
-            let mut buf = vec![0u8; 8192];
             loop {
                 tokio::select! {
-                    read_res = source.read(&mut buf) => {
+                    read_res = source.read() => {
                         match read_res {
-                            Ok(size) => {
-                                let raw = DataMsg::RawFrame {
-                                    ts: chrono::Utc::now().timestamp_millis() as f64 / 1e3,
-                                    bytes: buf[..size].to_vec(),
-                                    source_type: stype.clone(),
-                                };
+                            Ok(Some(raw)) => {
                                 // feed through adapter
                                 let outgoing = if let Some(adapter) = adapter.as_mut() {
                                     match adapter.produce(raw).await {
@@ -79,6 +72,7 @@ impl DeviceHandler {
                                     }
                                 }
                             }
+                            Ok(None) => continue,
                             Err(e) => {
                                 log::error!("Device {device_id} read error: {e:?}");
                                 break;
