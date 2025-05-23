@@ -197,7 +197,7 @@ impl Run<SystemNodeConfig> for SystemNode {
                     let test_out_csi = csv_adapter.produce(test_data_msg).await.unwrap();
                     sender_data_channel.send(test_out_csi.unwrap());
                 }
-                tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
             }
         });
 
