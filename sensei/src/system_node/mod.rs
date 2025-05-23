@@ -198,8 +198,8 @@ impl Run<SystemNodeConfig> for SystemNode {
         let esp_source_config = Esp32SourceConfig {
             port_name: "/dev/cu.usbmodem2101".to_string(), // Using the port from your example run
             baud_rate: 3_000_000,
-            csi_buffer_size: Some(100), // As in your esp_tool
-            ack_timeout_ms: Some(2000), // As in your esp_tool
+            csi_buffer_size: 4096,
+            ack_timeout_ms: 1000,
         };
 
         let port_name_for_log = esp_source_config.port_name.clone();

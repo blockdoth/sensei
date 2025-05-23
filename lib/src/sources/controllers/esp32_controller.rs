@@ -1,16 +1,21 @@
+//! ESP32 Controller
+//!
+//! Defines parameters and logic for configuring an ESP32 device
+//! through the `Esp32Source`.
+
 use crate::errors::ControllerError;
 use crate::sources::DataSourceT;
-use crate::sources::controllers::Controller; // The controller trait
-
-// Assume your concrete ESP32 source is located here. Adjust path as needed.
-use crate::sources::esp32::Esp32Source;
+use crate::sources::controllers::Controller;
+use crate::sources::esp32::Esp32Source; // Adjusted path
 
 use async_trait::async_trait;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::any::Any; // For downcasting
+use std::any::Any; // Required for downcasting if using source.as_any_mut()
+use log::{info, warn};
 
-// --- ESP32 Specific Enums ---
+
+// --- ESP32 Specific Enums (Kept as they are well-defined) ---
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, JsonSchema)]
 pub enum OperationMode {
     Receive = 0x00,
@@ -36,9 +41,11 @@ pub enum CsiType {
     HighThroughputLTF = 0x01,
 }
 
-/// ESP32 Command Codes
+/// ESP32 Command Codes - Must match firmware `Command` enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum Esp32Command {
+    Nop = 0x00,
     SetChannel = 0x01,
     WhitelistAddMacPair = 0x02,
     WhitelistClear = 0x03,
@@ -52,8 +59,8 @@ pub enum Esp32Command {
     SynchronizeTimeApply = 0x0B,
 }
 
-// --- Controller Parameter Structures ---
 
+// --- Controller Parameter Structures (Kept as they are well-defined) ---
 #[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
 pub struct MacFilterPair {
     pub src_mac: [u8; 6],
@@ -77,6 +84,7 @@ pub struct Esp32DeviceConfigPayload {
     pub manual_scale: u8,
 }
 
+/// Parameters for controlling an ESP32 device.
 #[derive(Serialize, Deserialize, Debug, Clone, Default, JsonSchema)]
 #[serde(default)]
 pub struct Esp32ControllerParams {
@@ -84,8 +92,8 @@ pub struct Esp32ControllerParams {
     pub apply_device_config: Option<Esp32DeviceConfigPayload>,
     pub mac_filters_to_add: Option<Vec<MacFilterPair>>,
     pub clear_all_mac_filters: Option<bool>,
-    pub pause_acquisition: Option<bool>,
-    pub pause_wifi_transmit: Option<bool>,
+    pub control_acquisition: Option<bool>, // true=unpause, false=pause
+    pub control_wifi_transmit: Option<bool>, // true=resume, false=pause
     pub synchronize_time: Option<bool>,
     pub transmit_custom_frame: Option<CustomFrameParams>,
 }
@@ -94,34 +102,48 @@ pub struct Esp32ControllerParams {
 #[async_trait]
 impl Controller for Esp32ControllerParams {
     async fn apply(&self, source: &mut dyn DataSourceT) -> Result<(), ControllerError> {
-        // Downcast `dyn DataSourceT` to `&mut Esp32Source`.
-        // This requires `DataSourceT: Any` and `Esp32Source` to be the concrete type.
-        let esp_source = (source as &mut dyn Any)
-            .downcast_mut::<Esp32Source>()
+        // Ensure your DataSourceT trait has `fn as_any_mut(&mut self) -> &mut dyn Any;`
+        // and Esp32Source implements it.
+        let esp_source = (source as &mut dyn Any).downcast_mut::<Esp32Source>()
             .ok_or_else(|| {
-                ControllerError::InvalidParams(
-                    "Controller expected an ESP32Source compatible type.".to_string(),
+                ControllerError::InvalidDataSource(
+                    "Esp32ControllerParams requires an Esp32Source.".to_string(),
                 )
             })?;
 
-        // 1. Set Channel
+        let mut needs_acquisition_resume_after_config = false;
+        if self.set_channel.is_some() || self.apply_device_config.is_some() {
+            if esp_source.send_esp32_command(Esp32Command::PauseAcquisition, None).await.is_err() {
+                 warn!("Pre-config: Failed to explicitly pause CSI acquisition. Continuing with config changes.");
+            } else {
+                info!("Pre-config: Paused CSI acquisition.");
+            }
+            if let Some(ref dev_config) = self.apply_device_config {
+                if dev_config.mode == OperationMode::Receive {
+                    needs_acquisition_resume_after_config = true;
+                }
+            }
+        }
+
         if let Some(channel) = self.set_channel {
             if !(1..=14).contains(&channel) {
                 return Err(ControllerError::InvalidParams(format!(
                     "Invalid WiFi channel: {channel}. Must be between 1 and 14.",
                 )));
             }
-            // The send_esp32_command in Esp32Source returns Result<Vec<u8>, ControllerError>
-            // We can ignore the ACK payload Vec<u8> if not needed for control logic here.
+            info!("Controller: Setting ESP32 channel to {channel}");
             esp_source
                 .send_esp32_command(Esp32Command::SetChannel, Some(vec![channel]))
                 .await
-                .map(|_| ())?;
+                .map_err(|e| ControllerError::CommandFailed {
+                    command_name: "SetChannel".to_string(),
+                    details: e.to_string(),
+                })?;
         }
 
-        // 2. Apply Device Configuration
-        let mut mode_for_acquisition_logic: Option<OperationMode> = None;
+        let mut new_operation_mode_for_logic: Option<OperationMode> = None;
         if let Some(ref config_payload) = self.apply_device_config {
+            info!("Controller: Applying ESP32 device configuration: {:?}", config_payload);
             if config_payload.bandwidth == Bandwidth::Forty
                 && config_payload.secondary_channel == SecondaryChannel::None
             {
@@ -129,6 +151,11 @@ impl Controller for Esp32ControllerParams {
                     "40MHz bandwidth requires a secondary channel (Above or Below) to be set."
                         .to_string(),
                 ));
+            }
+            if config_payload.manual_scale > 3 && config_payload.csi_type == CsiType::HighThroughputLTF {
+                 warn!("Manual scale {} might be too high for HT-LTF, ESP32-S3 typically expects 0-3.", config_payload.manual_scale);
+            } else if config_payload.manual_scale > 1 && config_payload.csi_type == CsiType::LegacyLTF {
+                 warn!("Manual scale {} might be too high for L-LTF, ESP32 typically expects 0-1.", config_payload.manual_scale);
             }
 
             let cmd_data = vec![
@@ -141,35 +168,25 @@ impl Controller for Esp32ControllerParams {
             esp_source
                 .send_esp32_command(Esp32Command::ApplyDeviceConfig, Some(cmd_data))
                 .await
-                .map(|_| ())?;
-            mode_for_acquisition_logic = Some(config_payload.mode);
+                .map_err(|e| ControllerError::CommandFailed {
+                    command_name: "ApplyDeviceConfig".to_string(),
+                    details: e.to_string(),
+                })?;
+            new_operation_mode_for_logic = Some(config_payload.mode);
         }
 
-        // 3. Acquisition Control
-        if let Some(paused) = self.pause_acquisition {
-            let cmd = if paused {
-                Esp32Command::PauseAcquisition
-            } else {
-                Esp32Command::UnpauseAcquisition
-            };
-            esp_source.send_esp32_command(cmd, None).await.map(|_| ())?;
-        } else if let Some(mode) = mode_for_acquisition_logic {
-            let cmd = if mode == OperationMode::Receive {
-                Esp32Command::UnpauseAcquisition
-            } else {
-                Esp32Command::PauseAcquisition
-            };
-            esp_source.send_esp32_command(cmd, None).await.map(|_| ())?;
-        }
-
-        // 4. MAC Filters
         if let Some(true) = self.clear_all_mac_filters {
+            info!("Controller: Clearing all MAC filters on ESP32.");
             esp_source
                 .send_esp32_command(Esp32Command::WhitelistClear, None)
                 .await
-                .map(|_| ())?;
+                .map_err(|e| ControllerError::CommandFailed {
+                    command_name: "WhitelistClear".to_string(),
+                    details: e.to_string(),
+                })?;
         }
         if let Some(ref filters_to_add) = self.mac_filters_to_add {
+            info!("Controller: Adding {} MAC filter(s) to ESP32.", filters_to_add.len());
             for filter_pair in filters_to_add {
                 let mut filter_data = Vec::with_capacity(12);
                 filter_data.extend_from_slice(&filter_pair.src_mac);
@@ -177,54 +194,119 @@ impl Controller for Esp32ControllerParams {
                 esp_source
                     .send_esp32_command(Esp32Command::WhitelistAddMacPair, Some(filter_data))
                     .await
-                    .map(|_| ())?;
+                    .map_err(|e| ControllerError::CommandFailed {
+                        command_name: "WhitelistAddMacPair".to_string(),
+                        details: e.to_string(),
+                    })?;
             }
         }
 
-        // 5. WiFi Transmission Control
-        if let Some(paused) = self.pause_wifi_transmit {
-            let cmd = if paused {
-                Esp32Command::PauseWifiTransmit
+        if let Some(should_unpause_acq) = self.control_acquisition {
+            let cmd = if should_unpause_acq {
+                Esp32Command::UnpauseAcquisition
             } else {
-                Esp32Command::ResumeWifiTransmit
+                Esp32Command::PauseAcquisition
             };
-            esp_source.send_esp32_command(cmd, None).await.map(|_| ())?;
+            info!("Controller: Explicitly {} CSI acquisition.", if should_unpause_acq {"resuming"} else {"pausing"});
+            esp_source.send_esp32_command(cmd, None).await
+             .map_err(|e| ControllerError::CommandFailed {
+                command_name: format!("{:?}", cmd),
+                details: e.to_string(),
+            })?;
+        } else if needs_acquisition_resume_after_config || new_operation_mode_for_logic == Some(OperationMode::Receive) {
+            info!("Controller: Implicitly unpausing CSI acquisition due to Receive mode.");
+            esp_source.send_esp32_command(Esp32Command::UnpauseAcquisition, None).await
+             .map_err(|e| ControllerError::CommandFailed {
+                command_name: "UnpauseAcquisition (implicit)".to_string(),
+                details: e.to_string(),
+            })?;
+        } else if new_operation_mode_for_logic == Some(OperationMode::Transmit) {
+            info!("Controller: Implicitly pausing CSI acquisition due to Transmit mode.");
+            esp_source.send_esp32_command(Esp32Command::PauseAcquisition, None).await
+            .map_err(|e| ControllerError::CommandFailed {
+                command_name: "PauseAcquisition (implicit)".to_string(),
+                details: e.to_string(),
+            })?;
         }
 
-        // 6. Time Synchronization
+        if let Some(should_resume_tx) = self.control_wifi_transmit {
+            let cmd = if should_resume_tx {
+                Esp32Command::ResumeWifiTransmit
+            } else {
+                Esp32Command::PauseWifiTransmit
+            };
+            info!("Controller: Explicitly {} general WiFi transmit task.", if should_resume_tx {"resuming"} else {"pausing"});
+            esp_source.send_esp32_command(cmd, None).await
+             .map_err(|e| ControllerError::CommandFailed {
+                command_name: format!("{:?}", cmd),
+                details: e.to_string(),
+            })?;
+        } else if new_operation_mode_for_logic == Some(OperationMode::Transmit) {
+            info!("Controller: Implicitly pausing general WiFi transmit task due to custom Transmit mode.");
+            esp_source.send_esp32_command(Esp32Command::PauseWifiTransmit, None).await
+             .map_err(|e| ControllerError::CommandFailed {
+                command_name: "PauseWifiTransmit (implicit)".to_string(),
+                details: e.to_string(),
+            })?;
+        }
+
         if let Some(true) = self.synchronize_time {
+            info!("Controller: Initiating time synchronization with ESP32.");
             esp_source
                 .send_esp32_command(Esp32Command::SynchronizeTimeInit, None)
                 .await
-                .map(|_| ())?;
+                .map_err(|e| ControllerError::CommandFailed {
+                    command_name: "SynchronizeTimeInit".to_string(),
+                    details: e.to_string(),
+                })?;
+
             let time_us = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_err(|e| {
                     ControllerError::Execution(format!("System time error for sync: {e}"))
                 })?
                 .as_micros() as u64;
+
             esp_source
                 .send_esp32_command(
                     Esp32Command::SynchronizeTimeApply,
                     Some(time_us.to_le_bytes().to_vec()),
                 )
                 .await
-                .map(|_| ())?;
+                .map_err(|e| ControllerError::CommandFailed {
+                    command_name: "SynchronizeTimeApply".to_string(),
+                    details: e.to_string(),
+                })?;
+            info!("Controller: Time synchronization sequence sent.");
         }
 
-        // 7. Custom Frame Transmission
         if let Some(ref frame_params) = self.transmit_custom_frame {
+            info!("Controller: Transmitting custom frames: {:?}", frame_params);
+            if new_operation_mode_for_logic.is_some() && new_operation_mode_for_logic != Some(OperationMode::Transmit) {
+                 warn!("Transmitting custom frames typically requires OperationMode::Transmit. Current/new mode may not be optimal.");
+            }
+            if frame_params.n_reps <=0 || frame_params.pause_ms < 0 {
+                return Err(ControllerError::InvalidParams(
+                    "Custom frame n_reps must be > 0 and pause_ms >= 0.".to_string()
+                ));
+            }
+
             let mut tx_data = Vec::with_capacity(20);
             tx_data.extend_from_slice(&frame_params.dst_mac);
             tx_data.extend_from_slice(&frame_params.src_mac);
             tx_data.extend_from_slice(&frame_params.n_reps.to_le_bytes());
             tx_data.extend_from_slice(&frame_params.pause_ms.to_le_bytes());
+
             esp_source
                 .send_esp32_command(Esp32Command::TransmitCustomFrame, Some(tx_data))
                 .await
-                .map(|_| ())?;
+                .map_err(|e| ControllerError::CommandFailed {
+                    command_name: "TransmitCustomFrame".to_string(),
+                    details: e.to_string(),
+                })?;
         }
 
+        info!("Controller: ESP32ControllerParams applied successfully.");
         Ok(())
     }
 }
