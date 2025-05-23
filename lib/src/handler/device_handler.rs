@@ -1,5 +1,3 @@
-use std::fs;
-use std::path::PathBuf;
 use crate::FromConfig;
 use crate::adapters::{CsiDataAdapter, DataAdapterConfig};
 use crate::errors::{ControllerError, CsiAdapterError, DataSourceError, SinkError, TaskError};
@@ -7,6 +5,8 @@ use crate::network::rpc_message::{DataMsg, SourceType};
 use crate::sinks::{Sink, SinkConfig};
 use crate::sources::controllers::{Controller, ControllerParams};
 use crate::sources::{DataSourceConfig, DataSourceT};
+use std::fs;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 
@@ -21,6 +21,15 @@ pub struct DeviceHandlerConfig {
     #[serde(default)]
     pub adapter: Option<DataAdapterConfig>,
     pub sinks: Vec<SinkConfig>,
+}
+
+impl DeviceHandlerConfig {
+    /// Creates a list of device handlers configs from a yaml file
+    pub async fn from_yaml(file: PathBuf) -> Vec<DeviceHandlerConfig> {
+        let yaml = fs::read_to_string(file).unwrap();
+        
+        serde_yaml::from_str(&yaml).unwrap()
+    }
 }
 
 /// A handler for a single device: reads, adapts, and dispatches data
@@ -91,12 +100,6 @@ impl DeviceHandler {
             }
         });
         Ok(())
-    }
-    
-    pub async fn from_yaml(file: PathBuf) -> DeviceHandlerConfig {
-        let yaml = fs::read_to_string(file).unwrap();
-
-        serde_yaml::from_str(&yaml).unwrap()
     }
 }
 

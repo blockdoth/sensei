@@ -11,6 +11,7 @@ use lib::FromConfig;
 use lib::adapters::{CsiDataAdapter, DataAdapterConfig};
 use lib::csi_types::{Complex, CsiData};
 use lib::errors::NetworkError;
+use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
 use lib::network::rpc_message::SourceType::*;
 use lib::network::rpc_message::{AdapterMode, CtrlMsg};
 use lib::network::rpc_message::{CtrlMsg::*, DataMsg};
@@ -20,12 +21,15 @@ use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
 use lib::network::*;
+use lib::sinks::file::{FileConfig, FileSink};
 use lib::sources::DataSourceT;
 use lib::sources::csv::{CsvConfig, CsvSource};
 use lib::sources::netlink::NetlinkConfig;
 use log::*;
 use std::env;
 use std::net::SocketAddr;
+use std::ops::Deref;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -34,8 +38,6 @@ use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::{Mutex, broadcast, watch};
 use tokio::task::JoinHandle;
-use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
-use lib::sinks::file::{FileConfig, FileSink};
 
 #[derive(Clone)]
 pub struct SystemNode {
@@ -149,52 +151,19 @@ impl Run<SystemNodeConfig> for SystemNode {
         let connection_handler = Arc::new(self.clone());
 
         let sender_data_channel = connection_handler.send_data_channel.clone();
-        
 
-        // TODO: For every possible device, acquire a configuration
-        // TODO: Also acquire an adapter configuration
+        let default_config_path: PathBuf = "sensei/src/system_node/example_config.yaml"
+            .parse()
+            .unwrap();
 
-        let csv_config = CsvConfig {
-            path: "resources/test_data/csv/csi_data.csv".parse().unwrap(),
-            cell_delimiter: b',',
-            row_delimiter: b'\n',
-            header: true,
-            delay: 50,
-        };
-        let csv_adapter_config = DataAdapterConfig::CSV {};
-        let mut csv_adapter = <dyn CsiDataAdapter>::from_config(csv_adapter_config).await?;
+        let device_handler_configs: Vec<DeviceHandlerConfig> =
+            DeviceHandlerConfig::from_yaml(default_config_path).await;
 
-        let devices: Arc<Mutex<HashMap<u64, Box<dyn DataSourceT>>>> =
-            Arc::new(Mutex::new(HashMap::new()));
-
-        // TODO: Store devices onto node from a configuration
-
-        let csv_source = Box::new(CsvSource::new(csv_config).unwrap());
-
-        devices.lock().await.insert(0, csv_source);
-
-        // TODO: Start the read processes (tokio task per device?) and send read data to main thread
-
-        // Example sender which just spams packets
-        // The most important thing is the ability to clone send ends of channels around
-        tokio::spawn(async move {
-            let mut i = 0;
-            loop {
-                let mut output_buf: &mut [u8] = &mut [0u8; 4096];
-
-                for mut device in devices.lock().await.iter_mut() {
-                    let test_out = device.1.read(output_buf).await.unwrap();
-                    let test_data_msg = RawFrame {
-                        ts: 0f64,
-                        bytes: Vec::from(&mut *output_buf),
-                        source_type: SourceType::CSV,
-                    };
-                    let test_out_csi = csv_adapter.produce(test_data_msg).await.unwrap();
-                    sender_data_channel.send(test_out_csi.unwrap());
-                }
-                tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+        let handlers: Vec<Box<DeviceHandler>> = futures::future::join_all(device_handler_configs.iter().map(|x| {
+            async {
+                DeviceHandler::from_config(x.clone()).await.unwrap()
             }
-        });
+        })).await;
 
         TcpServer::serve(config.addr, connection_handler).await;
         Ok(())
