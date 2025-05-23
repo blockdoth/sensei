@@ -2,14 +2,14 @@ use crate::cli::*;
 // use crate::cli::{SubCommandsArgs, SystemNodeSubcommandArgs}; // SystemNodeSubcommandArgs not used here
 use crate::config::{OrchestratorConfig, SystemNodeConfig};
 use crate::module::*;
-use std::collections::HashMap;
 use lib::FromConfig;
+use std::collections::HashMap;
 
 use argh::{CommandInfo, FromArgs};
 use async_trait::async_trait;
 use lib::sources::esp32::{Esp32Source, Esp32SourceConfig};
 // use lib::FromConfig; // Not using FromConfig for adapter to keep changes minimal here
-use lib::adapters::{CsiDataAdapter}; // Removed esp32 module import here, will use full path
+use lib::adapters::CsiDataAdapter; // Removed esp32 module import here, will use full path
 use lib::csi_types::{Complex, CsiData};
 use lib::errors::NetworkError;
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
@@ -24,12 +24,12 @@ use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, sen
 
 use lib::sources::controllers::Controller; // For the .apply() method
 use lib::sources::controllers::esp32_controller::{
-    Esp32ControllerParams, // The parameters struct
-    Esp32DeviceConfigPayload, // Payload for device config
-    OperationMode as EspOperationMode, // Enum for operation mode
-    Bandwidth as EspBandwidth, // Enum for bandwidth
+    Bandwidth as EspBandwidth,               // Enum for bandwidth
+    CsiType as EspCsiType,                   // Enum for CSI type
+    Esp32ControllerParams,                   // The parameters struct
+    Esp32DeviceConfigPayload,                // Payload for device config
+    OperationMode as EspOperationMode,       // Enum for operation mode
     SecondaryChannel as EspSecondaryChannel, // Enum for secondary channel
-    CsiType as EspCsiType, // Enum for CSI type
 };
 
 use lib::network::*;
@@ -52,7 +52,9 @@ use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::{Mutex, broadcast, watch};
 use tokio::task::JoinHandle;
 
-use lib::network::rpc_message::RpcMessageKind::{Ctrl as RpcMessageKindCtrl, Data as RpcMessageKindData};
+use lib::network::rpc_message::RpcMessageKind::{
+    Ctrl as RpcMessageKindCtrl, Data as RpcMessageKindData,
+};
 
 /// The System Node is a sender and a receiver in the network of Sensei.
 /// It hosts the devices that send and receive CSI data, and is responsible for sending this data further to other receivers in the system.
@@ -108,30 +110,41 @@ impl ConnectionHandler for SystemNode {
                     }
                     return Err(NetworkError::Closed); // Indicate connection should close
                 }
-                Subscribe { device_id, mode } => { // device_id and mode are unused for now
-                    if send_channel.send(ChannelMsg::Subscribe).is_err(){
+                Subscribe { device_id, mode } => {
+                    // device_id and mode are unused for now
+                    if send_channel.send(ChannelMsg::Subscribe).is_err() {
                         warn!("Failed to send Subscribe to own handle_send task; already closed?");
                         return Err(NetworkError::UnableToConnect);
                     }
-                    info!("Client {} subscribed to data stream for device_id: {}", request.src_addr, device_id);
+                    info!(
+                        "Client {} subscribed to data stream for device_id: {}",
+                        request.src_addr, device_id
+                    );
                 }
-                Unsubscribe { device_id } => { // device_id is unused for now
-                     if send_channel.send(ChannelMsg::Unsubscribe).is_err(){
-                        warn!("Failed to send Unsubscribe to own handle_send task; already closed?");
+                Unsubscribe { device_id } => {
+                    // device_id is unused for now
+                    if send_channel.send(ChannelMsg::Unsubscribe).is_err() {
+                        warn!(
+                            "Failed to send Unsubscribe to own handle_send task; already closed?"
+                        );
                         return Err(NetworkError::UnableToConnect);
                     }
-                    info!("Client {} unsubscribed from data stream for device_id: {}", request.src_addr, device_id);
+                    info!(
+                        "Client {} unsubscribed from data stream for device_id: {}",
+                        request.src_addr, device_id
+                    );
                 }
                 m => {
-                    warn!("Received unhandled CtrlMsg: {:?}", m);
+                    warn!("Received unhandled CtrlMsg: {m:?}");
                     // todo!("{:?}", m); // Avoid panic on unhandled
                 }
             },
-            RpcMessageKindData { // SystemNode typically doesn't receive Data messages, it sends them.
+            RpcMessageKindData {
+                // SystemNode typically doesn't receive Data messages, it sends them.
                 data_msg,
                 device_id,
             } => {
-                warn!("Received unexpected DataMsg: {:?} for device_id: {}", data_msg, device_id);
+                warn!("Received unexpected DataMsg: {data_msg:?} for device_id: {device_id}");
                 // todo!();
             }
         }
