@@ -13,3 +13,18 @@
   sinks:
     - type: File
       file: "/dev/stdout"
+- device_id: 443
+  stype: ESP32
+  source:
+    type: Esp32
+    port_name: "12345"
+    baud_rate: 12345
+  controller:
+    type: Esp32
+    params:
+  adapter:
+    type: Esp32
+    scale_csi: true
+  sinks:
+    - type: File
+      file: "/dev/stdout"

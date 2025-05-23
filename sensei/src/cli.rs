@@ -1,5 +1,5 @@
 use std::net::{AddrParseError, SocketAddr};
-
+use std::path::PathBuf;
 use argh::FromArgs;
 
 use simplelog::{ColorChoice, CombinedLogger, LevelFilter, TermLogger, TerminalMode, WriteLogger};
@@ -42,12 +42,21 @@ pub struct SystemNodeSubcommandArgs {
     /// server port (default: 6969)
     #[argh(option, default = "6969")]
     pub port: u16,
+    
+    /// location of config file (default sensei/src/system_node/example_config.yaml)
+    #[argh(option, default = "default_device_configs()")]
+    pub device_configs: PathBuf,
+}
+
+fn default_device_configs() -> PathBuf {
+    "sensei/src/system_node/example_config.yaml".parse().unwrap()
 }
 
 impl SystemNodeSubcommandArgs {
     pub fn parse(&self) -> Result<SystemNodeConfig, AddrParseError> {
         Ok(SystemNodeConfig {
             addr: format!("{}:{}", self.addr, self.port).parse()?,
+            device_configs: self.device_configs.clone()
         })
     }
 }

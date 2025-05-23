@@ -39,12 +39,23 @@ use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::{Mutex, broadcast, watch};
 use tokio::task::JoinHandle;
 
+/// The System Node is a sender and a receiver in the network of Sensei.
+/// It hosts the devices that send and receive CSI data, and is responsible for sending this data further to other receivers in the system.
+/// 
+/// Devices can "ask" for the CSI data generated at a System Node by sending it a Subscribe message, specifying the device id.
+/// 
+/// The System Node can also adapt this CSI data to our universal standard, which lets it be used by other parts of Sensei, like the Visualiser.
+/// 
+/// # Arguments
+/// 
+/// send_data_channel: the System Node communicates which data should be sent to other receivers across its threads using this tokio channel
 #[derive(Clone)]
 pub struct SystemNode {
     send_data_channel: broadcast::Sender<DataMsg>, // Call .subscribe() on the sender in order to get a receiver
 }
 
 impl SubscribeDataChannel for SystemNode {
+    /// Creates a mew receiver for the System Nodes send data channel
     fn subscribe_data_channel(&self) -> broadcast::Receiver<DataMsg> {
         self.send_data_channel.subscribe()
     }
@@ -52,6 +63,14 @@ impl SubscribeDataChannel for SystemNode {
 
 #[async_trait]
 impl ConnectionHandler for SystemNode {
+    /// Handles receiving messages from other senders in the network.
+    /// This communicates with the sender function using channel messages.
+    /// 
+    /// # Types
+    ///    
+    /// - Connect/Disconnect
+    /// - Subscribe/Unsubscribe
+    /// - Configure
     async fn handle_recv(
         &self,
         request: RpcMessage,
@@ -92,6 +111,9 @@ impl ConnectionHandler for SystemNode {
         Ok(())
     }
 
+    /// Handles sending messages for the nodes to other receivers in the network. 
+    /// 
+    /// The node will only send messages to subscribers of relevant messages.
     async fn handle_send(
         &self,
         mut recv_command_channel: watch::Receiver<ChannelMsg>,
@@ -147,14 +169,17 @@ impl Run<SystemNodeConfig> for SystemNode {
         SystemNode { send_data_channel }
     }
 
+    /// Starts the system node
+    /// 
+    /// # Arguments
+    /// 
+    /// SystemNodeConfig: Specifies the target address
     async fn run(&self, config: SystemNodeConfig) -> Result<(), Box<dyn std::error::Error>> {
         let connection_handler = Arc::new(self.clone());
 
         let sender_data_channel = connection_handler.send_data_channel.clone();
 
-        let default_config_path: PathBuf = "sensei/src/system_node/example_config.yaml"
-            .parse()
-            .unwrap();
+        let default_config_path: PathBuf = config.device_configs;
 
         let device_handler_configs: Vec<DeviceHandlerConfig> =
             DeviceHandlerConfig::from_yaml(default_config_path).await;
