@@ -1130,7 +1130,7 @@ fn ui(f: &mut Frame, app_state: &AppState) {
     let csi_table = Table::new(rows, &table_widths)
         .header(table_header)
         .block(Block::default().borders(Borders::ALL).title(" CSI Data Packets "))
-        .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
+        .row_highlight_style(Style::default().add_modifier(Modifier::REVERSED))
         .highlight_symbol(">> ");
     f.render_widget(csi_table, table_area);
 
