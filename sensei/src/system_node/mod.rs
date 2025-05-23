@@ -1,16 +1,18 @@
 use crate::cli::*;
-use crate::cli::{SubCommandsArgs, SystemNodeSubcommandArgs};
+// use crate::cli::{SubCommandsArgs, SystemNodeSubcommandArgs}; // SystemNodeSubcommandArgs not used here
 use crate::config::{OrchestratorConfig, SystemNodeConfig};
 use crate::module::*;
+use lib::FromConfig;
 use std::collections::HashMap;
 
-use crate::system_node::rpc_message::RpcMessageKind::*;
 use argh::{CommandInfo, FromArgs};
 use async_trait::async_trait;
-use lib::FromConfig;
-use lib::adapters::{CsiDataAdapter, DataAdapterConfig};
+use lib::sources::esp32::{Esp32Source, Esp32SourceConfig};
+// use lib::FromConfig; // Not using FromConfig for adapter to keep changes minimal here
+use lib::adapters::CsiDataAdapter; // Removed esp32 module import here, will use full path
 use lib::csi_types::{Complex, CsiData};
 use lib::errors::NetworkError;
+use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
 use lib::network::rpc_message::SourceType::*;
 use lib::network::rpc_message::{AdapterMode, CtrlMsg};
 use lib::network::rpc_message::{CtrlMsg::*, DataMsg};
@@ -19,16 +21,30 @@ use lib::network::rpc_message::{RpcMessage, SourceType};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
+
+use lib::sources::controllers::Controller; // For the .apply() method
+use lib::sources::controllers::esp32_controller::{
+    Bandwidth as EspBandwidth,               // Enum for bandwidth
+    CsiType as EspCsiType,                   // Enum for CSI type
+    Esp32ControllerParams,                   // The parameters struct
+    Esp32DeviceConfigPayload,                // Payload for device config
+    OperationMode as EspOperationMode,       // Enum for operation mode
+    SecondaryChannel as EspSecondaryChannel, // Enum for secondary channel
+};
+
 use lib::network::*;
+use lib::sinks::file::{FileConfig, FileSink};
 use lib::sources::DataSourceT;
-use lib::sources::csv::{CsvConfig, CsvSource};
+// use lib::sources::csv::{CsvConfig, CsvSource}; // Removed CSV source
 #[cfg(target_os = "linux")]
-use lib::sources::netlink::NetlinkConfig;
+use lib::sources::netlink::NetlinkConfig; // Keep for conditional compilation
 use log::*;
 use std::env;
 use std::net::SocketAddr;
+use std::ops::Deref;
+use std::path::PathBuf;
 use std::sync::Arc;
-use std::thread::sleep;
+// use std::thread::sleep; // Not used
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncWriteExt;
 use tokio::net::tcp::OwnedWriteHalf;
@@ -36,12 +52,27 @@ use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::{Mutex, broadcast, watch};
 use tokio::task::JoinHandle;
 
+use lib::network::rpc_message::RpcMessageKind::{
+    Ctrl as RpcMessageKindCtrl, Data as RpcMessageKindData,
+};
+
+/// The System Node is a sender and a receiver in the network of Sensei.
+/// It hosts the devices that send and receive CSI data, and is responsible for sending this data further to other receivers in the system.
+///
+/// Devices can "ask" for the CSI data generated at a System Node by sending it a Subscribe message, specifying the device id.
+///
+/// The System Node can also adapt this CSI data to our universal standard, which lets it be used by other parts of Sensei, like the Visualiser.
+///
+/// # Arguments
+///
+/// send_data_channel: the System Node communicates which data should be sent to other receivers across its threads using this tokio channel
 #[derive(Clone)]
 pub struct SystemNode {
-    send_data_channel: broadcast::Sender<DataMsg>, // Call .subscribe() on the sender in order to get a receiver
+    send_data_channel: broadcast::Sender<DataMsg>,
 }
 
 impl SubscribeDataChannel for SystemNode {
+    /// Creates a mew receiver for the System Nodes send data channel
     fn subscribe_data_channel(&self) -> broadcast::Receiver<DataMsg> {
         self.send_data_channel.subscribe()
     }
@@ -49,6 +80,14 @@ impl SubscribeDataChannel for SystemNode {
 
 #[async_trait]
 impl ConnectionHandler for SystemNode {
+    /// Handles receiving messages from other senders in the network.
+    /// This communicates with the sender function using channel messages.
+    ///
+    /// # Types
+    ///
+    /// - Connect/Disconnect
+    /// - Subscribe/Unsubscribe
+    /// - Configure
     async fn handle_recv(
         &self,
         request: RpcMessage,
@@ -59,148 +98,166 @@ impl ConnectionHandler for SystemNode {
             request.msg, request.src_addr
         );
         match request.msg {
-            Ctrl(command) => match command {
+            RpcMessageKindCtrl(command) => match command {
                 Connect => {
                     let src = request.src_addr;
                     info!("Started connection with {src}");
                 }
                 Disconnect => {
-                    send_channel.send(ChannelMsg::Disconnect);
-                    return Err(NetworkError::Closed);
+                    // Correct way to signal disconnect to the sending task for this connection
+                    if send_channel.send(ChannelMsg::Disconnect).is_err() {
+                        warn!("Failed to send Disconnect to own handle_send task; already closed?");
+                    }
+                    return Err(NetworkError::Closed); // Indicate connection should close
                 }
                 Subscribe { device_id, mode } => {
-                    send_channel.send(ChannelMsg::Subscribe);
-
-                    info!("Subscribed to data stream");
+                    // device_id and mode are unused for now
+                    if send_channel.send(ChannelMsg::Subscribe).is_err() {
+                        warn!("Failed to send Subscribe to own handle_send task; already closed?");
+                        return Err(NetworkError::UnableToConnect);
+                    }
+                    info!(
+                        "Client {} subscribed to data stream for device_id: {}",
+                        request.src_addr, device_id
+                    );
                 }
                 Unsubscribe { device_id } => {
-                    send_channel.send(ChannelMsg::Unsubscribe);
-                    println!("Unsubscribed from data stream");
+                    // device_id is unused for now
+                    if send_channel.send(ChannelMsg::Unsubscribe).is_err() {
+                        warn!(
+                            "Failed to send Unsubscribe to own handle_send task; already closed?"
+                        );
+                        return Err(NetworkError::UnableToConnect);
+                    }
+                    info!(
+                        "Client {} unsubscribed from data stream for device_id: {}",
+                        request.src_addr, device_id
+                    );
                 }
                 m => {
-                    todo!("{:?}", m);
+                    warn!("Received unhandled CtrlMsg: {m:?}");
+                    // todo!("{:?}", m); // Avoid panic on unhandled
                 }
             },
-            Data {
+            RpcMessageKindData {
+                // SystemNode typically doesn't receive Data messages, it sends them.
                 data_msg,
                 device_id,
-            } => todo!(),
+            } => {
+                warn!("Received unexpected DataMsg: {data_msg:?} for device_id: {device_id}");
+                // todo!();
+            }
         }
         Ok(())
     }
 
+    /// Handles sending messages for the nodes to other receivers in the network.
+    ///
+    /// The node will only send messages to subscribers of relevant messages.
     async fn handle_send(
         &self,
         mut recv_command_channel: watch::Receiver<ChannelMsg>,
-        mut recv_data_channel: broadcast::Receiver<DataMsg>,
+        mut recv_data_channel: broadcast::Receiver<DataMsg>, // This is from the SystemNode's own broadcast
         mut send_stream: OwnedWriteHalf,
     ) -> Result<(), NetworkError> {
-        let mut sending = false;
+        let mut sending_active = false; // Renamed for clarity
         loop {
-            if recv_command_channel.has_changed().unwrap_or(false) {
-                let msg_opt = recv_command_channel.borrow_and_update().clone();
-                debug!("Received message {msg_opt:?} over channel");
-                match msg_opt {
-                    ChannelMsg::Disconnect => {
-                        send_message(&mut send_stream, Ctrl(CtrlMsg::Disconnect)).await;
-                        debug!("Send close confirmation");
-                        break;
+            tokio::select! {
+                biased; // Prioritize command changes
+                Ok(_) = recv_command_channel.changed() => {
+                    let msg_opt = recv_command_channel.borrow_and_update().clone();
+                    debug!("Received command {msg_opt:?} in handle_send");
+                    match msg_opt {
+                        ChannelMsg::Disconnect => {
+                            // We don't send Disconnect message here usually,
+                            // handle_recv signals this task to break by returning Err or closing channel.
+                            // Or, if a Disconnect message must be sent to client:
+                            // if send_message(&mut send_stream, Ctrl(CtrlMsg::Disconnect)).await.is_err() {
+                            //     warn!("Failed to send Disconnect confirmation to client");
+                            // }
+                            debug!("Disconnect command received in handle_send, terminating send loop.");
+                            return Ok(()); // Gracefully exit
+                        }
+                        ChannelMsg::Subscribe => {
+                            info!("Subscription activated for client, will start sending data.");
+                            sending_active = true;
+                        }
+                        ChannelMsg::Unsubscribe => {
+                            info!("Subscription deactivated for client, will stop sending data.");
+                            sending_active = false;
+                        }
+                        _ => (), // Other ChannelMsg types not relevant here
                     }
-                    ChannelMsg::Subscribe => {
-                        info!("Subscribed");
-                        sending = true;
+                }
+                // Only try to receive from data channel if we are actively sending
+                Ok(data_msg) = recv_data_channel.recv(), if sending_active => {
+                    // TODO: device_id should ideally come from the DataMsg if it's heterogeneous,
+                    // or be based on the subscription. For now, using a default.
+                    let device_id = 0; // Assuming ESP32 is device 0
+                    if tcp::send_message(
+                        &mut send_stream,
+                        RpcMessageKindData { data_msg, device_id },
+                    ).await.is_err() {
+                        warn!("Failed to send DataMsg to client, connection likely closed.");
+                        return Err(NetworkError::UnableToConnect); // Propagate error to close connection
                     }
-                    ChannelMsg::Unsubscribe => {
-                        info!("Unsubscribed");
-                        sending = false;
+                    debug!("Sent DataMsg to client"); // Changed to debug to reduce log spam
+                }
+                // Break loop if recv_data_channel is closed and no longer sending.
+                // recv() returns Err when channel is closed and empty.
+                else => {
+                    // This branch is taken if recv_data_channel.recv() errors (e.g. closed)
+                    // or if !sending_active and the recv was skipped.
+                    if sending_active { // If we were sending, an error on recv means the channel closed.
+                        warn!("Data broadcast channel closed while subscribed. Terminating send loop.");
+                        return Err(NetworkError::UnableToConnect);
                     }
-                    _ => (),
+                    // If not sending_active, we might just be waiting for commands.
+                    // However, if recv_command_channel also closes, this select might livelock.
+                    // A small yield or timeout can prevent tight loops if both conditions are inactive.
+                    tokio::task::yield_now().await;
                 }
             }
-
-            if sending {
-                let Ok(data_msg) = recv_data_channel.recv().await else {
-                    todo!()
-                };
-                let device_id = 0;
-                tcp::send_message(
-                    &mut send_stream,
-                    Data {
-                        data_msg,
-                        device_id,
-                    },
-                )
-                .await;
-                info!("Sending")
-            }
         }
-        Ok(())
+        // Ok(()) // Loop is infinite unless broken by Disconnect or error
     }
 }
 
 impl Run<SystemNodeConfig> for SystemNode {
     fn new(config: SystemNodeConfig) -> Self {
-        let (send_data_channel, _) = broadcast::channel::<DataMsg>(16);
+        let (send_data_channel, _) = broadcast::channel::<DataMsg>(16); // Buffer size 16
         SystemNode { send_data_channel }
     }
 
+    /// Starts the system node
+    ///
+    /// # Arguments
+    ///
+    /// SystemNodeConfig: Specifies the target address
     async fn run(&self, config: SystemNodeConfig) -> Result<(), Box<dyn std::error::Error>> {
         let connection_handler = Arc::new(self.clone());
 
         let sender_data_channel = connection_handler.send_data_channel.clone();
 
-        // TODO: For every possible device, acquire a configuration
-        // TODO: Also acquire an adapter configuration
+        let default_config_path: PathBuf = config.device_configs;
 
-        let csv_config = CsvConfig {
-            path: "resources/test_data/csv/csi_data.csv".parse().unwrap(),
-            cell_delimiter: b',',
-            row_delimiter: b'\n',
-            header: true,
-            delay: 50,
-        };
-        let csv_adapter_config = DataAdapterConfig::CSV {};
-        let mut csv_adapter = <dyn CsiDataAdapter>::from_config(csv_adapter_config).await?;
+        let device_handler_configs: Vec<DeviceHandlerConfig> =
+            DeviceHandlerConfig::from_yaml(default_config_path).await;
 
-        //only on linux
-        #[cfg(target_os = "linux")]
-        {
-            let iwl_config = NetlinkConfig { group: 0 };
-            let iwl_adapter_config = DataAdapterConfig::Iwl { scale_csi: true };
-        }
-
-        let devices: Arc<Mutex<HashMap<u64, Box<dyn DataSourceT>>>> =
+        let handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>> =
             Arc::new(Mutex::new(HashMap::new()));
 
-        // TODO: Store devices onto node from a configuration
+        for cfg in device_handler_configs {
+            handlers.lock().await.insert(
+                cfg.device_id,
+                DeviceHandler::from_config(cfg.clone()).await.unwrap(),
+            );
+        }
 
-        let csv_source = Box::new(CsvSource::new(csv_config).unwrap());
+        info!("ESP32 data reading task started.");
 
-        devices.lock().await.insert(0, csv_source);
-
-        // TODO: Start the read processes (tokio task per device?) and send read data to main thread
-
-        // Example sender which just spams packets
-        // The most important thing is the ability to clone send ends of channels around
-        tokio::spawn(async move {
-            let mut i = 0;
-            loop {
-                let mut output_buf: &mut [u8] = &mut [0u8; 4096];
-
-                for mut device in devices.lock().await.iter_mut() {
-                    let test_out = device.1.read(output_buf).await.unwrap();
-                    let test_data_msg = RawFrame {
-                        ts: 0f64,
-                        bytes: Vec::from(&mut *output_buf),
-                        source_type: SourceType::CSV,
-                    };
-                    let test_out_csi = csv_adapter.produce(test_data_msg).await.unwrap();
-                    sender_data_channel.send(test_out_csi.unwrap());
-                }
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-            }
-        });
-
+        // Start TCP server to handle client connections
+        info!("Starting TCP server on {}...", config.addr);
         TcpServer::serve(config.addr, connection_handler).await;
         Ok(())
     }

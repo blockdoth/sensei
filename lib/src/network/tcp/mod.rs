@@ -20,7 +20,7 @@ use tokio::{
 pub mod client;
 pub mod server;
 
-pub const MAX_MESSAGE_LENGTH: usize = 1024;
+pub const MAX_MESSAGE_LENGTH: usize = 4096;
 
 pub async fn read_message(
     read_stream: &mut OwnedReadHalf,

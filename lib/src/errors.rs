@@ -4,7 +4,7 @@ use thiserror::Error;
 /// Errors that can occur during network communication with sources or clients.
 #[derive(Error, Debug)]
 pub enum NetworkError {
-    /// I/O-related errors 
+    /// I/O-related errors
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
@@ -298,4 +298,3 @@ pub enum TaskError {
     #[error("Controller Error: {0}")]
     ControllerError(#[from] ControllerError),
 }
-

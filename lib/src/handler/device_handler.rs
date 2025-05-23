@@ -5,6 +5,8 @@ use crate::network::rpc_message::{DataMsg, SourceType};
 use crate::sinks::{Sink, SinkConfig};
 use crate::sources::controllers::{Controller, ControllerParams};
 use crate::sources::{DataSourceConfig, DataSourceT};
+use std::fs;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 
@@ -32,6 +34,16 @@ pub struct DeviceHandlerConfig {
     pub sinks: Vec<SinkConfig>,
 }
 
+impl DeviceHandlerConfig {
+    /// Creates a list of device handlers configs from a yaml file
+    pub async fn from_yaml(file: PathBuf) -> Vec<DeviceHandlerConfig> {
+        let yaml = fs::read_to_string(file).unwrap();
+
+        serde_yaml::from_str(&yaml).unwrap()
+    }
+}
+
+/// A handler for a single device: reads, adapts, and dispatches data
 /// A handler responsible for consuming data from a source,
 /// optionally adapting it, and dispatching it to one or more sinks.
 /// It runs on it's own thread
@@ -97,7 +109,7 @@ impl DeviceHandler {
                                         Ok(Some(csi_msg)) => vec![csi_msg],
                                         Ok(None) => continue, // need more data
                                         Err(err) => {
-                                            log::error!("Adapter error on device {device_id}: {err:?}");
+                                            //log::error!("Adapter error on device {device_id}: {err:?}"); THIS WILL LOG ERRORS IF THERE IS SIMPLY NO DATA
                                             continue;
                                         }
                                     }
@@ -146,6 +158,8 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
     async fn from_config(config: DeviceHandlerConfig) -> Result<Box<Self>, TaskError> {
         // instantiate source
         let mut source = <dyn DataSourceT>::from_config(config.source).await?;
+
+        source.start().await?;
 
         // apply controller if configured
         if let Some(controller_cfg) = config.controller {
