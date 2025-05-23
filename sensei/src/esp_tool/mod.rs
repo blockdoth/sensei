@@ -208,8 +208,8 @@ impl AppState {
             max_log_messages: 200,
             spam_config_src_mac: [0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC],
             spam_config_dst_mac: [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
-            spam_config_n_reps: 100,
-            spam_config_pause_ms: 20,
+            spam_config_n_reps: 2400,
+            spam_config_pause_ms: 100,
             is_editing_spam_config: false,
             current_editing_field: SpamConfigField::SrcMacOctet(0),
         }
