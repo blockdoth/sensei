@@ -1,5 +1,8 @@
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
+use log::LevelFilter;
+use serialport::SerialPort;
+
 pub const DEFAULT_ADDRESS: SocketAddr =
     SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
 
@@ -20,9 +23,27 @@ pub struct VisualiserConfig {
     pub ui_type: String,
 }
 
+pub struct EspToolConfig {
+    pub serial_port: String,
+}
+
+pub struct GlobalConfig {
+    pub log_level: LevelFilter,
+}
+
 pub enum ServiceConfig {
     One(OrchestratorConfig),
     Two(RegistryConfig),
     Three(SystemNodeConfig),
     Four(VisualiserConfig),
+    Five(EspToolConfig),
+}
+
+pub trait Run<ServiceConfig> {
+    fn new() -> Self;
+    async fn run(
+        &mut self,
+        global_config: GlobalConfig,
+        config: ServiceConfig,
+    ) -> Result<(), Box<dyn std::error::Error>>;
 }

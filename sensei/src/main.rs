@@ -1,9 +1,8 @@
 mod cli;
-mod config;
 mod esp_tool;
-mod module;
 mod orchestrator;
 mod registry;
+mod services;
 mod system_node;
 mod visualiser;
 
@@ -12,8 +11,9 @@ use crate::registry::*;
 use crate::system_node::*;
 use crate::visualiser::*;
 use cli::*;
+use esp_tool::EspTool;
 use log::*;
-use module::Run;
+use services::Run;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
@@ -25,7 +25,6 @@ use std::fs::File;
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Args = argh::from_env();
-    debug!("Parsed args");
 
     if !matches!(&args.subcommand, SubCommandsArgs::Five(_)) {
         CombinedLogger::init(vec![
@@ -55,37 +54,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Starting ESP Test Tool..."); // Simple console feedback before TUI takes over
     }
 
+    debug!("Parsed args and initialized CombinedLogger");
+    let global_args = args.parse_global_config()?;
     match &args.subcommand {
-        SubCommandsArgs::One(node_args) => {
-            SystemNode::new(node_args.parse()?)
-                .run(node_args.parse()?)
-                .await?
-        }
-        SubCommandsArgs::Two(registry_args) => {
-            Registry::new(registry_args.parse()?)
-                .run(registry_args.parse()?)
-                .await?
-        }
-        SubCommandsArgs::Three(orchestrator_args) => {
-            Orchestrator::new(orchestrator_args.parse()?)
-                .run(orchestrator_args.parse()?)
-                .await?
-        }
-        SubCommandsArgs::Four(visualiser_args) => {
-            Visualiser::new(visualiser_args.parse()?)
-                .run(visualiser_args.parse()?)
-                .await?
-        }
-        SubCommandsArgs::Five(esp_tool_args) => {
-            // Assuming cli.rs has `pub mod esp_tool;` and src/esp_tool.rs contains the function
-            esp_tool::run_esp_test_subcommand(esp_tool_args.clone()).await?;
-            // .clone() is used on esp_tool_args because the match arm borrows args.subcommand,
-            // and run_esp_test_subcommand takes ownership. EspToolSubcommandArgs should be Clone.
-            // Ensure EspToolSubcommandArgs in cli.rs derives Clone:
-            // #[derive(FromArgs, Debug, Clone)]
-            // #[argh(subcommand, name = "esp-tool")]
-            // pub struct EspToolSubcommandArgs { ... }
-        }
+        SubCommandsArgs::One(args) => SystemNode::new().run(global_args, args.parse()?).await?,
+        SubCommandsArgs::Two(args) => Registry::new().run(global_args, args.parse()?).await?,
+        SubCommandsArgs::Three(args) => Orchestrator::new().run(global_args, args.parse()?).await?,
+        SubCommandsArgs::Four(args) => Visualiser::new().run(global_args, args.parse()?).await?,
+        SubCommandsArgs::Five(args) => EspTool::new().run(global_args, args.parse()?).await?,
     }
     Ok(())
 }
