@@ -3,6 +3,7 @@ pub mod csv;
 pub mod esp32;
 #[cfg(target_os = "linux")]
 pub mod netlink;
+pub mod tcp;
 
 use crate::FromConfig;
 use crate::errors::DataSourceError;
@@ -10,6 +11,7 @@ use crate::errors::TaskError;
 use crate::sources::controllers::Controller;
 use std::any::Any;
 use std::net::SocketAddr;
+use crate::network::rpc_message::DataMsg;
 
 pub const BUFSIZE: usize = 65535;
 
@@ -36,11 +38,14 @@ pub trait DataSourceT: Send + Any {
     /// just not populated any further.
     async fn stop(&mut self) -> Result<(), DataSourceError>;
 
+    async fn read_buf(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError>;
+
     /// Read data from source
     /// ---------------------
     /// Copy one "packet" (meaning being source specific) into the buffer and report
     /// its size.
     async fn read(&mut self) -> Result<Option<DataMsg>, DataSourceError>;
+
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
@@ -49,6 +54,7 @@ pub enum DataSourceConfig {
     #[cfg(target_os = "linux")]
     Netlink(netlink::NetlinkConfig),
     Esp32(esp32::Esp32SourceConfig),
+    Tcp(tcp::TCPConfig),
 }
 
 #[async_trait::async_trait]
@@ -61,6 +67,9 @@ impl FromConfig<DataSourceConfig> for dyn DataSourceT {
             }
             DataSourceConfig::Esp32(cfg) => {
                 Box::new(esp32::Esp32Source::new(cfg).map_err(TaskError::DataSourceError)?)
+            }
+            DataSourceConfig::Tcp(cfg) => {
+                Box::new(tcp::TCPSource::new(cfg).map_err(TaskError::DataSourceError)?)
             }
         };
         Ok(source)

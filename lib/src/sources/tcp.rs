@@ -1,77 +1,72 @@
 use crate::errors::DataSourceError;
 use crate::sources::DataSourceT;
-use crate::sources::controllers::Controller;
-use crate::network::tcp::{TCPClient, Connection};
-use crate::network::rpc_messages::{RpcMessage, RpcMessageKind, DataMsg }
+use crate::network::tcp::client::TcpClient;
+use crate::network::rpc_message::{RpcMessage, RpcMessageKind, DataMsg};
 use std::net::SocketAddr;
-
 use log::trace;
-use serde::{Deserialize, Serialize};
 
-// Configuration structure for a TCP source.
-///
-/// This struct is deserializable from YAML config files
-#[derive(Serialize, Debug, Deserialize, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct TCPConfig {
-    target_addr: SocketAddr
+    target_addr: SocketAddr,
 }
 
-/// TCP-based implementation of the [`DataSourceT`] trait.
-///
-/// 
 pub struct TCPSource {
-    // whatever needs to be there
-    pub client: TCPClient,
+    client: TcpClient,
     target_addr: SocketAddr,
 }
 
 impl TCPSource {
-    /// Create a new [`NetlinkSource`] from a configuration struct.
-    ///
-    /// # Errors
-    /// Returns [`DataSourceError`] if configuration is invalid.
     pub fn new(config: TCPConfig) -> Result<Self, DataSourceError> {
-        trace!("Creating new tcp source ");
+        trace!("Creating new TCPSource for {}", config.target_addr);
         Ok(Self {
-            client: TCPClient::new(),
+            client: TcpClient::new(),
             target_addr: config.target_addr,
         })
     }
 }
 
-/// Implements the CSI data source trait for tcp communication
-///
-/// Handles startup, shutdown, and frame-by-frame payload reading from the
-/// Linux netlink connector interface.
 #[async_trait::async_trait]
 impl DataSourceT for TCPSource {
     async fn start(&mut self) -> Result<(), DataSourceError> {
-        trace!(
-            "Connecting to tcp socket with Socket adress{0}", target_addr
-        );
-        client.connect(self.target_addr).await;
+        trace!("Connecting to TCP socket at {}", self.target_addr);
+        self.client
+            .connect(self.target_addr)
+            .await
+            .map_err(DataSourceError::from)?;
         Ok(())
-        
     }
 
     async fn stop(&mut self) -> Result<(), DataSourceError> {
-        trace!(
-            "Stopping data collection from tcp",
-        );
-        client.disconnect(self.target_addr).await;
+        trace!("Disconnecting from TCP socket at {}", self.target_addr);
+        self.client
+            .disconnect(self.target_addr)
+            .await
+            .map_err(DataSourceError::from)?;
         Ok(())
     }
 
-    async fn read(&mut self, msg: DataMsg) -> Result<usize, DataSourceError> {
-        // whatever needs to be done to read the connection
-        let rpcmsg = client.read_message(self.target_addr).await;
-        match rpcmsg {
-            RpcMessage{ msg , ...} {
-                match msg {
-                    RpcMessageKind::DataMsg
-                }
+    async fn read_buf(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError> {
+        // you can either proxy to the client or leave unimplemented
+        Err(DataSourceError::ReadBuf)
+    }
+
+    async fn read(&mut self) -> Result<Option<DataMsg>, DataSourceError> {
+        let rpcmsg: RpcMessage = self
+            .client
+            .read_message(self.target_addr)
+            .await
+            .map_err(DataSourceError::from)?;
+
+        match rpcmsg.msg {
+            RpcMessageKind::Ctrl(_ctrl_msg) => {
+                // control messages carry no data payload
+                Ok(None)
             }
-            
+            RpcMessageKind::Data { data_msg, .. } => {
+                // return the actual data payload
+                Ok(Some(data_msg))
+            }
         }
     }
 }
+

@@ -42,6 +42,9 @@ pub enum DataSourceError {
     #[error("Couldnt parse packet: {0}")]
     ParsingError(String),
 
+    #[error("Tcp source error: {0}")]
+    NetworkError(#[from] NetworkError),
+
     #[error("Incomplete packet (Source handler bug)")]
     IncompletePacket,
 
@@ -54,6 +57,7 @@ pub enum DataSourceError {
     #[error("Tried to use unimplemented feature: {0}")]
     NotImplemented(String),
 
+
     #[error(
         "Permission denied: application lacks sufficient privileges. See `README.md` for details on permissions."
     )]
@@ -61,6 +65,9 @@ pub enum DataSourceError {
 
     #[error("Read before starting (must call `start` before)")]
     ReadBeforeStart,
+
+    #[error("Do not use method read_buf")]
+    ReadBuf,
 }
 
 #[derive(Debug, Error)]

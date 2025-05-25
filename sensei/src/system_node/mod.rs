@@ -188,7 +188,7 @@ impl Run<SystemNodeConfig> for SystemNode {
                 let mut output_buf: &mut [u8] = &mut [0u8; 4096];
 
                 for mut device in devices.lock().await.iter_mut() {
-                    let test_out = device.1.read(output_buf).await.unwrap();
+                    let test_out = device.1.read_buf(output_buf).await.unwrap();
                     let test_data_msg = RawFrame {
                         ts: 0f64,
                         bytes: Vec::from(&mut *output_buf),
