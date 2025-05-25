@@ -1,12 +1,12 @@
-use std::net::{AddrParseError, SocketAddr};
-
-use argh::FromArgs;
-
-use simplelog::{ColorChoice, CombinedLogger, LevelFilter, TermLogger, TerminalMode, WriteLogger};
-
-use crate::config::{OrchestratorConfig, RegistryConfig, SystemNodeConfig, VisualiserConfig};
-
 use crate::esp_tool;
+use crate::services::{
+    EspToolConfig, GlobalConfig, OrchestratorConfig, RegistryConfig, SystemNodeConfig,
+    VisualiserConfig,
+};
+use anyhow::Error;
+use argh::FromArgs;
+use simplelog::{ColorChoice, CombinedLogger, LevelFilter, TermLogger, TerminalMode, WriteLogger};
+use std::net::{AddrParseError, SocketAddr};
 
 /// A simple app to perform collection from configured sources
 #[derive(FromArgs)]
@@ -19,9 +19,16 @@ pub struct Args {
     pub subcommand: SubCommandsArgs,
 }
 
-pub struct GlobalConfig {
-    pub target_addr: SocketAddr,
-    pub tui: bool,
+impl Args {
+    pub fn parse_global_config(&self) -> Result<GlobalConfig, Error> {
+        Ok(GlobalConfig {
+            log_level: self.level,
+        })
+    }
+}
+
+pub trait ConfigFromCli<Config> {
+    fn parse(&self) -> Result<Config, Error>;
 }
 
 #[derive(FromArgs)]
@@ -47,8 +54,8 @@ pub struct SystemNodeSubcommandArgs {
     pub port: u16,
 }
 
-impl SystemNodeSubcommandArgs {
-    pub fn parse(&self) -> Result<SystemNodeConfig, AddrParseError> {
+impl ConfigFromCli<SystemNodeConfig> for SystemNodeSubcommandArgs {
+    fn parse(&self) -> Result<SystemNodeConfig, Error> {
         Ok(SystemNodeConfig {
             addr: format!("{}:{}", self.addr, self.port).parse()?,
         })
@@ -60,8 +67,8 @@ impl SystemNodeSubcommandArgs {
 #[argh(subcommand, name = "registry")]
 pub struct RegistrySubcommandArgs {}
 
-impl RegistrySubcommandArgs {
-    pub fn parse(&self) -> Result<RegistryConfig, AddrParseError> {
+impl ConfigFromCli<RegistryConfig> for RegistrySubcommandArgs {
+    fn parse(&self) -> Result<RegistryConfig, Error> {
         Ok(RegistryConfig { targets: vec![] })
     }
 }
@@ -78,8 +85,8 @@ pub struct OrchestratorSubcommandArgs {
     pub tui: bool,
 }
 
-impl OrchestratorSubcommandArgs {
-    pub fn parse(&self) -> Result<OrchestratorConfig, AddrParseError> {
+impl ConfigFromCli<OrchestratorConfig> for OrchestratorSubcommandArgs {
+    fn parse(&self) -> Result<OrchestratorConfig, Error> {
         // TODO input validation
         Ok(OrchestratorConfig {
             targets: self
@@ -100,11 +107,11 @@ pub struct VisualiserSubcommandArgs {
     pub target: String,
 
     /// height of the eventual window
-    #[argh(option, default = "default_height()")]
+    #[argh(option, default = "600")]
     pub height: usize,
 
     /// width of the eventual window
-    #[argh(option, default = "default_width()")]
+    #[argh(option, default = "800")]
     pub width: usize,
 
     /// using tui (ratatui, default) or gui (plotters, minifb)
@@ -112,16 +119,8 @@ pub struct VisualiserSubcommandArgs {
     pub ui_type: String,
 }
 
-fn default_height() -> usize {
-    600
-}
-
-fn default_width() -> usize {
-    800
-}
-
-impl VisualiserSubcommandArgs {
-    pub fn parse(&self) -> Result<VisualiserConfig, AddrParseError> {
+impl ConfigFromCli<VisualiserConfig> for VisualiserSubcommandArgs {
+    fn parse(&self) -> Result<VisualiserConfig, Error> {
         // TODO input validation
         Ok(VisualiserConfig {
             target: self.target.parse()?,
@@ -134,7 +133,15 @@ impl VisualiserSubcommandArgs {
 #[derive(FromArgs, Debug, Clone)]
 #[argh(subcommand, name = "esp-tool")]
 pub struct EspToolSubcommandArgs {
-    /// serial port at which the ESP32 is connected (e.g., /dev/ttyUSB0 or COM3)
-    #[argh(option)]
-    pub port: String,
+    /// serial port
+    #[argh(option, default = "String::from(\"/dev/ttyUSB0\")")]
+    pub serial_port: String,
+}
+
+impl ConfigFromCli<EspToolConfig> for EspToolSubcommandArgs {
+    fn parse(&self) -> Result<EspToolConfig, Error> {
+        Ok(EspToolConfig {
+            serial_port: self.serial_port.clone(), // TODO remove clone
+        })
+    }
 }
