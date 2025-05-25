@@ -1,7 +1,5 @@
-use crate::cli::{GlobalConfig, OrchestratorSubcommandArgs, VisualiserSubcommandArgs};
-use crate::config::{DEFAULT_ADDRESS, OrchestratorConfig, VisualiserConfig};
-use crate::module::Run;
 use crate::orchestrator::Orchestrator;
+use crate::services::{GlobalConfig, Run, VisualiserConfig};
 use crate::visualiser::GraphType::Amplitude;
 use async_trait::async_trait;
 use charming::series::Scatter;
@@ -18,7 +16,6 @@ use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler};
 use log::{debug, info, warn};
-use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::crossterm::cursor::{Hide, Show};
 use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture, Event, KeyCode};
@@ -49,36 +46,35 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::{Mutex, watch};
-use warp::Filter;
 
 pub struct Visualiser {
     // This seemed to me the best way to structure the data, as the socketaddr is a primary key for each node, and each device has a unique id only within a node
     #[allow(clippy::type_complexity)]
     data: Arc<Mutex<HashMap<SocketAddr, HashMap<u64, Vec<CsiData>>>>>, // Nodes x Devices x CsiData over time
-    target_addr: SocketAddr,
-    ui_type: String,
 }
 
 impl Run<VisualiserConfig> for Visualiser {
-    fn new(config: VisualiserConfig) -> Self {
+    fn new() -> Self {
         Visualiser {
             data: Arc::new(Default::default()),
-            target_addr: config.target,
-            ui_type: config.ui_type,
         }
     }
 
-    async fn run(&self, config: VisualiserConfig) -> Result<(), Box<dyn std::error::Error>> {
+    async fn run(
+        &mut self,
+        global_config: GlobalConfig,
+        config: VisualiserConfig,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // Technically, the visualiser has cli tools for connecting to multiple nodes
         // At the moment, it is sufficient to connect to one target node on startup
         // Manually start the subscription by typing subscribe
         let client = Arc::new(Mutex::new(TcpClient::new()));
-        self.client_task(client.clone(), self.target_addr).await;
-        self.receive_data_task(self.data.clone(), client.clone(), self.target_addr);
+        self.client_task(client.clone(), config.target).await;
+        self.receive_data_task(self.data.clone(), client.clone(), config.target);
 
         io::stdout().flush().await;
 
-        if (self.ui_type == "tui") {
+        if (config.ui_type == "tui") {
             self.plot_data_tui().await?;
         } else {
             self.plot_data_gui().await?;

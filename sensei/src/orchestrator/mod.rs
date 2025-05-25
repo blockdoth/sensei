@@ -1,6 +1,5 @@
-use crate::cli::{self, GlobalConfig, OrchestratorSubcommandArgs, SubCommandsArgs};
-use crate::config::{DEFAULT_ADDRESS, OrchestratorConfig};
-use crate::module::*;
+use crate::cli::{self, OrchestratorSubcommandArgs, SubCommandsArgs};
+use crate::services::{DEFAULT_ADDRESS, GlobalConfig, OrchestratorConfig, Run};
 use lib::network::rpc_message::CtrlMsg::*;
 use lib::network::rpc_message::RpcMessage;
 use lib::network::rpc_message::RpcMessageKind::Ctrl;
@@ -26,14 +25,17 @@ pub struct Orchestrator {
 }
 
 impl Run<OrchestratorConfig> for Orchestrator {
-    fn new(config: OrchestratorConfig) -> Self {
+    fn new() -> Self {
         Orchestrator {
             client: Arc::new(Mutex::new(TcpClient::new())),
         }
     }
-
-    async fn run(&self, config: OrchestratorConfig) -> Result<(), Box<dyn std::error::Error>> {
-        for target_addr in config.targets.into_iter() {
+    async fn run(
+        &mut self,
+        global_config: GlobalConfig,
+        config: OrchestratorConfig,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        for target_addr in config.targets.clone() {
             Self::connect(&self.client, target_addr).await
         }
         self.cli_interface().await;

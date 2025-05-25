@@ -1,14 +1,11 @@
 use std::{collections::HashMap, sync::Arc};
 
-use crate::{
-    cli::{GlobalConfig, RegistrySubcommandArgs, SubCommandsArgs},
-    config::RegistryConfig,
-    module::*,
-};
 use anyhow::Ok;
 use lib::network::rpc_message::RpcMessage;
 use log::*;
 use std::net::SocketAddr;
+
+use crate::services::{GlobalConfig, RegistryConfig, Run};
 
 pub struct Registry {
     host_table: HashMap<HostId, HostInfo>,
@@ -38,14 +35,18 @@ struct DeviceInfo {
 }
 
 impl Run<RegistryConfig> for Registry {
-    fn new(config: RegistryConfig) -> Self {
+    fn new() -> Self {
         Registry {
             host_table: HashMap::new(),
             device_table: HashMap::new(),
         }
     }
 
-    async fn run(&self, config: RegistryConfig) -> Result<(), Box<dyn std::error::Error>> {
+    async fn run(
+        &mut self,
+        global_config: GlobalConfig,
+        config: RegistryConfig,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // info!("Starting registry on address {}", config.targets);
         loop {
             println!("Balls");

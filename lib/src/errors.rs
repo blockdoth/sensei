@@ -1,4 +1,4 @@
-use crate::adapters::{csv::CSVAdapterError}; // Assuming AtherosAdapterError is also defined if used
+use crate::adapters::csv::CSVAdapterError; // Assuming AtherosAdapterError is also defined if used
 use thiserror::Error;
 
 /// Errors that can occur during network communication with sources or clients.
@@ -284,7 +284,10 @@ pub enum ControllerError {
 
     /// A specific command sent by the controller to the device/source failed.
     #[error("Command '{command_name}' failed: {details}")]
-    CommandFailed { command_name: String, details: String },
+    CommandFailed {
+        command_name: String,
+        details: String,
+    },
 
     /// Timeout waiting for an acknowledgment (ACK) from the device.
     #[error("Timeout waiting for ACK for command/action: {0}")]
