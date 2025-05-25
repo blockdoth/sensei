@@ -63,7 +63,7 @@ pub trait Controller: Send + Sync {
 pub enum ControllerParams {
     #[cfg(target_os = "linux")]
     Netlink(netlink_controller::NetlinkControllerParams),
-    Esp32(esp32_controller::Esp32ControllerParams),
+    Esp32(esp32_controller::Esp32Controller),
     // Extendable
 }
 
