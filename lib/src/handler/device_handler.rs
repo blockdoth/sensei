@@ -1,9 +1,10 @@
 use crate::FromConfig;
-use crate::adapters::{CsiDataAdapter, DataAdapterConfig};
+use crate::adapters::*;
 use crate::errors::{ControllerError, CsiAdapterError, DataSourceError, SinkError, TaskError};
 use crate::network::rpc_message::{DataMsg, SourceType};
-use crate::sinks::{Sink, SinkConfig};
-use crate::sources::controllers::{Controller, ControllerParams};
+use crate::sinks::tcp::*;
+use crate::sinks::*;
+use crate::sources::controllers::*;
 use crate::sources::{DataSourceConfig, DataSourceT};
 use std::sync::Arc;
 use tokio::sync::watch;
@@ -131,16 +132,31 @@ impl DeviceHandler {
 impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
     async fn from_config(config: DeviceHandlerConfig) -> Result<Box<Self>, TaskError> {
         // instantiate source
-        let mut source = <dyn DataSourceT>::from_config(config.source).await?;
+        let mut source = <dyn DataSourceT>::from_config(config.source.clone()).await?;
 
         // apply controller if configured
-        if let Some(controller_cfg) = config.controller {
+        if let Some(controller_cfg) = config.controller.clone() {
+            // check that controller is the correct one to apply to the source
+            match (&controller_cfg, &config.source) {
+                (ControllerParams::Esp32(_), DataSourceConfig::Esp32(_))
+                | (ControllerParams::Netlink(_), DataSourceConfig::Netlink(_))
+                | (ControllerParams::Tcp(_), DataSourceConfig::Tcp(_)) => {}
+                _ => return Err(TaskError::IncorrectController),
+            }
             let controller: Box<dyn Controller> =
                 <dyn Controller>::from_config(controller_cfg).await?;
             controller.apply(source.as_mut()).await?;
+            // Add other checks
         }
         // instantiate adapter if configured
         let adapter = if let Some(adapt_cfg) = config.adapter {
+            // Make sure the adapter is the right one for the source
+            match (&adapt_cfg, &config.source) {
+                (DataAdapterConfig::Esp32 { scale_csi: _ }, DataSourceConfig::Esp32(_))
+                | (DataAdapterConfig::Iwl { scale_csi: _ }, DataSourceConfig::Netlink(_))
+                | (_, DataSourceConfig::Tcp(_)) => {}
+                _ => return Err(TaskError::IncorrectAdapter),
+            }
             Some(<dyn CsiDataAdapter>::from_config(adapt_cfg).await?)
         } else {
             None
@@ -148,6 +164,17 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
         // instantiate sinks
         let mut sinks = Vec::with_capacity(config.sinks.len());
         for sc in config.sinks.into_iter() {
+            // Checkin that the device id from config is the same in the casee
+            // that you are using a tcpsink
+            if let SinkConfig::Tcp(TCPConfig {
+                target_addr: _,
+                ref device_id,
+            }) = sc
+            {
+                if device_id != &config.device_id {
+                    return Err(TaskError::WrongSinkDid);
+                }
+            }
             sinks.push(<dyn Sink>::from_config(sc).await?);
         }
 

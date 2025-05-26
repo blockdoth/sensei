@@ -240,4 +240,13 @@ pub enum TaskError {
 
     #[error("Error when trying to stop task")]
     JoinError(String),
+
+    #[error("Controller doesn't correspond to the source")]
+    IncorrectController,
+
+    #[error("Adapter doesn't correspond to the  source")]
+    IncorrectAdapter,
+
+    #[error("Incorrect device_id for sink, according to config")]
+    WrongSinkDid,
 }
