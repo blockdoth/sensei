@@ -1,3 +1,5 @@
+//! DeviceHandler manages the lifecycle and data flow for a single device,
+//! including source reading, data adaptation, and dispatching to sinks.
 use crate::FromConfig;
 use crate::adapters::*;
 use crate::errors::{ControllerError, CsiAdapterError, DataSourceError, SinkError, TaskError};
@@ -50,9 +52,13 @@ impl DeviceHandlerConfig {
 /// optionally adapting it, and dispatching it to one or more sinks.
 /// It runs on it's own thread
 pub struct DeviceHandler {
+    /// The device_id for the device, unique in the whole network
     device_id: u64,
+    /// The source type of device, ex: iwl, atheros etc.
     stype: SourceType,
+    /// Used for stop mechanism
     shutdown_tx: Option<watch::Sender<()>>,
+    /// Handle of the thread
     handle: Option<JoinHandle<()>>,
 }
 
@@ -79,6 +85,7 @@ impl DeviceHandler {
     /// 4. Passes the frame through the adapter (if present).
     /// 5. For each outgoing message, calls `.provide(msg).await` on each sink.
     /// 6. Logs and continues on adapter or sink errors, breaks the loop on source read error.
+    ///    Aditionally provides functionality for shutting down the thread
     pub async fn start(
         &mut self,
         mut source: Box<dyn DataSourceT>,
@@ -98,13 +105,16 @@ impl DeviceHandler {
 
             loop {
                 tokio::select! {
+                    // Shutdown the thread if it's called from stop
                     _ = shutdown_rx.changed() => {
                         log::info!("Shutting down device {device_id}");
                         break;
                     }
                     read_res = source.read() => {
+                        // check that there is something read from source
                         match read_res {
                             Ok(Some(raw)) => {
+                                // optional adapter
                                 let outgoing = if let Some(adapter) = adapter.as_mut() {
                                     match adapter.produce(raw).await {
                                         Ok(Some(csi_msg)) => vec![csi_msg],
@@ -117,6 +127,7 @@ impl DeviceHandler {
                                 } else {
                                     vec![raw]
                                 };
+                                // send to all sinks
                                 for mut sink in sinks.iter_mut() {
                                     for msg in outgoing.iter().cloned() {
                                         if let Err(err) = sink.provide(msg).await {
@@ -142,6 +153,12 @@ impl DeviceHandler {
         Ok(())
     }
 
+    /// Stops the device task by sending a shutdown signal and awaiting task completion.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` on successful shutdown
+    /// * `Err(TaskError)` if the task join fails
     pub async fn stop(&mut self) -> Result<(), TaskError> {
         if let Some(tx) = self.shutdown_tx.take() {
             let _ = tx.send(());
@@ -155,6 +172,19 @@ impl DeviceHandler {
         Ok(())
     }
 
+    /// Reconfigures the device handler with a new configuration.
+    ///
+    /// This function stops the current task, applies the new configuration,
+    /// and starts a new task using the updated parameters.
+    ///
+    /// # Arguments
+    ///
+    /// * `new_config` - New configuration to apply
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` on successful reconfiguration
+    /// * `Err(TaskError)` if stop or reinitialization fails
     pub async fn reconfigure(&mut self, new_config: DeviceHandlerConfig) -> Result<(), TaskError> {
         // Stop current task
         self.stop().await?;

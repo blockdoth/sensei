@@ -8,6 +8,7 @@
 //! - [`netlink::NetlinkSource`]: Linux-specific netlink packet capture (requires `target_os = "linux"`).
 //! - [`esp32::Esp32Source`]: ESP32-based wireless or serial data source.
 //! - [`csv`]: Placeholder for CSV-based source (e.g., playback from file).
+//! - ['tcp::TCPSource']: Source to receive from other system nodes
 //!
 //! Each source implementation must be constructed with configuration via the
 //! [`FromConfig<DataSourceConfig>`] trait and then activated via the
@@ -53,12 +54,21 @@ pub trait DataSourceT: Send + Any {
     /// just not populated any further.
     async fn stop(&mut self) -> Result<(), DataSourceError>;
 
-    async fn read_buf(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError>;
-
     /// Read data from source
     /// ---------------------
     /// Copy one "packet" (meaning being source specific) into the buffer and report
     /// its size.
+    /// Don't use this method use read instead
+    async fn read_buf(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError>;
+
+    /// Attempts to read a data message from the source.
+    ///
+    /// This method polls the underlying data source for new data and returns
+    /// an optional `DataMsg` if available.
+    ///
+    /// # Errors
+    /// Returns a [`DataSourceError`] if the underlying source encounters an error
+    /// during the read operation.
     async fn read(&mut self) -> Result<Option<DataMsg>, DataSourceError>;
 }
 
@@ -68,7 +78,7 @@ pub trait DataSourceT: Send + Any {
 /// corresponds to a concrete source implementation:
 /// - `Netlink`: Linux-only netlink-based capture (requires `target_os = "linux"`)
 /// - `Esp32`: ESP32-based data source
-/// - `Csv`: CSV-based playback source
+/// - 'Tcp': receiving from another node
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum DataSourceConfig {
@@ -77,6 +87,7 @@ pub enum DataSourceConfig {
     Netlink(netlink::NetlinkConfig),
     /// Data source backed by an ESP32 device.
     Esp32(esp32::Esp32SourceConfig),
+    /// TCP receiving from another device.
     Tcp(tcp::TCPConfig),
 }
 

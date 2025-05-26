@@ -59,9 +59,6 @@ pub enum DataSourceError {
     #[error("Tcp source error: {0}")]
     NetworkError(#[from] NetworkError),
 
-    #[error("Tcp source error: {0}")]
-    NetworkError(#[from] NetworkError),
-
     /// Packet was incomplete, likely due to a bug in the source handler.
     #[error("Incomplete packet (Source handler bug)")]
     IncompletePacket,
@@ -287,6 +284,7 @@ pub enum SinkError {
     #[error("Error: {0}")]
     Serialize(String),
 
+    /// Error related to tcp sinks
     #[error("Error from tcp sink: {0}")]
     NetworkError(#[from] NetworkError),
 }
@@ -310,15 +308,20 @@ pub enum TaskError {
     #[error("Controller Error: {0}")]
     ControllerError(#[from] ControllerError),
 
+    /// Error when you try to stop task and join the threads
     #[error("Error when trying to stop task")]
     JoinError(String),
 
+    /// This happens when the controller type doesn't match the source type
     #[error("Controller doesn't correspond to the source")]
     IncorrectController,
 
+    /// This happens when the adapter type doesn't match the adapter type
     #[error("Adapter doesn't correspond to the  source")]
     IncorrectAdapter,
 
+    /// This happens when the device id of the sink doesn't match the one from task
+    /// Specifically for the tcp sink
     #[error("Incorrect device_id for sink, according to config")]
     WrongSinkDid,
 }

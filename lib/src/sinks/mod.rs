@@ -35,8 +35,20 @@ pub mod tcp;
 /// Implementations must be `Send` to ensure they can be used across asynchronous tasks.
 #[async_trait]
 pub trait Sink: Send {
+    /// Open the connection to the sink
+    ///
+    /// # Errors
+    ///
+    /// Returns a ['SinkError'] if the operation fails (e.g., I/O failure)
     async fn open(&mut self, data: DataMsg) -> Result<(), SinkError>;
+
+    /// Closes the connection to the sink
+    ///
+    /// # Errors
+    ///
+    /// Returns a ['SinkError'] if the operation fails (e.g., I/O failure)
     async fn close(&mut self, data: DataMsg) -> Result<(), SinkError>;
+
     /// Consume a DataMsg and process it (e.g., write to file, send over network).
     /// Consume a [`DataMsg`] and perform a sink-specific operation.
     ///
@@ -56,6 +68,7 @@ pub trait Sink: Send {
 pub enum SinkConfig {
     /// File sink configuration
     File(file::FileConfig),
+    /// Tcp configuration
     Tcp(tcp::TCPConfig),
     // add other sink types here
 }
