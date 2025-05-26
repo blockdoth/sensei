@@ -14,7 +14,7 @@ pub struct LogEntry {
 
 impl LogEntry {
     // Nicely formats the logs for printing to the TUI
-    pub fn format(&self) -> Line{
+    pub fn format(&self) -> Line {
         let timestamp_str = self.timestamp.format("%H:%M:%S").to_string();
         let level_str = format!("[{}]", self.level);
         let message_str = &self.message;
@@ -65,7 +65,6 @@ impl log::Log for TuiLogger {
     fn flush(&self) {}
 }
 
-
 // Configures the global logger such that all logs get routed to our custom TuiLogger struct
 // which sends them over a channel to a log handler task
 pub fn init_logger(log_level_filter: LevelFilter, sender: Sender<LogEntry>) -> Result<(), SetLoggerError> {
@@ -80,7 +79,7 @@ pub fn init_logger(log_level_filter: LevelFilter, sender: Sender<LogEntry>) -> R
     Ok(())
 }
 
-// Makes sure a LogEntry carrying struct is available on the Update enum 
+// Makes sure a LogEntry carrying struct is available on the Update enum
 pub trait FromLog {
     fn from_log(log: LogEntry) -> Self;
 }

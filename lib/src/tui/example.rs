@@ -7,8 +7,8 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use futures::StreamExt;
-use log::{info, warn};
 use log::{Log, debug};
+use log::{info, warn};
 use ratatui::{
     Frame, Terminal,
     layout::{Constraint, Direction, Layout},
@@ -91,12 +91,9 @@ impl Tui<Update, Command> for TuiState {
         frame.render_widget(logs_widget, chunks[1]);
     }
 
-    fn handle_keyboard_event(key_event: KeyEvent) -> Option<Update>
-    {
+    fn handle_keyboard_event(key_event: KeyEvent) -> Option<Update> {
         match key_event.code {
-            KeyCode::Char('q') => {
-                Some(Update::Quit)
-            }
+            KeyCode::Char('q') => Some(Update::Quit),
             KeyCode::Char('t') => Some(Update::Toggle),
             _ => None,
         }
@@ -119,14 +116,13 @@ impl Tui<Update, Command> for TuiState {
                 let _ = command_send.try_send(Command::TouchedBalls);
             }
             Update::Balls => {
-              info!("balls")
+                info!("balls")
             }
             Update::Log(entry) => {
                 self.logs.push(entry);
             }
         }
     }
-
 }
 
 pub async fn run_example() {
@@ -134,18 +130,18 @@ pub async fn run_example() {
     let (update_send, mut update_recv) = mpsc::channel::<Update>(10);
 
     let update_send_clone = update_send.clone();
-    
+
     // Showcases messages going both ways
-    let other_task = tokio::spawn(async move{
-      loop {
-        update_send_clone.send(Update::Balls).await;
-        match command_recv.try_recv () {
-            Ok(_) => {
-              warn!("Balls have been touched");
-            },
-            Err(_) => {},
+    let other_task = tokio::spawn(async move {
+        loop {
+            update_send_clone.send(Update::Balls).await;
+            match command_recv.try_recv() {
+                Ok(_) => {
+                    warn!("Balls have been touched");
+                }
+                Err(_) => {}
+            }
         }
-      }
     });
 
     let tui = TuiState::new();

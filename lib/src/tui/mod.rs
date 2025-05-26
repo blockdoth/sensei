@@ -1,5 +1,5 @@
-pub mod logs;
 pub mod example;
+pub mod logs;
 
 use crate::sources::controllers::esp32_controller::Esp32Controller;
 use async_trait::async_trait;
@@ -47,13 +47,7 @@ where
     U: FromLog + Send + 'static, // Required for extracting a LogEntry from the Update enum
     T: Tui<U, C>,
 {
-    pub fn new(
-        app: T,
-        command_send: Sender<C>,
-        update_recv: Receiver<U>,
-        update_send: Sender<U>,
-        log_level: LevelFilter,
-    ) -> Self {
+    pub fn new(app: T, command_send: Sender<C>, update_recv: Receiver<U>, update_send: Sender<U>, log_level: LevelFilter) -> Self {
         Self {
             app,
             command_send,
@@ -64,6 +58,7 @@ where
         }
     }
 
+    // Manages the entire TUI lifecycle
     pub async fn run(mut self) -> Result<(), Box<dyn Error>> {
         let mut terminal = Self::setup_terminal().unwrap(); //TODO remove unwrap
         let (log_send, log_recv) = mpsc::channel::<LogEntry>(LOG_BUFFER_CAPACITY);
@@ -100,21 +95,6 @@ where
         Ok(())
     }
 
-     
-    fn setup_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>, Box<dyn Error>> {
-        enable_raw_mode()?;
-        let mut stdout = stdout();
-        execute!(stdout, EnterAlternateScreen)?;
-        let backend = CrosstermBackend::new(stdout);
-        Terminal::new(backend).map_err(Into::into)
-    }
-
-    fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<(), Box<dyn Error>> {
-        disable_raw_mode()?;
-        execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-        terminal.show_cursor()?;
-        Ok(())
-    }
     // Processes all incoming logs by routing them through a channel connected to the TUI, this allows for complete flexibility in where to display logs
     async fn log_handler_task(mut log_recv_channel: Receiver<LogEntry>, update_send_channel: Sender<U>) -> JoinHandle<()> {
         tokio::spawn(async move {
@@ -138,24 +118,43 @@ where
                     // This breaks it for some reason
                     // _ = sleep(Duration::from_millis(10)) => {
                     //   trace!("tick");
-                    // } 
+                    // }
                 }
             }
             info!("Log processor task stopped.")
         })
     }
+
+    fn setup_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>, Box<dyn Error>> {
+        enable_raw_mode()?;
+        let mut stdout = stdout();
+        execute!(stdout, EnterAlternateScreen)?;
+        let backend = CrosstermBackend::new(stdout);
+        Terminal::new(backend).map_err(Into::into)
+    }
+
+    fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<(), Box<dyn Error>> {
+        disable_raw_mode()?;
+        execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+        terminal.show_cursor()?;
+        Ok(())
+    }
 }
 
 #[async_trait]
 pub trait Tui<Update, Cmd> {
+    // Draws the UI based on the state of the TUI, should not change any state
     fn draw_ui(&self, f: &mut Frame);
 
+    // Handles a single keyboard event and produces and Update, should not change any state
     fn handle_keyboard_event(key_event: KeyEvent) -> Option<Update>;
 
+    // Handles incoming updates produced from any source, this is the only place where state should change
     async fn handle_update(&mut self, update: Update, command_send: &Sender<Cmd>, update_recv: &mut Receiver<Update>);
 
+    // Whether the tui should quit
     fn should_quit(&self) -> bool;
 
+    // Gets called each iteration of the loop, useful for updating graphs and live views
     async fn on_tick(&mut self);
-
 }
