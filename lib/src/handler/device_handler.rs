@@ -7,6 +7,7 @@ use crate::sources::controllers::{Controller, ControllerParams};
 use crate::sources::{DataSourceConfig, DataSourceT};
 use std::sync::Arc;
 use tokio::task::JoinHandle;
+use tokio::sync::watch;
 
 /// Configuration for a device handler
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
@@ -25,7 +26,10 @@ pub struct DeviceHandlerConfig {
 pub struct DeviceHandler {
     device_id: u64,
     stype: SourceType,
+    shutdown_tx: Option<watch::Sender<()>>,
+    handle: Option<JoinHandle<()>>,
 }
+
 
 impl DeviceHandler {
     /// Start consuming from source, adapting and forwarding to sinks
@@ -38,23 +42,27 @@ impl DeviceHandler {
         let device_id = self.device_id;
         let stype = self.stype.clone();
 
-        // spawn the main loop
-        tokio::spawn(async move {
-            // activate source
+        let (shutdown_tx, mut shutdown_rx) = watch::channel(());
+
+        let handle = tokio::spawn(async move {
             if let Err(e) = source.start().await {
                 log::error!("Device {device_id} source start failed: {e:?}");
                 return;
             }
+
             loop {
                 tokio::select! {
+                    _ = shutdown_rx.changed() => {
+                        log::info!("Shutting down device {device_id}");
+                        break;
+                    }
                     read_res = source.read() => {
                         match read_res {
                             Ok(Some(raw)) => {
-                                // feed through adapter
                                 let outgoing = if let Some(adapter) = adapter.as_mut() {
                                     match adapter.produce(raw).await {
                                         Ok(Some(csi_msg)) => vec![csi_msg],
-                                        Ok(None) => continue, // need more data
+                                        Ok(None) => continue,
                                         Err(err) => {
                                             log::error!("Adapter error on device {device_id}: {err:?}");
                                             continue;
@@ -63,7 +71,6 @@ impl DeviceHandler {
                                 } else {
                                     vec![raw]
                                 };
-                                // send to sinks
                                 for mut sink in sinks.iter_mut() {
                                     for msg in outgoing.iter().cloned() {
                                         if let Err(err) = sink.provide(msg).await {
@@ -81,10 +88,24 @@ impl DeviceHandler {
                     }
                 }
             }
+            source.stop().await?;
         });
+
+        self.shutdown_tx = Some(shutdown_tx);
+        self.handle = Some(handle);
         Ok(())
     }
+
+    pub async fn stop(self) {
+        if let Some(tx) = self.shutdown_tx {
+            let _ = tx.send(()); // Signal shutdown
+        }
+        if let Some(handle) = self.handle {
+            let _ = handle.await; // Wait for task to finish
+        }
+    }
 }
+
 
 #[async_trait::async_trait]
 impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
@@ -110,14 +131,15 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
             sinks.push(<dyn Sink>::from_config(sc).await?);
         }
 
-        // build handler
         let mut handler = DeviceHandler {
             device_id: config.device_id,
             stype: config.stype.clone(),
+            shutdown_tx: None,
+            handle: None,
         };
 
-        // start processing
         handler.start(source, adapter, sinks).await?;
         Ok(Box::new(handler))
+
     }
 }
