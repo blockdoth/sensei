@@ -42,7 +42,10 @@ pub enum ServiceConfig {
 }
 
 pub trait Run<ServiceConfig> {
+    // Initialize standalone state which does not depend on any config
     fn new() -> Self;
+    
+    // Actually applies given config and runs the service
     async fn run(
         &mut self,
         global_config: GlobalConfig,

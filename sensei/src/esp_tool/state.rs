@@ -114,14 +114,15 @@ impl TuiState {
             previous_is_continuous_spam_active_for_revert: None,
         }
     }
-
+    // Adds a log message to the log buffer
     pub fn add_log_message(&mut self, entry: LogEntry) {
-        if self.log_messages.len() >= LOG_BUFFER_CAPACITY {
-            self.log_messages.pop_front();
-        }
-        self.log_messages.push_back(entry);
+      if self.log_messages.len() >= LOG_BUFFER_CAPACITY {
+        self.log_messages.pop_front();
+      }
+      self.log_messages.push_back(entry);
     }
-
+    
+    // Adds csi data to the buffer
     pub fn add_csi_data(&mut self, data: CsiData) {
         if self.csi_data.len() >= CSI_DATA_BUFFER_CAPACITY {
             self.csi_data.pop_front();
@@ -154,6 +155,7 @@ impl TuiState {
         }
     }
 
+    // Parses and applies the spam input buffer 
     fn apply_spam_input_buffer(&mut self) {
         let buffer_content = self.spam_input_buffer.trim();
         self.current_field_has_error = false;
@@ -230,6 +232,7 @@ impl TuiState {
         }
     }
 
+    // Handles all incoming keyboard events 
     pub async fn handle_keyboard_event(
         &mut self,
         key_event: KeyEvent,

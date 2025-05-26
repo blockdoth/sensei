@@ -90,11 +90,10 @@ impl Run<EspToolConfig> for EspTool {
         let shutdown_signal = Arc::new(AtomicBool::new(false));
 
         let mut terminal = setup_terminal()?;
-        {
+        { // Start of TUI
             let log_processor_handle =
                 Self::log_handler_task(log_recv, update_send.clone(), shutdown_signal.clone())
                     .await;
-            Self::init_logger(global_config.log_level, log_send.clone());
 
             let esp = Esp32Source::new(Esp32SourceConfig::default()).unwrap();
             let device_config = Esp32DeviceConfig::default();
@@ -121,6 +120,7 @@ impl Run<EspToolConfig> for EspTool {
             info!("Main UI loop exited. Beginning CLI shutdown sequence...");
             shutdown_signal.store(true, Ordering::SeqCst);
             drop(log_send);
+
             info!("Waiting for ESP actor task to complete (max 5s)...");
             match tokio::time::timeout(Duration::from_secs(5), esp_source_handle).await {
                 Ok(_) => info!("ESP actor task finished gracefully."),
@@ -133,7 +133,7 @@ impl Run<EspToolConfig> for EspTool {
                 Ok(Err(e)) => error!("Log processor task panicked: {e:?}"),
                 Err(_) => warn!("Log processor task timed out during shutdown."),
             }
-        }
+        } // End of TUI
         restore_terminal(&mut terminal)?;
 
         Ok(())
@@ -141,6 +141,7 @@ impl Run<EspToolConfig> for EspTool {
 }
 
 impl EspTool {
+    // Handles all updates to the state of the TUI based on user interactions
     pub async fn update(
         &mut self,
         command_send_channel: &Sender<Esp32Controller>,
@@ -208,6 +209,7 @@ impl EspTool {
         }
     }
 
+    // Handles updates to the state of the TUI based the esp source
     pub async fn esp_source_task(
         mut esp: Esp32Source,
         device_config: Esp32DeviceConfig,
@@ -261,7 +263,7 @@ impl EspTool {
         tokio::spawn(async move {
             loop {
                 tokio::select! {
-                    biased;
+                    biased; // Prioritizes based on order
 
                     _ = tokio::time::sleep(Duration::from_millis(1)), if shutdown_signal.load(AtomicOrdering::Relaxed) => {
                         info!("ESP Actor: Shutdown signal received.");
@@ -287,7 +289,6 @@ impl EspTool {
                     }
 
                     read_result = esp.read(&mut read_buffer) => {
-
                         match read_result {
                             Ok(0) => {
                                 if !esp.is_running.load(AtomicOrdering::Relaxed) {
@@ -360,6 +361,8 @@ impl EspTool {
         })
     }
 
+    // Configures the global logger such that all logs get routed to our custom TuiLogger struct 
+    // which sends them over a channel to a log handler task
     pub fn init_logger(
         log_level_filter: LevelFilter,
         sender: Sender<LogEntry>,
@@ -375,6 +378,7 @@ impl EspTool {
         Ok(())
     }
 
+    // Processes all incoming logs by routing them through a channel connected to the TUI, this allows for complete flexibility in where to display logs
     pub async fn log_handler_task(
         mut log_recv_channel: Receiver<LogEntry>,
         update_send_channel: Sender<AppUpdate>,

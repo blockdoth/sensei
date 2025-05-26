@@ -18,6 +18,8 @@ use ratatui::{
     widgets::{Block, Borders, Cell, Paragraph, Row, Table, Wrap},
 };
 
+
+// Renders the UI based on the state, should not contain any state changing logic
 pub fn ui(f: &mut Frame, tui_state: &TuiState) {
     // --- Main Layout: Content Area and Global Footer ---
     let screen_chunks = Layout::default()
