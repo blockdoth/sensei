@@ -14,7 +14,7 @@ pub struct Args {
     pub level: LevelFilter,
 
     #[argh(subcommand)]
-    pub subcommand: SubCommandsArgs,
+    pub subcommand: Option<SubCommandsArgs>,
 }
 
 impl Args {
