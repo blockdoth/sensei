@@ -26,7 +26,7 @@ use std::fs::File;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Args = argh::from_env();
 
-    if !matches!(&args.subcommand, SubCommandsArgs::Five(_)) {
+    if args.subcommand.is_some() && !matches!(&args.subcommand, Some(SubCommandsArgs::Five(_))) {
         CombinedLogger::init(vec![
             TermLogger::new(
                 args.level,
@@ -57,11 +57,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     debug!("Parsed args and initialized CombinedLogger");
     let global_args = args.parse_global_config()?;
     match &args.subcommand {
-        SubCommandsArgs::One(args) => SystemNode::new().run(global_args, args.parse()?).await?,
-        SubCommandsArgs::Two(args) => Registry::new().run(global_args, args.parse()?).await?,
-        SubCommandsArgs::Three(args) => Orchestrator::new().run(global_args, args.parse()?).await?,
-        SubCommandsArgs::Four(args) => Visualiser::new().run(global_args, args.parse()?).await?,
-        SubCommandsArgs::Five(args) => EspTool::new().run(global_args, args.parse()?).await?,
+        None => lib::tui::example::run_example().await,
+        Some(subcommand) => match subcommand {
+            SubCommandsArgs::One(args) => SystemNode::new().run(global_args, args.parse()?).await?,
+            SubCommandsArgs::Two(args) => Registry::new().run(global_args, args.parse()?).await?,
+            SubCommandsArgs::Three(args) => Orchestrator::new().run(global_args, args.parse()?).await?,
+            SubCommandsArgs::Four(args) => Visualiser::new().run(global_args, args.parse()?).await?,
+            SubCommandsArgs::Five(args) => EspTool::new().run(global_args, args.parse()?).await?,
+        },
     }
     Ok(())
 }
