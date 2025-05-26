@@ -235,4 +235,7 @@ pub enum TaskError {
 
     #[error("Controller Error: {0}")]
     ControllerError(#[from] ControllerError),
+
+    #[error("Error when trying to stop task")]
+    JoinError(String),
 }

@@ -88,7 +88,7 @@ impl DeviceHandler {
                     }
                 }
             }
-            source.stop().await?;
+            source.stop().await;
         });
 
         self.shutdown_tx = Some(shutdown_tx);
@@ -96,13 +96,39 @@ impl DeviceHandler {
         Ok(())
     }
 
-    pub async fn stop(self) {
-        if let Some(tx) = self.shutdown_tx {
-            let _ = tx.send(()); // Signal shutdown
+    pub async fn stop(&mut self) -> Result<(), TaskError> {
+        if let Some(tx) = self.shutdown_tx.take() {
+            let _ = tx.send(());
         }
-        if let Some(handle) = self.handle {
-            let _ = handle.await; // Wait for task to finish
+        if let Some(handle) = self.handle.take() {
+            if let Err(e) = handle.await {
+                log::error!("Device task join failed: {e}");
+                return Err(TaskError::JoinError(e.to_string()));
+            }
         }
+        Ok(())
+    }
+
+
+    pub async fn reconfigure(
+        &mut self,
+        new_config: DeviceHandlerConfig,
+    ) -> Result<(), TaskError> {
+        // Stop current task
+        self.stop().await?;
+
+        // Create a new handler from config
+        let new_handler = DeviceHandler::from_config(new_config).await?;
+
+        // Replace internal state
+        let new = *new_handler; // unpack Box
+
+        self.device_id = new.device_id;
+        self.stype = new.stype;
+        self.shutdown_tx = new.shutdown_tx;
+        self.handle = new.handle;
+
+        Ok(())
     }
 }
 
