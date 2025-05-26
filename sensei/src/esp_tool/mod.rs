@@ -239,7 +239,7 @@ impl EspTool {
                 .await;
         }
 
-        info!("ESP actor task started for port {}.", esp.port_name());
+        info!("ESP actor task started for port {:?}.", esp.port);
 
         if let Err(e) = esp.start().await {
             error!("ESP Actor: Failed to start Esp32Source: {e}");
@@ -287,9 +287,10 @@ impl EspTool {
                     }
 
                     read_result = esp.read(&mut read_buffer) => {
+                      
                         match read_result {
                             Ok(0) => {
-                                if !esp.is_source_running() {
+                                if !esp.is_running.load(AtomicOrdering::Relaxed) {
                                     info!("ESP Actor: Source reported not running and read Ok(0). Signaling disconnect.");
                                     let _ = update_send_channel.send(AppUpdate::EspDisconnected).await;
                                     break;
@@ -328,7 +329,7 @@ impl EspTool {
                                     }
                                 }
                             }
-                            Err(e @ DataSourceError::NotConnected(_)) | Err(e @ DataSourceError::Io(_)) if !esp.is_source_running() => {
+                            Err(e @ DataSourceError::NotConnected(_)) | Err(e @ DataSourceError::Io(_)) if !esp.is_running.load(AtomicOrdering::Relaxed) => {
                                 info!("ESP Actor: Source disconnected (Error: {e}), signaling UI.");
                                 update_send_channel.send(AppUpdate::EspDisconnected).await;
                             }
@@ -355,7 +356,7 @@ impl EspTool {
                     "DISCONNECTED (Actor Stopped)".to_string(),
                 ))
                 .await;
-            info!("ESP actor task for port {} stopped.", esp.port_name());
+            info!("ESP actor task for port {:?} stopped.", esp.port);
         })
     }
 

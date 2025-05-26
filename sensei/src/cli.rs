@@ -7,6 +7,7 @@ use anyhow::Error;
 use argh::FromArgs;
 use simplelog::{ColorChoice, CombinedLogger, LevelFilter, TermLogger, TerminalMode, WriteLogger};
 use std::net::{AddrParseError, SocketAddr};
+use std::path::PathBuf;
 
 /// A simple app to perform collection from configured sources
 #[derive(FromArgs)]
@@ -52,12 +53,17 @@ pub struct SystemNodeSubcommandArgs {
     /// server port (default: 6969)
     #[argh(option, default = "6969")]
     pub port: u16,
+
+    /// location of config file (default sensei/src/system_node/example_config.yaml)
+    #[argh(option, default = "PathBuf::from(\"sensei/src/system_node/example_config.yaml\")")]
+    pub device_configs: PathBuf,
 }
 
 impl ConfigFromCli<SystemNodeConfig> for SystemNodeSubcommandArgs {
     fn parse(&self) -> Result<SystemNodeConfig, Error> {
         Ok(SystemNodeConfig {
             addr: format!("{}:{}", self.addr, self.port).parse()?,
+            device_configs: self.device_configs.clone(),
         })
     }
 }

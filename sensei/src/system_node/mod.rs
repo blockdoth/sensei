@@ -1,5 +1,6 @@
 use crate::cli::*;
 use crate::services::{GlobalConfig, Run, SystemNodeConfig};
+use lib::FromConfig;
 use std::collections::HashMap;
 
 use argh::{CommandInfo, FromArgs};
@@ -7,6 +8,9 @@ use async_trait::async_trait;
 use lib::adapters::CsiDataAdapter;
 use lib::csi_types::{Complex, CsiData};
 use lib::errors::NetworkError;
+use lib::sources::esp32::{Esp32Source, Esp32SourceConfig};
+use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
+use lib::network::rpc_message::SourceType::*;
 use lib::network::rpc_message::{AdapterMode, CtrlMsg};
 use lib::network::rpc_message::{CtrlMsg::*, DataMsg};
 use lib::network::rpc_message::{DataMsg::*, make_msg};
@@ -15,7 +19,6 @@ use lib::network::rpc_message::{RpcMessageKind, SourceType::*};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
-use lib::sources::esp32::{Esp32Source, Esp32SourceConfig};
 
 use lib::sources::controllers::Controller;
 use lib::sources::controllers::esp32_controller::{
@@ -24,6 +27,7 @@ use lib::sources::controllers::esp32_controller::{
 };
 
 use lib::network::*;
+use lib::sinks::file::{FileConfig, FileSink};
 use lib::sources::DataSourceT;
 
 #[cfg(target_os = "linux")]
@@ -31,6 +35,8 @@ use lib::sources::netlink::NetlinkConfig;
 use log::*;
 use std::env;
 use std::net::SocketAddr;
+use std::ops::Deref;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -44,12 +50,23 @@ use lib::network::rpc_message::RpcMessageKind::{
     Ctrl as RpcMessageKindCtrl, Data as RpcMessageKindData,
 };
 
+/// The System Node is a sender and a receiver in the network of Sensei.
+/// It hosts the devices that send and receive CSI data, and is responsible for sending this data further to other receivers in the system.
+///
+/// Devices can "ask" for the CSI data generated at a System Node by sending it a Subscribe message, specifying the device id.
+///
+/// The System Node can also adapt this CSI data to our universal standard, which lets it be used by other parts of Sensei, like the Visualiser.
+///
+/// # Arguments
+///
+/// send_data_channel: the System Node communicates which data should be sent to other receivers across its threads using this tokio channel
 #[derive(Clone)]
 pub struct SystemNode {
     send_data_channel: broadcast::Sender<DataMsg>,
 }
 
 impl SubscribeDataChannel for SystemNode {
+    /// Creates a mew receiver for the System Nodes send data channel
     fn subscribe_data_channel(&self) -> broadcast::Receiver<DataMsg> {
         self.send_data_channel.subscribe()
     }
@@ -57,6 +74,14 @@ impl SubscribeDataChannel for SystemNode {
 
 #[async_trait]
 impl ConnectionHandler for SystemNode {
+    /// Handles receiving messages from other senders in the network.
+    /// This communicates with the sender function using channel messages.
+    ///
+    /// # Types
+    ///
+    /// - Connect/Disconnect
+    /// - Subscribe/Unsubscribe
+    /// - Configure
     async fn handle_recv(
         &self,
         request: RpcMessage,
@@ -120,6 +145,9 @@ impl ConnectionHandler for SystemNode {
         Ok(())
     }
 
+    /// Handles sending messages for the nodes to other receivers in the network.
+    ///
+    /// The node will only send messages to subscribers of relevant messages.
     async fn handle_send(
         &self,
         mut recv_command_channel: watch::Receiver<ChannelMsg>,
@@ -201,211 +229,23 @@ impl Run<SystemNodeConfig> for SystemNode {
         config: SystemNodeConfig,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let connection_handler = Arc::new(self.clone());
-        let sender_data_channel_clone = self.send_data_channel.clone(); // Clone for the source reading task
 
-        // --- ESP32 Setup ---
-        info!("Setting up ESP32 source...");
-        let esp_source_config = Esp32SourceConfig {
-            port_name: "/dev/cu.usbmodem2101".to_string(), // Using the port from your example run
-            baud_rate: 3_000_000,
-            csi_buffer_size: 4096,
-            ack_timeout_ms: 1000,
-        };
+        let sender_data_channel = connection_handler.send_data_channel.clone();
 
-        let port_name_for_log = esp_source_config.port_name.clone();
+        let default_config_path: PathBuf = config.device_configs;
 
-        // Create the ESP32 source instance
-        let mut esp_source_instance = Esp32Source::new(esp_source_config)
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+        let device_handler_configs: Vec<DeviceHandlerConfig> =
+            DeviceHandlerConfig::from_yaml(default_config_path).await;
 
-        // Start the ESP32 source (connects and starts its reader thread)
-        esp_source_instance
-            .start()
-            .await
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
-        info!("ESP32 Source started on port {port_name_for_log}");
-
-        // Wrap in Box<dyn DataSourceT> for storage
-        let esp_source_boxed: Box<dyn DataSourceT> = Box::new(esp_source_instance);
-
-        // --- Adapter Setup ---
-        // Direct instantiation for minimal change, assuming ESP32Adapter is in lib::adapters::esp32
-        let mut esp_adapter =
-            Box::new(lib::adapters::esp32::ESP32Adapter::new(false)) as Box<dyn CsiDataAdapter>;
-        info!("ESP32 Adapter created.");
-
-        // --- Device Management ---
-        let devices: Arc<Mutex<HashMap<u64, Box<dyn DataSourceT>>>> =
+        let handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>> =
             Arc::new(Mutex::new(HashMap::new()));
-        devices.lock().await.insert(0, esp_source_boxed); // ESP32 is device 0
-        info!("ESP32 source added to managed devices with ID 0.");
 
-        // --- Initial ESP32 Configuration by SystemNode ---
-        info!("Sending initial configuration to ESP32 (ID 0) to unpause acquisition...");
-        {
-            // Scope for devices_guard
-            let mut devices_guard = devices.lock().await;
-            if let Some(device_source_dyn) = devices_guard.get_mut(&0) {
-                // We have &mut Box<dyn DataSourceT>. We need &mut dyn DataSourceT for apply.
-                // Dereferencing the Box gives us &mut dyn DataSourceT.
-                let controller = Esp32Controller {
-                    device_config: Esp32DeviceConfig::default(),
-                    mac_filters_to_add: vec![],
-                    clear_all_mac_filters: true,
-                    control_acquisition: true,
-                    control_wifi_transmit: true,
-                    synchronize_time: true,
-                    transmit_custom_frame: None,
-                };
-
-                match controller.apply(&mut **device_source_dyn).await {
-                    Ok(_) => info!(
-                        "Initial configuration (Unpause CSI Acquisition) sent to ESP32 (ID 0) successfully."
-                    ),
-                    Err(e) => error!("Failed to send initial configuration to ESP32 (ID 0): {e}"),
-                }
-            } else {
-                error!(
-                    "Could not get ESP32 source (ID 0) from devices map for initial configuration."
-                );
-            }
-        } // devices_guard is dropped here
-
-        // --- Data Reading and Processing Task ---
-        // This task reads from the ESP32, adapts the data, and broadcasts it.
-        // --- Data Reading and Processing Task ---
-        // This task reads from the ESP32, adapts the data, and broadcasts it.
-        tokio::spawn(async move {
-            let mut read_buffer = vec![0u8; 4096]; // Buffer for reading raw data
-            info!("Data reading task: Started."); // LOG: Task started
-
-            loop {
-                let mut devices_guard = devices.lock().await;
-                if let Some(source_device) = devices_guard.get_mut(&0) {
-                    // ESP32 is device 0
-                    match source_device.read(&mut read_buffer).await {
-                        Ok(bytes_read) => {
-                            if bytes_read > 0 {
-                                // LOG: Data received from ESP32 source
-                                info!(
-                                    "Data reading task: Read {bytes_read} bytes from ESP32 source."
-                                );
-                                // For more detail (can be very verbose):
-                                // trace!("Data reading task: Raw bytes: {:?}", &read_buffer[..bytes_read]);
-
-                                let raw_data_slice = &read_buffer[..bytes_read];
-
-                                let current_timestamp = SystemTime::now()
-                                    .duration_since(UNIX_EPOCH)
-                                    .unwrap_or_else(|e| {
-                                        warn!("SystemTime before UNIX EPOCH: {e}");
-                                        Duration::ZERO
-                                    })
-                                    .as_secs_f64();
-
-                                let raw_frame_msg = DataMsg::RawFrame {
-                                    ts: current_timestamp,
-                                    bytes: raw_data_slice.to_vec(),
-                                    source_type: SourceType::ESP32,
-                                };
-
-                                /*
-                                pub enum DataMsg {
-                                    RawFrame {
-                                            ts: f64,
-                                            bytes: Vec<u8>,
-                                            source_type: SourceType,
-                                        }, // raw bytestream, requires decoding adapter
-                                        CsiFrame {
-                                            csi: CsiData,
-                                        }, // This would contain a proper deserialized CSI
-                                    }
-                                 */
-                                // LOG: RawFrame created
-                                debug!(
-                                    "Data reading task: Created Frame: {}",
-                                    match &raw_frame_msg {
-                                        DataMsg::RawFrame {
-                                            ts,
-                                            bytes,
-                                            source_type,
-                                        } => {
-                                            format!(
-                                                "Timestamp: {:.3}, Bytes: {}, SourceType: {:?}",
-                                                ts,
-                                                bytes.len(),
-                                                source_type
-                                            )
-                                        }
-                                        _ => "Invalid Frame".to_string(),
-                                    }
-                                );
-
-                                match esp_adapter.produce(raw_frame_msg).await {
-                                    Ok(Some(ref csi_data_msg @ DataMsg::CsiFrame { ref csi })) => {
-                                        // LOG: CSI Frame produced by adapter
-                                        info!(
-                                            "Data reading task: ESP32Adapter produced CsiFrame. Timestamp: {:.3}, Seq: {}, RSSI: {:?}, Subcarriers: {}",
-                                            csi.timestamp,
-                                            csi.sequence_number,
-                                            csi.rssi,
-                                            csi.csi
-                                                .first()
-                                                .and_then(|tx| tx.first().map(|rx| rx.len()))
-                                                .unwrap_or(0) // Get subcarrier count safely
-                                        );
-
-                                        if sender_data_channel_clone
-                                            .send(csi_data_msg.clone())
-                                            .is_err()
-                                        {
-                                            debug!(
-                                                "Data reading task: No active subscribers for ESP32 CSI data."
-                                            );
-                                        } else {
-                                            info!(
-                                                "Data reading task: Broadcasted CsiFrame to client handlers."
-                                            );
-                                        }
-                                    }
-                                    Ok(Some(unexpected_msg)) => {
-                                        warn!(
-                                            "Data reading task: ESP32Adapter produced an unexpected DataMsg variant: {unexpected_msg:?}"
-                                        );
-                                    }
-                                    Ok(None) => {
-                                        info!(
-                                            "Data reading task: ESP32Adapter produced None (e.g., incomplete data, non-CSI packet, or waiting for more bytes)."
-                                        );
-                                    }
-                                    Err(e) => {
-                                        error!(
-                                            "Data reading task: ESP32Adapter failed to produce CSI data: {e:?}"
-                                        );
-                                    }
-                                }
-                            } else {
-                                // No data read in this cycle, this is normal if ESP32 isn't sending
-                                trace!(
-                                    "Data reading task: No data read from ESP32 source in this cycle (bytes_read == 0)."
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            error!(
-                                "Data reading task: Error reading from ESP32 source (ID 0): {e:?}"
-                            );
-                            tokio::time::sleep(Duration::from_secs(1)).await; // Backoff on error
-                        }
-                    }
-                } else {
-                    warn!("Data reading task: ESP32 source (ID 0) not found in devices map.");
-                    tokio::time::sleep(Duration::from_secs(1)).await; // Wait if device not found
-                }
-                drop(devices_guard); // Release the lock before sleeping
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        });
+        for cfg in device_handler_configs {
+            handlers.lock().await.insert(
+                cfg.device_id,
+                DeviceHandler::from_config(cfg.clone()).await.unwrap(),
+            );
+        }
 
         info!("ESP32 data reading task started.");
 

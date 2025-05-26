@@ -1,4 +1,4 @@
-use crate::adapters::csv::CSVAdapterError; // Assuming AtherosAdapterError is also defined if used
+use crate::adapters::{csv::CSVAdapter, csv::CSVAdapterError};
 use thiserror::Error;
 
 /// Errors that can occur during network communication with sources or clients.
@@ -65,13 +65,15 @@ pub enum DataSourceError {
     ArrayToNumber(#[from] std::array::TryFromSliceError),
 
     /// Error during controller application to the data source.
-    /// Consider if this should be exclusively ControllerError type.
     #[error("Controller failed: {0}")]
     Controller(String),
 
     /// Tried to use a feature or function that isn't implemented.
     #[error("Tried to use unimplemented feature: {0}")]
     NotImplemented(String),
+    
+    #[error("Not connected: {0}")]
+    NotConnected(String),
 
     /// Insufficient privileges to access the source.
     #[error(
@@ -82,22 +84,6 @@ pub enum DataSourceError {
     /// Attempted to read from the source before it was started.
     #[error("Read before starting (must call `start` before)")]
     ReadBeforeStart,
-
-    /// Configuration provided for the data source is invalid.
-    #[error("Invalid data source configuration: {0}")]
-    InvalidConfig(String),
-
-    /// Error occurred during the initialization or start-up of the data source.
-    #[error("Data source initialization failed: {0}")]
-    Initialization(String),
-
-    /// Error occurred during the shutdown or stopping of the data source.
-    #[error("Data source shutdown failed: {0}")]
-    Shutdown(String),
-
-    /// Operation attempted on a disconnected or not fully running source.
-    #[error("Data source not connected or unavailable: {0}")]
-    NotConnected(String),
 }
 
 /// Errors occurring at the application/config level.
@@ -134,9 +120,6 @@ pub enum CsiAdapterError {
     /// Error from CSV adapter.
     #[error("CSV Adapter Error: {0}")]
     CSV(#[from] CSVAdapterError),
-    // Add Atheros here if it's a distinct adapter type with its own error
-    // #[error("Atheros Adapter Error: {0}")]
-    // Atheros(#[from] AtherosAdapterError),
 }
 
 /// Errors specific to the ESP32 CSI adapter.
@@ -269,7 +252,15 @@ pub enum ControllerError {
     /// A required parameter was missing from the configuration.
     #[error("Missing parameter: {0}")]
     MissingParameter(String),
+    
+    #[error("Command failed to execute")]
+    CommandFailed {
+      command_name: String,
+      details: String,
+    },
 
+    #[error("Invalid datasource")]
+    InvalidDataSource (String),
     /// Could not determine the wireless PHY name.
     #[error("Failed to extract PhyName due to string conversions")]
     PhyName,
@@ -277,21 +268,6 @@ pub enum ControllerError {
     /// Generic error when executing controller logic.
     #[error("Controller execution error: {0}")]
     Execution(String),
-
-    /// The controller was applied to an incompatible type of data source.
-    #[error("Controller applied to an invalid data source type: {0}")]
-    InvalidDataSource(String),
-
-    /// A specific command sent by the controller to the device/source failed.
-    #[error("Command '{command_name}' failed: {details}")]
-    CommandFailed {
-        command_name: String,
-        details: String,
-    },
-
-    /// Timeout waiting for an acknowledgment (ACK) from the device.
-    #[error("Timeout waiting for ACK for command/action: {0}")]
-    AckTimeout(String),
 }
 
 /// Errors that can occur in data sinks.
@@ -333,12 +309,3 @@ pub enum TaskError {
     #[error("Controller Error: {0}")]
     ControllerError(#[from] ControllerError),
 }
-
-// Helper for converting ControllerError::CommandFailed in the controller module
-// This is because the previous code used .map_err(|e| ControllerError::CommandFailed("CmdName".to_string(), e.to_string()))
-// which is not how the struct variant is constructed.
-// It should be: ControllerError::CommandFailed { command_name: "CmdName".to_string(), details: e.to_string() }
-// This function is not strictly part of errors.rs but illustrates the correct usage.
-// pub fn new_command_failed_error(command_name: String, details: String) -> ControllerError {
-// ControllerError::CommandFailed { command_name, details }
-// }

@@ -1,127 +1,93 @@
-//! ESP32 Data Source
-//!
-//! Handles serial communication with an ESP32 device to send commands
-//! and receive CSI (Channel State Information) data.
-
-use crate::errors::{ControllerError, DataSourceError};
+use crate::errors::{ControllerError, DataSourceError}; // Ensure ControllerError is accessible
 use crate::sources::DataSourceT;
-use crate::sources::controllers::esp32_controller::Esp32Command; // Assuming this path
+use crate::sources::controllers::esp32_controller::Esp32Command;
 
-use async_trait::async_trait;
-use byteorder::{LittleEndian, ReadBytesExt};
-use crossbeam_channel::{
-    Receiver as CrossbeamReceiver, Sender as CrossbeamSender, TryRecvError, bounded,
-};
-use log::{debug, error, info, trace, warn};
-use serialport::{ClearBuffer, SerialPort};
+use std::any::Any;
 use std::collections::HashMap;
-use std::io::{ErrorKind as IoErrorKind, Read as StdRead, Write as StdWrite};
-use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
-use std::sync::{Arc, Mutex as StdMutex, PoisonError}; // Standard Mutex for port and ack_waiters
+use std::io::{Read as StdRead, Write as StdWrite}; // Renamed to avoid ambiguity
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering as AtomicOrdering},
+};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
-use tokio::sync::Mutex as TokioMutex; // For async methods if needed, but serial ops are blocking
 
-// Constants for ESP32 communication protocol
-const CMD_PREAMBLE_HOST_TO_ESP: [u8; 4] = [0xC3; 4]; // As per input_component.h
-const CMD_PACKET_TOTAL_SIZE_HOST_TO_ESP: usize = 128; // As per input_component.h
-const ESP_PACKET_PREAMBLE_ESP_TO_HOST: [u8; 8] = [0xAA; 8]; // As per esp32.rs (original)
-const ESP_TO_HOST_MIN_HEADER_SIZE: usize = ESP_PACKET_PREAMBLE_ESP_TO_HOST.len() + 2; // Preamble + Length (i16)
+use byteorder::{LittleEndian, ReadBytesExt as _}; // Use _ to import extension methods
+use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, bounded};
+use log::{debug, error, info, warn};
+use serialport::{ClearBuffer, SerialPort};
 
-const DEFAULT_ACK_TIMEOUT_MS: u64 = 2500; // Increased slightly
-const DEFAULT_CSI_BUFFER_SIZE: usize = 4096; // Increased slightly
-const SERIAL_READ_TIMEOUT_MS: u64 = 50; // Short timeout for non-blocking feel
-const SERIAL_PORT_OPERATION_TIMEOUT_MS: u64 = 1000; // Timeout for port open/write/flush
-const SERIAL_READ_BUFFER_SIZE: usize = 4096; // Buffer for serial reads
+const CMD_PREAMBLE_HOST_TO_ESP: [u8; 4] = [0xC3; 4];
+const CMD_PACKET_TOTAL_SIZE_HOST_TO_ESP: usize = 128;
+const ESP_PACKET_PREAMBLE_ESP_TO_HOST: [u8; 8] = [0xAA; 8];
+const ESP_TO_HOST_MIN_HEADER_SIZE: usize = ESP_PACKET_PREAMBLE_ESP_TO_HOST.len() + 2;
 
-const BAUDRATE: u32 = 3_000_000; // Common high speed for ESP32
+const DEFAULT_ACK_TIMEOUT_MS: u64 = 2000; // Increased slightly
+const DEFAULT_CSI_BUFFER_SIZE: usize = 100; // Reduced from 1000 to be more conservative
+const SERIAL_READ_TIMEOUT_MS: u64 = 100;
+const SERIAL_READ_BUFFER_SIZE: usize = 4096; // Increased for potentially larger bursts
+const BAUDRATE: u32 = 3_000_000; 
 
+// --- Type Aliases for `ack_waiters` ---
 type AckPayload = Result<Vec<u8>, ControllerError>;
-type AckSender = CrossbeamSender<AckPayload>; // Using crossbeam for sync sender from reader thread
-type AckWaiterMap = HashMap<u8, AckSender>; // Command ID to ACK sender
+type AckSender = Sender<AckPayload>;
+type AckWaiterMap = HashMap<u8, AckSender>;
+type SharedAckWaiters = Arc<Mutex<AckWaiterMap>>;
+// --- End Type Aliases ---
 
-/// Configuration for the `Esp32Source`.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct Esp32SourceConfig {
     pub port_name: String,
     pub baud_rate: u32,
-    #[serde(default = "default_csi_buffer_size")]
     pub csi_buffer_size: usize,
-    #[serde(default = "default_ack_timeout_ms")]
     pub ack_timeout_ms: u64,
-}
-
-fn default_csi_buffer_size() -> usize {
-    DEFAULT_CSI_BUFFER_SIZE
-}
-fn default_ack_timeout_ms() -> u64 {
-    DEFAULT_ACK_TIMEOUT_MS
 }
 
 impl Default for Esp32SourceConfig {
     fn default() -> Self {
-        Self {
-            port_name: "/dev/port".to_string(),
-            baud_rate: BAUDRATE,
-            csi_buffer_size: DEFAULT_CSI_BUFFER_SIZE,
-            ack_timeout_ms: DEFAULT_ACK_TIMEOUT_MS,
+        Self { 
+          port_name: "/dev/port".to_string(),
+          baud_rate: BAUDRATE,
+          csi_buffer_size: DEFAULT_CSI_BUFFER_SIZE,
+          ack_timeout_ms: DEFAULT_ACK_TIMEOUT_MS,
         }
     }
 }
 
-/// Represents a data source connected to an ESP32 device.
 pub struct Esp32Source {
     config: Esp32SourceConfig,
-    serial_port: Arc<StdMutex<Option<Box<dyn SerialPort>>>>,
-    is_running: Arc<AtomicBool>,
-    reader_thread_handle: Option<JoinHandle<()>>,
-    csi_data_receiver: CrossbeamReceiver<Vec<u8>>, // For Esp32Source::read()
-    csi_data_sender: CrossbeamSender<Vec<u8>>,     // For reader_task
-    ack_waiters: Arc<StdMutex<AckWaiterMap>>,
+    pub port: Arc<Mutex<Option<Box<dyn SerialPort>>>>,
+    pub is_running: Arc<AtomicBool>,
+    reader_handle: Option<JoinHandle<()>>,
+    csi_data_rx: Receiver<Vec<u8>>,
+    csi_data_tx: Sender<Vec<u8>>,
+    ack_waiters: SharedAckWaiters,
 }
 
 impl Esp32Source {
-    /// Creates a new `Esp32Source`.
     pub fn new(config: Esp32SourceConfig) -> Result<Self, DataSourceError> {
-        if config.port_name.is_empty() {
-            return Err(DataSourceError::InvalidConfig(
-                "Serial port name cannot be empty.".to_string(),
-            ));
-        }
-        if config.csi_buffer_size == 0 {
-            return Err(DataSourceError::InvalidConfig(
+        let buffer_size = config.csi_buffer_size;
+        if buffer_size == 0 {
+            return Err(DataSourceError::Controller(
                 "CSI buffer size cannot be zero.".to_string(),
             ));
         }
-
-        let (csi_data_sender, csi_data_receiver) = bounded(config.csi_buffer_size);
-
+        let (csi_data_tx, csi_data_rx) = bounded(buffer_size);
         Ok(Self {
             config,
-            serial_port: Arc::new(StdMutex::new(None)),
+            port: Arc::new(Mutex::new(None)),
             is_running: Arc::new(AtomicBool::new(false)),
-            reader_thread_handle: None,
-            csi_data_receiver,
-            csi_data_sender,
-            ack_waiters: Arc::new(StdMutex::new(HashMap::new())),
+            reader_handle: None,
+            csi_data_tx,
+            csi_data_rx,
+            ack_waiters: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
-    pub fn is_source_running(&self) -> bool {
-        self.is_running.load(AtomicOrdering::Relaxed)
-    }
-
-    pub fn port_name(&self) -> &str {
-        &self.config.port_name
-    }
-
-    /// Sends a command to the ESP32 and waits for an acknowledgment.
-    /// This method is intended to be called by the `Esp32Controller`.
-    /// It's made public for the controller but not part of `DataSourceT`.
+    // Method called by Esp32Controller
     pub async fn send_esp32_command(
-        // Changed to async fn
-        &self,
-        command: Esp32Command,
+        &mut self, // Changed to &mut self as it modifies ack_waiters
+        cmd: Esp32Command,
         data: Option<Vec<u8>>,
     ) -> Result<Vec<u8>, ControllerError> {
         if !self.is_running.load(AtomicOrdering::SeqCst) {
@@ -130,373 +96,359 @@ impl Esp32Source {
             ));
         }
 
-        let mut command_packet_builder = vec![0u8; CMD_PACKET_TOTAL_SIZE_HOST_TO_ESP];
-        command_packet_builder[0..CMD_PREAMBLE_HOST_TO_ESP.len()]
+        let mut command_packet = vec![0u8; CMD_PACKET_TOTAL_SIZE_HOST_TO_ESP];
+        command_packet[0..CMD_PREAMBLE_HOST_TO_ESP.len()]
             .copy_from_slice(&CMD_PREAMBLE_HOST_TO_ESP);
 
         let cmd_byte_offset = CMD_PREAMBLE_HOST_TO_ESP.len();
-        command_packet_builder[cmd_byte_offset] = command as u8;
-
+        command_packet[cmd_byte_offset] = cmd as u8;
         let data_offset = cmd_byte_offset + 1;
+
         if let Some(d) = data {
             let max_data_len = CMD_PACKET_TOTAL_SIZE_HOST_TO_ESP - data_offset;
             if d.len() > max_data_len {
                 return Err(ControllerError::InvalidParams(format!(
-                    "Command data too large: {} bytes (max {}) for command {:?}.",
+                    "Command data too large: {} bytes (max {})",
                     d.len(),
-                    max_data_len,
-                    command
+                    max_data_len
                 )));
             }
-            command_packet_builder[data_offset..data_offset + d.len()].copy_from_slice(&d);
+            command_packet[data_offset..data_offset + d.len()].copy_from_slice(&d);
         }
-        // Use Arc for the command_packet to move into spawn_blocking
-        let command_packet = Arc::new(command_packet_builder);
-        trace!("Prepared command packet for {command:?}: {command_packet:02X?}");
 
-        let (ack_tx, ack_rx) = bounded(1);
+        let (ack_tx_local, ack_rx_local): (AckSender, Receiver<AckPayload>) = bounded(1);
         {
-            let mut waiters_guard = self.ack_waiters.lock().map_err(|e: PoisonError<_>| {
-                ControllerError::Execution(format!("ACK waiter lock poisoned: {e}"))
-            })?;
-            if waiters_guard.insert(command as u8, ack_tx).is_some() {
+            let mut waiters = self
+                .ack_waiters
+                .lock()
+                .map_err(|_| ControllerError::Execution("ACK waiter lock poisoned".to_string()))?;
+            if waiters.insert(cmd as u8, ack_tx_local).is_some() {
                 warn!(
-                    "Overwriting ACK waiter for command {command:?}. Previous command might have timed out."
+                    "Overwriting ACK waiter for command {cmd:?}. This might indicate a logic issue or a previous command timed out without cleanup."
                 );
             }
         }
 
-        // --- Asynchronously perform the blocking serial write ---
-        let port_clone = Arc::clone(&self.serial_port);
-        let command_packet_clone = Arc::clone(&command_packet);
-        let command_debug_clone = command; // for logging
-
+        let port_clone = Arc::clone(&self.port);
+        // Use tokio::task::spawn_blocking for the synchronous serial write
         tokio::task::spawn_blocking(move || {
-            let mut port_guard = port_clone.lock().map_err(|e: PoisonError<_>| {
-                std::io::Error::other(format!("Serial port lock poisoned for send: {e}"))
-            })?;
-
-            if let Some(port) = port_guard.as_mut() {
+            let mut port_guard = port_clone
+                .lock()
+                .map_err(|_| std::io::Error::other("Port lock poisoned"))?;
+            if let Some(port_ref) = port_guard.as_mut() {
                 debug!(
-                    "Sending command {:?} to ESP32 ({} bytes).",
-                    command_debug_clone,
-                    command_packet_clone.len()
+                    "Sending command {:?} to ESP32. Packet size: {}",
+                    cmd,
+                    command_packet.len()
                 );
-                port.write_all(&command_packet_clone)?;
-                port.flush()?;
+                port_ref.write_all(&command_packet)?;
+                port_ref.flush()?;
                 Ok(())
             } else {
                 Err(std::io::Error::new(
-                    IoErrorKind::NotConnected,
-                    "Serial port not open for sending command.",
+                    std::io::ErrorKind::NotConnected,
+                    "Serial port not open for sending command",
                 ))
             }
         })
-        .await // Wait for spawn_blocking to complete
-        .map_err(|e| ControllerError::Execution(format!("Task for serial write panicked: {e}")))? // Handle JoinError
-        .map_err(ControllerError::Io)?; // Handle IO Error from the closure
+        .await
+        .map_err(|e| {
+            ControllerError::Execution(format!("Task for serial write panicked: {e}"))
+        })??;
+        // First ? for JoinError, second ? for std::io::Error
 
-        // --- Asynchronously wait for the ACK ---
-        let ack_timeout = Duration::from_millis(self.config.ack_timeout_ms);
-        let ack_wait_result =
-            tokio::task::spawn_blocking(move || ack_rx.recv_timeout(ack_timeout)).await; // Wait for spawn_blocking to complete
+        let ack_timeout =
+            Duration::from_millis(self.config.ack_timeout_ms);
 
-        // Remove waiter regardless of outcome, needs to be done carefully
-        // Best to remove *after* recv attempt or timeout, but ensure it's always removed
-        let ack_payload_result = match ack_wait_result {
-            Ok(Ok(payload)) => Ok(payload), // recv_timeout succeeded, got AckPayload
-            Ok(Err(crossbeam_channel::RecvTimeoutError::Timeout)) => {
-                error!("Timeout waiting for ACK for command: {command:?}");
-                Err(ControllerError::AckTimeout(format!(
-                    "Timeout waiting for ACK for ESP32 command {command:?}"
+        let ack_result =
+            tokio::task::spawn_blocking(move || ack_rx_local.recv_timeout(ack_timeout))
+                .await
+                .map_err(|e| {
+                    ControllerError::Execution(format!("Task for ACK receive panicked: {e}"))
+                })?;
+
+        // Ensure waiter is removed
+        self.ack_waiters
+            .lock()
+            .map_err(|_| {
+                ControllerError::Execution("ACK waiter lock poisoned during cleanup".to_string())
+            })?
+            .remove(&(cmd as u8));
+
+        match ack_result {
+            Ok(ack_payload_result) => {
+                // ack_payload_result is Result<Vec<u8>, ControllerError>
+                match ack_payload_result {
+                    Ok(ack_data) => {
+                        info!("ACK received for command: {cmd:?}");
+                        Ok(ack_data)
+                    }
+                    Err(e) => {
+                        // Error explicitly sent from reader (e.g., ESP32 reported error)
+                        error!("ESP32 reported an error in ACK for command {cmd:?}: {e}");
+                        Err(e)
+                    }
+                }
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                error!("Timeout waiting for ACK for command: {cmd:?}");
+                Err(ControllerError::Execution(format!(
+                    "ACK timeout for ESP32 command {cmd:?}"
                 )))
             }
-            Ok(Err(crossbeam_channel::RecvTimeoutError::Disconnected)) => {
+            Err(RecvTimeoutError::Disconnected) => {
                 error!(
-                    "ACK channel disconnected for command: {command:?}. Reader thread might have terminated."
+                    "ACK channel disconnected for command: {cmd:?}. Reader thread might have died."
                 );
                 Err(ControllerError::Execution(
                     "ESP32 ACK channel disconnected; reader thread likely terminated.".to_string(),
                 ))
             }
-            Err(join_err) => {
-                // JoinError from spawn_blocking
-                error!("Task for ACK receive panicked for command {command:?}: {join_err}");
-                Err(ControllerError::Execution(format!(
-                    "Task for ACK receive panicked: {join_err}"
-                )))
-            }
-        };
-
-        // Ensure waiter is removed
-        self.ack_waiters
-            .lock()
-            .map_err(|e: PoisonError<_>| {
-                ControllerError::Execution(format!("ACK waiter lock poisoned on cleanup: {e}"))
-            })?
-            .remove(&(command as u8));
-
-        match ack_payload_result {
-            Ok(Ok(ack_data)) => {
-                // Inner Ok is from AckPayload = Result<Vec<u8>, ControllerError>
-                info!("ACK received for command: {command:?}");
-                Ok(ack_data)
-            }
-            Ok(Err(controller_err)) => {
-                // Inner Err is from AckPayload
-                error!("ESP32 reported error in ACK for command {command:?}: {controller_err}");
-                Err(controller_err)
-            }
-            Err(controller_err) => {
-                // Error from recv_timeout handling (Timeout, Disconnected, Panic)
-                Err(controller_err)
-            }
         }
     }
 
-    /// The main loop for the reader thread.
     fn reader_task_loop(
-        serial_port_arc: Arc<StdMutex<Option<Box<dyn SerialPort>>>>,
-        is_running_arc: Arc<AtomicBool>,
-        csi_data_sender: CrossbeamSender<Vec<u8>>,
-        ack_waiters_arc: Arc<StdMutex<AckWaiterMap>>,
+        port_arc: Arc<Mutex<Option<Box<dyn SerialPort>>>>,
+        is_running: Arc<AtomicBool>,
+        csi_data_tx: Sender<Vec<u8>>,
+        ack_waiters: SharedAckWaiters,
     ) {
-        info!("ESP32Source reader thread started.");
-        let mut current_read_buffer = Vec::with_capacity(SERIAL_READ_BUFFER_SIZE * 2);
-        let mut temp_serial_buf = [0u8; SERIAL_READ_BUFFER_SIZE]; // Reusable buffer for serial reads
+        info!("ESP32Source reader task started.");
+        let mut partial_buffer = Vec::with_capacity(SERIAL_READ_BUFFER_SIZE * 2);
 
-        while is_running_arc.load(AtomicOrdering::Relaxed) {
-            let bytes_read_this_iteration = {
-                let mut port_guard = match serial_port_arc.lock() {
+        while is_running.load(AtomicOrdering::Relaxed) {
+            let bytes_read_from_port = {
+                let mut port_guard = match port_arc.lock() {
                     Ok(guard) => guard,
-                    Err(p_err) => {
-                        error!("Reader thread: Serial port mutex poisoned: {p_err}. Terminating.");
+                    Err(_) => {
+                        error!("Reader task: Port mutex poisoned. Terminating.");
                         break;
                     }
                 };
-
                 if let Some(port) = port_guard.as_mut() {
-                    match port.read(&mut temp_serial_buf) {
+                    let mut temp_read_buf = [0u8; SERIAL_READ_BUFFER_SIZE];
+                    match port.read(&mut temp_read_buf) {
                         Ok(0) => {
-                            // Should not happen with timeout, but handle defensively
-                            drop(port_guard); // Release lock before sleep
-                            thread::sleep(Duration::from_millis(5)); // Brief pause
-                            0
+                            thread::sleep(Duration::from_millis(10)); // Small pause if 0 bytes read
+                            Ok(vec![]) // Treat as no new data
                         }
-                        Ok(n) => {
-                            current_read_buffer.extend_from_slice(&temp_serial_buf[..n]);
-                            n
-                        }
-                        Err(e) if e.kind() == IoErrorKind::TimedOut => 0, // Expected with timeout
-                        Err(e) if e.kind() == IoErrorKind::Interrupted => 0, // Can happen
+                        Ok(n) => Ok(temp_read_buf[..n].to_vec()),
+                        Err(e) if e.kind() == std::io::ErrorKind::TimedOut => Ok(Vec::new()),
                         Err(e) => {
-                            error!("Serial read error in reader thread: {e}. Terminating reader.");
-                            is_running_arc.store(false, AtomicOrdering::Relaxed); // Signal shutdown
-                            break; // Exit loop
+                            error!("Serial read error in reader task: {e}. Terminating.");
+                            Err(e) // Fatal error for this iteration, will break loop
                         }
                     }
                 } else {
-                    // Port not open, or closed during operation
-                    if !is_running_arc.load(AtomicOrdering::Relaxed) {
+                    if !is_running.load(AtomicOrdering::Relaxed) {
                         break;
-                    } // Exit if shutting down
-                    drop(port_guard); // Release lock before sleep
-                    thread::sleep(Duration::from_millis(100)); // Wait for port to potentially become available
-                    0
+                    }
+                    thread::sleep(Duration::from_millis(200));
+                    continue;
                 }
             };
 
-            if bytes_read_this_iteration > 0 {
-                trace!(
-                    "Reader thread: read {} bytes from serial. Buffer size: {}",
-                    bytes_read_this_iteration,
-                    current_read_buffer.len()
-                );
+            let mut new_data_was_read_in_this_iteration = false;
+
+            match bytes_read_from_port {
+                Ok(new_bytes) => {
+                    if !new_bytes.is_empty() {
+                        partial_buffer.extend_from_slice(&new_bytes);
+                        new_data_was_read_in_this_iteration = true;
+                    }
+                }
+                Err(_) => {
+                    is_running.store(false, AtomicOrdering::Relaxed);
+                    break;
+                }
             }
 
-            // Process all complete packets in current_read_buffer
             loop {
-                if current_read_buffer.len() < ESP_TO_HOST_MIN_HEADER_SIZE {
-                    break; // Not enough data for even a header
+                // Inner loop for processing partial_buffer
+                if partial_buffer.len() < ESP_TO_HOST_MIN_HEADER_SIZE {
+                    break;
                 }
 
-                // Search for preamble
-                if let Some(preamble_start_idx) = current_read_buffer
+                if let Some(pos) = partial_buffer
                     .windows(ESP_PACKET_PREAMBLE_ESP_TO_HOST.len())
-                    .position(|window| window == ESP_PACKET_PREAMBLE_ESP_TO_HOST)
+                    .position(|w| w == ESP_PACKET_PREAMBLE_ESP_TO_HOST)
                 {
-                    if preamble_start_idx > 0 {
-                        debug!("Discarding {preamble_start_idx} bytes before preamble.");
-                        current_read_buffer.drain(0..preamble_start_idx);
-                        // Continue to re-check buffer length after drain
-                        if current_read_buffer.len() < ESP_TO_HOST_MIN_HEADER_SIZE {
-                            break;
-                        }
+                    if pos > 0 {
+                        debug!(
+                            "Preamble found at pos {pos}. Discarding {pos} bytes before preamble.",
+                        );
+                        partial_buffer.drain(0..pos);
+                    }
+                    if partial_buffer.len() < ESP_TO_HOST_MIN_HEADER_SIZE {
+                        // Check again after drain
+                        break;
                     }
 
-                    // Preamble is at the start of current_read_buffer now.
-                    // Read packet length (i16, Little Endian)
-                    let mut len_bytes_cursor = std::io::Cursor::new(
-                        &current_read_buffer
-                            [ESP_PACKET_PREAMBLE_ESP_TO_HOST.len()..ESP_TO_HOST_MIN_HEADER_SIZE],
-                    );
-                    let esp_length_field = match len_bytes_cursor.read_i16::<LittleEndian>() {
-                        Ok(len) => len,
-                        Err(e) => {
-                            error!(
-                                "Failed to read packet length field: {e}. Discarding minimal header to attempt recovery."
-                            );
-                            current_read_buffer.drain(0..ESP_TO_HOST_MIN_HEADER_SIZE);
-                            continue; // Try to find next packet
-                        }
-                    };
+                    let len_bytes = &partial_buffer
+                        [ESP_PACKET_PREAMBLE_ESP_TO_HOST.len()..ESP_TO_HOST_MIN_HEADER_SIZE];
+                    let esp_length_field_val_signed =
+                        i16::from_le_bytes([len_bytes[0], len_bytes[1]]);
+                    debug!("Raw length field from ESP32: {esp_length_field_val_signed}",);
 
-                    // Total length of the packet on the wire *including* preamble and length field.
-                    // The firmware sends the length of (preamble + length_field + payload_data) as positive/negative.
-                    // So, the `esp_length_field.unsigned_abs()` is the total size of this full ESP-to-Host frame.
-                    let total_packet_on_wire_len = esp_length_field.unsigned_abs() as usize;
-
-                    if total_packet_on_wire_len < ESP_TO_HOST_MIN_HEADER_SIZE {
-                        error!(
-                            "ESP32 reported invalid packet length: {total_packet_on_wire_len} (must be >= {ESP_TO_HOST_MIN_HEADER_SIZE}). Discarding preamble and length field."
+                    if esp_length_field_val_signed == 0 {
+                        warn!(
+                            "ESP32 packet with declared length field 0. Discarding header to attempt recovery."
                         );
-                        current_read_buffer.drain(0..ESP_TO_HOST_MIN_HEADER_SIZE);
+                        partial_buffer.drain(
+                            0..std::cmp::min(ESP_TO_HOST_MIN_HEADER_SIZE, partial_buffer.len()),
+                        );
                         continue;
                     }
 
-                    if current_read_buffer.len() < total_packet_on_wire_len {
-                        trace!(
-                            "Partial packet: Have {}, need {}. Waiting for more data.",
-                            current_read_buffer.len(),
-                            total_packet_on_wire_len
+                    let declared_length_from_esp =
+                        esp_length_field_val_signed.unsigned_abs() as usize;
+                    debug!(
+                        "Declared length from ESP32 (abs value of field): {declared_length_from_esp}",
+                    );
+
+                    // *** ASSUMPTION CHANGE FOR THIS FIX: ***
+                    // The value `declared_length_from_esp` IS the total length of the packet on the wire,
+                    // including preamble and the length field itself.
+                    let total_packet_len_on_wire = declared_length_from_esp;
+
+                    // Sanity check: total length must be at least header size.
+                    if total_packet_len_on_wire < ESP_TO_HOST_MIN_HEADER_SIZE {
+                        error!(
+                            "Declared total packet length {total_packet_len_on_wire} is less than minimum header size {ESP_TO_HOST_MIN_HEADER_SIZE}. Corrupted packet. Discarding.",
                         );
-                        break; // Need more data for the full packet
+                        partial_buffer.drain(
+                            0..std::cmp::min(total_packet_len_on_wire, partial_buffer.len()),
+                        );
+                        continue;
                     }
 
-                    // We have a full packet
-                    let packet_with_header_and_len_field = current_read_buffer
-                        .drain(0..total_packet_on_wire_len)
-                        .collect::<Vec<_>>();
-                    let actual_payload_data =
-                        packet_with_header_and_len_field[ESP_TO_HOST_MIN_HEADER_SIZE..].to_vec();
+                    if partial_buffer.len() < total_packet_len_on_wire {
+                        debug!(
+                            "Buffer (len {}) too short for full packet (need {} based on ESP field). Waiting for more.",
+                            partial_buffer.len(),
+                            total_packet_len_on_wire
+                        );
+                        break;
+                    }
 
-                    let is_ack_packet = esp_length_field < 0;
+                    debug!("Extracting full packet of len: {total_packet_len_on_wire} from buffer",);
+                    let packet_data_with_header = partial_buffer
+                        .drain(0..total_packet_len_on_wire)
+                        .collect::<Vec<_>>();
+
+                    // The actual payload is after the header
+                    // This check ensures that we can safely slice the payload.
+                    // If total_packet_len_on_wire was < ESP_TO_HOST_MIN_HEADER_SIZE, the previous check would have caught it.
+                    // This mainly guards against total_packet_len_on_wire being exactly ESP_TO_HOST_MIN_HEADER_SIZE for non-ACKs,
+                    // or if the drain somehow returned less than expected (though drain(0..X) should give X bytes if available).
+                    if packet_data_with_header.len() < ESP_TO_HOST_MIN_HEADER_SIZE {
+                        warn!(
+                            "Drained packet (len {}) is smaller than header size ({}). Should not happen if previous checks passed. Skipping.",
+                            packet_data_with_header.len(),
+                            ESP_TO_HOST_MIN_HEADER_SIZE
+                        );
+                        continue;
+                    }
+                    let actual_payload_content =
+                        packet_data_with_header[ESP_TO_HOST_MIN_HEADER_SIZE..].to_vec();
+
+                    let is_ack_packet = esp_length_field_val_signed < 0;
 
                     if is_ack_packet {
-                        if actual_payload_data.is_empty() {
+                        // ACK
+                        if actual_payload_content.is_empty() {
+                            // This implies total_packet_len_on_wire was exactly ESP_TO_HOST_MIN_HEADER_SIZE,
+                            // and esp_length_field_val_signed was negative.
                             warn!(
-                                "ACK packet received with empty payload (expected command byte). Skipping."
+                                "ACK packet payload is empty (command byte expected). Length field: {esp_length_field_val_signed}, Total packet len: {total_packet_len_on_wire}",
                             );
                             continue;
                         }
-                        let cmd_byte_acked = actual_payload_data[0];
-                        let ack_data_payload = if actual_payload_data.len() > 1 {
-                            actual_payload_data[1..].to_vec()
+                        let cmd_byte = actual_payload_content[0];
+                        let ack_data = if actual_payload_content.len() > 1 {
+                            actual_payload_content[1..].to_vec()
                         } else {
                             Vec::new()
                         };
-                        debug!(
-                            "Received ACK for command 0x{:02X} with data len {}",
-                            cmd_byte_acked,
-                            ack_data_payload.len()
-                        );
 
-                        let mut waiters_guard = match ack_waiters_arc.lock() {
+                        debug!(
+                            "Received ACK for command byte 0x{:02X} with data len {}",
+                            cmd_byte,
+                            ack_data.len()
+                        );
+                        let mut waiters_guard = match ack_waiters.lock() {
                             Ok(g) => g,
-                            Err(p_err) => {
-                                error!(
-                                    "ACK Waiter lock poisoned in reader: {p_err}. Cannot deliver ACK."
-                                );
+                            Err(_) => {
+                                error!("ACK Waiter lock poisoned in reader");
                                 continue;
                             }
                         };
-                        if let Some(ack_sender_channel) = waiters_guard.remove(&cmd_byte_acked) {
-                            if let Err(e) = ack_sender_channel.try_send(Ok(ack_data_payload)) {
+                        if let Some(ack_tx_specific) = waiters_guard.remove(&cmd_byte) {
+                            if let Err(e) = ack_tx_specific.try_send(Ok(ack_data)) {
                                 warn!(
-                                    "Failed to send ACK payload for cmd 0x{cmd_byte_acked:02X} to waiting task: {e:?}. Channel might be closed (timeout)."
+                                    "Failed to send ACK for cmd 0x{cmd_byte:02X} to specific waiter: {e}",
                                 );
                             } else {
-                                trace!(
-                                    "Successfully delivered ACK for 0x{cmd_byte_acked:02X} to waiter."
+                                debug!(
+                                    "Successfully sent ACK for 0x{cmd_byte:02X} to waiting task.",
                                 );
                             }
                         } else {
-                            warn!(
-                                "Received ACK for command 0x{cmd_byte_acked:02X}, but no waiter was registered or it already timed out."
+                            debug!(
+                                "Received ACK for cmd 0x{cmd_byte:02X} but no specific waiter was registered.",
                             );
                         }
                     } else {
-                        // CSI Data Packet
-                        trace!(
-                            "Received CSI Data packet (payload len {}). Forwarding.",
-                            actual_payload_data.len()
+                        // CSI Data
+                        debug!(
+                            "Received CSI Data packet. Payload len: {}. Sending to CSI channel.",
+                            actual_payload_content.len()
                         );
-                        if csi_data_sender.is_full() {
+                        if csi_data_tx.is_full() {
                             warn!(
-                                "CSI data channel is full. Discarding incoming ESP32 CSI packet. CLI might be blocked or slow."
+                                "CSI data channel full. Discarding ESP32 CSI packet. Consider increasing csi_buffer_size."
                             );
-                        } else if let Err(e) = csi_data_sender.try_send(actual_payload_data) {
-                            error!("Failed to send CSI data to processing channel: {e}.");
-                            if e.is_disconnected() {
-                                info!("CSI data channel disconnected. Reader thread terminating.");
-                                is_running_arc.store(false, AtomicOrdering::Relaxed);
-                                break; // Break inner, outer will also break.
-                            }
+                        } else if let Err(e) = csi_data_tx.try_send(actual_payload_content) {
+                            warn!("Failed to send CSI data to channel: {e}");
                         }
                     }
                 } else {
-                    // No preamble found in the buffer. If buffer is large, discard some to avoid unbounded growth with garbage data.
-                    if current_read_buffer.len() > SERIAL_READ_BUFFER_SIZE {
-                        // Heuristic
-                        let discard_len = current_read_buffer.len()
-                            - (ESP_PACKET_PREAMBLE_ESP_TO_HOST.len().saturating_sub(1));
+                    // No preamble found
+                    if partial_buffer.len() >= ESP_PACKET_PREAMBLE_ESP_TO_HOST.len() {
+                        let discard_len =
+                            partial_buffer.len() - (ESP_PACKET_PREAMBLE_ESP_TO_HOST.len() - 1);
                         debug!(
-                            "No preamble found in {} bytes of buffer. Discarding {} bytes to search again.",
-                            current_read_buffer.len(),
+                            "No preamble found, buffer len {}. Discarding {} bytes.",
+                            partial_buffer.len(),
                             discard_len
                         );
-                        current_read_buffer.drain(0..discard_len);
+                        partial_buffer.drain(0..discard_len);
                     }
-                    break; // Need more data to find a preamble
+                    break;
                 }
-            } // End inner loop (processing current_read_buffer)
+            } // End inner loop
 
-            // If no new data was read and buffer is small, pause briefly
-            if bytes_read_this_iteration == 0
-                && current_read_buffer.len() < ESP_TO_HOST_MIN_HEADER_SIZE
+            if !new_data_was_read_in_this_iteration
+                && partial_buffer.len() < ESP_TO_HOST_MIN_HEADER_SIZE
             {
-                if !is_running_arc.load(AtomicOrdering::Relaxed) {
+                if !is_running.load(AtomicOrdering::Relaxed) {
                     break;
                 }
                 thread::sleep(Duration::from_millis(10));
             }
-        } // End while is_running_arc
+        } // End while is_running
 
-        // Cleanup before exiting thread
-        is_running_arc.store(false, AtomicOrdering::Relaxed); // Ensure state is false
-        if let Ok(mut waiters) = ack_waiters_arc.lock() {
-            // Notify any pending waiters that the source is stopping
-            for (_, sender) in waiters.drain() {
-                let _ = sender.try_send(Err(ControllerError::Execution(
-                    "ESP32Source stopped; command aborted.".to_string(),
-                )));
-            }
-        } else {
-            error!("ACK Waiters lock poisoned during reader thread shutdown cleanup.");
-        }
-        info!("ESP32Source reader thread finished.");
+        is_running.store(false, AtomicOrdering::Relaxed);
+        ack_waiters.lock().unwrap().clear();
+        info!("ESP32Source reader task finished.");
     }
 }
 
-#[async_trait]
+#[async_trait::async_trait]
 impl DataSourceT for Esp32Source {
     async fn start(&mut self) -> Result<(), DataSourceError> {
-        if self
-            .is_running
-            .compare_exchange(false, true, AtomicOrdering::SeqCst, AtomicOrdering::Relaxed)
-            .is_err()
-        {
-            info!("ESP32Source already running or starting.");
+        if self.is_running.load(AtomicOrdering::SeqCst) {
+            info!("ESP32Source already running.");
             return Ok(());
         }
         info!(
@@ -504,147 +456,100 @@ impl DataSourceT for Esp32Source {
             self.config.port_name, self.config.baud_rate
         );
 
-        let port_result = serialport::new(&self.config.port_name, self.config.baud_rate)
-            .timeout(Duration::from_millis(SERIAL_READ_TIMEOUT_MS)) // Timeout for port.read()
-            .open();
-
-        let mut port = match port_result {
-            Ok(p) => p,
-            Err(e) => {
+        let mut port = serialport::new(&self.config.port_name, self.config.baud_rate)
+            .timeout(Duration::from_millis(SERIAL_READ_TIMEOUT_MS))
+            .open()
+            .map_err(|e| {
+                // e is serialport::Error
                 error!(
                     "Failed to open serial port {}: {}",
                     self.config.port_name, e
                 );
-                self.is_running.store(false, AtomicOrdering::SeqCst);
-                return Err(DataSourceError::from(e));
-            }
-        };
+                DataSourceError::from(e) // Automatically becomes DataSourceError::Serial(e)
+            })?;
 
-        if let Err(e) = port.clear(ClearBuffer::All) {
-            error!("Failed to clear serial port buffers: {e}");
-            self.is_running.store(false, AtomicOrdering::SeqCst);
-            return Err(DataSourceError::from(e));
-        }
+        port.clear(ClearBuffer::All)
+            .map_err(DataSourceError::from)?;
 
-        // Configure write timeout for port operations like flush
-        if let Err(e) = port.set_timeout(Duration::from_millis(SERIAL_PORT_OPERATION_TIMEOUT_MS)) {
-            error!("Failed to set serial port write timeout: {e}");
-            self.is_running.store(false, AtomicOrdering::SeqCst);
-            return Err(DataSourceError::from(e));
-        }
+        *self.port.lock().unwrap() = Some(port);
+        self.is_running.store(true, AtomicOrdering::SeqCst);
 
-        *self.serial_port.lock().map_err(|p_err| {
-            DataSourceError::Initialization(format!("Serial port lock poisoned on start: {p_err}"))
-        })? = Some(port);
-
-        let port_clone = Arc::clone(&self.serial_port);
+        let port_clone = Arc::clone(&self.port);
         let is_running_clone = Arc::clone(&self.is_running);
-        let csi_sender_clone = self.csi_data_sender.clone();
+        let csi_data_tx_clone = self.csi_data_tx.clone();
         let ack_waiters_clone = Arc::clone(&self.ack_waiters);
 
         let reader_handle = thread::Builder::new()
-            .name(format!(
-                "esp32-reader-{}",
-                self.config.port_name.replace("/", "_")
-            ))
+            .name("esp32-reader".to_string())
             .spawn(move || {
                 Esp32Source::reader_task_loop(
                     port_clone,
                     is_running_clone,
-                    csi_sender_clone,
+                    csi_data_tx_clone,
                     ack_waiters_clone,
                 );
             })
             .map_err(|e| {
-                DataSourceError::Initialization(format!("Failed to spawn ESP32 reader thread: {e}"))
+                DataSourceError::Controller(format!("Failed to spawn ESP32 reader thread: {e}"))
             })?;
 
-        self.reader_thread_handle = Some(reader_handle);
-        info!(
-            "ESP32Source started successfully on {}.",
-            self.config.port_name
-        );
+        self.reader_handle = Some(reader_handle);
+        info!("ESP32Source started successfully.");
         Ok(())
     }
 
     async fn stop(&mut self) -> Result<(), DataSourceError> {
-        if self
-            .is_running
-            .compare_exchange(true, false, AtomicOrdering::SeqCst, AtomicOrdering::Relaxed)
-            .is_err()
-        {
-            info!("ESP32Source already stopped or not running.");
-            // Still try to join thread if handle exists, in case of partial start/stop
-            if let Some(handle) = self.reader_thread_handle.take() {
-                debug!(
-                    "ESP32Source was not marked as running, but reader thread handle exists. Attempting join."
-                );
-                match handle.join() {
-                    Ok(_) => debug!(
-                        "Reader thread joined successfully after stop (was not marked running)."
-                    ),
-                    Err(e) => warn!(
-                        "Error joining reader thread after stop (was not marked running): {e:?}"
-                    ),
-                }
-            }
+        if !self.is_running.load(AtomicOrdering::SeqCst) && self.reader_handle.is_none() {
+            info!("ESP32Source already stopped or never started.");
             return Ok(());
         }
+        info!("Stopping ESP32Source...");
+        self.is_running.store(false, AtomicOrdering::SeqCst);
 
-        info!("Stopping ESP32Source on {}...", self.config.port_name);
-
-        // Close and drop the serial port. This should interrupt blocking reads in the reader thread.
-        if let Ok(mut port_guard) = self.serial_port.lock() {
-            if let Some(mut port_instance) = port_guard.take() {
-                // Attempt to flush before closing, ignore error if it fails during shutdown
-                let _ = port_instance.flush();
-                drop(port_instance);
-                debug!("Serial port explicitly closed and dropped during stop.");
-            }
-        } else {
-            error!("Serial port lock poisoned during stop. Unable to ensure clean port closure.");
+        // Close/drop the port first to interrupt blocking reads in the reader thread
+        if let Some(port_to_drop) = self.port.lock().unwrap().take() {
+            drop(port_to_drop);
+            debug!("Serial port explicitly dropped during stop.");
         }
 
-        if let Some(handle) = self.reader_thread_handle.take() {
+        if let Some(handle) = self.reader_handle.take() {
             debug!("Waiting for ESP32 reader thread to join...");
-            match handle.join() {
-                Ok(_) => debug!("ESP32 reader thread joined successfully."),
-                Err(e) => {
-                    error!("ESP32 reader thread panicked or failed to join cleanly: {e:?}");
-                    return Err(DataSourceError::Shutdown(
-                        "Reader thread did not join cleanly.".to_string(),
-                    ));
-                }
+            if let Err(e) = handle.join() {
+                // This might block for a bit if thread is stuck
+                error!("ESP32 reader thread panicked or failed to join cleanly: {e:?}");
+            } else {
+                debug!("ESP32 reader thread joined.");
             }
-        } else {
-            debug!("No reader thread handle found, was it already joined or never started?");
         }
 
-        // Clear any outstanding ACK waiters
-        if let Ok(mut waiters) = self.ack_waiters.lock() {
-            if !waiters.is_empty() {
-                warn!(
-                    "{} ACK waiters were still pending during stop. Notifying them of shutdown.",
-                    waiters.len()
-                );
-                for (_, sender) in waiters.drain() {
-                    let _ = sender.try_send(Err(ControllerError::Execution(
-                        "ESP32Source stopped; command aborted during shutdown.".to_string(),
-                    )));
-                }
-            }
-        } else {
-            error!("ACK Waiters lock poisoned during stop cleanup.");
-        }
-
-        info!("ESP32Source stopped successfully.");
+        self.ack_waiters.lock().unwrap().clear(); // Clear any stale waiters
+        info!("ESP32Source stopped.");
         Ok(())
     }
 
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError> {
-        // Non-blocking read from the internal CSI data channel
-        match self.csi_data_receiver.try_recv() {
-            Ok(data_payload) => {
+        if !self.is_running.load(AtomicOrdering::SeqCst) && self.csi_data_rx.is_empty() {
+            // If explicitly stopped and no more data, could return a specific "EOS" or just Ok(0)
+            debug!("ESP32Source not running and CSI buffer empty.");
+            return Ok(0); // Or Err(DataSourceError::Controller("Source stopped".to_string()));
+        }
+
+        let csi_data_rx_clone = self.csi_data_rx.clone();
+        let result_opt_payload = tokio::task::spawn_blocking(move || {
+            match csi_data_rx_clone.recv_timeout(Duration::from_millis(1)) {
+                // Very short timeout for non-blocking feel
+                Ok(data_payload) => Ok(Some(data_payload)),
+                Err(RecvTimeoutError::Timeout) => Ok(None),
+                Err(RecvTimeoutError::Disconnected) => Err(DataSourceError::Controller(
+                    "CSI data channel disconnected".to_string(),
+                )),
+            }
+        })
+        .await
+        .map_err(|e| DataSourceError::Controller(format!("Read task panicked: {e}")))?; // Error from spawn_blocking join
+
+        match result_opt_payload {
+            Ok(Some(data_payload)) => {
                 if data_payload.len() > buf.len() {
                     warn!(
                         "User buffer (len {}) too small for ESP32 CSI data (len {}). Data truncated.",
@@ -658,70 +563,30 @@ impl DataSourceT for Esp32Source {
                     Ok(data_payload.len())
                 }
             }
-            Err(TryRecvError::Empty) => {
-                if !self.is_running.load(AtomicOrdering::Relaxed)
-                    && self.csi_data_receiver.is_empty()
-                {
-                    trace!("ESP32Source not running and CSI buffer empty, Ok(0) for read.");
-                    Ok(0) // Source stopped and no more data
-                } else {
-                    Ok(0) // No data currently available, but source might still be running
-                }
-            }
-            Err(TryRecvError::Disconnected) => {
-                info!("CSI data channel disconnected in read(). Reader thread likely terminated.");
-                self.is_running.store(false, AtomicOrdering::Relaxed);
-                Err(DataSourceError::NotConnected(
-                    "CSI data channel disconnected; ESP32 source reader stopped.".to_string(),
-                ))
-            }
+            Ok(None) => Ok(0), // No data currently available
+            Err(e) => Err(e),  // Error from recv (e.g. Disconnected)
         }
     }
 }
 
 impl Drop for Esp32Source {
     fn drop(&mut self) {
-        if self.is_running.load(AtomicOrdering::Relaxed) || self.reader_thread_handle.is_some() {
-            info!(
-                "Dropping Esp32Source for {}: ensuring resources are cleaned up.",
-                self.config.port_name
-            );
-            // Set running to false to signal the thread
+        // Best effort to stop the thread and release resources if not already stopped.
+        if self.is_running.load(AtomicOrdering::Relaxed) || self.reader_handle.is_some() {
+            info!("Dropping Esp32Source: signaling reader thread to stop.");
             self.is_running.store(false, AtomicOrdering::SeqCst);
-
-            // Attempt to close port
-            if let Ok(mut port_guard) = self.serial_port.lock() {
+            // Close port to help unblock reader thread
+            if let Ok(mut port_guard) = self.port.lock() {
                 if let Some(port_to_drop) = port_guard.take() {
                     drop(port_to_drop);
-                    debug!("Serial port dropped in Esp32Source::drop");
                 }
-            } else {
-                // If poisoned, we can't do much about the port, but the thread should still see is_running=false
-                error!(
-                    "Serial port lock poisoned during Esp32Source::drop for {}.",
-                    self.config.port_name
-                );
             }
-
-            // Join the reader thread. This is blocking, which is generally discouraged in drop,
-            // but necessary for resource cleanup if stop() wasn't called.
-            // A timeout could be added here if deadlocks are a concern.
-            if let Some(handle) = self.reader_thread_handle.take() {
-                debug!(
-                    "Esp32Source::drop waiting for reader thread to join for {}.",
-                    self.config.port_name
-                );
-                if let Err(e) = handle.join() {
-                    error!(
-                        "Error joining reader thread in Esp32Source::drop for {}: {:?}",
-                        self.config.port_name, e
-                    );
-                } else {
-                    debug!(
-                        "Reader thread joined in Esp32Source::drop for {}.",
-                        self.config.port_name
-                    );
-                }
+            // Joining thread in drop is generally discouraged as it can deadlock or panic.
+            // The reader thread should observe `is_running` and exit.
+            if let Some(handle) = self.reader_handle.take() {
+                // Optionally, can try a timed join or just let it be if it's designed to exit quickly.
+                // For now, we just take it. The thread should exit on its own.
+                debug!("Reader thread handle taken in drop. Thread should self-terminate.");
             }
         }
     }

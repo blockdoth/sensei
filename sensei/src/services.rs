@@ -1,4 +1,5 @@
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::path::PathBuf;
 
 use log::LevelFilter;
 use serialport::SerialPort;
@@ -12,6 +13,7 @@ pub struct OrchestratorConfig {
 
 pub struct SystemNodeConfig {
     pub addr: SocketAddr,
+    pub device_configs: PathBuf,
 }
 
 pub struct RegistryConfig {

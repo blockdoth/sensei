@@ -36,6 +36,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::io::stdout;
 use std::net::SocketAddr;
+use std::num::ParseIntError;
 use std::ops::DerefMut;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
@@ -421,12 +422,12 @@ impl Visualiser {
                 };
                 graphs.lock().await.push(entry);
             }
-            "remove" if parts.len() == 7 => {
-                let entry = match Self::entry_from_command(parts) {
-                    None => return,
-                    Some(entry) => entry,
+            "remove" if parts.len() == 2 => {
+                let entry: usize = match parts[1].parse::<usize>() {
+                    Ok(number) => number,
+                    Err(_) => return,
                 };
-                graphs.lock().await.retain(|x| *x != entry)
+                graphs.lock().await.remove(entry);
             }
             "interval" if parts.len() == 3 => {
                 graphs.lock().await[parts[1].parse::<usize>().unwrap()].time_interval =
