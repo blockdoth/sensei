@@ -37,6 +37,12 @@ pub struct TuiState {
     pub logs: Vec<LogEntry>,
 }
 
+impl Default for TuiState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TuiState {
     pub fn new() -> Self {
         Self {
@@ -84,7 +90,7 @@ impl Tui<Update, Command> for TuiState {
         let log_count = self.logs.len();
         let logs_widget = Paragraph::new(log_lines).block(
             Block::default()
-                .title(format!("Logs ({})", log_count)) // <--- Count shown here
+                .title(format!("Logs ({log_count})")) // <--- Count shown here
                 .borders(Borders::ALL),
         );
 
@@ -135,11 +141,8 @@ pub async fn run_example() {
     let other_task = tokio::spawn(async move {
         loop {
             update_send_clone.send(Update::Balls).await;
-            match command_recv.try_recv() {
-                Ok(_) => {
-                    warn!("Balls have been touched");
-                }
-                Err(_) => {}
+            if command_recv.try_recv().is_ok() {
+                warn!("Balls have been touched");
             }
         }
     });
