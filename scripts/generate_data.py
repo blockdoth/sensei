@@ -72,7 +72,7 @@ def generate_csi_row(
 
 def generate_csi_data_csv(
     file_path,
-    num_rows=100,
+    num_rows=10000,
     max_cores=2,
     max_streams=4,
     max_subcarriers=64,
@@ -101,7 +101,7 @@ def generate_csi_data_csv(
     ]
 
     with open(file_path, "w", newline="") as csvfile:
-        writer = csv.writer(csvfile)
+        writer = csv.writer(csvfile, lineterminator="\n")
         writer.writerow(headers)  # Write the headers
 
         for i in range(num_rows):
@@ -123,7 +123,7 @@ def generate_csi_data_csv(
 
 generate_csi_data_csv(
     "csi_data.csv",
-    num_rows=100,
+    num_rows=10000,
     max_cores=2,
     max_streams=2,
     max_subcarriers=2,

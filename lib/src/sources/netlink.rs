@@ -9,12 +9,20 @@ use log::trace;
 use netlink_sys::{Socket, SocketAddr, protocols::NETLINK_CONNECTOR};
 use serde::{Deserialize, Serialize};
 
-/// Config struct which can be parsed from a toml config
+// Configuration structure for a Netlink source.
+///
+/// This struct is deserializable from YAML config files
 #[derive(Serialize, Debug, Deserialize, Clone)]
 pub struct NetlinkConfig {
+    /// Netlink connector group ID to subscribe to.
     pub group: u32,
 }
 
+/// Netlink-based implementation of the [`DataSourceT`] trait.
+///
+/// Internally, this type maintains a raw socket and a reusable buffer for
+/// reading messages. It handles netlink and connector protocol header parsing
+/// to extract the payload intended for sinks.
 pub struct NetlinkSource {
     config: NetlinkConfig,
     socket: Option<Socket>,
@@ -22,6 +30,10 @@ pub struct NetlinkSource {
 }
 
 impl NetlinkSource {
+    /// Create a new [`NetlinkSource`] from a configuration struct.
+    ///
+    /// # Errors
+    /// Returns [`DataSourceError`] if configuration is invalid.
     pub fn new(config: NetlinkConfig) -> Result<Self, DataSourceError> {
         trace!("Creating new netlink source (group id: {})", config.group);
         Ok(Self {
@@ -37,6 +49,7 @@ const NLMSG_HDRLEN: usize = 16; // Size of the Netlink header in bytes
 const NLCNMSG_HDRLEN: usize = 20; // Size of the connector message header in bytes
 const NLMSG_DONE: u16 = 0x3; // End of Netlink message sequence
 
+/// Parsed representation of a netlink message header.
 /// Netlink header: https://docs.huihoo.com/doxygen/linux/kernel/3.7/structnlmsghdr.html
 #[derive(Debug)]
 struct NetlinkHeader {
@@ -64,6 +77,7 @@ impl NetlinkHeader {
     }
 }
 
+/// Parsed representation of a connector protocol message header.
 /// This is the message sent by the connector protocol:
 /// https://www.kernel.org/doc/Documentation/connector/connector.txt
 #[derive(Debug)]
@@ -114,7 +128,10 @@ fn get_connector_payload(buf: &[u8]) -> Result<&[u8], DataSourceError> {
     Ok(payload)
 }
 
-/// Source implementation
+/// Implements the CSI data source trait for netlink communication.
+///
+/// Handles startup, shutdown, and frame-by-frame payload reading from the
+/// Linux netlink connector interface.
 #[async_trait::async_trait]
 impl DataSourceT for NetlinkSource {
     async fn start(&mut self) -> Result<(), DataSourceError> {
@@ -191,6 +208,9 @@ impl DataSourceT for NetlinkSource {
 }
 
 impl NetlinkSource {
+    /// Reads raw bytes from the netlink socket into the internal buffer.
+    ///
+    /// This function performs a non-blocking read and returns the number of bytes read.
     async fn socket_read(&mut self) -> Result<usize, DataSourceError> {
         let mut buf = &mut self.buffer[..];
         let before = buf.len();

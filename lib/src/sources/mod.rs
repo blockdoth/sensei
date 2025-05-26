@@ -1,3 +1,18 @@
+//! Data source definitions and configuration.
+//!
+//! This module provides the core [`DataSourceT`] trait for consuming packetized
+//! byte streams, as well as the [`DataSourceConfig`] enum for instantiating
+//! concrete source implementations from configuration.
+//!
+//! Supported sources (via `DataSourceConfig`):
+//! - [`netlink::NetlinkSource`]: Linux-specific netlink packet capture (requires `target_os = "linux"`).
+//! - [`esp32::Esp32Source`]: ESP32-based wireless or serial data source.
+//! - [`csv`]: Placeholder for CSV-based source (e.g., playback from file).
+//!
+//! Each source implementation must be constructed with configuration via the
+//! [`FromConfig<DataSourceConfig>`] trait and then activated via the
+//! [`DataSourceT::start`] method before reading frames.
+
 pub mod controllers;
 pub mod csv;
 pub mod esp32;
@@ -47,17 +62,31 @@ pub trait DataSourceT: Send + Any {
     async fn read(&mut self) -> Result<Option<DataMsg>, DataSourceError>;
 }
 
+/// Configuration =for available data source types.
+///
+/// This enum is tagged using Serde’s `tag = "type"`  Each variant
+/// corresponds to a concrete source implementation:
+/// - `Netlink`: Linux-only netlink-based capture (requires `target_os = "linux"`)
+/// - `Esp32`: ESP32-based data source
+/// - `Csv`: CSV-based playback source
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum DataSourceConfig {
+    /// Linux netlink source (packet capture via netlink sockets).
     #[cfg(target_os = "linux")]
     Netlink(netlink::NetlinkConfig),
+    /// Data source backed by an ESP32 device.
     Esp32(esp32::Esp32SourceConfig),
     Tcp(tcp::TCPConfig),
 }
 
 #[async_trait::async_trait]
 impl FromConfig<DataSourceConfig> for dyn DataSourceT {
+    /// Instantiate a concrete [`DataSourceT`] from its configuration.
+    ///
+    /// # Errors
+    /// Returns [`TaskError::DataSourceError`] if the underlying source
+    /// constructor fails.
     async fn from_config(config: DataSourceConfig) -> Result<Box<Self>, TaskError> {
         let source: Box<dyn DataSourceT> = match config {
             #[cfg(target_os = "linux")]

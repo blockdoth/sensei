@@ -2,9 +2,9 @@
 //! Data Adapters
 //! -------------
 //!
-//! Brokernet deals with brokering binary data extracted from "Sources", such as files
+//! Sensei deals with binary data extracted from "Sources", such as files
 //! or sockets. Different sources provide different data formats, which must be handled
-//! accordingly. This is the dask of Data Adapters.
+//! accordingly. This is the task of Data Adapters.
 //!
 //! Module for adapters
 //! Mofidied based on: wisense/sensei/lib/src/adapters/mod.rs
@@ -19,6 +19,7 @@ use crate::network::rpc_message::DataMsg::CsiFrame;
 pub mod csv;
 pub mod esp32;
 pub mod iwl;
+pub mod tcp;
 
 /// Csi Data Adapter Trait
 /// ----------------------
@@ -54,6 +55,7 @@ pub trait CsiDataAdapter: Send {
 pub enum DataAdapterConfig {
     Iwl { scale_csi: bool },
     Esp32 { scale_csi: bool },
+    Tcp { scale_csi: bool },
     CSV {},
 }
 
@@ -69,6 +71,7 @@ impl FromConfig<DataAdapterConfig> for dyn CsiDataAdapter {
         let adapter: Box<dyn CsiDataAdapter> = match tag {
             DataAdapterConfig::Iwl { scale_csi } => Box::new(iwl::IwlAdapter::new(scale_csi)),
             DataAdapterConfig::Esp32 { scale_csi } => Box::new(esp32::ESP32Adapter::new(scale_csi)),
+            DataAdapterConfig::Tcp { scale_csi } => Box::new(tcp::TCPAdapter::new(scale_csi)),
             DataAdapterConfig::CSV {} => Box::new(csv::CSVAdapter::default()),
         };
         Ok(adapter)

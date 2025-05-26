@@ -6,24 +6,49 @@ use crate::sinks::tcp::*;
 use crate::sinks::*;
 use crate::sources::controllers::*;
 use crate::sources::{DataSourceConfig, DataSourceT};
+use std::fs;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
-/// Configuration for a device handler
+/// Configuration for a single device handler.
+///
+/// This struct is deserializable via Serde and contains all of the
+/// parameters required to build a [`DeviceHandler`]: the device’s ID,
+/// the data source type, optional controller parameters, optional
+/// adapter configuration, and a list of sink configurations.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct DeviceHandlerConfig {
+    // Unique identifier for the device.
     pub device_id: u64,
+    /// The kind of source producing the raw data.
     pub stype: SourceType,
+    /// Configuration for the raw data source.
     pub source: DataSourceConfig,
+    /// Optional controller parameters to configure the data source.
     #[serde(default)]
     pub controller: Option<ControllerParams>,
+    /// Optional adapter configuration for transforming raw frames.
     #[serde(default)]
     pub adapter: Option<DataAdapterConfig>,
+    /// One or more sinks that will consume the (adapted) data messages.
     pub sinks: Vec<SinkConfig>,
 }
 
+impl DeviceHandlerConfig {
+    /// Creates a list of device handlers configs from a yaml file
+    pub async fn from_yaml(file: PathBuf) -> Vec<DeviceHandlerConfig> {
+        let yaml = fs::read_to_string(file).unwrap();
+
+        serde_yaml::from_str(&yaml).unwrap()
+    }
+}
+
 /// A handler for a single device: reads, adapts, and dispatches data
+/// A handler responsible for consuming data from a source,
+/// optionally adapting it, and dispatching it to one or more sinks.
+/// It runs on it's own thread
 pub struct DeviceHandler {
     device_id: u64,
     stype: SourceType,
@@ -32,7 +57,28 @@ pub struct DeviceHandler {
 }
 
 impl DeviceHandler {
-    /// Start consuming from source, adapting and forwarding to sinks
+    /// Spanw a thread, Begin reading from the configured data source, adapt frames if an adapter
+    /// is provided, and forward each message to the configured sinks.
+    ///
+    /// # Parameters
+    ///
+    /// - `source`: A boxed dynamic data source implementing [`DataSourceT`].
+    /// - `adapter`: An optional boxed dynamic adapter implementing [`CsiDataAdapter`].
+    /// - `sinks`: A vector of boxed dynamic sinks implementing [`Sink`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`TaskError`] if spawning the processing task fails.
+    ///
+    /// # Behavior
+    ///
+    /// Spawns a Tokio task that:
+    /// 1. Activates the source (`source.start().await`).
+    /// 2. In a loop, reads raw bytes into a buffer.
+    /// 3. Wraps them in a [`DataMsg::RawFrame`], with a timestamp.
+    /// 4. Passes the frame through the adapter (if present).
+    /// 5. For each outgoing message, calls `.provide(msg).await` on each sink.
+    /// 6. Logs and continues on adapter or sink errors, breaks the loop on source read error.
     pub async fn start(
         &mut self,
         mut source: Box<dyn DataSourceT>,
@@ -64,7 +110,7 @@ impl DeviceHandler {
                                         Ok(Some(csi_msg)) => vec![csi_msg],
                                         Ok(None) => continue,
                                         Err(err) => {
-                                            log::error!("Adapter error on device {device_id}: {err:?}");
+                                            //log::error!("Adapter error on device {device_id}: {err:?}"); THIS WILL LOG ERRORS IF THERE IS SIMPLY NO DATA
                                             continue;
                                         }
                                     }
@@ -130,9 +176,26 @@ impl DeviceHandler {
 
 #[async_trait::async_trait]
 impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
+    /// Constructs a [`DeviceHandler`] from its configuration, then immediately
+    /// starts its processing loop in the background.
+    ///
+    /// # Parameters
+    ///
+    /// - `config`: The deserialized [`DeviceHandlerConfig`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TaskError`] if any of:
+    /// - Source instantiation fails
+    /// - Controller application fails
+    /// - Adapter instantiation fails
+    /// - Sink instantiation fails
+    /// - Starting the handler’s background task fails
     async fn from_config(config: DeviceHandlerConfig) -> Result<Box<Self>, TaskError> {
         // instantiate source
         let mut source = <dyn DataSourceT>::from_config(config.source.clone()).await?;
+
+        source.start().await?;
 
         // apply controller if configured
         if let Some(controller_cfg) = config.controller.clone() {
