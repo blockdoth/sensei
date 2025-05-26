@@ -1,9 +1,9 @@
 use crate::errors::{ControllerError, DataSourceError}; // Ensure ControllerError is accessible
+use crate::network::rpc_message::SourceType;
+use crate::sources::BUFSIZE;
+use crate::sources::DataMsg;
 use crate::sources::DataSourceT;
 use crate::sources::controllers::esp32_controller::Esp32Command;
-use crate::network::rpc_message::SourceType;
-use crate::sources::DataMsg;
-use crate::sources::BUFSIZE;
 
 use std::any::Any;
 use std::collections::HashMap;
@@ -564,14 +564,12 @@ impl DataSourceT for Esp32Source {
         match self.read_buf(&mut temp_buf).await? {
             0 => Ok(None),
             n => Ok(Some(DataMsg::RawFrame {
-                    ts : chrono::Utc::now().timestamp_millis() as f64 / 1e3,
-                    bytes : temp_buf[..n].to_vec(),
-                    source_type: SourceType::ESP32,
-                })),
+                ts: chrono::Utc::now().timestamp_millis() as f64 / 1e3,
+                bytes: temp_buf[..n].to_vec(),
+                source_type: SourceType::ESP32,
+            })),
         }
     }
-
-
 }
 
 impl Drop for Esp32Source {

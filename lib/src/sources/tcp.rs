@@ -1,9 +1,9 @@
 use crate::errors::DataSourceError;
-use crate::sources::DataSourceT;
+use crate::network::rpc_message::{DataMsg, RpcMessage, RpcMessageKind};
 use crate::network::tcp::client::TcpClient;
-use crate::network::rpc_message::{RpcMessage, RpcMessageKind, DataMsg};
-use std::net::SocketAddr;
+use crate::sources::DataSourceT;
 use log::trace;
+use std::net::SocketAddr;
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct TCPConfig {
@@ -68,6 +68,4 @@ impl DataSourceT for TCPSource {
             }
         }
     }
-
 }
-

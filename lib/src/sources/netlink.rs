@@ -1,15 +1,13 @@
 use crate::errors::DataSourceError;
+use crate::network::rpc_message::SourceType;
+use crate::sources::BUFSIZE;
+use crate::sources::DataMsg;
 use crate::sources::DataSourceT;
 use crate::sources::controllers::Controller;
-use crate::network::rpc_message::SourceType;
-use crate::sources::DataMsg;
-use crate::sources::BUFSIZE;
 
 use log::trace;
 use netlink_sys::{Socket, SocketAddr, protocols::NETLINK_CONNECTOR};
 use serde::{Deserialize, Serialize};
-
-
 
 /// Config struct which can be parsed from a toml config
 #[derive(Serialize, Debug, Deserialize, Clone)]
@@ -184,10 +182,10 @@ impl DataSourceT for NetlinkSource {
         match self.read_buf(&mut temp_buf).await? {
             0 => Ok(None),
             n => Ok(Some(DataMsg::RawFrame {
-                    ts : chrono::Utc::now().timestamp_millis() as f64 / 1e3,
-                    bytes : temp_buf[..n].to_vec(),
-                    source_type: SourceType::IWL5300,
-                })),
+                ts: chrono::Utc::now().timestamp_millis() as f64 / 1e3,
+                bytes: temp_buf[..n].to_vec(),
+                source_type: SourceType::IWL5300,
+            })),
         }
     }
 }

@@ -24,6 +24,14 @@ impl FileSink {
 
 #[async_trait]
 impl Sink for FileSink {
+    // already opened
+    async fn open(&mut self, data: DataMsg) -> Result<(), SinkError> {
+        Ok(())
+    }
+    // in rust file is closed whenever it goes out scope
+    async fn close(&mut self, data: DataMsg) -> Result<(), SinkError> {
+        Ok(())
+    }
     async fn provide(&mut self, data: DataMsg) -> Result<(), SinkError> {
         let serialized =
             serde_json::to_string(&data).map_err(|e| SinkError::Serialize(e.to_string()))?;

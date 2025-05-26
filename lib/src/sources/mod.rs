@@ -8,10 +8,10 @@ pub mod tcp;
 use crate::FromConfig;
 use crate::errors::DataSourceError;
 use crate::errors::TaskError;
+use crate::network::rpc_message::DataMsg;
 use crate::sources::controllers::Controller;
 use std::any::Any;
 use std::net::SocketAddr;
-use crate::network::rpc_message::DataMsg;
 
 pub const BUFSIZE: usize = 65535;
 
@@ -45,7 +45,6 @@ pub trait DataSourceT: Send + Any {
     /// Copy one "packet" (meaning being source specific) into the buffer and report
     /// its size.
     async fn read(&mut self) -> Result<Option<DataMsg>, DataSourceError>;
-
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]

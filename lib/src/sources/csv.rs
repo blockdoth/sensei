@@ -1,9 +1,9 @@
 use crate::errors::DataSourceError;
+use crate::network::rpc_message::SourceType;
+use crate::sources::BUFSIZE;
+use crate::sources::DataMsg;
 use crate::sources::DataSourceT;
 use crate::sources::controllers::Controller;
-use crate::network::rpc_message::SourceType;
-use crate::sources::DataMsg;
-use crate::sources::BUFSIZE;
 
 use log::trace;
 use serde::Deserialize;
@@ -12,7 +12,6 @@ use std::io::Write;
 use std::io::{BufRead, BufReader};
 use std::{path, vec};
 use tempfile::NamedTempFile;
-
 
 /// Config struct which can be parsed from a toml config
 #[derive(Debug, Deserialize, Clone)]
@@ -125,13 +124,12 @@ impl DataSourceT for CsvSource {
         match self.read_buf(&mut temp_buf).await? {
             0 => Ok(None),
             n => Ok(Some(DataMsg::RawFrame {
-                    ts : chrono::Utc::now().timestamp_millis() as f64 / 1e3,
-                    bytes : temp_buf[..n].to_vec(),
-                    source_type:SourceType::CSV,
-                })),
+                ts: chrono::Utc::now().timestamp_millis() as f64 / 1e3,
+                bytes: temp_buf[..n].to_vec(),
+                source_type: SourceType::CSV,
+            })),
         }
     }
-
 }
 
 #[cfg(test)]
@@ -184,7 +182,7 @@ mod tests {
 
         let mut csv_source = CsvSource::new(config).unwrap();
         let mut buffer = vec![0; 1024];
-        let bytes_read = csv_source.read(&mut buffer).await.unwrap();
+        let bytes_read = csv_source.read_buf(&mut buffer).await.unwrap();
         assert!(bytes_read > 0);
     }
 

@@ -3,15 +3,9 @@ use crate::sources::DataSourceT;
 use crate::sources::controllers::Controller;
 use std::net::SocketAddr;
 
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, schemars::JsonSchema)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, schemars::JsonSchema, Default)]
 #[serde(default)]
 pub struct TCPControllerParams {}
-
-impl Default for TCPControllerParams {
-    fn default() -> Self {
-        Self {}
-    }
-}
 
 #[typetag::serde(name = "TCP")]
 #[async_trait::async_trait]

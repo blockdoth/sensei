@@ -57,7 +57,6 @@ pub enum DataSourceError {
     #[error("Tried to use unimplemented feature: {0}")]
     NotImplemented(String),
 
-
     #[error(
         "Permission denied: application lacks sufficient privileges. See `README.md` for details on permissions."
     )]
@@ -220,6 +219,9 @@ pub enum SinkError {
 
     #[error("Error: {0}")]
     Serialize(String),
+
+    #[error("Error from tcp sink: {0}")]
+    NetworkError(#[from] NetworkError),
 }
 
 #[derive(Error, Debug)]

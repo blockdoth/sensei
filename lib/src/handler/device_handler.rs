@@ -6,8 +6,8 @@ use crate::sinks::{Sink, SinkConfig};
 use crate::sources::controllers::{Controller, ControllerParams};
 use crate::sources::{DataSourceConfig, DataSourceT};
 use std::sync::Arc;
-use tokio::task::JoinHandle;
 use tokio::sync::watch;
+use tokio::task::JoinHandle;
 
 /// Configuration for a device handler
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
@@ -29,7 +29,6 @@ pub struct DeviceHandler {
     shutdown_tx: Option<watch::Sender<()>>,
     handle: Option<JoinHandle<()>>,
 }
-
 
 impl DeviceHandler {
     /// Start consuming from source, adapting and forwarding to sinks
@@ -109,11 +108,7 @@ impl DeviceHandler {
         Ok(())
     }
 
-
-    pub async fn reconfigure(
-        &mut self,
-        new_config: DeviceHandlerConfig,
-    ) -> Result<(), TaskError> {
+    pub async fn reconfigure(&mut self, new_config: DeviceHandlerConfig) -> Result<(), TaskError> {
         // Stop current task
         self.stop().await?;
 
@@ -131,7 +126,6 @@ impl DeviceHandler {
         Ok(())
     }
 }
-
 
 #[async_trait::async_trait]
 impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
@@ -166,6 +160,5 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
 
         handler.start(source, adapter, sinks).await?;
         Ok(Box::new(handler))
-
     }
 }
