@@ -250,12 +250,12 @@ impl Run<SystemNodeConfig> for SystemNode {
                 // Dereferencing the Box gives us &mut dyn DataSourceT.
                 let controller = Esp32Controller {
                     device_config: Esp32DeviceConfig::default(),
-                    mac_filters_to_add: todo!(),
-                    clear_all_mac_filters: todo!(),
-                    control_acquisition: todo!(),
-                    control_wifi_transmit: todo!(),
-                    synchronize_time: todo!(),
-                    transmit_custom_frame: todo!(),
+                    mac_filters_to_add: vec![],
+                    clear_all_mac_filters: true,
+                    control_acquisition: true,
+                    control_wifi_transmit: true,
+                    synchronize_time: true,
+                    transmit_custom_frame: None,
                 };
 
                 match controller.apply(&mut **device_source_dyn).await {
