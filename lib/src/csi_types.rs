@@ -54,9 +54,7 @@ impl Bandwidth {
             40 => Ok(Bandwidth::Bw40),
             80 => Ok(Bandwidth::Bw80),
             160 => Ok(Bandwidth::Bw160),
-            _ => Err(DataSourceError::ParsingError(format!(
-                "Invalid collector_chanwidth value {value}"
-            ))),
+            _ => Err(DataSourceError::ParsingError(format!("Invalid collector_chanwidth value {value}"))),
         }
     }
 }
@@ -90,9 +88,7 @@ impl FrameEncoding {
             2 => Ok(FrameEncoding::Vht),
             3 => Ok(FrameEncoding::He),
             4 => Ok(FrameEncoding::Eht),
-            _ => Err(DataSourceError::ParsingError(format!(
-                "Invalid frame_encoding value {value}"
-            ))),
+            _ => Err(DataSourceError::ParsingError(format!("Invalid frame_encoding value {value}"))),
         }
     }
 }
@@ -137,8 +133,7 @@ impl FromStr for MacAddr {
         }
         let mut arr = [0u8; 6];
         for (i, byte) in bytes.iter().enumerate() {
-            arr[i] = u8::from_str_radix(byte, 16)
-                .map_err(|_| AppError::ConfigError("Invalid byte in MAC address".into()))?;
+            arr[i] = u8::from_str_radix(byte, 16).map_err(|_| AppError::ConfigError("Invalid byte in MAC address".into()))?;
         }
         Ok(MacAddr(arr))
     }

@@ -163,8 +163,7 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
 
         // apply controller if configured
         if let Some(controller_cfg) = config.controller {
-            let controller: Box<dyn Controller> =
-                <dyn Controller>::from_config(controller_cfg).await?;
+            let controller: Box<dyn Controller> = <dyn Controller>::from_config(controller_cfg).await?;
             controller.apply(source.as_mut()).await?;
         }
         // instantiate adapter if configured

@@ -76,9 +76,7 @@ pub enum DataSourceError {
     NotConnected(String),
 
     /// Insufficient privileges to access the source.
-    #[error(
-        "Permission denied: application lacks sufficient privileges. See `README.md` for details on permissions."
-    )]
+    #[error("Permission denied: application lacks sufficient privileges. See `README.md` for details on permissions.")]
     PermissionDenied,
 
     /// Attempted to read from the source before it was started.
@@ -254,10 +252,7 @@ pub enum ControllerError {
     MissingParameter(String),
 
     #[error("Command failed to execute")]
-    CommandFailed {
-        command_name: String,
-        details: String,
-    },
+    CommandFailed { command_name: String, details: String },
 
     #[error("Invalid datasource")]
     InvalidDataSource(String),

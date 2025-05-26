@@ -41,10 +41,7 @@ impl Default for NetlinkControllerParams {
 #[async_trait::async_trait]
 impl Controller for NetlinkControllerParams {
     async fn apply(&self, _source: &mut dyn DataSourceT) -> Result<(), ControllerError> {
-        let mut freq_args = vec![
-            self.center_freq_mhz.to_string(),
-            self.bandwidth_mhz.to_string(),
-        ];
+        let mut freq_args = vec![self.center_freq_mhz.to_string(), self.bandwidth_mhz.to_string()];
 
         if self.bandwidth_mhz != 20 {
             if let Some(control_freq) = self.control_freq_mhz {
@@ -92,14 +89,7 @@ impl Controller for NetlinkControllerParams {
             .wait()
             .await?;
 
-        Command::new("sudo")
-            .arg("iw")
-            .arg("reg")
-            .arg("set")
-            .arg("US")
-            .spawn()?
-            .wait()
-            .await?;
+        Command::new("sudo").arg("iw").arg("reg").arg("set").arg("US").spawn()?.wait().await?;
 
         Command::new("sudo")
             .arg("iw")

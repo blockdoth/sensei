@@ -22,10 +22,7 @@ pub mod server;
 
 pub const MAX_MESSAGE_LENGTH: usize = 4096;
 
-pub async fn read_message(
-    read_stream: &mut OwnedReadHalf,
-    buffer: &mut [u8],
-) -> Result<Option<RpcMessage>, NetworkError> {
+pub async fn read_message(read_stream: &mut OwnedReadHalf, buffer: &mut [u8]) -> Result<Option<RpcMessage>, NetworkError> {
     let mut length_buffer = [0; 4];
 
     let msg_length = match read_stream.read_exact(&mut length_buffer).await {
@@ -40,9 +37,7 @@ pub async fn read_message(
     debug!("Received message of length {msg_length}");
 
     if msg_length > MAX_MESSAGE_LENGTH {
-        error!(
-            "Message of length {msg_length} is to long, max message length: {MAX_MESSAGE_LENGTH}"
-        );
+        error!("Message of length {msg_length} is to long, max message length: {MAX_MESSAGE_LENGTH}");
         return Err(NetworkError::Serialization);
     }
     if msg_length == 0 {
@@ -52,9 +47,7 @@ pub async fn read_message(
 
     let mut bytes_read: usize = 0;
     while bytes_read < msg_length {
-        let n_read: usize = read_stream
-            .read(&mut buffer[bytes_read..msg_length])
-            .await?;
+        let n_read: usize = read_stream.read(&mut buffer[bytes_read..msg_length]).await?;
         debug!("Read {n_read} bytes from buffer");
         if n_read == 0 {
             error!("stream closed before all bytes were read ({bytes_read}/{msg_length})");
@@ -66,18 +59,13 @@ pub async fn read_message(
     Ok(Some(deserialize_rpc_message(&buffer[..msg_length])?))
 }
 
-pub async fn send_message(
-    stream: &mut OwnedWriteHalf,
-    msg: RpcMessageKind,
-) -> Result<(), NetworkError> {
+pub async fn send_message(stream: &mut OwnedWriteHalf, msg: RpcMessageKind) -> Result<(), NetworkError> {
     let msg_wrapped = make_msg(&stream, msg);
     let msg_serialized = serialize_rpc_message(msg_wrapped)?;
     let msg_length: u32 = msg_serialized.len().try_into().unwrap();
 
     if msg_length as usize > MAX_MESSAGE_LENGTH {
-        error!(
-            "Message of length {msg_length} is to long, max message length: {MAX_MESSAGE_LENGTH}"
-        );
+        error!("Message of length {msg_length} is to long, max message length: {MAX_MESSAGE_LENGTH}");
         return Err(NetworkError::Serialization);
     }
     let msg_length_serialized = msg_length.to_be_bytes();
@@ -109,11 +97,7 @@ fn deserialize_rpc_message(buf: &[u8]) -> Result<RpcMessage, NetworkError> {
 
 #[async_trait]
 pub trait ConnectionHandler: Send + Sync {
-    async fn handle_recv(
-        &self,
-        request: RpcMessage,
-        send_commands_channel: watch::Sender<ChannelMsg>,
-    ) -> Result<(), NetworkError>;
+    async fn handle_recv(&self, request: RpcMessage, send_commands_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError>;
 
     async fn handle_send(
         &self,

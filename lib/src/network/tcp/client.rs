@@ -76,12 +76,7 @@ impl TcpClient {
     }
 
     pub async fn get_connections(&self) -> Vec<SocketAddr> {
-        self.connections
-            .lock()
-            .await
-            .values()
-            .map(|conn| conn.addr)
-            .collect()
+        self.connections.lock().await.values().map(|conn| conn.addr).collect()
     }
 
     pub async fn connect(&mut self, target_addr: SocketAddr) -> Result<(), NetworkError> {
@@ -91,11 +86,7 @@ impl TcpClient {
             return Ok(());
         }
 
-        let connection = tokio::time::timeout(
-            Duration::from_secs(CONNECTION_TIME),
-            TcpStream::connect(target_addr),
-        )
-        .await;
+        let connection = tokio::time::timeout(Duration::from_secs(CONNECTION_TIME), TcpStream::connect(target_addr)).await;
 
         match connection {
             Ok(Ok(stream)) => {
@@ -143,17 +134,10 @@ impl TcpClient {
             }
             Some(mut connection) => {
                 debug!("Initiating graceful disconnect with {target_addr}");
-                match super::send_message(&mut connection.write_stream, Ctrl(CtrlMsg::Disconnect))
-                    .await
-                {
+                match super::send_message(&mut connection.write_stream, Ctrl(CtrlMsg::Disconnect)).await {
                     Ok(_) => {
                         debug!("Waiting for confirm of disconnect from {target_addr}");
-                        match super::read_message(
-                            &mut connection.read_stream,
-                            &mut connection.buffer,
-                        )
-                        .await
-                        {
+                        match super::read_message(&mut connection.read_stream, &mut connection.buffer).await {
                             Ok(Some(RpcMessage {
                                 msg: Ctrl(CtrlMsg::Disconnect),
                                 ..
@@ -187,54 +171,42 @@ impl TcpClient {
         }
     }
 
-    pub async fn read_message(
-        &mut self,
-        target_addr: SocketAddr,
-    ) -> Result<RpcMessage, NetworkError> {
+    pub async fn read_message(&mut self, target_addr: SocketAddr) -> Result<RpcMessage, NetworkError> {
         match self.connections.lock().await.get_mut(&target_addr) {
             None => {
                 error!("Connection not found {target_addr}");
                 Err(NetworkError::Closed)
             }
-            Some(connection) => {
-                match super::read_message(&mut connection.read_stream, &mut connection.buffer).await
-                {
-                    Ok(Some(msg)) => Ok(msg),
-                    Ok(None) => {
-                        error!("No message received, the connection may have been closed.");
-                        Err(NetworkError::Closed)
-                    }
-                    Err(e) => {
-                        error!("Failed to read message: {e}");
-                        Err(e)
-                    }
+            Some(connection) => match super::read_message(&mut connection.read_stream, &mut connection.buffer).await {
+                Ok(Some(msg)) => Ok(msg),
+                Ok(None) => {
+                    error!("No message received, the connection may have been closed.");
+                    Err(NetworkError::Closed)
                 }
-            }
+                Err(e) => {
+                    error!("Failed to read message: {e}");
+                    Err(e)
+                }
+            },
         }
     }
 
-    pub async fn send_message(
-        &mut self,
-        target_addr: SocketAddr,
-        msg: RpcMessageKind,
-    ) -> Result<(), NetworkError> {
+    pub async fn send_message(&mut self, target_addr: SocketAddr, msg: RpcMessageKind) -> Result<(), NetworkError> {
         match self.connections.lock().await.get_mut(&target_addr) {
             None => {
                 error!("Connection not found {target_addr}");
                 Err(NetworkError::Closed)
             }
-            Some(connection) => {
-                match super::send_message(&mut connection.write_stream, msg).await {
-                    Ok(_) => {
-                        debug!("Message sent successfully.");
-                        Ok(())
-                    }
-                    Err(e) => {
-                        error!("Failed to send message: {e}");
-                        Err(e)
-                    }
+            Some(connection) => match super::send_message(&mut connection.write_stream, msg).await {
+                Ok(_) => {
+                    debug!("Message sent successfully.");
+                    Ok(())
                 }
-            }
+                Err(e) => {
+                    error!("Failed to send message: {e}");
+                    Err(e)
+                }
+            },
         }
     }
 }

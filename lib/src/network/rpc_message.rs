@@ -30,31 +30,17 @@ pub enum RpcMessageKind {
 pub enum CtrlMsg {
     Connect,
     Disconnect,
-    Configure {
-        device_id: u64,
-        cfg: DeviceHandlerConfig,
-    },
-    Subscribe {
-        device_id: u64,
-        mode: AdapterMode,
-    },
-    Unsubscribe {
-        device_id: u64,
-    },
+    Configure { device_id: u64, cfg: DeviceHandlerConfig },
+    Subscribe { device_id: u64, mode: AdapterMode },
+    Unsubscribe { device_id: u64 },
     PollDevices,
     Heartbeat,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum DataMsg {
-    RawFrame {
-        ts: f64,
-        bytes: Vec<u8>,
-        source_type: SourceType,
-    }, // raw bytestream, requires decoding adapter
-    CsiFrame {
-        csi: CsiData,
-    }, // This would contain a proper deserialized CSI
+    RawFrame { ts: f64, bytes: Vec<u8>, source_type: SourceType }, // raw bytestream, requires decoding adapter
+    CsiFrame { csi: CsiData },                                     // This would contain a proper deserialized CSI
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum SourceType {
@@ -102,23 +88,14 @@ impl FromStr for CtrlMsg {
                 todo!("support this")
             }
             "subscribe" => {
-                let device_id = parts
-                    .next()
-                    .and_then(|s| s.parse::<u64>().ok())
-                    .unwrap_or(0); // TODO better id assignment
+                let device_id = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0); // TODO better id assignment
 
-                let mode = parts
-                    .next()
-                    .and_then(|s| s.parse::<AdapterMode>().ok())
-                    .unwrap_or(AdapterMode::RAW);
+                let mode = parts.next().and_then(|s| s.parse::<AdapterMode>().ok()).unwrap_or(AdapterMode::RAW);
 
                 Ok(CtrlMsg::Subscribe { device_id, mode })
             }
             "unsubscribe" => {
-                let device_id = parts
-                    .next()
-                    .and_then(|s| s.parse::<u64>().ok())
-                    .unwrap_or(0);
+                let device_id = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
 
                 Ok(CtrlMsg::Unsubscribe { device_id })
             }

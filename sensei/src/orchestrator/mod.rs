@@ -30,11 +30,7 @@ impl Run<OrchestratorConfig> for Orchestrator {
             client: Arc::new(Mutex::new(TcpClient::new())),
         }
     }
-    async fn run(
-        &mut self,
-        global_config: GlobalConfig,
-        config: OrchestratorConfig,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn run(&mut self, global_config: GlobalConfig, config: OrchestratorConfig) -> Result<(), Box<dyn std::error::Error>> {
         for target_addr in config.targets.clone() {
             Self::connect(&self.client, target_addr).await
         }
@@ -52,12 +48,7 @@ impl Orchestrator {
         client.lock().await.disconnect(target_addr).await;
     }
 
-    async fn subscribe(
-        client: &Arc<Mutex<TcpClient>>,
-        target_addr: SocketAddr,
-        device_id: u64,
-        mode: AdapterMode,
-    ) {
+    async fn subscribe(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: u64, mode: AdapterMode) {
         let msg = Ctrl(CtrlMsg::Subscribe { device_id, mode });
         client.lock().await.send_message(target_addr, msg).await;
     }
@@ -69,8 +60,7 @@ impl Orchestrator {
 
     // Temporary, refactor once TUI gets added
     async fn cli_interface(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let (send_commands_channel, mut recv_commands_channel) =
-            watch::channel::<ChannelMsg>(ChannelMsg::Empty);
+        let (send_commands_channel, mut recv_commands_channel) = watch::channel::<ChannelMsg>(ChannelMsg::Empty);
 
         let send_client = self.client.clone();
         let recv_client = self.client.clone();
@@ -100,19 +90,11 @@ impl Orchestrator {
                         Self::connect(&send_client, target_addr).await;
                     }
                     Some("disconnect") => {
-                        let target_addr: SocketAddr = line_iter
-                            .next()
-                            .unwrap_or("")
-                            .parse()
-                            .unwrap_or(DEFAULT_ADDRESS);
+                        let target_addr: SocketAddr = line_iter.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
                         Self::disconnect(&send_client, target_addr).await;
                     }
                     Some("sub") => {
-                        let target_addr: SocketAddr = line_iter
-                            .next()
-                            .unwrap_or("")
-                            .parse()
-                            .unwrap_or(DEFAULT_ADDRESS);
+                        let target_addr: SocketAddr = line_iter.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
                         let device_id: u64 = line_iter.next().unwrap_or("0").parse().unwrap();
                         let mode: AdapterMode = match line_iter.next() {
                             Some("source") => AdapterMode::SOURCE,
@@ -120,8 +102,7 @@ impl Orchestrator {
                             _ => AdapterMode::RAW,
                         };
                         Self::subscribe(&send_client, target_addr, device_id, mode).await;
-                        send_commands_channel
-                            .send(ChannelMsg::ListenSubscribe { addr: target_addr });
+                        send_commands_channel.send(ChannelMsg::ListenSubscribe { addr: target_addr });
                     }
                     Some("unsub") => {
                         let target_addr: SocketAddr = line_iter
@@ -131,8 +112,7 @@ impl Orchestrator {
                             .unwrap_or(DEFAULT_ADDRESS);
                         let device_id: u64 = line_iter.next().unwrap_or("0").parse().unwrap();
                         Self::unsubscribe(&send_client, target_addr, device_id).await;
-                        send_commands_channel
-                            .send(ChannelMsg::ListenUnsubscribe { addr: target_addr });
+                        send_commands_channel.send(ChannelMsg::ListenUnsubscribe { addr: target_addr });
                     }
                     _ => {
                         info!("Failed to parse command")
@@ -169,12 +149,7 @@ impl Orchestrator {
                 }
                 if receiving {
                     for target_addr in targets.iter() {
-                        let msg = recv_client
-                            .lock()
-                            .await
-                            .read_message(*target_addr)
-                            .await
-                            .unwrap();
+                        let msg = recv_client.lock().await.read_message(*target_addr).await.unwrap();
                         match msg.msg {
                             Data {
                                 data_msg: DataMsg::CsiFrame { csi },
@@ -183,12 +158,7 @@ impl Orchestrator {
                                 info!("{}: {}", msg.src_addr, csi.timestamp)
                             }
                             Data {
-                                data_msg:
-                                    DataMsg::RawFrame {
-                                        ts,
-                                        bytes,
-                                        source_type,
-                                    },
+                                data_msg: DataMsg::RawFrame { ts, bytes, source_type },
                                 device_id,
                             } => info!("{}: {ts}", msg.src_addr),
                             _ => (),

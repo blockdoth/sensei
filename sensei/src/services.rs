@@ -4,8 +4,7 @@ use std::path::PathBuf;
 use log::LevelFilter;
 use serialport::SerialPort;
 
-pub const DEFAULT_ADDRESS: SocketAddr =
-    SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
+pub const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
 
 pub struct OrchestratorConfig {
     pub targets: Vec<SocketAddr>,
@@ -44,11 +43,7 @@ pub enum ServiceConfig {
 pub trait Run<ServiceConfig> {
     // Initialize standalone state which does not depend on any config
     fn new() -> Self;
-    
+
     // Actually applies given config and runs the service
-    async fn run(
-        &mut self,
-        global_config: GlobalConfig,
-        config: ServiceConfig,
-    ) -> Result<(), Box<dyn std::error::Error>>;
+    async fn run(&mut self, global_config: GlobalConfig, config: ServiceConfig) -> Result<(), Box<dyn std::error::Error>>;
 }

@@ -64,9 +64,7 @@ impl IwlHeader {
         let _timestamp = u32::from_le_bytes(buf[0..4].try_into().expect("length checked"));
 
         // Use current system time for timestamp (in seconds + microseconds).
-        let ts = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards");
+        let ts = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards");
         let timestamp = ts.as_secs() as f64 + ts.subsec_micros() as f64 / 1_000_000.0;
 
         let sequence_number = u16::from_le_bytes(buf[6..8].try_into().expect("length checked"));

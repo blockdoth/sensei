@@ -35,32 +35,18 @@ pub struct CsvSource {
 impl CsvSource {
     pub fn new(config: CsvConfig) -> Result<Self, DataSourceError> {
         trace!("Creating new CSV source (path: {})", config.path.display());
-        let file = File::open(&config.path).map_err(|e| {
-            DataSourceError::GenericError(format!(
-                "Failed to open CSV file: {}: {}",
-                config.path.display(),
-                e
-            ))
-        })?;
-        let mut reader = BufReader::new(file.try_clone().map_err(|e| {
-            DataSourceError::GenericError(format!(
-                "Failed to clone CSV file: {}: {}",
-                config.path.display(),
-                e
-            ))
-        })?);
+        let file = File::open(&config.path)
+            .map_err(|e| DataSourceError::GenericError(format!("Failed to open CSV file: {}: {}", config.path.display(), e)))?;
+        let mut reader = BufReader::new(
+            file.try_clone()
+                .map_err(|e| DataSourceError::GenericError(format!("Failed to clone CSV file: {}: {}", config.path.display(), e)))?,
+        );
         let mut buffer = vec![0; 8192];
 
         if config.header {
             reader
                 .read_until(config.row_delimiter, &mut Vec::new())
-                .map_err(|e| {
-                    DataSourceError::GenericError(format!(
-                        "Failed to read header from CSV file: {}: {}",
-                        config.path.display(),
-                        e
-                    ))
-                })?;
+                .map_err(|e| DataSourceError::GenericError(format!("Failed to read header from CSV file: {}: {}", config.path.display(), e)))?;
         }
         Ok(Self {
             config,
@@ -85,13 +71,7 @@ impl DataSourceT for CsvSource {
         let bytes_read = self
             .reader
             .read_until(self.config.row_delimiter, line)
-            .map_err(|e| {
-                DataSourceError::GenericError(format!(
-                    "Failed to read from CSV file: {}: {}",
-                    self.config.path.display(),
-                    e
-                ))
-            })?;
+            .map_err(|e| DataSourceError::GenericError(format!("Failed to read from CSV file: {}: {}", self.config.path.display(), e)))?;
         // put the line into the buffer
         buf[..bytes_read].copy_from_slice(line);
         // sleep for the delay

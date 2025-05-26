@@ -18,9 +18,7 @@ pub fn setup_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>, Box<dy
     Terminal::new(backend).map_err(Into::into)
 }
 
-pub fn restore_terminal(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-) -> Result<(), Box<dyn Error>> {
+pub fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<(), Box<dyn Error>> {
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;

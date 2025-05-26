@@ -19,9 +19,7 @@ use log::{debug, info, warn};
 use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::crossterm::cursor::{Hide, Show};
 use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture, Event, KeyCode};
-use ratatui::crossterm::terminal::{
-    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
-};
+use ratatui::crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
 use ratatui::crossterm::{event, execute};
 use ratatui::layout::{Constraint, Layout, Position};
 use ratatui::prelude::Direction;
@@ -61,11 +59,7 @@ impl Run<VisualiserConfig> for Visualiser {
         }
     }
 
-    async fn run(
-        &mut self,
-        global_config: GlobalConfig,
-        config: VisualiserConfig,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn run(&mut self, global_config: GlobalConfig, config: VisualiserConfig) -> Result<(), Box<dyn std::error::Error>> {
         // Technically, the visualiser has cli tools for connecting to multiple nodes
         // At the moment, it is sufficient to connect to one target node on startup
         // Manually start the subscription by typing subscribe
@@ -150,11 +144,7 @@ impl Visualiser {
                 let mut client = client.lock().await;
                 match client.read_message(target_addr).await {
                     Ok(msg) => {
-                        let RpcMessage {
-                            msg,
-                            src_addr,
-                            target_addr,
-                        } = msg;
+                        let RpcMessage { msg, src_addr, target_addr } = msg;
                         if let Data {
                             data_msg: CsiFrame { csi },
                             device_id,
@@ -204,9 +194,7 @@ impl Visualiser {
             None => return vec![],
         };
 
-        data.iter()
-            .map(|x| (x.timestamp, x.csi[core][stream][subcarrier].re))
-            .collect()
+        data.iter().map(|x| (x.timestamp, x.csi[core][stream][subcarrier].re)).collect()
     }
 
     async fn plot_data_tui(&self) -> Result<(), Box<dyn std::error::Error>> {
@@ -220,12 +208,7 @@ impl Visualiser {
 
         // Shutdown process
         disable_raw_mode()?;
-        execute!(
-            terminal.backend_mut(),
-            LeaveAlternateScreen,
-            DisableMouseCapture,
-            Show,
-        )?;
+        execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture, Show,)?;
         terminal.show_cursor()?;
 
         Ok(())
@@ -240,9 +223,7 @@ impl Visualiser {
         let graphs: Arc<Mutex<Vec<Graph>>> = Arc::new(Mutex::new(Vec::new()));
 
         loop {
-            let timeout = tick_rate
-                .checked_sub(last_tick.elapsed())
-                .unwrap_or_else(|| Duration::from_secs(0));
+            let timeout = tick_rate.checked_sub(last_tick.elapsed()).unwrap_or_else(|| Duration::from_secs(0));
 
             if event::poll(timeout)? {
                 if let Event::Key(key) = event::read()? {
@@ -283,13 +264,8 @@ impl Visualiser {
                         .constraints([Constraint::Percentage(80), Constraint::Length(3)].as_ref())
                         .split(size);
 
-                    let graph_count = if (current_data.is_empty()) {
-                        1
-                    } else {
-                        current_data.len()
-                    };
-                    let constraints =
-                        vec![Constraint::Percentage(100 / graph_count as u16); graph_count];
+                    let graph_count = if (current_data.is_empty()) { 1 } else { current_data.len() };
+                    let constraints = vec![Constraint::Percentage(100 / graph_count as u16); graph_count];
                     let chart_area = Layout::default()
                         .direction(Direction::Horizontal)
                         .margin(1)
@@ -304,41 +280,16 @@ impl Visualiser {
                             .style(Style::default().fg(Color::Cyan))
                             .data(data);
 
-                        let time_max = data
-                            .iter()
-                            .max_by(|x, y| x.0.total_cmp(&y.0))
-                            .unwrap_or(&(0f64, 10000f64))
-                            .0;
+                        let time_max = data.iter().max_by(|x, y| x.0.total_cmp(&y.0)).unwrap_or(&(0f64, 10000f64)).0;
 
-                        let time_bounds = [
-                            (time_max - intervals[i] as f64 - 1f64).round(),
-                            (time_max + 1f64).round(),
-                        ];
-                        let time_labels: Vec<Span> = time_bounds
-                            .iter()
-                            .map(|n| Span::from(n.to_string()))
-                            .collect();
+                        let time_bounds = [(time_max - intervals[i] as f64 - 1f64).round(), (time_max + 1f64).round()];
+                        let time_labels: Vec<Span> = time_bounds.iter().map(|n| Span::from(n.to_string())).collect();
 
                         let data_bounds = [
-                            (data
-                                .iter()
-                                .min_by(|x, y| x.1.total_cmp(&y.1))
-                                .unwrap_or(&(0f64, 10000f64))
-                                .1
-                                - 1f64)
-                                .round(),
-                            (data
-                                .iter()
-                                .max_by(|x, y| x.1.total_cmp(&y.1))
-                                .unwrap_or(&(0f64, 10000f64))
-                                .1
-                                + 1f64)
-                                .round(),
+                            (data.iter().min_by(|x, y| x.1.total_cmp(&y.1)).unwrap_or(&(0f64, 10000f64)).1 - 1f64).round(),
+                            (data.iter().max_by(|x, y| x.1.total_cmp(&y.1)).unwrap_or(&(0f64, 10000f64)).1 + 1f64).round(),
                         ];
-                        let data_labels: Vec<Span> = data_bounds
-                            .iter()
-                            .map(|n| Span::from(n.to_string()))
-                            .collect();
+                        let data_labels: Vec<Span> = data_bounds.iter().map(|n| Span::from(n.to_string())).collect();
 
                         let chart = Chart::new(vec![dataset])
                             .block(
@@ -346,23 +297,12 @@ impl Visualiser {
                                     .title(format!("Chart {i}")) // TODO: Add descriptive title to chart
                                     .borders(Borders::ALL),
                             )
-                            .x_axis(
-                                Axis::default()
-                                    .title("Time")
-                                    .bounds(time_bounds)
-                                    .labels(time_labels),
-                            )
-                            .y_axis(
-                                Axis::default()
-                                    .title(types[i].clone())
-                                    .bounds(data_bounds)
-                                    .labels(data_labels),
-                            );
+                            .x_axis(Axis::default().title("Time").bounds(time_bounds).labels(time_labels))
+                            .y_axis(Axis::default().title(types[i].clone()).bounds(data_bounds).labels(data_labels));
                         f.render_widget(chart, chart_area[i]);
                     }
 
-                    let input = ratatui::widgets::Paragraph::new(text_input.as_str())
-                        .block(Block::default().title("Command").borders(Borders::ALL));
+                    let input = ratatui::widgets::Paragraph::new(text_input.as_str()).block(Block::default().title("Command").borders(Borders::ALL));
                     f.render_widget(input, chunks[1]);
                 })?;
                 last_tick = Instant::now();
@@ -430,8 +370,7 @@ impl Visualiser {
                 graphs.lock().await.remove(entry);
             }
             "interval" if parts.len() == 3 => {
-                graphs.lock().await[parts[1].parse::<usize>().unwrap()].time_interval =
-                    parts[2].parse::<usize>().unwrap();
+                graphs.lock().await[parts[1].parse::<usize>().unwrap()].time_interval = parts[2].parse::<usize>().unwrap();
             }
             "clear" => {
                 graphs.lock().await.clear();
@@ -463,9 +402,7 @@ impl Visualiser {
         });
 
         loop {
-            let timeout = tick_rate
-                .checked_sub(last_tick.elapsed())
-                .unwrap_or_else(|| Duration::from_secs(0));
+            let timeout = tick_rate.checked_sub(last_tick.elapsed()).unwrap_or_else(|| Duration::from_secs(0));
 
             if last_tick.elapsed() >= tick_rate {
                 for (i, graph) in graphs_2.lock().await.clone().into_iter().enumerate() {
@@ -502,10 +439,7 @@ impl Visualiser {
             let mut client = client.lock().await;
             client.connect(target_addr).await;
 
-            let msg = Ctrl(CtrlMsg::Subscribe {
-                device_id: 0,
-                mode: SOURCE,
-            });
+            let msg = Ctrl(CtrlMsg::Subscribe { device_id: 0, mode: SOURCE });
             client.send_message(target_addr, msg).await;
             info!("Subscribed to node {target_addr}")
         }
