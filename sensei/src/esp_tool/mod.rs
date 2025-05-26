@@ -22,7 +22,7 @@ use lib::sources::controllers::esp32_controller::{
     SecondaryChannel as EspSecondaryChannel,
 };
 use lib::sources::esp32::{Esp32Source, Esp32SourceConfig};
-use lib::tui::{restore_terminal, setup_terminal};
+use lib::tui::logs::{LogEntry, TuiLogger, init_logger};
 use log::{Level, LevelFilter, Metadata, Record, SetLoggerError, debug, error, info, warn};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
@@ -34,7 +34,7 @@ use state::TuiState;
 use std::collections::VecDeque;
 use std::env;
 use std::error::Error;
-use std::io;
+use std::io::{self, stdout};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering, Ordering as AtomicOrdering};
 use std::sync::mpsc::RecvTimeoutError;
@@ -44,8 +44,6 @@ use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
 use tokio::time::{sleep, timeout};
 use tui::ui;
-
-use lib::tui::logs::*;
 
 const LOG_BUFFER_CAPACITY: usize = 200;
 const CSI_DATA_BUFFER_CAPACITY: usize = 1000;
@@ -87,6 +85,7 @@ impl Run<EspToolConfig> for EspTool {
         {
             // Start of TUI
             let log_processor_handle = Self::log_handler_task(log_recv, update_send.clone(), shutdown_signal.clone()).await;
+            init_logger(global_config.log_level, log_send.clone());
 
             let esp = Esp32Source::new(Esp32SourceConfig::default()).unwrap();
             let device_config = Esp32DeviceConfig::default();
@@ -379,4 +378,19 @@ impl EspTool {
             info!("Log processor task stopped.");
         })
     }
+}
+
+pub fn setup_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>, Box<dyn Error>> {
+    enable_raw_mode()?;
+    let mut stdout = stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(stdout);
+    Terminal::new(backend).map_err(Into::into)
+}
+
+pub fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<(), Box<dyn Error>> {
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    terminal.show_cursor()?;
+    Ok(())
 }
