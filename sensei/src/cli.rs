@@ -55,7 +55,10 @@ pub struct SystemNodeSubcommandArgs {
     pub port: u16,
 
     /// location of config file (default sensei/src/system_node/example_config.yaml)
-    #[argh(option, default = "PathBuf::from(\"sensei/src/system_node/example_config.yaml\")")]
+    #[argh(
+        option,
+        default = "PathBuf::from(\"sensei/src/system_node/example_config.yaml\")"
+    )]
     pub device_configs: PathBuf,
 }
 

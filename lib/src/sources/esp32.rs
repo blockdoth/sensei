@@ -26,7 +26,7 @@ const DEFAULT_ACK_TIMEOUT_MS: u64 = 2000; // Increased slightly
 const DEFAULT_CSI_BUFFER_SIZE: usize = 100; // Reduced from 1000 to be more conservative
 const SERIAL_READ_TIMEOUT_MS: u64 = 100;
 const SERIAL_READ_BUFFER_SIZE: usize = 4096; // Increased for potentially larger bursts
-const BAUDRATE: u32 = 3_000_000; 
+const BAUDRATE: u32 = 3_000_000;
 
 // --- Type Aliases for `ack_waiters` ---
 type AckPayload = Result<Vec<u8>, ControllerError>;
@@ -45,11 +45,11 @@ pub struct Esp32SourceConfig {
 
 impl Default for Esp32SourceConfig {
     fn default() -> Self {
-        Self { 
-          port_name: "/dev/port".to_string(),
-          baud_rate: BAUDRATE,
-          csi_buffer_size: DEFAULT_CSI_BUFFER_SIZE,
-          ack_timeout_ms: DEFAULT_ACK_TIMEOUT_MS,
+        Self {
+            port_name: "/dev/port".to_string(),
+            baud_rate: BAUDRATE,
+            csi_buffer_size: DEFAULT_CSI_BUFFER_SIZE,
+            ack_timeout_ms: DEFAULT_ACK_TIMEOUT_MS,
         }
     }
 }
@@ -157,8 +157,7 @@ impl Esp32Source {
         })??;
         // First ? for JoinError, second ? for std::io::Error
 
-        let ack_timeout =
-            Duration::from_millis(self.config.ack_timeout_ms);
+        let ack_timeout = Duration::from_millis(self.config.ack_timeout_ms);
 
         let ack_result =
             tokio::task::spawn_blocking(move || ack_rx_local.recv_timeout(ack_timeout))

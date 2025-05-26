@@ -350,10 +350,9 @@ impl TuiState {
                     );
                 } else {
                     let _ = update_tx
-                        .send(AppUpdate::Error(
+                        .try_send(AppUpdate::Error(
                             "Edit ('e') for Spam mode only. Switch mode with 'm'.".to_string(),
-                        ))
-                        .await;
+                        ));
                 }
             }
             KeyCode::Char('s') | KeyCode::Char('S') => {
@@ -376,21 +375,19 @@ impl TuiState {
                     }
                 } else {
                     let _ = update_tx
-                        .send(AppUpdate::Error(
+                        .try_send(AppUpdate::Error(
                             "Send burst spam ('s') for Spam mode only. Use 'm'.".to_string(),
-                        ))
-                        .await;
+                        ));
                 }
             }
             KeyCode::Char('t') | KeyCode::Char('T') => {
                 if self.ui_mode == UiMode::Spam {
                     if self.esp_config.mode != EspOperationMode::Transmit {
                         let _ = update_tx
-                            .send(AppUpdate::Error(
+                            .try_send(AppUpdate::Error(
                                 "Continuous spam ('t') requires ESP Transmit mode. Use 'm'."
                                     .to_string(),
-                            ))
-                            .await;
+                            ));
                     } else {
                         self.previous_is_continuous_spam_active_for_revert =
                             Some(self.is_continuous_spam_active);
@@ -407,10 +404,9 @@ impl TuiState {
                     }
                 } else {
                     let _ = update_tx
-                        .send(AppUpdate::Error(
+                        .try_send(AppUpdate::Error(
                             "Toggle continuous spam ('t') for Spam mode only. Use 'm'.".to_string(),
-                        ))
-                        .await;
+                        ));
                 }
             }
             KeyCode::Char('c') | KeyCode::Char('C') => {
@@ -481,10 +477,9 @@ impl TuiState {
             let params_to_send = next_controller.clone(); // Clone params for analysis if send fails & for sending
             if command_tx.try_send(params_to_send).is_err() {
                 let _ = update_tx
-                    .send(AppUpdate::Error(
+                    .try_send(AppUpdate::Error(
                         "Cmd Send Fail: Chan full. UI reverted.".to_string(),
-                    ))
-                    .await;
+                    ));
 
                 // Revert optimistic changes based on the params we *tried* to send
                 if let Some(old_config) = self.previous_esp_config_for_revert.take() {

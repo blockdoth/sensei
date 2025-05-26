@@ -287,7 +287,7 @@ impl EspTool {
                     }
 
                     read_result = esp.read(&mut read_buffer) => {
-                      
+
                         match read_result {
                             Ok(0) => {
                                 if !esp.is_running.load(AtomicOrdering::Relaxed) {

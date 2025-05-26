@@ -8,7 +8,6 @@ use async_trait::async_trait;
 use lib::adapters::CsiDataAdapter;
 use lib::csi_types::{Complex, CsiData};
 use lib::errors::NetworkError;
-use lib::sources::esp32::{Esp32Source, Esp32SourceConfig};
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
 use lib::network::rpc_message::SourceType::*;
 use lib::network::rpc_message::{AdapterMode, CtrlMsg};
@@ -19,6 +18,7 @@ use lib::network::rpc_message::{RpcMessageKind, SourceType::*};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
+use lib::sources::esp32::{Esp32Source, Esp32SourceConfig};
 
 use lib::sources::controllers::Controller;
 use lib::sources::controllers::esp32_controller::{

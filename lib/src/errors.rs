@@ -71,7 +71,7 @@ pub enum DataSourceError {
     /// Tried to use a feature or function that isn't implemented.
     #[error("Tried to use unimplemented feature: {0}")]
     NotImplemented(String),
-    
+
     #[error("Not connected: {0}")]
     NotConnected(String),
 
@@ -252,15 +252,15 @@ pub enum ControllerError {
     /// A required parameter was missing from the configuration.
     #[error("Missing parameter: {0}")]
     MissingParameter(String),
-    
+
     #[error("Command failed to execute")]
     CommandFailed {
-      command_name: String,
-      details: String,
+        command_name: String,
+        details: String,
     },
 
     #[error("Invalid datasource")]
-    InvalidDataSource (String),
+    InvalidDataSource(String),
     /// Could not determine the wireless PHY name.
     #[error("Failed to extract PhyName due to string conversions")]
     PhyName,
