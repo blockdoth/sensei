@@ -1,4 +1,4 @@
-use crate::errors::DataSourceError;
+use crate::errors::{DataSourceError, TaskError};
 use crate::network::rpc_message::SourceType;
 use crate::sources::BUFSIZE;
 use crate::sources::DataMsg;
@@ -202,5 +202,12 @@ mod tests {
         let mut csv_source = CsvSource::new(config).unwrap();
         assert!(csv_source.start().await.is_ok());
         assert!(csv_source.stop().await.is_ok());
+    }
+}
+
+#[async_trait::async_trait]
+impl ToConfig<DataSourceConfig> for NetlinkSource {
+    async fn to_config(&self) -> Result<DataSourceConfig, TaskError> {
+        Err(TaskError::NotImplemented)
     }
 }

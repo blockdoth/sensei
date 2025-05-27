@@ -1,4 +1,4 @@
-use crate::errors::DataSourceError;
+use crate::errors::{DataSourceError, TaskError};
 use crate::network::rpc_message::{DataMsg, RpcMessage, RpcMessageKind};
 use crate::network::tcp::client::TcpClient;
 use crate::sources::DataSourceT;
@@ -110,5 +110,33 @@ impl DataSourceT for TCPSource {
                 Ok(Some(data_msg))
             }
         }
+    }
+}
+
+
+#[async_trait::async_trait]
+impl ToConfig<DataSourceConfig> for NetlinkSource {
+    /// Converts this `NetlinkSource` instance into a `DataSourceConfig` representing a TCP source.
+    ///
+    /// **Note:** Although this is implemented on `NetlinkSource`, it returns a `DataSourceConfig::Tcp`
+    /// variant constructed from the `target_addr` field. This might be intentional or a design choice
+    /// depending on your application logic.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(DataSourceConfig::Tcp)` containing a `TCPConfig` initialized with the cloned target address.
+    /// * `Err(TaskError)` if conversion fails (not expected here as cloning should succeed).
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # async fn example(netlink_source: &NetlinkSource) -> Result<(), TaskError> {
+    /// let config = netlink_source.to_config().await?;
+    /// // `config` will be a `DataSourceConfig::Tcp` variant.
+    /// # Ok(())
+    /// # }
+    /// ```
+    async fn to_config(&self) -> Result<DataSourceConfig, TaskError> {
+        Ok(DataSourceConfig::Tcp(TCPConfig(self.target_addr.clone())))
     }
 }

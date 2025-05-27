@@ -2,7 +2,7 @@ use crate::errors::DataSourceError;
 use crate::network::rpc_message::SourceType;
 use crate::sources::BUFSIZE;
 use crate::sources::DataMsg;
-use crate::sources::DataSourceT;
+use crate::sources::{DataSourceT, DataSourceConfig, TaskError};
 use crate::sources::controllers::Controller;
 
 use log::trace;
@@ -41,6 +41,32 @@ impl NetlinkSource {
             socket: None,
             buffer: [0; 8192],
         })
+    }
+}
+
+#[async_trait::async_trait]
+impl ToConfig<DataSourceConfig> for NetlinkSource {
+    /// Converts this `NetlinkSource` instance into its configuration representation.
+    ///
+    /// This allows serializing or saving the current state of the `NetlinkSource`
+    /// back into a `DataSourceConfig` enum variant, specifically `DataSourceConfig::Netlink`.
+    ///
+    /// # Returns
+    /// 
+    /// * `Ok(DataSourceConfig::Netlink)` containing a clone of the internal configuration.
+    /// * `Err(TaskError)` if conversion fails (not expected here since cloning should not fail).
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # async fn example(netlink_source: &NetlinkSource) -> Result<(), TaskError> {
+    /// let config = netlink_source.to_config().await?;
+    /// // You can now serialize `config` or use it for other purposes.
+    /// # Ok(())
+    /// # }
+    /// ```
+    async fn to_config(&self) -> Result<DataSourceConfig, TaskError> {
+        Ok(DataSourceConfig::Netlink(self.config.clone()))
     }
 }
 

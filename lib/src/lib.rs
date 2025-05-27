@@ -34,5 +34,5 @@ pub trait FromConfig<C> {
 /// sources, controllers, adapters, and sinks.
 #[async_trait]
 pub trait ToConfig<C> {
-    async fn to_config(&self) -> Result<Box<C>, TaskError>;
+    async fn to_config(&self) -> Result<C, TaskError>;
 }
