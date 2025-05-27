@@ -19,12 +19,12 @@ pub mod esp32;
 #[cfg(target_os = "linux")]
 pub mod netlink;
 
-use crate::FromConfig;
-use crate::errors::DataSourceError;
-use crate::errors::TaskError;
-use crate::sources::controllers::Controller;
 use std::any::Any;
 use std::net::SocketAddr;
+
+use crate::FromConfig;
+use crate::errors::{DataSourceError, TaskError};
+use crate::sources::controllers::Controller;
 
 /// Data Source Trait
 /// -----------------

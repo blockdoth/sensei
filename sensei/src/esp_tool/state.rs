@@ -1,20 +1,17 @@
 use std::collections::VecDeque;
 
-use super::{AppUpdate, CSI_DATA_BUFFER_CAPACITY, LOG_BUFFER_CAPACITY};
 use crossterm::event::{KeyCode, KeyEvent};
-use lib::{
-    csi_types::CsiData,
-    sources::{
-        controllers::esp32_controller::{
-            Bandwidth as EspBandwidth, CsiType as EspCsiType, CustomFrameParams, Esp32Controller, Esp32DeviceConfig,
-            OperationMode as EspOperationMode, SecondaryChannel as EspSecondaryChannel,
-        },
-        esp32::Esp32SourceConfig,
-    },
-    tui::logs::LogEntry,
+use lib::csi_types::CsiData;
+use lib::sources::controllers::esp32_controller::{
+    Bandwidth as EspBandwidth, CsiType as EspCsiType, CustomFrameParams, Esp32Controller, Esp32DeviceConfig, OperationMode as EspOperationMode,
+    SecondaryChannel as EspSecondaryChannel,
 };
+use lib::sources::esp32::Esp32SourceConfig;
+use lib::tui::logs::LogEntry;
 use log::{info, warn};
 use tokio::sync::mpsc;
+
+use super::{AppUpdate, CSI_DATA_BUFFER_CAPACITY, LOG_BUFFER_CAPACITY};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum UiMode {

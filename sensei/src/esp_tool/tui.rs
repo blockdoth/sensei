@@ -1,21 +1,16 @@
+use lib::csi_types::CsiData;
+use lib::sources::controllers::esp32_controller::{
+    Bandwidth as EspBandwidth, CsiType as EspCsiType, OperationMode as EspOperationMode, SecondaryChannel as EspSecondaryChannel,
+};
+use ratatui::Frame;
+use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span, Text};
+use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table, Wrap};
+
 use super::state::TuiState;
-use crate::esp_tool::{
-    CSI_DATA_BUFFER_CAPACITY, LOG_BUFFER_CAPACITY,
-    state::{SpamConfigField, UiMode},
-};
-use lib::{
-    csi_types::CsiData,
-    sources::controllers::esp32_controller::{
-        Bandwidth as EspBandwidth, CsiType as EspCsiType, OperationMode as EspOperationMode, SecondaryChannel as EspSecondaryChannel,
-    },
-};
-use ratatui::{
-    Frame,
-    layout::{Constraint, Direction, Layout},
-    style::{Color, Modifier, Style},
-    text::{Line, Span, Text},
-    widgets::{Block, Borders, Cell, Paragraph, Row, Table, Wrap},
-};
+use crate::esp_tool::state::{SpamConfigField, UiMode};
+use crate::esp_tool::{CSI_DATA_BUFFER_CAPACITY, LOG_BUFFER_CAPACITY};
 
 // Renders the UI based on the state, should not contain any state changing logic
 pub fn ui(f: &mut Frame, tui_state: &TuiState) {

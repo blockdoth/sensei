@@ -1,9 +1,10 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::sync::Arc;
 
 use anyhow::Ok;
 use lib::network::rpc_message::RpcMessage;
 use log::*;
-use std::net::SocketAddr;
 
 use crate::services::{GlobalConfig, RegistryConfig, Run};
 

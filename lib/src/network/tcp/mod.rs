@@ -1,21 +1,17 @@
 use std::net::SocketAddr;
 
-use super::rpc_message::{self, DataMsg, RpcMessage, RpcMessageKind};
-use crate::{errors::NetworkError, network::rpc_message::make_msg};
 use async_trait::async_trait;
 use log::{debug, error, info, trace};
 use serde::Deserialize;
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::{
-        TcpStream,
-        tcp::{OwnedReadHalf, OwnedWriteHalf},
-    },
-    sync::{
-        broadcast,
-        watch::{self, Receiver, Sender},
-    },
-};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
+use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
+use tokio::sync::broadcast;
+use tokio::sync::watch::{self, Receiver, Sender};
+
+use super::rpc_message::{self, DataMsg, RpcMessage, RpcMessageKind};
+use crate::errors::NetworkError;
+use crate::network::rpc_message::make_msg;
 
 pub mod client;
 pub mod server;

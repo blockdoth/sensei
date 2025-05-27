@@ -3,8 +3,15 @@
 mod state;
 mod tui;
 
-use crate::cli::EspToolSubcommandArgs;
-use crate::services::{EspToolConfig, GlobalConfig, Run};
+use std::collections::VecDeque;
+use std::env;
+use std::error::Error;
+use std::io::{self, stdout};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering, Ordering as AtomicOrdering};
+use std::sync::mpsc::RecvTimeoutError;
+use std::time::Duration;
+
 use chrono::{DateTime, Local};
 use crossterm::event::{Event as CEvent, EventStream, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::execute;
@@ -31,19 +38,14 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table, Wrap};
 use ratatui::{Frame, Terminal};
 use state::TuiState;
-use std::collections::VecDeque;
-use std::env;
-use std::error::Error;
-use std::io::{self, stdout};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering, Ordering as AtomicOrdering};
-use std::sync::mpsc::RecvTimeoutError;
-use std::time::Duration;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
 use tokio::time::{sleep, timeout};
 use tui::ui;
+
+use crate::cli::EspToolSubcommandArgs;
+use crate::services::{EspToolConfig, GlobalConfig, Run};
 
 const LOG_BUFFER_CAPACITY: usize = 200;
 const CSI_DATA_BUFFER_CAPACITY: usize = 1000;

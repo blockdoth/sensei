@@ -3,16 +3,17 @@
 //! Defines parameters and logic for configuring an ESP32 device
 //! through the `Esp32Source`.
 
-use crate::errors::ControllerError;
-use crate::sources::DataSourceT;
-use crate::sources::controllers::Controller;
-use crate::sources::esp32::Esp32Source; // Adjusted path
+use std::any::Any;
 
 use async_trait::async_trait;
 use log::{info, warn};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::any::Any; // Required for downcasting if using source.as_any_mut()
+
+use crate::errors::ControllerError;
+use crate::sources::DataSourceT;
+use crate::sources::controllers::Controller;
+use crate::sources::esp32::Esp32Source; // Adjusted path // Required for downcasting if using source.as_any_mut()
 
 // --- ESP32 Specific Enums (Kept as they are well-defined) ---
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, JsonSchema)]

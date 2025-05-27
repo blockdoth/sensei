@@ -1,10 +1,11 @@
+use log::trace;
+use netlink_sys::protocols::NETLINK_CONNECTOR;
+use netlink_sys::{Socket, SocketAddr};
+use serde::{Deserialize, Serialize};
+
 use crate::errors::DataSourceError;
 use crate::sources::DataSourceT;
 use crate::sources::controllers::Controller;
-
-use log::trace;
-use netlink_sys::{Socket, SocketAddr, protocols::NETLINK_CONNECTOR};
-use serde::{Deserialize, Serialize};
 
 // Configuration structure for a Netlink source.
 ///

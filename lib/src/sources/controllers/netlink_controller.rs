@@ -1,9 +1,11 @@
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+
+use tokio::process::Command;
+
 use crate::errors::ControllerError;
 use crate::sources::DataSourceT;
 use crate::sources::controllers::Controller;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use tokio::process::Command;
 
 /// Parameters for the Netlink controller, typically parsed from yaml file
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone, schemars::JsonSchema)]

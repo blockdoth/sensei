@@ -1,8 +1,10 @@
+use std::path::PathBuf;
+use std::{fs, future};
+
 use clap::Parser;
 use lib::FromConfig;
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
 use log::{error, info};
-use std::{fs, future, path::PathBuf};
 
 /// Command-line args for the `config` binary
 #[derive(Parser, Debug)]

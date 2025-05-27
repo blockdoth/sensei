@@ -1,15 +1,15 @@
-use super::{ConnectionHandler, MAX_MESSAGE_LENGTH, SubscribeDataChannel, read_message};
-use crate::{
-    errors::NetworkError,
-    network::{rpc_message::RpcMessage, tcp::ChannelMsg},
-};
+use std::net::SocketAddr;
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use log::{debug, error, info, warn};
-use std::{net::SocketAddr, sync::Arc};
-use tokio::{
-    net::{TcpListener, TcpStream},
-    sync::watch,
-};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::watch;
+
+use super::{ConnectionHandler, MAX_MESSAGE_LENGTH, SubscribeDataChannel, read_message};
+use crate::errors::NetworkError;
+use crate::network::rpc_message::RpcMessage;
+use crate::network::tcp::ChannelMsg;
 
 pub struct TcpServer {}
 

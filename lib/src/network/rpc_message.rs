@@ -1,15 +1,15 @@
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::str::FromStr;
+use std::sync::Arc;
+
+use bincode::Error;
+use serde::{Deserialize, Serialize};
+use tokio::net::{TcpStream, UdpSocket};
+use tokio_stream::Stream;
+
 use crate::csi_types::CsiData;
 use crate::handler::device_handler::DeviceHandlerConfig;
 use crate::network::rpc_message::RpcMessageKind::Ctrl;
-use bincode::Error;
-use serde::{Deserialize, Serialize};
-use std::{
-    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
-    str::FromStr,
-    sync::Arc,
-};
-use tokio::net::{TcpStream, UdpSocket};
-use tokio_stream::Stream;
 
 const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
 

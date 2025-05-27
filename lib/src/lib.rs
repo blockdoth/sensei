@@ -8,8 +8,9 @@
 //! Usefull errors are also made available
 //!
 
-use crate::errors::TaskError;
 use async_trait::async_trait;
+
+use crate::errors::TaskError;
 
 pub mod adapters;
 pub mod csi_types;

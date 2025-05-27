@@ -2,11 +2,13 @@
 //! Mofidied based on: wisense/sensei/lib/src/csi_types.rs
 //! Originally authored by: Fabian Portner
 
-use crate::errors::{AppError, DataSourceError};
-use num_complex::Complex64;
-use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
+
+use num_complex::Complex64;
+use serde::{Deserialize, Serialize};
+
+use crate::errors::{AppError, DataSourceError};
 
 /// Complex number type alias for CSI data representation.
 pub type Complex = Complex64;

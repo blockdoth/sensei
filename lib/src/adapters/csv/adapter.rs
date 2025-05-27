@@ -1,12 +1,13 @@
+use std::fs::File;
+use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::vec;
+
+use log::info;
+
 use crate::adapters::CsiDataAdapter;
 use crate::csi_types::{Complex, CsiData};
 use crate::errors::CsiAdapterError;
 use crate::network::rpc_message::DataMsg;
-use log::info;
-use std::fs::File;
-use std::io::Write;
-use std::io::{self, Read, Seek, SeekFrom};
-use std::vec;
 
 const DEFAULT_LINE_DELIM: u8 = b'\n';
 const DEFAULT_CELL_DELIM: u8 = b',';

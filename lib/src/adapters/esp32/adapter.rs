@@ -1,10 +1,11 @@
+use std::io::{Cursor, Read};
+
+use byteorder::{LittleEndian, ReadBytesExt};
+
 use crate::adapters::CsiDataAdapter;
 use crate::csi_types::{Complex, CsiData};
 use crate::errors::{CsiAdapterError, Esp32AdapterError}; // Import Esp32AdapterError
-use crate::network::rpc_message::DataMsg;
-
-use byteorder::{LittleEndian, ReadBytesExt};
-use std::io::{Cursor, Read}; // <-- Added std::io::Read
+use crate::network::rpc_message::DataMsg; // <-- Added std::io::Read
 
 // ESP32 typically operates in SISO mode (1 Transmit, 1 Receive antenna).
 // If future ESP32 variants support MIMO CSI and the format changes to include Ntx/Nrx,

@@ -1,35 +1,29 @@
 pub mod example;
 pub mod logs;
 
-use crate::sources::controllers::esp32_controller::Esp32Controller;
+use std::error::Error;
+use std::io::{self, stdout};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::thread::sleep;
+use std::time::Duration;
+use std::vec;
+
 use async_trait::async_trait;
-use crossterm::{
-    event::{Event, EventStream, KeyCode, KeyEvent},
-    execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
-};
+use crossterm::event::{Event, EventStream, KeyCode, KeyEvent};
+use crossterm::execute;
+use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
 use futures::StreamExt;
-use log::info;
-use log::{LevelFilter, debug};
+use log::{LevelFilter, debug, info};
 use logs::{FromLog, LogEntry, init_logger};
-use ratatui::{
-    Frame, Terminal,
-    layout::{Constraint, Direction, Layout},
-    prelude::CrosstermBackend,
-    widgets::{Block, Borders},
-};
-use std::{
-    error::Error,
-    io::{self, stdout},
-    sync::{Arc, atomic::AtomicBool},
-    thread::sleep,
-    time::Duration,
-    vec,
-};
-use tokio::{
-    sync::mpsc::{self, Receiver, Sender},
-    task::JoinHandle,
-};
+use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::prelude::CrosstermBackend;
+use ratatui::widgets::{Block, Borders};
+use ratatui::{Frame, Terminal};
+use tokio::sync::mpsc::{self, Receiver, Sender};
+use tokio::task::JoinHandle;
+
+use crate::sources::controllers::esp32_controller::Esp32Controller;
 
 pub struct TuiRunner<T: Tui<Update, Command>, Update, Command> {
     app: T,

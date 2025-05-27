@@ -12,8 +12,7 @@
 
 use crate::FromConfig;
 use crate::csi_types::CsiData;
-use crate::errors::CsiAdapterError;
-use crate::errors::TaskError;
+use crate::errors::{CsiAdapterError, TaskError};
 use crate::network::rpc_message::DataMsg;
 use crate::network::rpc_message::DataMsg::CsiFrame;
 pub mod csv;

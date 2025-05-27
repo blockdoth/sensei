@@ -1,10 +1,12 @@
-use crate::esp_tool;
-use crate::services::{EspToolConfig, GlobalConfig, OrchestratorConfig, RegistryConfig, SystemNodeConfig, VisualiserConfig};
+use std::net::{AddrParseError, SocketAddr};
+use std::path::PathBuf;
+
 use anyhow::Error;
 use argh::FromArgs;
 use simplelog::{ColorChoice, CombinedLogger, LevelFilter, TermLogger, TerminalMode, WriteLogger};
-use std::net::{AddrParseError, SocketAddr};
-use std::path::PathBuf;
+
+use crate::esp_tool;
+use crate::services::{EspToolConfig, GlobalConfig, OrchestratorConfig, RegistryConfig, SystemNodeConfig, VisualiserConfig};
 
 /// A simple app to perform collection from configured sources
 #[derive(FromArgs)]

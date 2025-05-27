@@ -7,32 +7,25 @@
 //!
 //! Note that a single client may connect/disconnect repeatedly, the main task of
 //! this simple tokio TCP wrapper.
-use crate::errors::NetworkError;
-use crate::network::rpc_message::RpcMessage;
-use crate::network::rpc_message::RpcMessageKind;
-use crate::network::rpc_message::RpcMessageKind::*;
-use crate::network::rpc_message::*;
-use crate::network::tcp;
-use crate::network::tcp::MAX_MESSAGE_LENGTH;
-use log::debug;
-use log::error;
-use log::info;
-use log::trace;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
+
+use log::{debug, error, info, trace};
 use tcpserver::ConnectEventType;
 use tokio::io::AsyncWriteExt;
-use tokio::net::TcpListener;
-use tokio::net::TcpStream;
-use tokio::net::tcp::OwnedReadHalf;
-use tokio::net::tcp::OwnedWriteHalf;
-use tokio::net::tcp::ReadHalf;
-use tokio::net::tcp::WriteHalf;
+use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf, ReadHalf, WriteHalf};
+use tokio::net::{TcpListener, TcpStream};
 use tokio::stream;
 use tokio::sync::Mutex;
+
+use crate::errors::NetworkError;
+use crate::network::rpc_message::RpcMessageKind::*;
+use crate::network::rpc_message::{RpcMessage, RpcMessageKind, *};
+use crate::network::tcp;
+use crate::network::tcp::MAX_MESSAGE_LENGTH;
 
 /// Initial size of internal buffer to handle fragmentation.
 /// Socket reading will automatically resize this buffer if insufficient.

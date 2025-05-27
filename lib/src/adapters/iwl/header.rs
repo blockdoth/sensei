@@ -1,4 +1,5 @@
 use std::time::{SystemTime, UNIX_EPOCH};
+
 // use std::u16;
 use crate::errors::IwlAdapterError;
 

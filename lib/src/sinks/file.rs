@@ -1,9 +1,10 @@
-use crate::errors::SinkError;
-use crate::network::rpc_message::DataMsg;
-use crate::sinks::Sink;
 use async_trait::async_trait;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
+
+use crate::errors::SinkError;
+use crate::network::rpc_message::DataMsg;
+use crate::sinks::Sink;
 
 /// Configuration for a YAML-based file sink.
 ///

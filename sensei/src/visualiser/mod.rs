@@ -1,10 +1,22 @@
-use crate::orchestrator::Orchestrator;
-use crate::services::{GlobalConfig, Run, VisualiserConfig};
-use crate::visualiser::GraphType::Amplitude;
+use std::cell::RefCell;
+use std::cmp::PartialEq;
+use std::collections::HashMap;
+use std::io::stdout;
+use std::net::SocketAddr;
+use std::num::ParseIntError;
+use std::ops::DerefMut;
+use std::str::FromStr;
+use std::sync::mpsc::channel;
+use std::sync::{Arc, RwLock};
+use std::time::{Duration, Instant};
+use std::{fmt, fs};
+
 use async_trait::async_trait;
-use charming::series::Scatter;
+use charming::HtmlRenderer;
+use charming::component::Title;
+use charming::element::AxisType;
+use charming::series::{Line, Scatter};
 use charming::theme::Theme;
-use charming::{HtmlRenderer, component::Title, element::AxisType, series::Line};
 use lib::csi_types::{Complex, CsiData};
 use lib::errors::NetworkError;
 use lib::network::rpc_message::AdapterMode::SOURCE;
@@ -28,23 +40,15 @@ use ratatui::symbols::line;
 use ratatui::text::{Span, ToLine};
 use ratatui::widgets::{Axis, Block, Borders, Chart, Dataset};
 use ratatui::{Frame, Terminal, symbols};
-use std::cell::RefCell;
-use std::cmp::PartialEq;
-use std::collections::HashMap;
-use std::fmt;
-use std::io::stdout;
-use std::net::SocketAddr;
-use std::num::ParseIntError;
-use std::ops::DerefMut;
-use std::str::FromStr;
-use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant};
-use std::{fs, sync::mpsc::channel};
 use tokio::io;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::{Mutex, watch};
+
+use crate::orchestrator::Orchestrator;
+use crate::services::{GlobalConfig, Run, VisualiserConfig};
+use crate::visualiser::GraphType::Amplitude;
 
 pub struct Visualiser {
     // This seemed to me the best way to structure the data, as the socketaddr is a primary key for each node, and each device has a unique id only within a node

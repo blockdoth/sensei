@@ -15,11 +15,11 @@
 //! sink.provide(data_msg).await?;
 //! ```
 
-use crate::FromConfig;
-use crate::errors::SinkError;
-use crate::errors::TaskError;
-use crate::network::rpc_message::DataMsg;
 use async_trait::async_trait;
+
+use crate::FromConfig;
+use crate::errors::{SinkError, TaskError};
+use crate::network::rpc_message::DataMsg;
 
 pub mod file;
 

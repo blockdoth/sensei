@@ -1,6 +1,5 @@
 use chrono::{DateTime, Local};
-use log::Level;
-use log::{LevelFilter, Metadata, Record, SetLoggerError, info};
+use log::{Level, LevelFilter, Metadata, Record, SetLoggerError, info};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use tokio::sync::mpsc::{Receiver, Sender};

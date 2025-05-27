@@ -1,14 +1,14 @@
-use crate::errors::DataSourceError;
-use crate::sources::DataSourceT;
-use crate::sources::controllers::Controller;
+use std::fs::File;
+use std::io::{BufRead, BufReader, Write};
+use std::{path, vec};
 
 use log::trace;
 use serde::Deserialize;
-use std::fs::File;
-use std::io::Write;
-use std::io::{BufRead, BufReader};
-use std::{path, vec};
 use tempfile::NamedTempFile;
+
+use crate::errors::DataSourceError;
+use crate::sources::DataSourceT;
+use crate::sources::controllers::Controller;
 
 /// Config struct which can be parsed from a toml config
 #[derive(Debug, Deserialize, Clone)]

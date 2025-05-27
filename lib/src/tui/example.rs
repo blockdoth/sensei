@@ -1,35 +1,27 @@
-use super::{FromLog, LogEntry};
-use crate::sources::controllers::esp32_controller::Esp32Controller;
-use async_trait::async_trait;
-use crossterm::{
-    event::{Event, EventStream, KeyCode, KeyEvent},
-    execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
-};
-use futures::StreamExt;
-use log::{Log, debug};
-use log::{info, warn};
-use ratatui::{
-    Frame, Terminal,
-    layout::{Constraint, Direction, Layout},
-    prelude::CrosstermBackend,
-    text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
-};
-use std::{
-    error::Error,
-    io::{self, stdout},
-    sync::{Arc, atomic::AtomicBool},
-    thread::sleep,
-    time::Duration,
-    vec,
-};
-use tokio::{
-    sync::mpsc::{self, Receiver, Sender},
-    task::JoinHandle,
-};
+use std::error::Error;
+use std::io::{self, stdout};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::thread::sleep;
+use std::time::Duration;
+use std::vec;
 
-use super::{Tui, TuiRunner};
+use async_trait::async_trait;
+use crossterm::event::{Event, EventStream, KeyCode, KeyEvent};
+use crossterm::execute;
+use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
+use futures::StreamExt;
+use log::{Log, debug, info, warn};
+use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::prelude::CrosstermBackend;
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::{Frame, Terminal};
+use tokio::sync::mpsc::{self, Receiver, Sender};
+use tokio::task::JoinHandle;
+
+use super::{FromLog, LogEntry, Tui, TuiRunner};
+use crate::sources::controllers::esp32_controller::Esp32Controller;
 
 pub struct TuiState {
     should_quit: bool,

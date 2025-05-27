@@ -1,14 +1,8 @@
-use crate::errors::{ControllerError, DataSourceError}; // Ensure ControllerError is accessible
-use crate::sources::DataSourceT;
-use crate::sources::controllers::esp32_controller::Esp32Command;
-
 use std::any::Any;
 use std::collections::HashMap;
 use std::io::{Read as StdRead, Write as StdWrite}; // Renamed to avoid ambiguity
-use std::sync::{
-    Arc, Mutex,
-    atomic::{AtomicBool, Ordering as AtomicOrdering},
-};
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -16,6 +10,10 @@ use byteorder::{LittleEndian, ReadBytesExt as _}; // Use _ to import extension m
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, bounded};
 use log::{debug, error, info, warn};
 use serialport::{ClearBuffer, SerialPort};
+
+use crate::errors::{ControllerError, DataSourceError}; // Ensure ControllerError is accessible
+use crate::sources::DataSourceT;
+use crate::sources::controllers::esp32_controller::Esp32Command;
 
 const CMD_PREAMBLE_HOST_TO_ESP: [u8; 4] = [0xC3; 4];
 const CMD_PACKET_TOTAL_SIZE_HOST_TO_ESP: usize = 128;
