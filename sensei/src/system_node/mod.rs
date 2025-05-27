@@ -53,6 +53,7 @@ use tokio::task::JoinHandle;
 #[derive(Clone)]
 pub struct SystemNode {
     send_data_channel: broadcast::Sender<DataMsg>, // Call .subscribe() on the sender in order to get a receiver
+    client: Arc<Mutex<TcpClient>>,
 }
 
 impl SubscribeDataChannel for SystemNode {
@@ -92,12 +93,12 @@ impl ConnectionHandler for SystemNode {
                     return Err(NetworkError::Closed);
                 }
                 Subscribe { device_id, mode } => {
-                    send_channel.send(ChannelMsg::Subscribe { device_id, mode } );
+                    send_channel.send(ChannelMsg::Subscribe { device_id, mode });
 
                     info!("Subscribed to data stream");
                 }
                 Unsubscribe { device_id } => {
-                    send_channel.send(ChannelMsg::Unsubscribe{ device_id } );
+                    send_channel.send(ChannelMsg::Unsubscribe { device_id });
                     println!("Unsubscribed from data stream");
                 }
                 m => {
@@ -122,7 +123,7 @@ impl ConnectionHandler for SystemNode {
         mut send_stream: OwnedWriteHalf,
     ) -> Result<(), NetworkError> {
         // Devices that have been subscribed to along outgoing connection.
-        // As every device id is unique, a hashset is used to prevent duplicate subscriptions
+        // As every device id is unique, a hashmap is used to prevent duplicate subscriptions
         let mut subscribed_ids: HashMap<u64, AdapterMode> = HashMap::new();
         loop {
             if recv_command_channel.has_changed().unwrap_or(false) {
@@ -145,8 +146,6 @@ impl ConnectionHandler for SystemNode {
                     _ => (),
                 }
             }
-            
-            
 
             // if sending {
             //     let Ok(data_msg) = recv_data_channel.recv().await else {
@@ -171,7 +170,10 @@ impl ConnectionHandler for SystemNode {
 impl Run<SystemNodeConfig> for SystemNode {
     fn new(config: SystemNodeConfig) -> Self {
         let (send_data_channel, _) = broadcast::channel::<DataMsg>(16);
-        SystemNode { send_data_channel }
+        SystemNode { 
+            send_data_channel,
+            client: Arc::new(Mutex::new(TcpClient::new())),
+        }
     }
 
     /// Starts the system node
@@ -181,6 +183,9 @@ impl Run<SystemNodeConfig> for SystemNode {
     /// SystemNodeConfig: Specifies the target address
     async fn run(&self, config: SystemNodeConfig) -> Result<(), Box<dyn std::error::Error>> {
         let connection_handler = Arc::new(self.clone());
+        
+        let send_client =  self.client.clone();
+        let recv_client = self.client.clone();
 
         let sender_data_channel = connection_handler.send_data_channel.clone();
 
