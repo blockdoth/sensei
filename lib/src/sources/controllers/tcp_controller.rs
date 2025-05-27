@@ -1,7 +1,8 @@
+use std::net::SocketAddr;
+
 use crate::errors::ControllerError;
 use crate::sources::DataSourceT;
 use crate::sources::controllers::Controller;
-use std::net::SocketAddr;
 
 /// Parameters for the TCP controller.
 ///

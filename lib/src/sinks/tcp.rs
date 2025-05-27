@@ -1,10 +1,12 @@
+use std::net::SocketAddr;
+
+use async_trait::async_trait;
+use log::trace;
+
 use crate::errors::SinkError;
 use crate::network::rpc_message::{DataMsg, RpcMessage, RpcMessageKind};
 use crate::network::tcp::client::TcpClient;
 use crate::sinks::Sink;
-use async_trait::async_trait;
-use log::trace;
-use std::net::SocketAddr;
 
 /// Configuration for a TCP sink.
 ///
@@ -56,10 +58,7 @@ impl Sink for TCPSink {
     /// Returns a ['SinkError'] if the operation fails (e.g., I/O failure)
     async fn open(&mut self, _data: DataMsg) -> Result<(), SinkError> {
         trace!("Connecting to TCP socket at {}", self.target_addr);
-        self.client
-            .connect(self.target_addr)
-            .await
-            .map_err(SinkError::from)?;
+        self.client.connect(self.target_addr).await.map_err(SinkError::from)?;
         Ok(())
     }
 
@@ -72,10 +71,7 @@ impl Sink for TCPSink {
     /// Returns a ['SinkError'] if the operation fails (e.g., I/O failure)
     async fn close(&mut self, _data: DataMsg) -> Result<(), SinkError> {
         trace!("Disconnecting from TCP socket at {}", self.target_addr);
-        self.client
-            .disconnect(self.target_addr)
-            .await
-            .map_err(SinkError::from)?;
+        self.client.disconnect(self.target_addr).await.map_err(SinkError::from)?;
         Ok(())
     }
 
@@ -92,10 +88,7 @@ impl Sink for TCPSink {
             device_id: self.device_id,
         };
 
-        self.client
-            .send_message(self.target_addr, ret)
-            .await
-            .map_err(SinkError::from)?;
+        self.client.send_message(self.target_addr, ret).await.map_err(SinkError::from)?;
         Ok(())
     }
 }

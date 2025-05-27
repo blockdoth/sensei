@@ -1,9 +1,11 @@
+use std::net::SocketAddr;
+
+use log::trace;
+
 use crate::errors::DataSourceError;
 use crate::network::rpc_message::{DataMsg, RpcMessage, RpcMessageKind};
 use crate::network::tcp::client::TcpClient;
 use crate::sources::DataSourceT;
-use log::trace;
-use std::net::SocketAddr;
 
 /// Configuration for a `TCPSource`.
 ///
@@ -50,10 +52,7 @@ impl DataSourceT for TCPSource {
     /// Returns a [`DataSourceError`] if the connection fails.
     async fn start(&mut self) -> Result<(), DataSourceError> {
         trace!("Connecting to TCP socket at {}", self.target_addr);
-        self.client
-            .connect(self.target_addr)
-            .await
-            .map_err(DataSourceError::from)?;
+        self.client.connect(self.target_addr).await.map_err(DataSourceError::from)?;
         Ok(())
     }
 
@@ -63,10 +62,7 @@ impl DataSourceT for TCPSource {
     /// Returns a [`DataSourceError`] if disconnection fails.
     async fn stop(&mut self) -> Result<(), DataSourceError> {
         trace!("Disconnecting from TCP socket at {}", self.target_addr);
-        self.client
-            .disconnect(self.target_addr)
-            .await
-            .map_err(DataSourceError::from)?;
+        self.client.disconnect(self.target_addr).await.map_err(DataSourceError::from)?;
         Ok(())
     }
 
@@ -94,11 +90,7 @@ impl DataSourceT for TCPSource {
     /// # Errors
     /// Returns a [`DataSourceError`] if the TCP read or deserialization fails.
     async fn read(&mut self) -> Result<Option<DataMsg>, DataSourceError> {
-        let rpcmsg: RpcMessage = self
-            .client
-            .read_message(self.target_addr)
-            .await
-            .map_err(DataSourceError::from)?;
+        let rpcmsg: RpcMessage = self.client.read_message(self.target_addr).await.map_err(DataSourceError::from)?;
 
         match rpcmsg.msg {
             RpcMessageKind::Ctrl(_ctrl_msg) => {
