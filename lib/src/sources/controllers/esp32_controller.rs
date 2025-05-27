@@ -1,6 +1,7 @@
-use crate::errors::ControllerError;
+use crate::errors::{ControllerError, TaskError};
 use crate::sources::DataSourceT;
-use crate::sources::controllers::Controller; // The controller trait
+use crate::sources::controllers::{Controller, ControllerParams}; // The controller trait
+use crate::ToConfig;
 
 // Assume your concrete ESP32 source is located here. Adjust path as needed.
 use crate::sources::esp32::Esp32Source;
@@ -228,3 +229,27 @@ impl Controller for Esp32ControllerParams {
         Ok(())
     }
 }
+
+
+#[async_trait::async_trait]
+impl ToConfig<ControllerParams> for Esp32ControllerParams {
+    /// Converts the current `Esp32ControllerParams` instance into its configuration representation.
+    ///
+    /// This method implements the `ToConfig` trait for `Esp32ControllerParams`, allowing a runtime
+    /// instance to be transformed into a `ControllerParams::Esp32` variant. This is useful for tasks
+    /// like saving the controller configuration to disk or exporting it for reproducibility.
+    ///
+    /// # Returns
+    /// - `Ok(ControllerParams::Esp32)` containing a cloned version of the controller parameters.
+    /// - `Err(TaskError)` if an error occurs during conversion (not applicable in this implementation).
+    ///
+    /// # Example
+    /// ```
+    /// let controller_config = esp32_controller.to_config().await?;
+    /// // You can now serialize `controller_config` or reuse it elsewhere
+    /// ```
+    async fn to_config(&self) -> Result<ControllerParams, TaskError> {
+        Ok(ControllerParams::Esp32(self.clone()))
+    }
+}
+

@@ -39,7 +39,7 @@ pub const BUFSIZE: usize = 65535;
 /// interpreted by CSI adapters. It is up to the user to correct a source
 /// sensibly with an adapter.
 #[async_trait::async_trait]
-pub trait DataSourceT: Send + Any + ToConfig<DataSourceConfig>{
+pub trait DataSourceT: Send + Any +ToConfig<DataSourceConfig> {
     /// Start collecting data
     /// ---------------------
     /// Must activate the source, such that we can read from it. For example, starting
