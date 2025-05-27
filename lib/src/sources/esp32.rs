@@ -12,8 +12,9 @@ use log::{debug, error, info, warn};
 use serialport::{ClearBuffer, SerialPort};
 
 use crate::errors::{ControllerError, DataSourceError}; // Ensure ControllerError is accessible
-use crate::sources::DataSourceT;
+use crate::network::rpc_message::SourceType;
 use crate::sources::controllers::esp32_controller::Esp32Command;
+use crate::sources::{BUFSIZE, DataMsg, DataSourceT};
 
 const CMD_PREAMBLE_HOST_TO_ESP: [u8; 4] = [0xC3; 4];
 const CMD_PACKET_TOTAL_SIZE_HOST_TO_ESP: usize = 128;
@@ -462,7 +463,7 @@ impl DataSourceT for Esp32Source {
         Ok(())
     }
 
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError> {
+    async fn read_buf(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError> {
         if !self.is_running.load(AtomicOrdering::SeqCst) && self.csi_data_rx.is_empty() {
             // If explicitly stopped and no more data, could return a specific "EOS" or just Ok(0)
             debug!("ESP32Source not running and CSI buffer empty.");
@@ -498,6 +499,18 @@ impl DataSourceT for Esp32Source {
             }
             Ok(None) => Ok(0), // No data currently available
             Err(e) => Err(e),  // Error from recv (e.g. Disconnected)
+        }
+    }
+
+    async fn read(&mut self) -> Result<Option<DataMsg>, DataSourceError> {
+        let mut temp_buf = vec![0u8; BUFSIZE];
+        match self.read_buf(&mut temp_buf).await? {
+            0 => Ok(None),
+            n => Ok(Some(DataMsg::RawFrame {
+                ts: chrono::Utc::now().timestamp_millis() as f64 / 1e3,
+                bytes: temp_buf[..n].to_vec(),
+                source_type: SourceType::ESP32,
+            })),
         }
     }
 }

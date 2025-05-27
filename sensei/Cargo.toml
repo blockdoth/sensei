@@ -17,6 +17,7 @@ chrono = "0.4.41"
 crossterm = "0.29.0"
 futures = "0.3.31"
 serialport = "4.7.2"
+crossbeam-channel = "0.5.15"
 
 [lints]
 workspace = true

@@ -4,12 +4,14 @@ use std::net::SocketAddr;
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
+// use std::thread::sleep; // Not used
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use argh::{CommandInfo, FromArgs};
 use async_trait::async_trait;
 use lib::FromConfig;
-use lib::adapters::CsiDataAdapter;
+// use lib::FromConfig; // Not using FromConfig for adapter to keep changes minimal here
+use lib::adapters::CsiDataAdapter; // Removed esp32 module import here, will use full path
 use lib::csi_types::{Complex, CsiData};
 use lib::errors::NetworkError;
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
@@ -40,6 +42,7 @@ use tokio::sync::{Mutex, broadcast, watch};
 use tokio::task::JoinHandle;
 
 use crate::cli::*;
+// use crate::cli::{SubCommandsArgs, SystemNodeSubcommandArgs}; // SystemNodeSubcommandArgs not used here
 use crate::services::{GlobalConfig, Run, SystemNodeConfig};
 
 /// The System Node is a sender and a receiver in the network of Sensei.

@@ -12,16 +12,24 @@ use std::time::Duration;
 use std::{env, io};
 
 use chrono::{DateTime, Local};
-use crossterm::event::{Event as CEvent, EventStream, KeyCode, KeyEvent, KeyModifiers};
+// Logging facade and our custom logger components
+use crossbeam_channel::{Receiver as CrossbeamReceiver, Sender as CrossbeamSender};
+use crossterm::event::EventStream; // For async event reading
+use crossterm::event::{Event as CEvent, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::execute;
 use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
 use futures::StreamExt;
+// Project-specific imports - Changed csi_collection_lib to crate
+// Project-specific imports - Changed crate:: to lib::
 use lib::adapters::CsiDataAdapter;
 use lib::adapters::esp32::ESP32Adapter;
 use lib::csi_types::CsiData;
 use lib::errors::{ControllerError, DataSourceError};
 use lib::network::rpc_message::{DataMsg, SourceType};
 use lib::sources::DataSourceT;
+// If cli.rs is in src/main.rs or src/lib.rs and esp_tool.rs is src/esp_tool.rs,
+// and EspToolSubcommandArgs is in a cli module (e.g. src/cli/mod.rs)
+// you might need: use crate::cli::EspToolSubcommandArgs;
 use lib::sources::controllers::Controller;
 use lib::sources::controllers::esp32_controller::{
     Bandwidth as EspBandwidth, CsiType as EspCsiType, CustomFrameParams, Esp32Controller, Esp32DeviceConfig, OperationMode as EspOperationMode,
@@ -260,9 +268,9 @@ impl EspTool {
                         }
                     }
 
-                    read_result = esp.read(&mut read_buffer) => {
+                    read_result = esp.read() => {
                         match read_result {
-                            Ok(0) => {
+                            Ok(None) => {
                                 if !esp.is_running.load(AtomicOrdering::Relaxed) {
                                     info!("ESP Actor: Source reported not running and read Ok(0). Signaling disconnect.");
                                     let _ = update_send_channel.send(AppUpdate::EspDisconnected).await;
@@ -270,13 +278,7 @@ impl EspTool {
                                 }
                                 tokio::time::sleep(Duration::from_millis(100)).await;
                             }
-                            Ok(n) => {
-                                let raw_csi_payload = read_buffer[..n].to_vec();
-                                let data_msg = DataMsg::RawFrame {
-                                    ts: Local::now().timestamp_micros() as f64 / 1_000_000.0,
-                                    bytes: raw_csi_payload,
-                                    source_type: SourceType::ESP32,
-                                };
+                            Ok(Some(data_msg)) => {
                                 match esp_adapter.produce(data_msg).await {
                                     Ok(Some(DataMsg::CsiFrame { csi })) => {
                                         match update_send_channel.try_send(AppUpdate::Csi(csi)) {

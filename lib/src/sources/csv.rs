@@ -7,8 +7,9 @@ use serde::Deserialize;
 use tempfile::NamedTempFile;
 
 use crate::errors::DataSourceError;
-use crate::sources::DataSourceT;
+use crate::network::rpc_message::SourceType;
 use crate::sources::controllers::Controller;
+use crate::sources::{BUFSIZE, DataMsg, DataSourceT};
 
 /// Config struct which can be parsed from a toml config
 #[derive(Debug, Deserialize, Clone)]
@@ -64,7 +65,7 @@ impl DataSourceT for CsvSource {
     /// ---------------------
     /// Copy one "packet" (meaning being source specific) into the buffer and report
     /// its size.
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError> {
+    async fn read_buf(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError> {
         // create str buff
         let mut line: &mut Vec<u8> = &mut Vec::new();
         // read line from file
@@ -94,6 +95,18 @@ impl DataSourceT for CsvSource {
     async fn stop(&mut self) -> Result<(), DataSourceError> {
         trace!("Stopping CSV source");
         Ok(())
+    }
+
+    async fn read(&mut self) -> Result<Option<DataMsg>, DataSourceError> {
+        let mut temp_buf = vec![0u8; BUFSIZE];
+        match self.read_buf(&mut temp_buf).await? {
+            0 => Ok(None),
+            n => Ok(Some(DataMsg::RawFrame {
+                ts: chrono::Utc::now().timestamp_millis() as f64 / 1e3,
+                bytes: temp_buf[..n].to_vec(),
+                source_type: SourceType::CSV,
+            })),
+        }
     }
 }
 
@@ -147,7 +160,7 @@ mod tests {
 
         let mut csv_source = CsvSource::new(config).unwrap();
         let mut buffer = vec![0; 1024];
-        let bytes_read = csv_source.read(&mut buffer).await.unwrap();
+        let bytes_read = csv_source.read_buf(&mut buffer).await.unwrap();
         assert!(bytes_read > 0);
     }
 

@@ -6,7 +6,7 @@ use anyhow::Ok;
 use lib::network::rpc_message::RpcMessage;
 use log::*;
 
-use crate::services::{GlobalConfig, RegistryConfig, Run};
+use crate::{cli::{RegistrySubcommandArgs, SubCommandsArgs}, services::{GlobalConfig, RegistryConfig, Run}};
 
 pub struct Registry {
     host_table: HashMap<HostId, HostInfo>,

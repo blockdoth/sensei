@@ -57,6 +57,9 @@ pub enum DataSourceError {
     #[error("Couldnt parse packet: {0}")]
     ParsingError(String),
 
+    #[error("Tcp source error: {0}")]
+    NetworkError(#[from] NetworkError),
+
     /// Packet was incomplete, likely due to a bug in the source handler.
     #[error("Incomplete packet (Source handler bug)")]
     IncompletePacket,
@@ -83,6 +86,9 @@ pub enum DataSourceError {
     /// Attempted to read from the source before it was started.
     #[error("Read before starting (must call `start` before)")]
     ReadBeforeStart,
+
+    #[error("Do not use method read_buf")]
+    ReadBuf,
 }
 
 /// Errors occurring at the application/config level.
@@ -284,6 +290,10 @@ pub enum SinkError {
     /// Data serialization to output format failed.
     #[error("Error: {0}")]
     Serialize(String),
+
+    /// Error related to tcp sinks
+    #[error("Error from tcp sink: {0}")]
+    NetworkError(#[from] NetworkError),
 }
 
 /// Top-level task errors used across Sensei's runtime.
@@ -304,4 +314,21 @@ pub enum TaskError {
     /// Error occurred in a controller.
     #[error("Controller Error: {0}")]
     ControllerError(#[from] ControllerError),
+
+    /// Error when you try to stop task and join the threads
+    #[error("Error when trying to stop task")]
+    JoinError(String),
+
+    /// This happens when the controller type doesn't match the source type
+    #[error("Controller doesn't correspond to the source")]
+    IncorrectController,
+
+    /// This happens when the adapter type doesn't match the adapter type
+    #[error("Adapter doesn't correspond to the  source")]
+    IncorrectAdapter,
+
+    /// This happens when the device id of the sink doesn't match the one from task
+    /// Specifically for the tcp sink
+    #[error("Incorrect device_id for sink, according to config")]
+    WrongSinkDid,
 }
