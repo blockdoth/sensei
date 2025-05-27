@@ -4,6 +4,7 @@ use crate::sources::BUFSIZE;
 use crate::sources::DataMsg;
 use crate::sources::{DataSourceT, DataSourceConfig, TaskError};
 use crate::sources::controllers::Controller;
+use crate::ToConfig;
 
 use log::trace;
 use netlink_sys::{Socket, SocketAddr, protocols::NETLINK_CONNECTOR};

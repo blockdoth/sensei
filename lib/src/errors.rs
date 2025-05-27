@@ -296,6 +296,10 @@ pub enum TaskError {
     #[error("Generic")]
     Generic,
 
+    /// Not implemented error
+    #[error("Not Implemented")]
+    NotImplemented,
+
     /// Failure occurred in sink-related code.
     #[error("Sink Error: {0}")]
     SinkError(#[from] SinkError),

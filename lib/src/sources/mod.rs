@@ -28,6 +28,7 @@ use crate::network::rpc_message::DataMsg;
 use crate::sources::controllers::Controller;
 use std::any::Any;
 use std::net::SocketAddr;
+use crate::ToConfig;
 
 pub const BUFSIZE: usize = 65535;
 

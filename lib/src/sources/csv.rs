@@ -2,8 +2,9 @@ use crate::errors::{DataSourceError, TaskError};
 use crate::network::rpc_message::SourceType;
 use crate::sources::BUFSIZE;
 use crate::sources::DataMsg;
-use crate::sources::DataSourceT;
+use crate::sources::{DataSourceT, DataSourceConfig};
 use crate::sources::controllers::Controller;
+use crate::ToConfig;
 
 use log::trace;
 use serde::Deserialize;
@@ -206,7 +207,7 @@ mod tests {
 }
 
 #[async_trait::async_trait]
-impl ToConfig<DataSourceConfig> for NetlinkSource {
+impl ToConfig<DataSourceConfig> for CsvSource {
     async fn to_config(&self) -> Result<DataSourceConfig, TaskError> {
         Err(TaskError::NotImplemented)
     }

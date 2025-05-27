@@ -4,6 +4,7 @@ use crate::sources::BUFSIZE;
 use crate::sources::DataMsg;
 use crate::sources::{DataSourceT, DataSourceConfig};
 use crate::sources::controllers::esp32_controller::Esp32Command;
+use crate::ToConfig;
 
 use std::any::Any;
 use std::collections::HashMap;
@@ -617,7 +618,7 @@ impl ToConfig<DataSourceConfig> for Esp32Source {
     /// # Ok(())
     /// # }
     /// ```
-    to_config(&self) -> Result<DataSourceConfig, TaskError> {
+    async fn to_config(&self) -> Result<DataSourceConfig, TaskError> {
         Ok(DataSourceConfig::Esp32(self.config.clone()))
     }
 }

@@ -1,9 +1,10 @@
 use crate::errors::{DataSourceError, TaskError};
 use crate::network::rpc_message::{DataMsg, RpcMessage, RpcMessageKind};
 use crate::network::tcp::client::TcpClient;
-use crate::sources::DataSourceT;
+use crate::sources::{DataSourceT, DataSourceConfig};
 use log::trace;
 use std::net::SocketAddr;
+use crate::ToConfig;
 
 /// Configuration for a `TCPSource`.
 ///
@@ -115,7 +116,7 @@ impl DataSourceT for TCPSource {
 
 
 #[async_trait::async_trait]
-impl ToConfig<DataSourceConfig> for NetlinkSource {
+impl ToConfig<DataSourceConfig> for TCPSource {
     /// Converts this `NetlinkSource` instance into a `DataSourceConfig` representing a TCP source.
     ///
     /// **Note:** Although this is implemented on `NetlinkSource`, it returns a `DataSourceConfig::Tcp`
@@ -137,6 +138,6 @@ impl ToConfig<DataSourceConfig> for NetlinkSource {
     /// # }
     /// ```
     async fn to_config(&self) -> Result<DataSourceConfig, TaskError> {
-        Ok(DataSourceConfig::Tcp(TCPConfig(self.target_addr.clone())))
+        Ok(DataSourceConfig::Tcp(TCPConfig{target_addr: self.target_addr.clone()}))
     }
 }
