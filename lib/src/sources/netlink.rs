@@ -4,8 +4,9 @@ use netlink_sys::{Socket, SocketAddr};
 use serde::{Deserialize, Serialize};
 
 use crate::errors::DataSourceError;
-use crate::sources::DataSourceT;
+use crate::network::rpc_message::SourceType;
 use crate::sources::controllers::Controller;
+use crate::sources::{BUFSIZE, DataMsg, DataSourceT};
 
 // Configuration structure for a Netlink source.
 ///
@@ -129,6 +130,15 @@ fn get_connector_payload(buf: &[u8]) -> Result<&[u8], DataSourceError> {
 /// Linux netlink connector interface.
 #[async_trait::async_trait]
 impl DataSourceT for NetlinkSource {
+    /// Initializes the netlink data source.
+    ///
+    /// Binds a new netlink socket to the current process and subscribes to the
+    /// specified group for CSI message reception.
+    ///
+    /// # Errors
+    /// Returns a [`DataSourceError`] if the socket creation, binding, or group
+    /// membership operation fails. If the socket is already initialized, this
+    /// method returns `Ok(())` and does nothing.
     async fn start(&mut self) -> Result<(), DataSourceError> {
         trace!("Connecting to netlink socket with group id: {}", self.config.group);
         if self.socket.is_some() {
@@ -159,6 +169,12 @@ impl DataSourceT for NetlinkSource {
         Ok(())
     }
 
+    /// Stops the netlink data source and cleans up resources.
+    ///
+    /// Unsubscribes from the configured netlink group and drops the socket.
+    ///
+    /// # Errors
+    /// Returns a [`DataSourceError`] if the socket fails to leave the group.
     async fn stop(&mut self) -> Result<(), DataSourceError> {
         trace!("Stopping data collection from netlink group id: {}", self.config.group);
         if let Some(sock) = self.socket.as_mut() {
@@ -168,7 +184,20 @@ impl DataSourceT for NetlinkSource {
         Ok(())
     }
 
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError> {
+    /// Reads raw bytes into the given buffer from the netlink socket.
+    ///
+    /// This method extracts and copies the connector payload into the provided buffer.
+    ///
+    /// # Arguments
+    /// * `buf` - A mutable byte slice to hold the received payload.
+    ///
+    /// # Returns
+    /// The number of bytes copied into the buffer.
+    ///
+    /// # Errors
+    /// Returns [`DataSourceError::ReadBeforeStart`] if the socket is not initialized,
+    /// or other I/O/parsing errors as appropriate.
+    async fn read_buf(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError> {
         if self.socket.is_none() {
             return Err(DataSourceError::ReadBeforeStart);
         }
@@ -181,6 +210,28 @@ impl DataSourceT for NetlinkSource {
         let payload = get_connector_payload(&self.buffer[..bytes_read])?;
         buf[..payload.len()].copy_from_slice(payload);
         Ok(payload.len())
+    }
+
+    /// Reads a CSI data frame from the netlink socket.
+    ///
+    /// Returns a `DataMsg` containing the raw CSI frame bytes and associated metadata.
+    ///
+    /// # Returns
+    /// * `Ok(Some(DataMsg))` if data is successfully read.
+    /// * `Ok(None)` if no data was read (e.g., socket returned 0 bytes).
+    ///
+    /// # Errors
+    /// Returns a [`DataSourceError`] if reading or processing the payload fails.
+    async fn read(&mut self) -> Result<Option<DataMsg>, DataSourceError> {
+        let mut temp_buf = vec![0u8; BUFSIZE];
+        match self.read_buf(&mut temp_buf).await? {
+            0 => Ok(None),
+            n => Ok(Some(DataMsg::RawFrame {
+                ts: chrono::Utc::now().timestamp_millis() as f64 / 1e3,
+                bytes: temp_buf[..n].to_vec(),
+                source_type: SourceType::IWL5300,
+            })),
+        }
     }
 }
 

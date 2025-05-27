@@ -6,6 +6,7 @@ use anyhow::Ok;
 use lib::network::rpc_message::RpcMessage;
 use log::*;
 
+use crate::cli::{RegistrySubcommandArgs, SubCommandsArgs};
 use crate::services::{GlobalConfig, RegistryConfig, Run};
 
 pub struct Registry {

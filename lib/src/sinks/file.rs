@@ -37,6 +37,27 @@ impl FileSink {
 
 #[async_trait]
 impl Sink for FileSink {
+    // already opened
+    /// Open the connection to the file sink, this method is just for the trait
+    ///
+    /// # Errors
+    ///
+    /// Returns a ['SinkError'] if the operation fails (e.g., I/O failure)
+    async fn open(&mut self, data: DataMsg) -> Result<(), SinkError> {
+        Ok(())
+    }
+
+    // in rust file is closed whenever it goes out scope
+
+    /// Closes the connection to the file sink, this method is just for the trait
+    ///
+    /// # Errors
+    ///
+    /// Returns a ['SinkError'] if the operation fails (e.g., I/O failure)
+    async fn close(&mut self, data: DataMsg) -> Result<(), SinkError> {
+        Ok(())
+    }
+
     /// Serializes the message to YAML and writes it to the file, followed by a document separator.
     ///
     /// # Errors

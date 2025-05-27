@@ -1465,6 +1465,7 @@ dependencies = [
  "async-trait",
  "charming",
  "chrono",
+ "crossbeam-channel",
  "crossterm 0.29.0",
  "futures",
  "lib",
