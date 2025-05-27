@@ -89,7 +89,7 @@ impl Tui<Update, Command> for TuiState {
         frame.render_widget(logs_widget, chunks[1]);
     }
 
-    fn handle_keyboard_event(key_event: KeyEvent) -> Option<Update> {
+    fn handle_keyboard_event(&self, key_event: KeyEvent) -> Option<Update> {
         match key_event.code {
             KeyCode::Char('q') => Some(Update::Quit),
             KeyCode::Char('t') => Some(Update::Toggle),

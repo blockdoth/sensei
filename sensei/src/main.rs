@@ -1,5 +1,6 @@
 mod cli;
 mod esp_tool;
+mod esp_tool_2;
 mod orchestrator;
 mod registry;
 mod services;

@@ -65,7 +65,7 @@ where
 
             tokio::select! {
                 Some(Ok(Event::Key(key))) = self.even_stream.next() => {
-                    if let Some(update) = T::handle_keyboard_event(key) {
+                    if let Some(update) = self.app.handle_keyboard_event(key) {
                         self.app.handle_update(update, &self.command_send, &mut self.update_recv).await;
                     }
 
@@ -137,18 +137,18 @@ where
 
 #[async_trait]
 pub trait Tui<Update, Cmd> {
-    // Draws the UI based on the state of the TUI, should not change any state
+    // Draws the UI based on the state of the TUI, should not change any state by itself
     fn draw_ui(&self, f: &mut Frame);
 
     // Handles a single keyboard event and produces and Update, should not change any state
-    fn handle_keyboard_event(key_event: KeyEvent) -> Option<Update>;
+    fn handle_keyboard_event(&self, key_event: KeyEvent) -> Option<Update>;
 
-    // Handles incoming updates produced from any source, this is the only place where state should change
+    // Handles incoming Updates produced from any source, this is the only place where state should change
     async fn handle_update(&mut self, update: Update, command_send: &Sender<Cmd>, update_recv: &mut Receiver<Update>);
+
+    // Gets called each tick of the main loop, useful for updating graphs and live views, should only make small changes to state
+    async fn on_tick(&mut self);
 
     // Whether the tui should quit
     fn should_quit(&self) -> bool;
-
-    // Gets called each iteration of the loop, useful for updating graphs and live views
-    async fn on_tick(&mut self);
 }

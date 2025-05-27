@@ -9,7 +9,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table, Wrap};
 
 use super::state::TuiState;
-use crate::esp_tool::state::{SpamConfigField, UiMode};
+use crate::esp_tool::state::{FocussedInput, UiMode};
 use crate::esp_tool::{CSI_DATA_BUFFER_CAPACITY, LOG_BUFFER_CAPACITY};
 
 // Renders the UI based on the state, should not contain any state changing logic
@@ -133,7 +133,7 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
             Style::default().add_modifier(Modifier::UNDERLINED),
         )));
 
-        let get_field_style = |app_state: &TuiState, _field_type: SpamConfigField, is_active: bool| {
+        let get_field_style = |app_state: &TuiState, _field_type: FocussedInput, is_active: bool| {
             if is_active {
                 if app_state.current_field_has_error {
                     Style::default().fg(Color::Black).bg(Color::LightRed)
@@ -147,7 +147,7 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
 
         let mut src_mac_spans = vec![Span::raw("  Src MAC: ")];
         for i in 0..6 {
-            let current_field_type = SpamConfigField::SrcMacOctet(i);
+            let current_field_type = FocussedInput::SrcMac(i);
             let is_active_field = tui_state.is_editing_spam_config && tui_state.current_editing_field == current_field_type;
             let val_str = if is_active_field {
                 tui_state.spam_input_buffer.clone() + "_"
@@ -171,7 +171,7 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
 
         let mut dst_mac_spans = vec![Span::raw("  Dst MAC: ")];
         for i in 0..6 {
-            let current_field_type = SpamConfigField::DstMacOctet(i);
+            let current_field_type = FocussedInput::DstMac(i);
             let is_active_field = tui_state.is_editing_spam_config && tui_state.current_editing_field == current_field_type;
             let val_str = if is_active_field {
                 tui_state.spam_input_buffer.clone() + "_"
@@ -193,7 +193,7 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
         }
         status_lines.push(Line::from(dst_mac_spans));
 
-        let reps_field_type = SpamConfigField::Reps;
+        let reps_field_type = FocussedInput::Reps;
         let is_reps_active = tui_state.is_editing_spam_config && tui_state.current_editing_field == reps_field_type;
         let reps_str = if is_reps_active {
             tui_state.spam_input_buffer.clone() + "_"
@@ -202,7 +202,7 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
         };
         let reps_style = get_field_style(tui_state, reps_field_type, is_reps_active);
 
-        let pause_field_type = SpamConfigField::PauseMs;
+        let pause_field_type = FocussedInput::PauseMs;
         let is_pause_active = tui_state.is_editing_spam_config && tui_state.current_editing_field == pause_field_type;
         let pause_str = if is_pause_active {
             tui_state.spam_input_buffer.clone() + "_"
@@ -316,10 +316,10 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
         format!("ERROR: {err_msg} (Press 'R' to dismiss)")
     } else if tui_state.is_editing_spam_config && tui_state.ui_mode == UiMode::Spam {
         let field_name = match tui_state.current_editing_field {
-            SpamConfigField::SrcMacOctet(i) => format!("Src MAC[{}]", i + 1),
-            SpamConfigField::DstMacOctet(i) => format!("Dst MAC[{}]", i + 1),
-            SpamConfigField::Reps => "Repetitions".to_string(),
-            SpamConfigField::PauseMs => "Pause (ms)".to_string(),
+            FocussedInput::SrcMac(i) => format!("Src MAC[{}]", i + 1),
+            FocussedInput::DstMac(i) => format!("Dst MAC[{}]", i + 1),
+            FocussedInput::Reps => "Repetitions".to_string(),
+            FocussedInput::PauseMs => "Pause (ms)".to_string(),
         };
         format!("[Esc] Exit Edit | [Tab]/[Ent] Next | [Shft+Tab] Prev | [↑↓] Modify Val | Editing: {field_name}")
     } else {
