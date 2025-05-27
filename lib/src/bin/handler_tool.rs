@@ -1,16 +1,14 @@
+use std::path::PathBuf;
+use std::{fs, future};
+
 use clap::Parser;
 use lib::FromConfig;
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
 use log::{error, info};
-use std::{fs, future, path::PathBuf};
 
 /// Command-line args for the `config` binary
 #[derive(Parser, Debug)]
-#[command(
-    name = "config",
-    version,
-    about = "Initialize and start a DeviceHandler from a YAML config"
-)]
+#[command(name = "config", version, about = "Initialize and start a DeviceHandler from a YAML config")]
 struct Args {
     /// Path to the YAML configuration file
     #[arg(value_name = "CONFIG_FILE", value_parser = clap::value_parser!(PathBuf))]

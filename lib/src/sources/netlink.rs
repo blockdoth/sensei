@@ -1,13 +1,12 @@
+use log::trace;
+use netlink_sys::protocols::NETLINK_CONNECTOR;
+use netlink_sys::{Socket, SocketAddr};
+use serde::{Deserialize, Serialize};
+
 use crate::errors::DataSourceError;
 use crate::network::rpc_message::SourceType;
-use crate::sources::BUFSIZE;
-use crate::sources::DataMsg;
-use crate::sources::DataSourceT;
 use crate::sources::controllers::Controller;
-
-use log::trace;
-use netlink_sys::{Socket, SocketAddr, protocols::NETLINK_CONNECTOR};
-use serde::{Deserialize, Serialize};
+use crate::sources::{BUFSIZE, DataMsg, DataSourceT};
 
 // Configuration structure for a Netlink source.
 ///
@@ -115,10 +114,7 @@ fn get_connector_payload(buf: &[u8]) -> Result<&[u8], DataSourceError> {
 
     if header.message_type != NLMSG_DONE {
         log::error!("Unhandled message type found!");
-        return Err(DataSourceError::NotImplemented(format!(
-            "Unhandled message type {}",
-            header.message_type
-        )));
+        return Err(DataSourceError::NotImplemented(format!("Unhandled message type {}", header.message_type)));
     }
 
     let cn_header = ConnectorMessageHeader::parse(&buf[offset..])?;
@@ -144,10 +140,7 @@ impl DataSourceT for NetlinkSource {
     /// membership operation fails. If the socket is already initialized, this
     /// method returns `Ok(())` and does nothing.
     async fn start(&mut self) -> Result<(), DataSourceError> {
-        trace!(
-            "Connecting to netlink socket with group id: {}",
-            self.config.group
-        );
+        trace!("Connecting to netlink socket with group id: {}", self.config.group);
         if self.socket.is_some() {
             return Ok(());
         }
@@ -183,10 +176,7 @@ impl DataSourceT for NetlinkSource {
     /// # Errors
     /// Returns a [`DataSourceError`] if the socket fails to leave the group.
     async fn stop(&mut self) -> Result<(), DataSourceError> {
-        trace!(
-            "Stopping data collection from netlink group id: {}",
-            self.config.group
-        );
+        trace!("Stopping data collection from netlink group id: {}", self.config.group);
         if let Some(sock) = self.socket.as_mut() {
             sock.drop_membership(self.config.group)?;
         }

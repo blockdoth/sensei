@@ -1,17 +1,15 @@
-use crate::errors::DataSourceError;
-use crate::network::rpc_message::SourceType;
-use crate::sources::BUFSIZE;
-use crate::sources::DataMsg;
-use crate::sources::DataSourceT;
-use crate::sources::controllers::Controller;
+use std::fs::File;
+use std::io::{BufRead, BufReader, Write};
+use std::{path, vec};
 
 use log::trace;
 use serde::Deserialize;
-use std::fs::File;
-use std::io::Write;
-use std::io::{BufRead, BufReader};
-use std::{path, vec};
 use tempfile::NamedTempFile;
+
+use crate::errors::DataSourceError;
+use crate::network::rpc_message::SourceType;
+use crate::sources::controllers::Controller;
+use crate::sources::{BUFSIZE, DataMsg, DataSourceT};
 
 /// Config struct which can be parsed from a toml config
 #[derive(Debug, Deserialize, Clone)]
@@ -38,32 +36,18 @@ pub struct CsvSource {
 impl CsvSource {
     pub fn new(config: CsvConfig) -> Result<Self, DataSourceError> {
         trace!("Creating new CSV source (path: {})", config.path.display());
-        let file = File::open(&config.path).map_err(|e| {
-            DataSourceError::GenericError(format!(
-                "Failed to open CSV file: {}: {}",
-                config.path.display(),
-                e
-            ))
-        })?;
-        let mut reader = BufReader::new(file.try_clone().map_err(|e| {
-            DataSourceError::GenericError(format!(
-                "Failed to clone CSV file: {}: {}",
-                config.path.display(),
-                e
-            ))
-        })?);
+        let file = File::open(&config.path)
+            .map_err(|e| DataSourceError::GenericError(format!("Failed to open CSV file: {}: {}", config.path.display(), e)))?;
+        let mut reader = BufReader::new(
+            file.try_clone()
+                .map_err(|e| DataSourceError::GenericError(format!("Failed to clone CSV file: {}: {}", config.path.display(), e)))?,
+        );
         let mut buffer = vec![0; 8192];
 
         if config.header {
             reader
                 .read_until(config.row_delimiter, &mut Vec::new())
-                .map_err(|e| {
-                    DataSourceError::GenericError(format!(
-                        "Failed to read header from CSV file: {}: {}",
-                        config.path.display(),
-                        e
-                    ))
-                })?;
+                .map_err(|e| DataSourceError::GenericError(format!("Failed to read header from CSV file: {}: {}", config.path.display(), e)))?;
         }
         Ok(Self {
             config,
@@ -88,13 +72,7 @@ impl DataSourceT for CsvSource {
         let bytes_read = self
             .reader
             .read_until(self.config.row_delimiter, line)
-            .map_err(|e| {
-                DataSourceError::GenericError(format!(
-                    "Failed to read from CSV file: {}: {}",
-                    self.config.path.display(),
-                    e
-                ))
-            })?;
+            .map_err(|e| DataSourceError::GenericError(format!("Failed to read from CSV file: {}: {}", self.config.path.display(), e)))?;
         // put the line into the buffer
         buf[..bytes_read].copy_from_slice(line);
         // sleep for the delay

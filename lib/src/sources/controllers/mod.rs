@@ -8,12 +8,12 @@
 //! The [`ControllerParams`] enum and the [`FromConfig`] implementation enable
 //! instantiation of controller implementations from serialized configuration.
 
-use crate::FromConfig;
-use crate::errors::ControllerError;
-use crate::errors::TaskError;
-use crate::sources::DataSourceT;
 use async_trait::async_trait;
 use typetag;
+
+use crate::FromConfig;
+use crate::errors::{ControllerError, TaskError};
+use crate::sources::DataSourceT;
 pub mod esp32_controller;
 #[cfg(target_os = "linux")]
 pub mod netlink_controller;

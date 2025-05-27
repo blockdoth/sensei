@@ -1,5 +1,12 @@
 //! DeviceHandler manages the lifecycle and data flow for a single device,
 //! including source reading, data adaptation, and dispatching to sinks.
+use std::fs;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use tokio::sync::watch;
+use tokio::task::JoinHandle;
+
 use crate::FromConfig;
 use crate::adapters::*;
 use crate::errors::{ControllerError, CsiAdapterError, DataSourceError, SinkError, TaskError};
@@ -8,11 +15,6 @@ use crate::sinks::tcp::*;
 use crate::sinks::*;
 use crate::sources::controllers::*;
 use crate::sources::{DataSourceConfig, DataSourceT};
-use std::fs;
-use std::path::PathBuf;
-use std::sync::Arc;
-use tokio::sync::watch;
-use tokio::task::JoinHandle;
 
 /// Configuration for a single device handler.
 ///
@@ -236,8 +238,7 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
                 | (ControllerParams::Tcp(_), DataSourceConfig::Tcp(_)) => {}
                 _ => return Err(TaskError::IncorrectController),
             }
-            let controller: Box<dyn Controller> =
-                <dyn Controller>::from_config(controller_cfg).await?;
+            let controller: Box<dyn Controller> = <dyn Controller>::from_config(controller_cfg).await?;
             controller.apply(source.as_mut()).await?;
             // Add other checks
         }

@@ -7,32 +7,25 @@
 //!
 //! Note that a single client may connect/disconnect repeatedly, the main task of
 //! this simple tokio TCP wrapper.
-use crate::errors::NetworkError;
-use crate::network::rpc_message::RpcMessage;
-use crate::network::rpc_message::RpcMessageKind;
-use crate::network::rpc_message::RpcMessageKind::*;
-use crate::network::rpc_message::*;
-use crate::network::tcp;
-use crate::network::tcp::MAX_MESSAGE_LENGTH;
-use log::debug;
-use log::error;
-use log::info;
-use log::trace;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
+
+use log::{debug, error, info, trace};
 use tcpserver::ConnectEventType;
 use tokio::io::AsyncWriteExt;
-use tokio::net::TcpListener;
-use tokio::net::TcpStream;
-use tokio::net::tcp::OwnedReadHalf;
-use tokio::net::tcp::OwnedWriteHalf;
-use tokio::net::tcp::ReadHalf;
-use tokio::net::tcp::WriteHalf;
+use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf, ReadHalf, WriteHalf};
+use tokio::net::{TcpListener, TcpStream};
 use tokio::stream;
 use tokio::sync::Mutex;
+
+use crate::errors::NetworkError;
+use crate::network::rpc_message::RpcMessageKind::*;
+use crate::network::rpc_message::{RpcMessage, RpcMessageKind, *};
+use crate::network::tcp;
+use crate::network::tcp::MAX_MESSAGE_LENGTH;
 
 /// Initial size of internal buffer to handle fragmentation.
 /// Socket reading will automatically resize this buffer if insufficient.
@@ -76,12 +69,7 @@ impl TcpClient {
     }
 
     pub async fn get_connections(&self) -> Vec<SocketAddr> {
-        self.connections
-            .lock()
-            .await
-            .values()
-            .map(|conn| conn.addr)
-            .collect()
+        self.connections.lock().await.values().map(|conn| conn.addr).collect()
     }
 
     pub async fn connect(&mut self, target_addr: SocketAddr) -> Result<(), NetworkError> {
@@ -91,11 +79,7 @@ impl TcpClient {
             return Ok(());
         }
 
-        let connection = tokio::time::timeout(
-            Duration::from_secs(CONNECTION_TIME),
-            TcpStream::connect(target_addr),
-        )
-        .await;
+        let connection = tokio::time::timeout(Duration::from_secs(CONNECTION_TIME), TcpStream::connect(target_addr)).await;
 
         match connection {
             Ok(Ok(stream)) => {
@@ -143,17 +127,10 @@ impl TcpClient {
             }
             Some(mut connection) => {
                 debug!("Initiating graceful disconnect with {target_addr}");
-                match super::send_message(&mut connection.write_stream, Ctrl(CtrlMsg::Disconnect))
-                    .await
-                {
+                match super::send_message(&mut connection.write_stream, Ctrl(CtrlMsg::Disconnect)).await {
                     Ok(_) => {
                         debug!("Waiting for confirm of disconnect from {target_addr}");
-                        match super::read_message(
-                            &mut connection.read_stream,
-                            &mut connection.buffer,
-                        )
-                        .await
-                        {
+                        match super::read_message(&mut connection.read_stream, &mut connection.buffer).await {
                             Ok(Some(RpcMessage {
                                 msg: Ctrl(CtrlMsg::Disconnect),
                                 ..
@@ -187,54 +164,42 @@ impl TcpClient {
         }
     }
 
-    pub async fn read_message(
-        &mut self,
-        target_addr: SocketAddr,
-    ) -> Result<RpcMessage, NetworkError> {
+    pub async fn read_message(&mut self, target_addr: SocketAddr) -> Result<RpcMessage, NetworkError> {
         match self.connections.lock().await.get_mut(&target_addr) {
             None => {
                 error!("Connection not found {target_addr}");
                 Err(NetworkError::Closed)
             }
-            Some(connection) => {
-                match super::read_message(&mut connection.read_stream, &mut connection.buffer).await
-                {
-                    Ok(Some(msg)) => Ok(msg),
-                    Ok(None) => {
-                        error!("No message received, the connection may have been closed.");
-                        Err(NetworkError::Closed)
-                    }
-                    Err(e) => {
-                        error!("Failed to read message: {e}");
-                        Err(e)
-                    }
+            Some(connection) => match super::read_message(&mut connection.read_stream, &mut connection.buffer).await {
+                Ok(Some(msg)) => Ok(msg),
+                Ok(None) => {
+                    error!("No message received, the connection may have been closed.");
+                    Err(NetworkError::Closed)
                 }
-            }
+                Err(e) => {
+                    error!("Failed to read message: {e}");
+                    Err(e)
+                }
+            },
         }
     }
 
-    pub async fn send_message(
-        &mut self,
-        target_addr: SocketAddr,
-        msg: RpcMessageKind,
-    ) -> Result<(), NetworkError> {
+    pub async fn send_message(&mut self, target_addr: SocketAddr, msg: RpcMessageKind) -> Result<(), NetworkError> {
         match self.connections.lock().await.get_mut(&target_addr) {
             None => {
                 error!("Connection not found {target_addr}");
                 Err(NetworkError::Closed)
             }
-            Some(connection) => {
-                match super::send_message(&mut connection.write_stream, msg).await {
-                    Ok(_) => {
-                        debug!("Message sent successfully.");
-                        Ok(())
-                    }
-                    Err(e) => {
-                        error!("Failed to send message: {e}");
-                        Err(e)
-                    }
+            Some(connection) => match super::send_message(&mut connection.write_stream, msg).await {
+                Ok(_) => {
+                    debug!("Message sent successfully.");
+                    Ok(())
                 }
-            }
+                Err(e) => {
+                    error!("Failed to send message: {e}");
+                    Err(e)
+                }
+            },
         }
     }
 }
