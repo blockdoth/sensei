@@ -1,6 +1,5 @@
 use chrono::{DateTime, Local};
-use log::Level;
-use log::{LevelFilter, Metadata, Record, SetLoggerError, info};
+use log::{Level, LevelFilter, Metadata, Record, SetLoggerError, info};
 use tokio::sync::mpsc::Sender;
 
 #[derive(Debug, Clone)] // Added derive Debug

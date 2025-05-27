@@ -1,21 +1,17 @@
 use std::collections::VecDeque;
 
-use super::{AppUpdate, CSI_DATA_BUFFER_CAPACITY, LOG_BUFFER_CAPACITY};
 use crossterm::event::{KeyCode, KeyEvent};
-use lib::{
-    csi_types::CsiData,
-    sources::{
-        controllers::esp32_controller::{
-            Bandwidth as EspBandwidth, CsiType as EspCsiType, CustomFrameParams, Esp32Controller,
-            Esp32DeviceConfig, OperationMode as EspOperationMode,
-            SecondaryChannel as EspSecondaryChannel,
-        },
-        esp32::Esp32SourceConfig,
-    },
-    tui::logs::LogEntry,
+use lib::csi_types::CsiData;
+use lib::sources::controllers::esp32_controller::{
+    Bandwidth as EspBandwidth, CsiType as EspCsiType, CustomFrameParams, Esp32Controller, Esp32DeviceConfig, OperationMode as EspOperationMode,
+    SecondaryChannel as EspSecondaryChannel,
 };
+use lib::sources::esp32::Esp32SourceConfig;
+use lib::tui::logs::LogEntry;
 use log::{info, warn};
 use tokio::sync::mpsc;
+
+use super::{AppUpdate, CSI_DATA_BUFFER_CAPACITY, LOG_BUFFER_CAPACITY};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum UiMode {
@@ -116,12 +112,12 @@ impl TuiState {
     }
     // Adds a log message to the log buffer
     pub fn add_log_message(&mut self, entry: LogEntry) {
-      if self.log_messages.len() >= LOG_BUFFER_CAPACITY {
-        self.log_messages.pop_front();
-      }
-      self.log_messages.push_back(entry);
+        if self.log_messages.len() >= LOG_BUFFER_CAPACITY {
+            self.log_messages.pop_front();
+        }
+        self.log_messages.push_back(entry);
     }
-    
+
     // Adds csi data to the buffer
     pub fn add_csi_data(&mut self, data: CsiData) {
         if self.csi_data.len() >= CSI_DATA_BUFFER_CAPACITY {
@@ -139,12 +135,10 @@ impl TuiState {
 
         match self.current_editing_field {
             SpamConfigField::SrcMacOctet(i) => {
-                self.spam_settings.src_mac[i] =
-                    self.spam_settings.src_mac[i].wrapping_add(val_change_u8);
+                self.spam_settings.src_mac[i] = self.spam_settings.src_mac[i].wrapping_add(val_change_u8);
             }
             SpamConfigField::DstMacOctet(i) => {
-                self.spam_settings.dst_mac[i] =
-                    self.spam_settings.dst_mac[i].wrapping_add(val_change_u8);
+                self.spam_settings.dst_mac[i] = self.spam_settings.dst_mac[i].wrapping_add(val_change_u8);
             }
             SpamConfigField::Reps => {
                 self.spam_settings.n_reps = (self.spam_settings.n_reps + val_change_i32).max(0);
@@ -155,7 +149,7 @@ impl TuiState {
         }
     }
 
-    // Parses and applies the spam input buffer 
+    // Parses and applies the spam input buffer
     fn apply_spam_input_buffer(&mut self) {
         let buffer_content = self.spam_input_buffer.trim();
         self.current_field_has_error = false;
@@ -232,7 +226,7 @@ impl TuiState {
         }
     }
 
-    // Handles all incoming keyboard events 
+    // Handles all incoming keyboard events
     pub async fn handle_keyboard_event(
         &mut self,
         key_event: KeyEvent,
@@ -240,12 +234,7 @@ impl TuiState {
         update_tx: &mpsc::Sender<AppUpdate>,
     ) -> bool {
         if key_event.code != KeyCode::Char('r') && key_event.code != KeyCode::Char('R') {
-            if self
-                .last_error
-                .as_deref()
-                .unwrap_or("")
-                .contains("Press 'R' to dismiss")
-            {
+            if self.last_error.as_deref().unwrap_or("").contains("Press 'R' to dismiss") {
                 // Do nothing, keep error until R is pressed
             } else if !self.last_error.as_deref().unwrap_or("").starts_with("Cmd Send Fail:") && // Don't clear cmd send fail errors this way
                 !self.last_error.as_deref().unwrap_or("").contains("actor error:")
@@ -299,7 +288,7 @@ impl TuiState {
                     self.current_field_has_error = false;
                     info!("Exited spam config editing mode.");
                 }
-                KeyCode::Up => self.apply_spam_value_change(true), // Modify value directly
+                KeyCode::Up => self.apply_spam_value_change(true),    // Modify value directly
                 KeyCode::Down => self.apply_spam_value_change(false), // Modify value directly
                 KeyCode::Left | KeyCode::Right => {}
                 _ => {}
@@ -330,8 +319,7 @@ impl TuiState {
                     next_controller.control_acquisition = false; // Explicitly pause acquisition
                     // If continuous spam was on, turn it off visually and command-wise
                     if self.is_continuous_spam_active {
-                        self.previous_is_continuous_spam_active_for_revert =
-                            Some(self.is_continuous_spam_active);
+                        self.previous_is_continuous_spam_active_for_revert = Some(self.is_continuous_spam_active);
                         self.is_continuous_spam_active = false;
                         next_controller.control_wifi_transmit = false; // Command to turn off continuous spam
                     }
@@ -348,23 +336,16 @@ impl TuiState {
                     self.current_editing_field = SpamConfigField::SrcMacOctet(0);
                     self.prepare_spam_input_buffer_for_current_field();
                     self.last_error = None;
-                    info!(
-                        "Entered spam config editing. Tab/Enter/Arrows to navigate/modify. Esc to exit."
-                    );
+                    info!("Entered spam config editing. Tab/Enter/Arrows to navigate/modify. Esc to exit.");
                 } else {
-                    let _ = update_tx
-                        .try_send(AppUpdate::Error(
-                            "Edit ('e') for Spam mode only. Switch mode with 'm'.".to_string(),
-                        ));
+                    let _ = update_tx.try_send(AppUpdate::Error("Edit ('e') for Spam mode only. Switch mode with 'm'.".to_string()));
                 }
             }
             KeyCode::Char('s') | KeyCode::Char('S') => {
                 if self.ui_mode == UiMode::Spam {
                     if self.esp_config.mode != EspOperationMode::Transmit {
                         let _ = update_tx
-                            .send(AppUpdate::Error(
-                                "Burst spam ('s') requires ESP Transmit mode. Use 'm'.".to_string(),
-                            ))
+                            .send(AppUpdate::Error("Burst spam ('s') requires ESP Transmit mode. Use 'm'.".to_string()))
                             .await;
                     } else {
                         action_taken = true;
@@ -377,23 +358,15 @@ impl TuiState {
                         info!("Requesting to send custom frame burst.");
                     }
                 } else {
-                    let _ = update_tx
-                        .try_send(AppUpdate::Error(
-                            "Send burst spam ('s') for Spam mode only. Use 'm'.".to_string(),
-                        ));
+                    let _ = update_tx.try_send(AppUpdate::Error("Send burst spam ('s') for Spam mode only. Use 'm'.".to_string()));
                 }
             }
             KeyCode::Char('t') | KeyCode::Char('T') => {
                 if self.ui_mode == UiMode::Spam {
                     if self.esp_config.mode != EspOperationMode::Transmit {
-                        let _ = update_tx
-                            .try_send(AppUpdate::Error(
-                                "Continuous spam ('t') requires ESP Transmit mode. Use 'm'."
-                                    .to_string(),
-                            ));
+                        let _ = update_tx.try_send(AppUpdate::Error("Continuous spam ('t') requires ESP Transmit mode. Use 'm'.".to_string()));
                     } else {
-                        self.previous_is_continuous_spam_active_for_revert =
-                            Some(self.is_continuous_spam_active);
+                        self.previous_is_continuous_spam_active_for_revert = Some(self.is_continuous_spam_active);
                         action_taken = true;
                         if self.is_continuous_spam_active {
                             next_controller.control_wifi_transmit = false;
@@ -406,10 +379,7 @@ impl TuiState {
                         }
                     }
                 } else {
-                    let _ = update_tx
-                        .try_send(AppUpdate::Error(
-                            "Toggle continuous spam ('t') for Spam mode only. Use 'm'.".to_string(),
-                        ));
+                    let _ = update_tx.try_send(AppUpdate::Error("Toggle continuous spam ('t') for Spam mode only. Use 'm'.".to_string()));
                 }
             }
             KeyCode::Char('c') | KeyCode::Char('C') => {
@@ -454,13 +424,9 @@ impl TuiState {
 
                 if self.esp_config.mode == EspOperationMode::Transmit {
                     next_controller.control_wifi_transmit = false;
-                    info!(
-                        "Shutdown: Requesting to PAUSE WiFi transmit task (was in Transmit mode)."
-                    );
+                    info!("Shutdown: Requesting to PAUSE WiFi transmit task (was in Transmit mode).");
                 } else {
-                    info!(
-                        "Shutdown: Skipping PauseWifiTransmit command (was in Receive mode, task likely not active)."
-                    );
+                    info!("Shutdown: Skipping PauseWifiTransmit command (was in Receive mode, task likely not active).");
                 }
                 action_taken = true;
                 self.should_quit = true;
@@ -479,10 +445,7 @@ impl TuiState {
         if action_taken {
             let params_to_send = next_controller.clone(); // Clone params for analysis if send fails & for sending
             if command_tx.try_send(params_to_send).is_err() {
-                let _ = update_tx
-                    .try_send(AppUpdate::Error(
-                        "Cmd Send Fail: Chan full. UI reverted.".to_string(),
-                    ));
+                let _ = update_tx.try_send(AppUpdate::Error("Cmd Send Fail: Chan full. UI reverted.".to_string()));
 
                 // Revert optimistic changes based on the params we *tried* to send
                 if let Some(old_config) = self.previous_esp_config_for_revert.take() {
@@ -491,13 +454,9 @@ impl TuiState {
                 }
                 // This specifically handles the 't' key's optimistic update of is_continuous_spam_active
                 if next_controller.control_wifi_transmit {
-                    if let Some(old_spam_active) =
-                        self.previous_is_continuous_spam_active_for_revert.take()
-                    {
+                    if let Some(old_spam_active) = self.previous_is_continuous_spam_active_for_revert.take() {
                         self.is_continuous_spam_active = old_spam_active;
-                        info!(
-                            "Continuous spam state reverted due to command send failure (channel full)."
-                        );
+                        info!("Continuous spam state reverted due to command send failure (channel full).");
                     }
                 }
             }

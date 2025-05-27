@@ -6,21 +6,20 @@ mod services;
 mod system_node;
 mod visualiser;
 
-use crate::orchestrator::*;
-use crate::registry::*;
-use crate::system_node::*;
-use crate::visualiser::*;
+use std::fs::File;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::Arc;
+
 use cli::*;
 use esp_tool::EspTool;
 use log::*;
 use services::Run;
-use std::net::IpAddr;
-use std::net::Ipv4Addr;
-use std::net::SocketAddr;
-use std::sync::Arc;
-
 use simplelog::{ColorChoice, CombinedLogger, LevelFilter, TermLogger, TerminalMode, WriteLogger};
-use std::fs::File;
+
+use crate::orchestrator::*;
+use crate::registry::*;
+use crate::system_node::*;
+use crate::visualiser::*;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

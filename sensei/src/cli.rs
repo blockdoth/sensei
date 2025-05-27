@@ -1,13 +1,12 @@
-use crate::esp_tool;
-use crate::services::{
-    EspToolConfig, GlobalConfig, OrchestratorConfig, RegistryConfig, SystemNodeConfig,
-    VisualiserConfig,
-};
+use std::net::{AddrParseError, SocketAddr};
+use std::path::PathBuf;
+
 use anyhow::Error;
 use argh::FromArgs;
 use simplelog::{ColorChoice, CombinedLogger, LevelFilter, TermLogger, TerminalMode, WriteLogger};
-use std::net::{AddrParseError, SocketAddr};
-use std::path::PathBuf;
+
+use crate::esp_tool;
+use crate::services::{EspToolConfig, GlobalConfig, OrchestratorConfig, RegistryConfig, SystemNodeConfig, VisualiserConfig};
 
 /// A simple app to perform collection from configured sources
 #[derive(FromArgs)]
@@ -22,9 +21,7 @@ pub struct Args {
 
 impl Args {
     pub fn parse_global_config(&self) -> Result<GlobalConfig, Error> {
-        Ok(GlobalConfig {
-            log_level: self.level,
-        })
+        Ok(GlobalConfig { log_level: self.level })
     }
 }
 
@@ -55,10 +52,7 @@ pub struct SystemNodeSubcommandArgs {
     pub port: u16,
 
     /// location of config file (default sensei/src/system_node/example_config.yaml)
-    #[argh(
-        option,
-        default = "PathBuf::from(\"sensei/src/system_node/example_config.yaml\")"
-    )]
+    #[argh(option, default = "PathBuf::from(\"sensei/src/system_node/example_config.yaml\")")]
     pub device_configs: PathBuf,
 }
 
@@ -98,11 +92,7 @@ impl ConfigFromCli<OrchestratorConfig> for OrchestratorSubcommandArgs {
     fn parse(&self) -> Result<OrchestratorConfig, Error> {
         // TODO input validation
         Ok(OrchestratorConfig {
-            targets: self
-                .target
-                .iter()
-                .map(|addr| addr.parse().unwrap())
-                .collect(),
+            targets: self.target.iter().map(|addr| addr.parse().unwrap()).collect(),
         })
     }
 }

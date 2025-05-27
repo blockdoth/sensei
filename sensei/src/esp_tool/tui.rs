@@ -1,23 +1,16 @@
-use super::state::TuiState;
-use crate::esp_tool::{
-    CSI_DATA_BUFFER_CAPACITY, LOG_BUFFER_CAPACITY,
-    state::{SpamConfigField, UiMode},
+use lib::csi_types::CsiData;
+use lib::sources::controllers::esp32_controller::{
+    Bandwidth as EspBandwidth, CsiType as EspCsiType, OperationMode as EspOperationMode, SecondaryChannel as EspSecondaryChannel,
 };
-use lib::{
-    csi_types::CsiData,
-    sources::controllers::esp32_controller::{
-        Bandwidth as EspBandwidth, CsiType as EspCsiType, OperationMode as EspOperationMode,
-        SecondaryChannel as EspSecondaryChannel,
-    },
-};
-use ratatui::{
-    Frame,
-    layout::{Constraint, Direction, Layout},
-    style::{Color, Modifier, Style},
-    text::{Line, Span, Text},
-    widgets::{Block, Borders, Cell, Paragraph, Row, Table, Wrap},
-};
+use ratatui::Frame;
+use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span, Text};
+use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table, Wrap};
 
+use super::state::TuiState;
+use crate::esp_tool::state::{SpamConfigField, UiMode};
+use crate::esp_tool::{CSI_DATA_BUFFER_CAPACITY, LOG_BUFFER_CAPACITY};
 
 // Renders the UI based on the state, should not contain any state changing logic
 pub fn ui(f: &mut Frame, tui_state: &TuiState) {
@@ -105,10 +98,7 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
     // WiFi Channel, Bandwidth, and Secondary Channel line
     let mut wifi_line_spans = vec![
         Span::raw("WiFi Channel: "),
-        Span::styled(
-            tui_state.esp_config.channel.to_string(),
-            Style::default().fg(Color::Yellow),
-        ),
+        Span::styled(tui_state.esp_config.channel.to_string(), Style::default().fg(Color::Yellow)),
         Span::raw(" | Bandwidth: "),
         Span::styled(bw_str, Style::default().fg(Color::Yellow)),
     ];
@@ -123,10 +113,7 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
         Span::raw("CSI Type: "),
         Span::styled(ltf_str, Style::default().fg(Color::Yellow)), // ltf_str used here
         Span::raw(" | RSSI Scale: "),
-        Span::styled(
-            dev_conf.manual_scale.to_string(),
-            Style::default().fg(Color::Yellow),
-        ),
+        Span::styled(dev_conf.manual_scale.to_string(), Style::default().fg(Color::Yellow)),
     ]));
 
     // CSI Buffer line
@@ -146,24 +133,22 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
             Style::default().add_modifier(Modifier::UNDERLINED),
         )));
 
-        let get_field_style =
-            |app_state: &TuiState, _field_type: SpamConfigField, is_active: bool| {
-                if is_active {
-                    if app_state.current_field_has_error {
-                        Style::default().fg(Color::Black).bg(Color::LightRed)
-                    } else {
-                        Style::default().fg(Color::Black).bg(Color::Cyan)
-                    }
+        let get_field_style = |app_state: &TuiState, _field_type: SpamConfigField, is_active: bool| {
+            if is_active {
+                if app_state.current_field_has_error {
+                    Style::default().fg(Color::Black).bg(Color::LightRed)
                 } else {
-                    Style::default()
+                    Style::default().fg(Color::Black).bg(Color::Cyan)
                 }
-            };
+            } else {
+                Style::default()
+            }
+        };
 
         let mut src_mac_spans = vec![Span::raw("  Src MAC: ")];
         for i in 0..6 {
             let current_field_type = SpamConfigField::SrcMacOctet(i);
-            let is_active_field = tui_state.is_editing_spam_config
-                && tui_state.current_editing_field == current_field_type;
+            let is_active_field = tui_state.is_editing_spam_config && tui_state.current_editing_field == current_field_type;
             let val_str = if is_active_field {
                 tui_state.spam_input_buffer.clone() + "_"
             } else {
@@ -173,13 +158,11 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
             src_mac_spans.push(Span::styled(val_str, style));
             if i < 5 {
                 src_mac_spans.push(
-                    Span::raw(
-                        if is_active_field && tui_state.spam_input_buffer.len() == 2 {
-                            ""
-                        } else {
-                            ":"
-                        },
-                    )
+                    Span::raw(if is_active_field && tui_state.spam_input_buffer.len() == 2 {
+                        ""
+                    } else {
+                        ":"
+                    })
                     .style(Style::default()),
                 );
             }
@@ -189,8 +172,7 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
         let mut dst_mac_spans = vec![Span::raw("  Dst MAC: ")];
         for i in 0..6 {
             let current_field_type = SpamConfigField::DstMacOctet(i);
-            let is_active_field = tui_state.is_editing_spam_config
-                && tui_state.current_editing_field == current_field_type;
+            let is_active_field = tui_state.is_editing_spam_config && tui_state.current_editing_field == current_field_type;
             let val_str = if is_active_field {
                 tui_state.spam_input_buffer.clone() + "_"
             } else {
@@ -200,13 +182,11 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
             dst_mac_spans.push(Span::styled(val_str, style));
             if i < 5 {
                 dst_mac_spans.push(
-                    Span::raw(
-                        if is_active_field && tui_state.spam_input_buffer.len() == 2 {
-                            ""
-                        } else {
-                            ":"
-                        },
-                    )
+                    Span::raw(if is_active_field && tui_state.spam_input_buffer.len() == 2 {
+                        ""
+                    } else {
+                        ":"
+                    })
                     .style(Style::default()),
                 );
             }
@@ -214,8 +194,7 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
         status_lines.push(Line::from(dst_mac_spans));
 
         let reps_field_type = SpamConfigField::Reps;
-        let is_reps_active =
-            tui_state.is_editing_spam_config && tui_state.current_editing_field == reps_field_type;
+        let is_reps_active = tui_state.is_editing_spam_config && tui_state.current_editing_field == reps_field_type;
         let reps_str = if is_reps_active {
             tui_state.spam_input_buffer.clone() + "_"
         } else {
@@ -224,8 +203,7 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
         let reps_style = get_field_style(tui_state, reps_field_type, is_reps_active);
 
         let pause_field_type = SpamConfigField::PauseMs;
-        let is_pause_active =
-            tui_state.is_editing_spam_config && tui_state.current_editing_field == pause_field_type;
+        let is_pause_active = tui_state.is_editing_spam_config && tui_state.current_editing_field == pause_field_type;
         let pause_str = if is_pause_active {
             tui_state.spam_input_buffer.clone() + "_"
         } else {
@@ -244,16 +222,10 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
         status_lines.push(Line::from(Span::styled(
             format!(
                 "  Continuous Spam ('t'): {}",
-                if tui_state.is_continuous_spam_active {
-                    "ON"
-                } else {
-                    "OFF"
-                }
+                if tui_state.is_continuous_spam_active { "ON" } else { "OFF" }
             ),
             if tui_state.is_continuous_spam_active {
-                Style::default()
-                    .fg(Color::LightRed)
-                    .add_modifier(Modifier::BOLD)
+                Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             },
@@ -261,11 +233,7 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
     }
 
     let status_paragraph = Paragraph::new(Text::from(status_lines))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" ESP32 Real-Time Status "),
-        )
+        .block(Block::default().borders(Borders::ALL).title(" ESP32 Real-Time Status "))
         .wrap(Wrap { trim: true }); // Added wrap for status paragraph
     f.render_widget(status_paragraph, status_area);
 
@@ -281,15 +249,8 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
         .rev()
         .take(table_area.height.saturating_sub(2) as usize)
         .map(|p: &CsiData| {
-            let num_subcarriers = p
-                .csi
-                .first()
-                .and_then(|rx| rx.first())
-                .map_or(0, |sc_row| sc_row.len());
-            let rssi_str = p
-                .rssi
-                .first()
-                .map_or_else(|| "N/A".to_string(), |r| r.to_string());
+            let num_subcarriers = p.csi.first().and_then(|rx| rx.first()).map_or(0, |sc_row| sc_row.len());
+            let rssi_str = p.rssi.first().map_or_else(|| "N/A".to_string(), |r| r.to_string());
             Row::new(vec![
                 Cell::from(format!("{:.6}", p.timestamp)),
                 Cell::from(p.sequence_number.to_string()),
@@ -299,19 +260,10 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
         })
         .collect();
 
-    let table_widths = [
-        Constraint::Length(18),
-        Constraint::Length(7),
-        Constraint::Length(6),
-        Constraint::Min(10),
-    ];
+    let table_widths = [Constraint::Length(18), Constraint::Length(7), Constraint::Length(6), Constraint::Min(10)];
     let csi_table = Table::new(rows, &table_widths)
         .header(table_header)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" CSI Data Packets "),
-        )
+        .block(Block::default().borders(Borders::ALL).title(" CSI Data Packets "))
         .row_highlight_style(Style::default().add_modifier(Modifier::REVERSED))
         .highlight_symbol(">> ");
     f.render_widget(csi_table, table_area);
@@ -350,13 +302,13 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
 
     let log_text = Text::from(log_lines_to_display);
 
-    let logs_widget = Paragraph::new(log_text).wrap(Wrap { trim: true }).block(
-        Block::default().borders(Borders::ALL).title(format!(
-            " Log ({}/{}) ",
-            tui_state.log_messages.len(),
-            LOG_BUFFER_CAPACITY
-        )),
-    );
+    let logs_widget = Paragraph::new(log_text)
+        .wrap(Wrap { trim: true })
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(format!(" Log ({}/{}) ", tui_state.log_messages.len(), LOG_BUFFER_CAPACITY)),
+        );
     f.render_widget(logs_widget, log_panel_area);
 
     // --- Global Footer Info/Errors ---
@@ -369,12 +321,9 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
             SpamConfigField::Reps => "Repetitions".to_string(),
             SpamConfigField::PauseMs => "Pause (ms)".to_string(),
         };
-        format!(
-            "[Esc] Exit Edit | [Tab]/[Ent] Next | [Shft+Tab] Prev | [↑↓] Modify Val | Editing: {field_name}"
-        )
+        format!("[Esc] Exit Edit | [Tab]/[Ent] Next | [Shft+Tab] Prev | [↑↓] Modify Val | Editing: {field_name}")
     } else {
-        "Controls: [Q]uit | [M]ode | [C]h | [B]W | [L]TF | [↑]ClrCSI | [↓]SyncTime | [R]ClrErr | SpamMode: [E]dit | [S]Burst | [T]Cont."
-          .to_string()
+        "Controls: [Q]uit | [M]ode | [C]h | [B]W | [L]TF | [↑]ClrCSI | [↓]SyncTime | [R]ClrErr | SpamMode: [E]dit | [S]Burst | [T]Cont.".to_string()
     };
     let footer_style = if tui_state.last_error.is_some() {
         Style::default().fg(Color::Red)
@@ -386,10 +335,6 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
 
     let footer_paragraph = Paragraph::new(footer_text_str)
         .wrap(Wrap { trim: true })
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Info/Errors "),
-        );
+        .block(Block::default().borders(Borders::ALL).title(" Info/Errors "));
     f.render_widget(footer_paragraph, global_footer_area);
 }

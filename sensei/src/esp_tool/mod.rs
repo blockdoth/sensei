@@ -3,14 +3,18 @@
 mod state;
 mod tui;
 
-use crate::cli::EspToolSubcommandArgs;
-use crate::services::{EspToolConfig, GlobalConfig, Run};
+use std::collections::VecDeque;
+use std::error::Error;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering, Ordering as AtomicOrdering};
+use std::sync::mpsc::RecvTimeoutError;
+use std::time::Duration;
+use std::{env, io};
+
 use chrono::{DateTime, Local};
 use crossterm::event::{Event as CEvent, EventStream, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::execute;
-use crossterm::terminal::{
-    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
-};
+use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
 use futures::StreamExt;
 use lib::adapters::CsiDataAdapter;
 use lib::adapters::esp32::ESP32Adapter;
@@ -20,10 +24,11 @@ use lib::network::rpc_message::{DataMsg, SourceType};
 use lib::sources::DataSourceT;
 use lib::sources::controllers::Controller;
 use lib::sources::controllers::esp32_controller::{
-    Bandwidth as EspBandwidth, CsiType as EspCsiType, CustomFrameParams, Esp32Controller,
-    Esp32DeviceConfig, OperationMode as EspOperationMode, SecondaryChannel as EspSecondaryChannel,
+    Bandwidth as EspBandwidth, CsiType as EspCsiType, CustomFrameParams, Esp32Controller, Esp32DeviceConfig, OperationMode as EspOperationMode,
+    SecondaryChannel as EspSecondaryChannel,
 };
 use lib::sources::esp32::{Esp32Source, Esp32SourceConfig};
+use lib::tui::logs::*;
 use lib::tui::{restore_terminal, setup_terminal};
 use log::{Level, LevelFilter, Metadata, Record, SetLoggerError, debug, error, info, warn};
 use ratatui::backend::CrosstermBackend;
@@ -33,21 +38,14 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table, Wrap};
 use ratatui::{Frame, Terminal};
 use state::TuiState;
-use std::collections::VecDeque;
-use std::env;
-use std::error::Error;
-use std::io;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering, Ordering as AtomicOrdering};
-use std::sync::mpsc::RecvTimeoutError;
-use std::time::Duration;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
 use tokio::time::{sleep, timeout};
 use tui::ui;
 
-use lib::tui::logs::*;
+use crate::cli::EspToolSubcommandArgs;
+use crate::services::{EspToolConfig, GlobalConfig, Run};
 
 const LOG_BUFFER_CAPACITY: usize = 200;
 const CSI_DATA_BUFFER_CAPACITY: usize = 1000;
@@ -79,42 +77,24 @@ impl Run<EspToolConfig> for EspTool {
         }
     }
 
-    async fn run(
-        &mut self,
-        global_config: GlobalConfig,
-        config: EspToolConfig,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn run(&mut self, global_config: GlobalConfig, config: EspToolConfig) -> Result<(), Box<dyn std::error::Error>> {
         let (command_send, command_recv) = mpsc::channel::<Esp32Controller>(ACTOR_CHANNEL_CAPACITY);
         let (update_send, mut update_recv) = mpsc::channel::<AppUpdate>(ACTOR_CHANNEL_CAPACITY * 2);
         let (log_send, log_recv) = mpsc::channel::<LogEntry>(LOG_BUFFER_CAPACITY);
         let shutdown_signal = Arc::new(AtomicBool::new(false));
 
         let mut terminal = setup_terminal()?;
-        { // Start of TUI
-            let log_processor_handle =
-                Self::log_handler_task(log_recv, update_send.clone(), shutdown_signal.clone())
-                    .await;
+        {
+            // Start of TUI
+            let log_processor_handle = Self::log_handler_task(log_recv, update_send.clone(), shutdown_signal.clone()).await;
 
             let esp = Esp32Source::new(Esp32SourceConfig::default()).unwrap();
             let device_config = Esp32DeviceConfig::default();
-            let esp_source_handle = Self::esp_source_task(
-                esp,
-                device_config,
-                update_send.clone(),
-                command_recv,
-                shutdown_signal.clone(),
-            )
-            .await;
+            let esp_source_handle = Self::esp_source_task(esp, device_config, update_send.clone(), command_recv, shutdown_signal.clone()).await;
 
             while !self.tui_state.should_quit {
                 terminal.draw(|frame| ui(frame, &self.tui_state))?;
-                self.update(
-                    &command_send,
-                    &update_send,
-                    &mut update_recv,
-                    shutdown_signal.clone(),
-                )
-                .await;
+                self.update(&command_send, &update_send, &mut update_recv, shutdown_signal.clone()).await;
             }
 
             info!("Main UI loop exited. Beginning CLI shutdown sequence...");
@@ -230,27 +210,19 @@ impl EspTool {
         if let Err(e) = controller.apply(&mut esp).await {
             warn!("ESP Actor: Failed to apply initial ESP32 configuration: {e}");
             update_send_channel
-                .send(AppUpdate::ControllerUpdateError(format!(
-                    "Initial ESP config failed: {e}"
-                )))
+                .send(AppUpdate::ControllerUpdateError(format!("Initial ESP config failed: {e}")))
                 .await;
         } else {
             info!("ESP Actor: Initial ESP32 configuration applied successfully.");
-            update_send_channel
-                .send(AppUpdate::ControllerUpdateSuccess)
-                .await;
+            update_send_channel.send(AppUpdate::ControllerUpdateSuccess).await;
         }
 
         info!("ESP actor task started for port {:?}.", esp.port);
 
         if let Err(e) = esp.start().await {
             error!("ESP Actor: Failed to start Esp32Source: {e}");
-            update_send_channel
-                .send(AppUpdate::Error(format!("ESP Start Fail: {e}")))
-                .await;
-            update_send_channel
-                .send(AppUpdate::Status("DISCONNECTED (Start Fail)".to_string()))
-                .await;
+            update_send_channel.send(AppUpdate::Error(format!("ESP Start Fail: {e}"))).await;
+            update_send_channel.send(AppUpdate::Status("DISCONNECTED (Start Fail)".to_string())).await;
         }
 
         update_send_channel
@@ -353,20 +325,15 @@ impl EspTool {
             }
 
             update_send_channel
-                .send(AppUpdate::Status(
-                    "DISCONNECTED (Actor Stopped)".to_string(),
-                ))
+                .send(AppUpdate::Status("DISCONNECTED (Actor Stopped)".to_string()))
                 .await;
             info!("ESP actor task for port {:?} stopped.", esp.port);
         })
     }
 
-    // Configures the global logger such that all logs get routed to our custom TuiLogger struct 
+    // Configures the global logger such that all logs get routed to our custom TuiLogger struct
     // which sends them over a channel to a log handler task
-    pub fn init_logger(
-        log_level_filter: LevelFilter,
-        sender: Sender<LogEntry>,
-    ) -> Result<(), SetLoggerError> {
+    pub fn init_logger(log_level_filter: LevelFilter, sender: Sender<LogEntry>) -> Result<(), SetLoggerError> {
         let logger = TuiLogger {
             log_sender: sender,
             level: log_level_filter.to_level().unwrap_or(log::Level::Error),

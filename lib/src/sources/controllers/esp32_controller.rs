@@ -3,16 +3,17 @@
 //! Defines parameters and logic for configuring an ESP32 device
 //! through the `Esp32Source`.
 
-use crate::errors::ControllerError;
-use crate::sources::DataSourceT;
-use crate::sources::controllers::Controller;
-use crate::sources::esp32::Esp32Source; // Adjusted path
+use std::any::Any;
 
 use async_trait::async_trait;
 use log::{info, warn};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::any::Any; // Required for downcasting if using source.as_any_mut()
+
+use crate::errors::ControllerError;
+use crate::sources::DataSourceT;
+use crate::sources::controllers::Controller;
+use crate::sources::esp32::Esp32Source; // Adjusted path // Required for downcasting if using source.as_any_mut()
 
 // --- ESP32 Specific Enums (Kept as they are well-defined) ---
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, JsonSchema)]
@@ -117,21 +118,11 @@ impl Controller for Esp32Controller {
         // and Esp32Source implements it.
         let mut esp_source = (source as &mut dyn Any)
             .downcast_mut::<Esp32Source>()
-            .ok_or_else(|| {
-                ControllerError::InvalidDataSource(
-                    "Esp32Controller requires an Esp32Source.".to_string(),
-                )
-            })?;
+            .ok_or_else(|| ControllerError::InvalidDataSource("Esp32Controller requires an Esp32Source.".to_string()))?;
 
         let mut needs_acquisition_resume_after_config = false;
-        if esp_source
-            .send_esp32_command(Esp32Command::PauseAcquisition, None)
-            .await
-            .is_err()
-        {
-            warn!(
-                "Pre-config: Failed to explicitly pause CSI acquisition. Continuing with config changes."
-            );
+        if esp_source.send_esp32_command(Esp32Command::PauseAcquisition, None).await.is_err() {
+            warn!("Pre-config: Failed to explicitly pause CSI acquisition. Continuing with config changes.");
         } else {
             info!("Pre-config: Paused CSI acquisition.");
         }
@@ -156,28 +147,18 @@ impl Controller for Esp32Controller {
 
         let mut new_operation_mode_for_logic: Option<OperationMode> = None;
 
-        info!(
-            "Controller: Applying ESP32 device configuration: {:?}",
-            self.device_config
-        );
-        if self.device_config.bandwidth == Bandwidth::Forty
-            && self.device_config.secondary_channel == SecondaryChannel::None
-        {
+        info!("Controller: Applying ESP32 device configuration: {:?}", self.device_config);
+        if self.device_config.bandwidth == Bandwidth::Forty && self.device_config.secondary_channel == SecondaryChannel::None {
             return Err(ControllerError::InvalidParams(
-                "40MHz bandwidth requires a secondary channel (Above or Below) to be set."
-                    .to_string(),
+                "40MHz bandwidth requires a secondary channel (Above or Below) to be set.".to_string(),
             ));
         }
-        if self.device_config.manual_scale > 3
-            && self.device_config.csi_type == CsiType::HighThroughputLTF
-        {
+        if self.device_config.manual_scale > 3 && self.device_config.csi_type == CsiType::HighThroughputLTF {
             warn!(
                 "Manual scale {} might be too high for HT-LTF, ESP32-S3 typically expects 0-3.",
                 self.device_config.manual_scale
             );
-        } else if self.device_config.manual_scale > 1
-            && self.device_config.csi_type == CsiType::LegacyLTF
-        {
+        } else if self.device_config.manual_scale > 1 && self.device_config.csi_type == CsiType::LegacyLTF {
             warn!(
                 "Manual scale {} might be too high for L-LTF, ESP32 typically expects 0-1.",
                 self.device_config.manual_scale
@@ -203,10 +184,7 @@ impl Controller for Esp32Controller {
             Esp32Controller::clear_macs(esp_source).await?;
         }
 
-        info!(
-            "Controller: Adding {} MAC filter(s) to ESP32.",
-            self.mac_filters_to_add.len()
-        );
+        info!("Controller: Adding {} MAC filter(s) to ESP32.", self.mac_filters_to_add.len());
         for filter_pair in self.mac_filters_to_add.clone() {
             let mut filter_data = Vec::with_capacity(12);
             filter_data.extend_from_slice(&filter_pair.src_mac);
@@ -228,11 +206,7 @@ impl Controller for Esp32Controller {
             };
             info!(
                 "Controller: Explicitly {} CSI acquisition.",
-                if self.control_acquisition {
-                    "resuming"
-                } else {
-                    "pausing"
-                }
+                if self.control_acquisition { "resuming" } else { "pausing" }
             );
             esp_source
                 .send_esp32_command(cmd, None)
@@ -241,9 +215,7 @@ impl Controller for Esp32Controller {
                     command_name: format!("{cmd:?}"),
                     details: e.to_string(),
                 })?;
-        } else if needs_acquisition_resume_after_config
-            || new_operation_mode_for_logic == Some(OperationMode::Receive)
-        {
+        } else if needs_acquisition_resume_after_config || new_operation_mode_for_logic == Some(OperationMode::Receive) {
             info!("Controller: Implicitly unpausing CSI acquisition due to Receive mode.");
             esp_source
                 .send_esp32_command(Esp32Command::UnpauseAcquisition, None)
@@ -271,11 +243,7 @@ impl Controller for Esp32Controller {
             };
             info!(
                 "Controller: Explicitly {} general WiFi transmit task.",
-                if self.control_wifi_transmit {
-                    "resuming"
-                } else {
-                    "pausing"
-                }
+                if self.control_wifi_transmit { "resuming" } else { "pausing" }
             );
             esp_source
                 .send_esp32_command(cmd, None)
@@ -285,9 +253,7 @@ impl Controller for Esp32Controller {
                     details: e.to_string(),
                 })?;
         } else if new_operation_mode_for_logic == Some(OperationMode::Transmit) {
-            info!(
-                "Controller: Implicitly pausing general WiFi transmit task due to custom Transmit mode."
-            );
+            info!("Controller: Implicitly pausing general WiFi transmit task due to custom Transmit mode.");
             esp_source
                 .send_esp32_command(Esp32Command::PauseWifiTransmit, None)
                 .await
@@ -309,16 +275,11 @@ impl Controller for Esp32Controller {
 
             let time_us = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|e| {
-                    ControllerError::Execution(format!("System time error for sync: {e}"))
-                })?
+                .map_err(|e| ControllerError::Execution(format!("System time error for sync: {e}")))?
                 .as_micros() as u64;
 
             esp_source
-                .send_esp32_command(
-                    Esp32Command::SynchronizeTimeApply,
-                    Some(time_us.to_le_bytes().to_vec()),
-                )
+                .send_esp32_command(Esp32Command::SynchronizeTimeApply, Some(time_us.to_le_bytes().to_vec()))
                 .await
                 .map_err(|e| ControllerError::CommandFailed {
                     command_name: "SynchronizeTimeApply".to_string(),
@@ -329,12 +290,8 @@ impl Controller for Esp32Controller {
 
         if let Some(ref frame_params) = self.transmit_custom_frame {
             info!("Controller: Transmitting custom frames: {frame_params:?}");
-            if new_operation_mode_for_logic.is_some()
-                && new_operation_mode_for_logic != Some(OperationMode::Transmit)
-            {
-                warn!(
-                    "Transmitting custom frames typically requires OperationMode::Transmit. Current/new mode may not be optimal."
-                );
+            if new_operation_mode_for_logic.is_some() && new_operation_mode_for_logic != Some(OperationMode::Transmit) {
+                warn!("Transmitting custom frames typically requires OperationMode::Transmit. Current/new mode may not be optimal.");
             }
             if frame_params.n_reps <= 0 || frame_params.pause_ms < 0 {
                 return Err(ControllerError::InvalidParams(

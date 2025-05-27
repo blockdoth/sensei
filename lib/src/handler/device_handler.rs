@@ -1,3 +1,9 @@
+use std::fs;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use tokio::task::JoinHandle;
+
 use crate::FromConfig;
 use crate::adapters::{CsiDataAdapter, DataAdapterConfig};
 use crate::errors::{ControllerError, CsiAdapterError, DataSourceError, SinkError, TaskError};
@@ -5,10 +11,6 @@ use crate::network::rpc_message::{DataMsg, SourceType};
 use crate::sinks::{Sink, SinkConfig};
 use crate::sources::controllers::{Controller, ControllerParams};
 use crate::sources::{DataSourceConfig, DataSourceT};
-use std::fs;
-use std::path::PathBuf;
-use std::sync::Arc;
-use tokio::task::JoinHandle;
 
 /// Configuration for a single device handler.
 ///
@@ -163,8 +165,7 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
 
         // apply controller if configured
         if let Some(controller_cfg) = config.controller {
-            let controller: Box<dyn Controller> =
-                <dyn Controller>::from_config(controller_cfg).await?;
+            let controller: Box<dyn Controller> = <dyn Controller>::from_config(controller_cfg).await?;
             controller.apply(source.as_mut()).await?;
         }
         // instantiate adapter if configured

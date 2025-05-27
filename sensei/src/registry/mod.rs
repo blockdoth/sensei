@@ -1,9 +1,10 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::sync::Arc;
 
 use anyhow::Ok;
 use lib::network::rpc_message::RpcMessage;
 use log::*;
-use std::net::SocketAddr;
 
 use crate::services::{GlobalConfig, RegistryConfig, Run};
 
@@ -42,11 +43,7 @@ impl Run<RegistryConfig> for Registry {
         }
     }
 
-    async fn run(
-        &mut self,
-        global_config: GlobalConfig,
-        config: RegistryConfig,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn run(&mut self, global_config: GlobalConfig, config: RegistryConfig) -> Result<(), Box<dyn std::error::Error>> {
         // info!("Starting registry on address {}", config.targets);
         loop {
             println!("Balls");
@@ -60,11 +57,7 @@ impl Registry {
         Ok(hosts)
     }
 
-    fn register_device(
-        &mut self,
-        device_id: DeviceId,
-        device_info: DeviceInfo,
-    ) -> anyhow::Result<()> {
+    fn register_device(&mut self, device_id: DeviceId, device_info: DeviceInfo) -> anyhow::Result<()> {
         self.device_table.insert(device_id, device_info);
         Ok(())
     }

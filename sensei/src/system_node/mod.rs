@@ -1,54 +1,46 @@
-use crate::cli::*;
-use crate::services::{GlobalConfig, Run, SystemNodeConfig};
-use lib::FromConfig;
 use std::collections::HashMap;
-
-use argh::{CommandInfo, FromArgs};
-use async_trait::async_trait;
-use lib::adapters::CsiDataAdapter;
-use lib::csi_types::{Complex, CsiData};
-use lib::errors::NetworkError;
-use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
-use lib::network::rpc_message::SourceType::*;
-use lib::network::rpc_message::{AdapterMode, CtrlMsg};
-use lib::network::rpc_message::{CtrlMsg::*, DataMsg};
-use lib::network::rpc_message::{DataMsg::*, make_msg};
-use lib::network::rpc_message::{RpcMessage, SourceType};
-use lib::network::rpc_message::{RpcMessageKind, SourceType::*};
-use lib::network::tcp::client::TcpClient;
-use lib::network::tcp::server::TcpServer;
-use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
-use lib::sources::esp32::{Esp32Source, Esp32SourceConfig};
-
-use lib::sources::controllers::Controller;
-use lib::sources::controllers::esp32_controller::{
-    Bandwidth as EspBandwidth, CsiType as EspCsiType, Esp32Controller, Esp32DeviceConfig,
-    OperationMode as EspOperationMode, SecondaryChannel as EspSecondaryChannel,
-};
-
-use lib::network::*;
-use lib::sinks::file::{FileConfig, FileSink};
-use lib::sources::DataSourceT;
-
-#[cfg(target_os = "linux")]
-use lib::sources::netlink::NetlinkConfig;
-use log::*;
 use std::env;
 use std::net::SocketAddr;
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
-
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use argh::{CommandInfo, FromArgs};
+use async_trait::async_trait;
+use lib::FromConfig;
+use lib::adapters::CsiDataAdapter;
+use lib::csi_types::{Complex, CsiData};
+use lib::errors::NetworkError;
+use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
+use lib::network::rpc_message::CtrlMsg::*;
+use lib::network::rpc_message::DataMsg::*;
+use lib::network::rpc_message::RpcMessageKind::{Ctrl as RpcMessageKindCtrl, Data as RpcMessageKindData};
+use lib::network::rpc_message::SourceType::*;
+use lib::network::rpc_message::{AdapterMode, CtrlMsg, DataMsg, RpcMessage, RpcMessageKind, SourceType, make_msg};
+use lib::network::tcp::client::TcpClient;
+use lib::network::tcp::server::TcpServer;
+use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
+use lib::network::*;
+use lib::sinks::file::{FileConfig, FileSink};
+use lib::sources::DataSourceT;
+use lib::sources::controllers::Controller;
+use lib::sources::controllers::esp32_controller::{
+    Bandwidth as EspBandwidth, CsiType as EspCsiType, Esp32Controller, Esp32DeviceConfig, OperationMode as EspOperationMode,
+    SecondaryChannel as EspSecondaryChannel,
+};
+use lib::sources::esp32::{Esp32Source, Esp32SourceConfig};
+#[cfg(target_os = "linux")]
+use lib::sources::netlink::NetlinkConfig;
+use log::*;
 use tokio::io::AsyncWriteExt;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::{Mutex, broadcast, watch};
 use tokio::task::JoinHandle;
 
-use lib::network::rpc_message::RpcMessageKind::{
-    Ctrl as RpcMessageKindCtrl, Data as RpcMessageKindData,
-};
+use crate::cli::*;
+use crate::services::{GlobalConfig, Run, SystemNodeConfig};
 
 /// The System Node is a sender and a receiver in the network of Sensei.
 /// It hosts the devices that send and receive CSI data, and is responsible for sending this data further to other receivers in the system.
@@ -82,15 +74,8 @@ impl ConnectionHandler for SystemNode {
     /// - Connect/Disconnect
     /// - Subscribe/Unsubscribe
     /// - Configure
-    async fn handle_recv(
-        &self,
-        request: RpcMessage,
-        send_channel: watch::Sender<ChannelMsg>,
-    ) -> Result<(), NetworkError> {
-        info!(
-            "Received message {:?} from {}",
-            request.msg, request.src_addr
-        );
+    async fn handle_recv(&self, request: RpcMessage, send_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
+        info!("Received message {:?} from {}", request.msg, request.src_addr);
         match request.msg {
             RpcMessageKindCtrl(command) => match command {
                 Connect => {
@@ -110,23 +95,15 @@ impl ConnectionHandler for SystemNode {
                         warn!("Failed to send Subscribe to own handle_send task; already closed?");
                         return Err(NetworkError::UnableToConnect);
                     }
-                    info!(
-                        "Client {} subscribed to data stream for device_id: {}",
-                        request.src_addr, device_id
-                    );
+                    info!("Client {} subscribed to data stream for device_id: {}", request.src_addr, device_id);
                 }
                 Unsubscribe { device_id } => {
                     // device_id is unused for now
                     if send_channel.send(ChannelMsg::Unsubscribe).is_err() {
-                        warn!(
-                            "Failed to send Unsubscribe to own handle_send task; already closed?"
-                        );
+                        warn!("Failed to send Unsubscribe to own handle_send task; already closed?");
                         return Err(NetworkError::UnableToConnect);
                     }
-                    info!(
-                        "Client {} unsubscribed from data stream for device_id: {}",
-                        request.src_addr, device_id
-                    );
+                    info!("Client {} unsubscribed from data stream for device_id: {}", request.src_addr, device_id);
                 }
                 m => {
                     warn!("Received unhandled CtrlMsg: {m:?}");
@@ -223,28 +200,22 @@ impl Run<SystemNodeConfig> for SystemNode {
         SystemNode { send_data_channel }
     }
 
-    async fn run(
-        &mut self,
-        global_config: GlobalConfig,
-        config: SystemNodeConfig,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn run(&mut self, global_config: GlobalConfig, config: SystemNodeConfig) -> Result<(), Box<dyn std::error::Error>> {
         let connection_handler = Arc::new(self.clone());
 
         let sender_data_channel = connection_handler.send_data_channel.clone();
 
         let default_config_path: PathBuf = config.device_configs;
 
-        let device_handler_configs: Vec<DeviceHandlerConfig> =
-            DeviceHandlerConfig::from_yaml(default_config_path).await;
+        let device_handler_configs: Vec<DeviceHandlerConfig> = DeviceHandlerConfig::from_yaml(default_config_path).await;
 
-        let handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>> =
-            Arc::new(Mutex::new(HashMap::new()));
+        let handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>> = Arc::new(Mutex::new(HashMap::new()));
 
         for cfg in device_handler_configs {
-            handlers.lock().await.insert(
-                cfg.device_id,
-                DeviceHandler::from_config(cfg.clone()).await.unwrap(),
-            );
+            handlers
+                .lock()
+                .await
+                .insert(cfg.device_id, DeviceHandler::from_config(cfg.clone()).await.unwrap());
         }
 
         info!("ESP32 data reading task started.");
