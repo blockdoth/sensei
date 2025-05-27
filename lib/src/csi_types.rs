@@ -38,9 +38,13 @@ impl std::default::Default for CsiData {
 /// Channel Bandwidth
 #[derive(Debug, Clone, Copy)]
 pub enum Bandwidth {
+    /// 20 Mhz bandwidth
     Bw20 = 20,
+    /// 40 Mhz bandwidth
     Bw40 = 40,
+    /// 40 Mhz bandwitdh
     Bw80 = 80,
+    /// 160 Mhz bandwitdh
     Bw160 = 160,
 }
 
@@ -83,6 +87,9 @@ pub enum FrameEncoding {
 }
 
 impl FrameEncoding {
+    /// Construct a `FrameEncoding` from its numeric identifier.
+    ///
+    /// Returns `DataSourceError::ParsingError` if the value is invalid.
     pub fn new(value: u8) -> Result<Self, DataSourceError> {
         match value {
             0 => Ok(FrameEncoding::NonHt),
@@ -104,10 +111,12 @@ impl std::fmt::Display for FrameEncoding {
 }
 
 // #[cfg_attr(feature = "docs", derive(schemars::JsonSchema))]
+/// Represents a MAC address
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacAddr([u8; 6]);
 
 impl MacAddr {
+    /// Construct a new `MacAddr` from a byte array
     pub fn new(bytes: [u8; 6]) -> Self {
         MacAddr(bytes)
     }
@@ -126,6 +135,7 @@ impl Serialize for MacAddr {
     }
 }
 
+/// Parse a `MacAddr` from a colon-separated string
 /// NOTE: This also provides Deserialize
 impl FromStr for MacAddr {
     type Err = AppError;

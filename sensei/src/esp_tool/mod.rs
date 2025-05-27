@@ -468,7 +468,7 @@ pub async fn run_esp_test_subcommand(args: EspToolSubcommandArgs) -> Result<(), 
                     }
                     break;
                 }
-                source_guard.read(&mut read_buffer).await
+                source_guard.read_buf(&mut read_buffer).await
             };
 
             match data_result {
