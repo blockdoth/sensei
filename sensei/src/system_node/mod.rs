@@ -52,13 +52,13 @@ use tokio::task::JoinHandle;
 /// send_data_channel: the System Node communicates which data should be sent to other receivers across its threads using this tokio channel
 #[derive(Clone)]
 pub struct SystemNode {
-    send_data_channel: broadcast::Sender<DataMsg>, // Call .subscribe() on the sender in order to get a receiver
+    send_data_channel: broadcast::Sender<(DataMsg, u64)>, // Call .subscribe() on the sender in order to get a receiver
     client: Arc<Mutex<TcpClient>>,
 }
 
 impl SubscribeDataChannel for SystemNode {
     /// Creates a mew receiver for the System Nodes send data channel
-    fn subscribe_data_channel(&self) -> broadcast::Receiver<DataMsg> {
+    fn subscribe_data_channel(&self) -> broadcast::Receiver<(DataMsg, u64)> {
         self.send_data_channel.subscribe()
     }
 }
@@ -101,14 +101,34 @@ impl ConnectionHandler for SystemNode {
                     send_channel.send(ChannelMsg::Unsubscribe { device_id });
                     println!("Unsubscribed from data stream");
                 }
-                m => {
-                    todo!("{:?}", m);
+                SubscribeTo {
+                    target,
+                    device_id,
+                    mode,
+                } => {
+                    let msg = Ctrl(Subscribe { device_id, mode });
+
+                    self.client.lock().await.connect(target);
+
+                    self.client.lock().await.send_message(target, msg);
                 }
+                UnsubscribeFrom { target, device_id } => {
+                    let msg = Ctrl(Unsubscribe { device_id });
+
+                    self.client.lock().await.send_message(target, msg);
+
+                    self.client.lock().await.disconnect(target);
+                }
+                Configure { device_id, cfg } => {}
+                PollDevices => {}
+                Heartbeat => {}
             },
             Data {
                 data_msg,
                 device_id,
-            } => todo!(),
+            } => {
+                self.send_data_channel.send((data_msg, device_id));
+            }
         }
         Ok(())
     }
@@ -119,11 +139,9 @@ impl ConnectionHandler for SystemNode {
     async fn handle_send(
         &self,
         mut recv_command_channel: watch::Receiver<ChannelMsg>,
-        mut recv_data_channel: broadcast::Receiver<DataMsg>,
+        mut recv_data_channel: broadcast::Receiver<(DataMsg, u64)>,
         mut send_stream: OwnedWriteHalf,
     ) -> Result<(), NetworkError> {
-        // Devices that have been subscribed to along outgoing connection.
-        // As every device id is unique, a hashmap is used to prevent duplicate subscriptions
         let mut subscribed_ids: HashMap<u64, AdapterMode> = HashMap::new();
         loop {
             if recv_command_channel.has_changed().unwrap_or(false) {
@@ -144,6 +162,21 @@ impl ConnectionHandler for SystemNode {
                         subscribed_ids.remove(&device_id);
                     }
                     _ => (),
+                }
+            }
+
+            if !recv_data_channel.is_empty() {
+                let (data_msg, device_id) = recv_data_channel.recv().await.unwrap();
+
+                for (subscribed_id, mode) in subscribed_ids.clone() {
+                    if (subscribed_id == device_id) {
+                        // TODO: Use the tcp sink and stuff to implement this with adapter mode
+                        let msg = Data {
+                            data_msg: data_msg.clone(),
+                            device_id,
+                        };
+                        send_message(&mut send_stream, msg);
+                    }
                 }
             }
 
@@ -169,8 +202,8 @@ impl ConnectionHandler for SystemNode {
 
 impl Run<SystemNodeConfig> for SystemNode {
     fn new(config: SystemNodeConfig) -> Self {
-        let (send_data_channel, _) = broadcast::channel::<DataMsg>(16);
-        SystemNode { 
+        let (send_data_channel, _) = broadcast::channel::<(DataMsg, u64)>(16);
+        SystemNode {
             send_data_channel,
             client: Arc::new(Mutex::new(TcpClient::new())),
         }
@@ -183,8 +216,8 @@ impl Run<SystemNodeConfig> for SystemNode {
     /// SystemNodeConfig: Specifies the target address
     async fn run(&self, config: SystemNodeConfig) -> Result<(), Box<dyn std::error::Error>> {
         let connection_handler = Arc::new(self.clone());
-        
-        let send_client =  self.client.clone();
+
+        let send_client = self.client.clone();
         let recv_client = self.client.clone();
 
         let sender_data_channel = connection_handler.send_data_channel.clone();

@@ -42,13 +42,13 @@ pub enum CtrlMsg {
         device_id: u64,
     },
     SubscribeTo {
+        target: SocketAddr,
         device_id: u64,
         mode: AdapterMode,
-        target: SocketAddr,
     },
     UnsubscribeFrom {
-        device_id: u64,
         target: SocketAddr,
+        device_id: u64,
     },
     PollDevices,
     Heartbeat,

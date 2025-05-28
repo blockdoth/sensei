@@ -7,7 +7,7 @@ use lib::network::rpc_message::RpcMessageKind::Ctrl;
 use lib::network::rpc_message::RpcMessageKind::Data;
 use lib::network::rpc_message::{AdapterMode, CtrlMsg, DataMsg, SourceType};
 use lib::network::tcp::client::TcpClient;
-use lib::network::tcp::{ChannelMsg, client};
+use lib::network::tcp::{ChannelMsg, client, send_message};
 use log::*;
 use ratatui::backend::ClearType;
 use std::arch::global_asm;
@@ -19,8 +19,8 @@ use std::vec;
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader, Split};
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::signal;
-use tokio::sync::{Mutex, watch};
 use tokio::sync::watch::{Receiver, Sender};
+use tokio::sync::{Mutex, watch};
 use tokio::task::JoinHandle;
 
 pub struct Orchestrator {
@@ -88,8 +88,7 @@ impl Orchestrator {
                 if line.is_empty() {
                     continue;
                 }
-                let mut line_iter = line.split_whitespace();
-                Self::parse_command(line_iter, send_client.clone(), send_commands_channel.clone()).await;
+                Self::parse_command(line, send_client.clone(), send_commands_channel.clone()).await;
                 io::stdout().flush(); // Ensure prompt shows up again
             }
             println!("Send loop ended (stdin closed).");
@@ -106,9 +105,15 @@ impl Orchestrator {
         Ok(())
     }
 
-    async fn parse_command(mut input: SplitWhitespace<'_>, send_client: Arc<Mutex<TcpClient>>, send_commands_channel: Sender<ChannelMsg>) {
+    async fn parse_command(
+        mut line: &str,
+        send_client: Arc<Mutex<TcpClient>>,
+        send_commands_channel: Sender<ChannelMsg>,
+    ) {
+        let mut input = line.split_whitespace();
         match input.next() {
             Some("connect") => {
+                // Connect the orchestrator and another target node
                 let target_addr: SocketAddr = input
                     .next()
                     .unwrap() // #TODO remove unwrap
@@ -117,6 +122,7 @@ impl Orchestrator {
                 Self::connect(&send_client, target_addr).await;
             }
             Some("disconnect") => {
+                // Disconnect the orchestrator from another target node
                 let target_addr: SocketAddr = input
                     .next()
                     .unwrap_or("")
@@ -125,6 +131,7 @@ impl Orchestrator {
                 Self::disconnect(&send_client, target_addr).await;
             }
             Some("sub") => {
+                // Subscribe the orchestrator to the data output of a node
                 let target_addr: SocketAddr = input
                     .next()
                     .unwrap_or("")
@@ -138,10 +145,10 @@ impl Orchestrator {
                     _ => AdapterMode::RAW,
                 };
                 Self::subscribe(&send_client, target_addr, device_id, mode).await;
-                send_commands_channel
-                    .send(ChannelMsg::ListenSubscribe { addr: target_addr });
+                send_commands_channel.send(ChannelMsg::ListenSubscribe { addr: target_addr });
             }
             Some("unsub") => {
+                // Unsubscribe the orchestrator from the data output of another node
                 let target_addr: SocketAddr = input
                     .next()
                     .unwrap_or("") // #TODO remove unwrap
@@ -149,16 +156,75 @@ impl Orchestrator {
                     .unwrap_or(DEFAULT_ADDRESS);
                 let device_id: u64 = input.next().unwrap_or("0").parse().unwrap();
                 Self::unsubscribe(&send_client, target_addr, device_id).await;
-                send_commands_channel
-                    .send(ChannelMsg::ListenUnsubscribe { addr: target_addr });
+                send_commands_channel.send(ChannelMsg::ListenUnsubscribe { addr: target_addr });
+            }
+            Some("subto") => {
+                // Tells a node to subscribe to another node
+                let target_addr: SocketAddr = input
+                    .next()
+                    .unwrap_or("")
+                    .parse()
+                    .unwrap_or(DEFAULT_ADDRESS);
+                let source_addr: SocketAddr = input
+                    .next()
+                    .unwrap_or("")
+                    .parse()
+                    .unwrap_or(DEFAULT_ADDRESS);
+                let device_id: u64 = input.next().unwrap_or("0").parse().unwrap();
+                let mode: AdapterMode = match input.next() {
+                    Some("source") => AdapterMode::SOURCE,
+                    Some("raw") => AdapterMode::RAW,
+                    Some("target") => AdapterMode::TARGET,
+                    _ => AdapterMode::RAW,
+                };
+
+                let msg = Ctrl(SubscribeTo {
+                    target: source_addr,
+                    device_id,
+                    mode,
+                });
+
+                send_client
+                    .lock()
+                    .await
+                    .send_message(target_addr, msg)
+                    .await;
+            }
+            Some("unsubfrom") => {
+                // Tells a node to unsubscribe from another node
+                let target_addr: SocketAddr = input
+                    .next()
+                    .unwrap_or("")
+                    .parse()
+                    .unwrap_or(DEFAULT_ADDRESS);
+                let source_addr: SocketAddr = input
+                    .next()
+                    .unwrap_or("")
+                    .parse()
+                    .unwrap_or(DEFAULT_ADDRESS);
+                let device_id: u64 = input.next().unwrap_or("0").parse().unwrap();
+
+                let msg = Ctrl(UnsubscribeFrom {
+                    target: source_addr,
+                    device_id,
+                });
+
+                send_client
+                    .lock()
+                    .await
+                    .send_message(target_addr, msg)
+                    .await;
             }
             _ => {
                 info!("Failed to parse command")
             }
         }
     }
-    
-    async fn recv_task(mut recv_commands_channel: Receiver<ChannelMsg>, recv_client: Arc<Mutex<TcpClient>>) {
+
+    async fn recv_task(
+        mut recv_commands_channel: Receiver<ChannelMsg>,
+        recv_client: Arc<Mutex<TcpClient>>,
+    ) {
         let mut receiving = false;
         let mut targets: Vec<SocketAddr> = vec![];
         loop {
@@ -199,11 +265,11 @@ impl Orchestrator {
                         }
                         Data {
                             data_msg:
-                            DataMsg::RawFrame {
-                                ts,
-                                bytes,
-                                source_type,
-                            },
+                                DataMsg::RawFrame {
+                                    ts,
+                                    bytes,
+                                    source_type,
+                                },
                             device_id,
                         } => info!("{}: {ts}", msg.src_addr),
                         _ => (),

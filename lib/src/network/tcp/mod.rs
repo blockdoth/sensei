@@ -118,23 +118,45 @@ pub trait ConnectionHandler: Send + Sync {
     async fn handle_send(
         &self,
         mut recv_commands_channel: watch::Receiver<ChannelMsg>,
-        mut recv_data_channel: broadcast::Receiver<DataMsg>,
+        mut recv_data_channel: broadcast::Receiver<(DataMsg, u64)>,
         mut send_stream: OwnedWriteHalf,
     ) -> Result<(), NetworkError>;
 }
 
 #[async_trait]
 pub trait SubscribeDataChannel {
-    fn subscribe_data_channel(&self) -> broadcast::Receiver<DataMsg>;
+    fn subscribe_data_channel(&self) -> broadcast::Receiver<(DataMsg, u64)>;
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub enum ChannelMsg {
     Empty,
     Disconnect,
-    Subscribe { device_id: u64, mode: AdapterMode },
-    ListenSubscribe { addr: SocketAddr },
-    ListenUnsubscribe { addr: SocketAddr },
-    Unsubscribe { device_id: u64 },
+    Subscribe {
+        device_id: u64,
+        mode: AdapterMode,
+    },
+    Unsubscribe {
+        device_id: u64,
+    },
+    SubscribeTo {
+        target_addr: SocketAddr,
+        device_id: u64,
+        mode: AdapterMode,
+    },
+    UnsubscribeFrom {
+        target_addr: SocketAddr,
+        device_id: u64,
+        mode: AdapterMode,
+    },
+    ListenSubscribe {
+        addr: SocketAddr,
+    },
+    ListenUnsubscribe {
+        addr: SocketAddr,
+    },
     Poll,
+    Data {
+        data: DataMsg,
+    },
 }
