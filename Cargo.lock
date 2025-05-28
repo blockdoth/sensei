@@ -2025,8 +2025,11 @@ dependencies = [
  "log",
  "notify",
  "ratatui 0.29.0",
+ "serde",
+ "serde_yaml",
  "serialport",
  "simplelog",
+ "tempfile",
  "tokio",
  "warp",
 ]

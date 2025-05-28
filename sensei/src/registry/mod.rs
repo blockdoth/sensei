@@ -83,6 +83,7 @@ impl ConnectionHandler for Registry {
         request: RpcMessage,
         send_commands_channel: watch::Sender<ChannelMsg>,
     ) -> Result<(), NetworkError> {
+        debug!("Received request: {:?}", request);
         Ok(())
     }
 

@@ -12,6 +12,8 @@ use crate::registry::*;
 use crate::system_node::*;
 use crate::visualiser::*;
 use cli::*;
+use config::FromYaml;
+use config::SystemNodeConfig;
 use log::*;
 use module::Run;
 use std::net::IpAddr;
@@ -57,9 +59,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match &args.subcommand {
         SubCommandsArgs::One(node_args) => {
-            SystemNode::new(node_args.parse()?)
-                .run(node_args.parse()?)
-                .await?
+            let yaml_cfg = SystemNodeConfig::from_yaml(node_args.device_configs.clone())?;
+            let cfg = node_args.overlay_subcommand_args(yaml_cfg)?;
+            SystemNode::new(cfg.clone()).run(cfg.clone()).await?
         }
         SubCommandsArgs::Two(registry_args) => {
             Registry::new(registry_args.parse()?)
