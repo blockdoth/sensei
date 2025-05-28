@@ -1,12 +1,22 @@
+//! A high level overview of the registry module.
+//! The registry keeps tabs on the status of the hosts in the network.
+//! When a new hosts joins, it registers itself with the registry.
+//! The registry will then peroidically check the status of the hosts.
+//! We are polling from the registry to the hosts.
+//! Letting the hosts periodically send heartbeats to the registry would mean that
+//! the hosts have to keep track another task, which could overwhelm the lowest compute
+//! devices in the network.
 use async_trait::async_trait;
 use lib::errors::NetworkError;
-use lib::network::rpc_message::{CtrlMsg, DataMsg, RpcMessageKind, SourceType};
+use lib::network::rpc_message::{CtrlMsg, DataMsg, RpcMessageKind};
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
+use priority_queue::PriorityQueue;
 use std::{collections::HashMap, sync::Arc};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
+use tokio::sync::Mutex;
 use tokio::sync::broadcast;
 use tokio::sync::watch::{self, Receiver, Sender};
 
@@ -23,6 +33,7 @@ use crate::module::Run;
 
 #[derive(Clone)]
 pub struct Registry {
+    hosts: Arc<Mutex<PriorityQueue<HostId, u32>>>,
     host_table: HashMap<HostId, HostInfo>,
     device_table: HashMap<DeviceId, DeviceInfo>,
     send_data_channel: broadcast::Sender<DataMsg>,
@@ -30,11 +41,11 @@ pub struct Registry {
 
 #[derive(Clone, Eq, Hash, PartialEq)]
 struct HostId {
-    id: u32,
+    id: u64,
 }
 #[derive(Eq, Hash, PartialEq, Clone)]
 struct DeviceId {
-    id: u32,
+    id: u64,
 }
 
 #[derive(Clone)]
@@ -55,6 +66,7 @@ struct DeviceInfo {
 impl Run<RegistryConfig> for Registry {
     fn new(config: RegistryConfig) -> Self {
         Registry {
+            hosts: Arc::from(Mutex::from(PriorityQueue::new())),
             host_table: HashMap::new(),
             device_table: HashMap::new(),
             send_data_channel: broadcast::channel(100).0, // magic buffer for now
@@ -84,7 +96,14 @@ impl ConnectionHandler for Registry {
         send_commands_channel: watch::Sender<ChannelMsg>,
     ) -> Result<(), NetworkError> {
         debug!("Received request: {:?}", request);
-        Ok(())
+
+        match request.msg {
+            Ctrl(CtrlMsg::Heartbeat { host_id }) => {
+                self.register_host(HostId { id: host_id }).await.unwrap();
+                Ok(())
+            }
+            _ => Ok(()),
+        }
     }
 
     async fn handle_send(
@@ -112,8 +131,9 @@ impl Registry {
         Ok(())
     }
 
-    fn register_host(&mut self, host_id: HostId, host_info: HostInfo) -> anyhow::Result<()> {
-        self.host_table.insert(host_id, host_info);
+    async fn register_host(&self, host_id: HostId) -> Result<(), Box<dyn std::error::Error>> {
+        // because the host has been registered with priority 0 it will be next in line
+        self.hosts.lock().await.push(host_id.clone(), 0);
         Ok(())
     }
 

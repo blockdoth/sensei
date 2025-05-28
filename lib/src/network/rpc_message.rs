@@ -42,7 +42,9 @@ pub enum CtrlMsg {
         device_id: u64,
     },
     PollDevices,
-    Heartbeat,
+    Heartbeat {
+        host_id: u64,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -123,7 +125,7 @@ impl FromStr for CtrlMsg {
                 Ok(CtrlMsg::Unsubscribe { device_id })
             }
             "polldevices" => Ok(CtrlMsg::PollDevices),
-            "heartbeat" => Ok(CtrlMsg::Heartbeat),
+            "heartbeat" => Ok(CtrlMsg::Heartbeat { host_id: 0 }), // TODO better id assignment
             s => Err(s.to_owned()),
         }
     }

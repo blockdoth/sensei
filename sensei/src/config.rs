@@ -14,11 +14,11 @@ pub const DEFAULT_ADDRESS: SocketAddr =
 /// and attempts to parse it into the desired type.
 ///
 /// # Methods
-/// - `fn from_yaml(file: PathBuf) -> Result<Self, serde_yaml::Error>`: Reads the YAML file at the given
+/// - `fn from_yaml(file: PathBuf) -> Result<Self, Box<dyn std::error::Error>>`: Reads the YAML file at the given
 ///   path and deserializes it into the implementing type.
 ///
 /// # Errors
-/// Returns a `serde_yaml::Error` if the file cannot be read or if deserialization fails.
+/// Returns a `Box<dyn std::error::Error>` if the file cannot be read or if deserialization fails.
 ///
 /// # Example
 /// ```rust,ignore
@@ -34,14 +34,14 @@ pub trait FromYaml: Sized + for<'de> Deserialize<'de> {
     /// # Returns
     ///
     /// * `Ok(Self)` if deserialization is successful.
-    /// * `Err(serde_yaml::Error)` if reading or deserialization fails.
+    /// * `Err(Box<dyn std::error::Error>)` if reading or deserialization fails.
     ///
     /// # Panics
     ///
     /// This function will panic if the file cannot be read.
     fn from_yaml(file: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
         let yaml = std::fs::read_to_string(file.clone())
-            .map_err(|e| format!("Failed to read YAML file: {}\n{}", file.display() , e))?;
+            .map_err(|e| format!("Failed to read YAML file: {}\n{}", file.display(), e))?;
         Ok(serde_yaml::from_str(&yaml)?)
     }
 }

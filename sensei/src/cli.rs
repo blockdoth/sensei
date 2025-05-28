@@ -1,6 +1,5 @@
 use argh::FromArgs;
 use log::debug;
-use serde_yaml;
 use simplelog::{ColorChoice, CombinedLogger, LevelFilter, TermLogger, TerminalMode, WriteLogger};
 use std::net::{AddrParseError, SocketAddr};
 use std::path::PathBuf;
@@ -74,6 +73,7 @@ pub struct SystemNodeSubcommandArgs {
     pub device_configs: PathBuf,
 }
 
+/// Overlays subcommand arguments onto a SystemNodeConfig, overriding fields if provided.
 impl OverlaySubcommandArgs<SystemNodeConfig> for SystemNodeSubcommandArgs {
     fn overlay_subcommand_args(
         &self,
@@ -186,7 +186,7 @@ pub struct EspToolSubcommandArgs {
     pub port: String,
 }
 
-/// Tests
+// Tests
 
 #[cfg(test)]
 mod tests {

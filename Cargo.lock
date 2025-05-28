@@ -1774,6 +1774,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "priority-queue"
+version = "2.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b816314f0ba557376adec2392396a0b5c8195b25ef5394b7eea496ac26e353e4"
+dependencies = [
+ "autocfg",
+ "equivalent",
+ "indexmap",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.95"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2024,6 +2035,7 @@ dependencies = [
  "lib",
  "log",
  "notify",
+ "priority-queue",
  "ratatui 0.29.0",
  "serde",
  "serde_yaml",

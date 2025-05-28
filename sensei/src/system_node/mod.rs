@@ -134,6 +134,10 @@ impl ConnectionHandler for SystemNode {
                         request.src_addr, device_id
                     );
                 }
+                PollDevices => {
+                    // TODO: actually handle
+                    info!("Received PollDevices from {}", request.src_addr);
+                }
                 m => {
                     warn!("Received unhandled CtrlMsg: {m:?}");
                     // todo!("{:?}", m); // Avoid panic on unhandled
