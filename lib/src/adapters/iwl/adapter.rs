@@ -217,8 +217,6 @@ impl ToConfig<DataAdapterConfig> for IwlAdapter {
     /// // Use the config in your application or save it externally
     /// ```
     async fn to_config(&self) -> Result<DataAdapterConfig, TaskError> {
-        Ok(DataAdapterConfig::Iwl {
-            scale_csi: self.scale_csi,
-        })
+        Ok(DataAdapterConfig::Iwl { scale_csi: self.scale_csi })
     }
 }

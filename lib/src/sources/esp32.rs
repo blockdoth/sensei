@@ -1,11 +1,3 @@
-use crate::ToConfig;
-use crate::errors::{ControllerError, DataSourceError, TaskError}; // Ensure ControllerError is accessible
-use crate::network::rpc_message::SourceType;
-use crate::sources::BUFSIZE;
-use crate::sources::DataMsg;
-use crate::sources::controllers::esp32_controller::Esp32Command;
-use crate::sources::{DataSourceConfig, DataSourceT};
-
 use std::any::Any;
 use std::collections::HashMap;
 use std::io::{Read as StdRead, Write as StdWrite}; // Renamed to avoid ambiguity
@@ -19,10 +11,11 @@ use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, bounded};
 use log::{debug, error, info, warn};
 use serialport::{ClearBuffer, SerialPort};
 
-use crate::errors::{ControllerError, DataSourceError}; // Ensure ControllerError is accessible
+use crate::ToConfig;
+use crate::errors::{ControllerError, DataSourceError, TaskError}; // Ensure ControllerError is accessible
 use crate::network::rpc_message::SourceType;
 use crate::sources::controllers::esp32_controller::Esp32Command;
-use crate::sources::{BUFSIZE, DataMsg, DataSourceT};
+use crate::sources::{BUFSIZE, DataMsg, DataSourceConfig, DataSourceT};
 
 const CMD_PREAMBLE_HOST_TO_ESP: [u8; 4] = [0xC3; 4];
 const CMD_PACKET_TOTAL_SIZE_HOST_TO_ESP: usize = 128;

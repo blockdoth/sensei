@@ -1,14 +1,11 @@
-use crate::ToConfig;
-use crate::errors::{SinkError, TaskError};
-use crate::network::rpc_message::DataMsg;
-use crate::sinks::{Sink, SinkConfig};
 use async_trait::async_trait;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 
-use crate::errors::SinkError;
+use crate::ToConfig;
+use crate::errors::{SinkError, TaskError};
 use crate::network::rpc_message::DataMsg;
-use crate::sinks::Sink;
+use crate::sinks::{Sink, SinkConfig};
 
 /// Configuration for a YAML-based file sink.
 ///
@@ -36,10 +33,7 @@ impl FileSink {
     pub async fn new(cg: FileConfig) -> Result<Self, SinkError> {
         log::trace!("Creating YAML file sink (file: {})", cg.file);
         let file = File::create(cg.clone().file).await.map_err(SinkError::Io)?;
-        Ok(FileSink {
-            config: cg.clone(),
-            file,
-        })
+        Ok(FileSink { config: cg.clone(), file })
     }
 }
 

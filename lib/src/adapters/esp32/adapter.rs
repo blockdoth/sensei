@@ -1,20 +1,12 @@
+use std::io::{Cursor, Read};
+
+use byteorder::{LittleEndian, ReadBytesExt};
+
 use crate::ToConfig;
 use crate::adapters::{CsiDataAdapter, DataAdapterConfig};
 use crate::csi_types::{Complex, CsiData};
 use crate::errors::{CsiAdapterError, Esp32AdapterError, TaskError}; // Import Esp32AdapterError
 use crate::network::rpc_message::DataMsg;
-
-use byteorder::{LittleEndian, ReadBytesExt};
-use std::io::{Cursor, Read}; // <-- Added std::io::Read
-use std::io::{Cursor, Read};
-
-use byteorder::{LittleEndian, ReadBytesExt};
-
-use crate::adapters::CsiDataAdapter;
-use crate::csi_types::{Complex, CsiData};
-use crate::errors::{CsiAdapterError, Esp32AdapterError}; // Import Esp32AdapterError
-use crate::network::rpc_message::DataMsg; // <-- Added std::io::Read
-
 // ESP32 typically operates in SISO mode (1 Transmit, 1 Receive antenna).
 // If future ESP32 variants support MIMO CSI and the format changes to include Ntx/Nrx,
 // this might need to become configurable or be parsed from the packet.
@@ -195,8 +187,6 @@ impl ToConfig<DataAdapterConfig> for ESP32Adapter {
     /// // Save or transmit the config as needed
     /// ```
     async fn to_config(&self) -> Result<DataAdapterConfig, TaskError> {
-        Ok(DataAdapterConfig::Esp32 {
-            scale_csi: self.scale_csi,
-        })
+        Ok(DataAdapterConfig::Esp32 { scale_csi: self.scale_csi })
     }
 }

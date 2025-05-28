@@ -10,12 +10,11 @@
 //! Mofidied based on: wisense/sensei/lib/src/adapters/mod.rs
 //! Originally authored by: Fabian Portner
 
-use crate::FromConfig;
-use crate::ToConfig;
 use crate::csi_types::CsiData;
 use crate::errors::{CsiAdapterError, TaskError};
 use crate::network::rpc_message::DataMsg;
 use crate::network::rpc_message::DataMsg::CsiFrame;
+use crate::{FromConfig, ToConfig};
 pub mod csv;
 pub mod esp32;
 pub mod iwl;

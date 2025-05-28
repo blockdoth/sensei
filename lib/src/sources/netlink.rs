@@ -1,23 +1,13 @@
-use crate::ToConfig;
-use crate::errors::DataSourceError;
-use crate::network::rpc_message::SourceType;
-use crate::sources::BUFSIZE;
-use crate::sources::DataMsg;
-use crate::sources::controllers::Controller;
-use crate::sources::{DataSourceConfig, DataSourceT, TaskError};
-
-use log::trace;
-use netlink_sys::{Socket, SocketAddr, protocols::NETLINK_CONNECTOR};
-use serde::{Deserialize, Serialize};
 use log::trace;
 use netlink_sys::protocols::NETLINK_CONNECTOR;
 use netlink_sys::{Socket, SocketAddr};
 use serde::{Deserialize, Serialize};
 
+use crate::ToConfig;
 use crate::errors::DataSourceError;
 use crate::network::rpc_message::SourceType;
 use crate::sources::controllers::Controller;
-use crate::sources::{BUFSIZE, DataMsg, DataSourceT};
+use crate::sources::{BUFSIZE, DataMsg, DataSourceConfig, DataSourceT, TaskError};
 
 // Configuration structure for a Netlink source.
 ///

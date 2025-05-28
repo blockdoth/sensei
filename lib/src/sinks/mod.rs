@@ -19,11 +19,10 @@ use std::net::SocketAddr;
 
 use async_trait::async_trait;
 
-use crate::FromConfig;
-use crate::ToConfig;
 use crate::errors::{SinkError, TaskError};
 use crate::network::rpc_message::{DataMsg, RpcMessage, RpcMessageKind};
 use crate::network::tcp::client::TcpClient;
+use crate::{FromConfig, ToConfig};
 
 pub mod file;
 pub mod tcp;

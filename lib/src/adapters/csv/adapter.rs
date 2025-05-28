@@ -1,12 +1,11 @@
-use crate::ToConfig;
-use crate::adapters::{CsiDataAdapter, DataAdapterConfig};
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::vec;
 
 use log::info;
 
-use crate::adapters::CsiDataAdapter;
+use crate::ToConfig;
+use crate::adapters::{CsiDataAdapter, DataAdapterConfig};
 use crate::csi_types::{Complex, CsiData};
 use crate::errors::{CsiAdapterError, TaskError};
 use crate::network::rpc_message::DataMsg;

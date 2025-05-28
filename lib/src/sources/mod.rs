@@ -21,19 +21,13 @@ pub mod esp32;
 pub mod netlink;
 pub mod tcp;
 
-use crate::FromConfig;
-use crate::ToConfig;
-use crate::errors::DataSourceError;
-use crate::errors::TaskError;
-use crate::network::rpc_message::DataMsg;
-use crate::sources::controllers::Controller;
 use std::any::Any;
 use std::net::SocketAddr;
 
-use crate::FromConfig;
 use crate::errors::{DataSourceError, TaskError};
 use crate::network::rpc_message::DataMsg;
 use crate::sources::controllers::Controller;
+use crate::{FromConfig, ToConfig};
 
 pub const BUFSIZE: usize = 65535;
 

@@ -78,8 +78,6 @@ impl ToConfig<DataAdapterConfig> for TCPAdapter {
     /// // Save config to file or transmit to a remote manager
     /// ```
     async fn to_config(&self) -> Result<DataAdapterConfig, TaskError> {
-        Ok(DataAdapterConfig::Tcp {
-            scale_csi: self.scale_csi,
-        })
+        Ok(DataAdapterConfig::Tcp { scale_csi: self.scale_csi })
     }
 }
