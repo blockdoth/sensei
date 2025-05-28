@@ -1,10 +1,10 @@
+use crate::ToConfig;
 use crate::errors::{ControllerError, DataSourceError, TaskError}; // Ensure ControllerError is accessible
 use crate::network::rpc_message::SourceType;
 use crate::sources::BUFSIZE;
 use crate::sources::DataMsg;
-use crate::sources::{DataSourceT, DataSourceConfig};
 use crate::sources::controllers::esp32_controller::Esp32Command;
-use crate::ToConfig;
+use crate::sources::{DataSourceConfig, DataSourceT};
 
 use std::any::Any;
 use std::collections::HashMap;

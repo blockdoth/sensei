@@ -27,7 +27,6 @@ pub trait FromConfig<C> {
     async fn from_config(config: C) -> Result<Box<Self>, TaskError>;
 }
 
-
 /// Trait to convert an instance into its configuration representation.
 /// Useful for serialization or saving the current state to a configuration file (e.g., YAML).
 /// This trait should be implemented for all configurable components such as

@@ -1,10 +1,10 @@
+use crate::ToConfig;
 use crate::errors::DataSourceError;
 use crate::network::rpc_message::SourceType;
 use crate::sources::BUFSIZE;
 use crate::sources::DataMsg;
-use crate::sources::{DataSourceT, DataSourceConfig, TaskError};
 use crate::sources::controllers::Controller;
-use crate::ToConfig;
+use crate::sources::{DataSourceConfig, DataSourceT, TaskError};
 
 use log::trace;
 use netlink_sys::{Socket, SocketAddr, protocols::NETLINK_CONNECTOR};
@@ -53,7 +53,7 @@ impl ToConfig<DataSourceConfig> for NetlinkSource {
     /// back into a `DataSourceConfig` enum variant, specifically `DataSourceConfig::Netlink`.
     ///
     /// # Returns
-    /// 
+    ///
     /// * `Ok(DataSourceConfig::Netlink)` containing a clone of the internal configuration.
     /// * `Err(TaskError)` if conversion fails (not expected here since cloning should not fail).
     ///

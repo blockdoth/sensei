@@ -1,3 +1,4 @@
+use crate::ToConfig;
 use crate::errors::{SinkError, TaskError};
 use crate::network::rpc_message::{DataMsg, RpcMessage, RpcMessageKind};
 use crate::network::tcp::client::TcpClient;
@@ -5,7 +6,6 @@ use crate::sinks::{Sink, SinkConfig};
 use async_trait::async_trait;
 use log::trace;
 use std::net::SocketAddr;
-use crate::ToConfig;
 
 /// Configuration for a TCP sink.
 ///
@@ -27,7 +27,7 @@ pub struct TCPSink {
     /// Tcp client that is going to be sending data
     client: TcpClient,
     /// Configuration
-    config: TCPConfig, 
+    config: TCPConfig,
 }
 
 impl TCPSink {
@@ -38,7 +38,7 @@ impl TCPSink {
         trace!("Creating new TCPSink for {}", config.target_addr);
         Ok(Self {
             client: TcpClient::new(),
-            config: config,
+            config,
         })
     }
 }
@@ -69,7 +69,10 @@ impl Sink for TCPSink {
     ///
     /// Returns a ['SinkError'] if the operation fails (e.g., I/O failure)
     async fn close(&mut self, _data: DataMsg) -> Result<(), SinkError> {
-        trace!("Disconnecting from TCP socket at {}", self.config.target_addr);
+        trace!(
+            "Disconnecting from TCP socket at {}",
+            self.config.target_addr
+        );
         self.client
             .disconnect(self.config.target_addr)
             .await
@@ -97,7 +100,6 @@ impl Sink for TCPSink {
         Ok(())
     }
 }
-
 
 #[async_trait::async_trait]
 impl ToConfig<SinkConfig> for TCPSink {

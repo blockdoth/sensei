@@ -16,13 +16,13 @@
 //! ```
 
 use crate::FromConfig;
+use crate::ToConfig;
 use crate::errors::SinkError;
 use crate::errors::TaskError;
 use crate::network::rpc_message::{DataMsg, RpcMessage, RpcMessageKind};
 use crate::network::tcp::client::TcpClient;
 use async_trait::async_trait;
 use std::net::SocketAddr;
-use crate::ToConfig;
 
 pub mod file;
 pub mod tcp;

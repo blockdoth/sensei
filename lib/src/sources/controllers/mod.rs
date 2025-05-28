@@ -44,7 +44,7 @@ use crate::ToConfig;
 /// ```
 #[typetag::serde(tag = "type")]
 #[async_trait]
-pub trait Controller: Send + Sync  + ToConfig<ControllerParams>{
+pub trait Controller: Send + Sync + ToConfig<ControllerParams> {
     /// Apply controller parameters or logic to the given source.
     ///
     /// This method allows the controller to source-level setup.

@@ -1,10 +1,10 @@
+use crate::ToConfig;
 use crate::errors::{ControllerError, TaskError};
 use crate::sources::DataSourceT;
 use crate::sources::controllers::{Controller, ControllerParams};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use tokio::process::Command;
-use crate::ToConfig;
 
 /// Parameters for the Netlink controller, typically parsed from yaml file
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone, schemars::JsonSchema)]
@@ -144,7 +144,6 @@ fn set_rx_chainmask(phy_name: &str, chainmask: u8) -> Result<(), ControllerError
     writeln!(file, "{chainmask}")?;
     Ok(())
 }
-
 
 #[async_trait::async_trait]
 impl ToConfig<ControllerParams> for NetlinkControllerParams {

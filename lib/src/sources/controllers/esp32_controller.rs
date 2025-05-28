@@ -1,7 +1,7 @@
+use crate::ToConfig;
 use crate::errors::{ControllerError, TaskError};
 use crate::sources::DataSourceT;
 use crate::sources::controllers::{Controller, ControllerParams}; // The controller trait
-use crate::ToConfig;
 
 // Assume your concrete ESP32 source is located here. Adjust path as needed.
 use crate::sources::esp32::Esp32Source;
@@ -230,7 +230,6 @@ impl Controller for Esp32ControllerParams {
     }
 }
 
-
 #[async_trait::async_trait]
 impl ToConfig<ControllerParams> for Esp32ControllerParams {
     /// Converts the current `Esp32ControllerParams` instance into its configuration representation.
@@ -252,4 +251,3 @@ impl ToConfig<ControllerParams> for Esp32ControllerParams {
         Ok(ControllerParams::Esp32(self.clone()))
     }
 }
-

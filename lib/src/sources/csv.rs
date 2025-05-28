@@ -1,10 +1,10 @@
+use crate::ToConfig;
 use crate::errors::{DataSourceError, TaskError};
 use crate::network::rpc_message::SourceType;
 use crate::sources::BUFSIZE;
 use crate::sources::DataMsg;
-use crate::sources::{DataSourceT, DataSourceConfig};
 use crate::sources::controllers::Controller;
-use crate::ToConfig;
+use crate::sources::{DataSourceConfig, DataSourceT};
 
 use log::trace;
 use serde::Deserialize;
@@ -133,6 +133,27 @@ impl DataSourceT for CsvSource {
     }
 }
 
+#[async_trait::async_trait]
+impl ToConfig<DataSourceConfig> for CsvSource {
+    /// Attempts to convert the current `CsvSource` instance into its configuration representation.
+    ///
+    /// This method implements the `ToConfig` trait for `CsvSource`, but it is currently not
+    /// implemented and always returns an error. This serves as a placeholder for future
+    /// support, where configuration export for `CsvSource` may be needed.
+    ///
+    /// # Returns
+    /// - `Err(TaskError::NotImplemented)` to indicate that this functionality is not available.
+    ///
+    /// # Example
+    /// ```
+    /// let config = csv_source.to_config().await;
+    /// assert!(config.is_err());
+    /// ```
+    async fn to_config(&self) -> Result<DataSourceConfig, TaskError> {
+        Err(TaskError::NotImplemented)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,12 +224,5 @@ mod tests {
         let mut csv_source = CsvSource::new(config).unwrap();
         assert!(csv_source.start().await.is_ok());
         assert!(csv_source.stop().await.is_ok());
-    }
-}
-
-#[async_trait::async_trait]
-impl ToConfig<DataSourceConfig> for CsvSource {
-    async fn to_config(&self) -> Result<DataSourceConfig, TaskError> {
-        Err(TaskError::NotImplemented)
     }
 }

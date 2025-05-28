@@ -1,8 +1,8 @@
+use crate::ToConfig;
 use crate::errors::{ControllerError, TaskError};
 use crate::sources::DataSourceT;
 use crate::sources::controllers::{Controller, ControllerParams};
 use std::net::SocketAddr;
-use crate::ToConfig;
 
 /// Parameters for the TCP controller.
 ///
@@ -29,7 +29,6 @@ impl Controller for TCPControllerParams {
     }
 }
 
-
 #[async_trait::async_trait]
 impl ToConfig<ControllerParams> for TCPControllerParams {
     /// Converts the current `TCPControllerParams` instance into its configuration representation.
@@ -52,4 +51,3 @@ impl ToConfig<ControllerParams> for TCPControllerParams {
         Ok(ControllerParams::Tcp(self.clone()))
     }
 }
-
