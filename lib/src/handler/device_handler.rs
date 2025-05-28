@@ -10,12 +10,12 @@ use crate::sinks::*;
 use crate::sources::controllers::*;
 use crate::sources::{DataSourceConfig, DataSourceT};
 use std::fs;
+use std::fs::File;
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
-use std::fs::File;
-use std::io::Write;
 
 /// Configuration for a single device handler.
 ///
