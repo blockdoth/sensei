@@ -5,7 +5,7 @@ echo "Running clippy..."
 cargo clippy --all-targets --all-features -- -D warnings
 
 echo "Running rustfmt..."
-cargo fmt --all -- 
+cargo fmt --all --
 
 echo "Running ruff fmt..."
 ruff format

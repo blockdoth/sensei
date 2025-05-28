@@ -1,11 +1,10 @@
-use argh::FromArgs;
 use std::net::{AddrParseError, SocketAddr};
 use std::path::PathBuf;
 
+use argh::FromArgs;
 use simplelog::{ColorChoice, CombinedLogger, LevelFilter, TermLogger, TerminalMode, WriteLogger};
 
 use crate::config::{OrchestratorConfig, RegistryConfig, SystemNodeConfig, VisualiserConfig};
-
 use crate::esp_tool;
 
 /// A simple app to perform collection from configured sources
@@ -52,9 +51,7 @@ pub struct SystemNodeSubcommandArgs {
 }
 
 fn default_device_configs() -> PathBuf {
-    "sensei/src/system_node/example_config.yaml"
-        .parse()
-        .unwrap()
+    "sensei/src/system_node/example_config.yaml".parse().unwrap()
 }
 
 impl SystemNodeSubcommandArgs {
@@ -93,11 +90,7 @@ impl OrchestratorSubcommandArgs {
     pub fn parse(&self) -> Result<OrchestratorConfig, AddrParseError> {
         // TODO input validation
         Ok(OrchestratorConfig {
-            targets: self
-                .target
-                .iter()
-                .map(|addr| addr.parse().unwrap())
-                .collect(),
+            targets: self.target.iter().map(|addr| addr.parse().unwrap()).collect(),
         })
     }
 }

@@ -1,9 +1,10 @@
-use crate::errors::SinkError;
-use crate::network::rpc_message::DataMsg;
-use crate::sinks::Sink;
 use async_trait::async_trait;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
+
+use crate::errors::SinkError;
+use crate::network::rpc_message::DataMsg;
+use crate::sinks::Sink;
 
 /// Configuration for a YAML-based file sink.
 ///
@@ -36,6 +37,27 @@ impl FileSink {
 
 #[async_trait]
 impl Sink for FileSink {
+    // already opened
+    /// Open the connection to the file sink, this method is just for the trait
+    ///
+    /// # Errors
+    ///
+    /// Returns a ['SinkError'] if the operation fails (e.g., I/O failure)
+    async fn open(&mut self, data: DataMsg) -> Result<(), SinkError> {
+        Ok(())
+    }
+
+    // in rust file is closed whenever it goes out scope
+
+    /// Closes the connection to the file sink, this method is just for the trait
+    ///
+    /// # Errors
+    ///
+    /// Returns a ['SinkError'] if the operation fails (e.g., I/O failure)
+    async fn close(&mut self, data: DataMsg) -> Result<(), SinkError> {
+        Ok(())
+    }
+
     /// Serializes the message to YAML and writes it to the file, followed by a document separator.
     ///
     /// # Errors
@@ -43,16 +65,9 @@ impl Sink for FileSink {
     /// - Returns `SinkError::Serialize` if YAML serialization fails.
     /// - Returns `SinkError::Io` if writing to the file fails.
     async fn provide(&mut self, data: DataMsg) -> Result<(), SinkError> {
-        let serialized =
-            serde_yaml::to_string(&data).map_err(|e| SinkError::Serialize(e.to_string()))?;
-        self.file
-            .write_all(serialized.as_bytes())
-            .await
-            .map_err(SinkError::Io)?;
-        self.file
-            .write_all(b"\n---\n")
-            .await
-            .map_err(SinkError::Io)?;
+        let serialized = serde_yaml::to_string(&data).map_err(|e| SinkError::Serialize(e.to_string()))?;
+        self.file.write_all(serialized.as_bytes()).await.map_err(SinkError::Io)?;
+        self.file.write_all(b"\n---\n").await.map_err(SinkError::Io)?;
         Ok(())
     }
 }

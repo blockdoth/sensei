@@ -1,7 +1,9 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::net::SocketAddr;
+use std::sync::Arc;
 
 use argh::SubCommand;
-use tokio::{net::UdpSocket, task::JoinHandle};
+use tokio::net::UdpSocket;
+use tokio::task::JoinHandle;
 
 use crate::cli::{GlobalConfig, SubCommandsArgs};
 
