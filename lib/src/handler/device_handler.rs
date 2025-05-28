@@ -1,6 +1,7 @@
 //! DeviceHandler manages the lifecycle and data flow for a single device,
 //! including source reading, data adaptation, and dispatching to sinks.
 use crate::FromConfig;
+use crate::ToConfig;
 use crate::adapters::*;
 use crate::errors::{ControllerError, CsiAdapterError, DataSourceError, SinkError, TaskError};
 use crate::network::rpc_message::{DataMsg, SourceType};
@@ -52,10 +53,8 @@ impl DeviceHandlerConfig {
 /// optionally adapting it, and dispatching it to one or more sinks.
 /// It runs on it's own thread
 pub struct DeviceHandler {
-    /// The device_id for the device, unique in the whole network
-    device_id: u64,
-    /// The source type of device, ex: iwl, atheros etc.
-    stype: SourceType,
+    /// Configuration of the device Handler
+    config: DeviceHandlerConfig,
     /// Used for stop mechanism
     shutdown_tx: Option<watch::Sender<()>>,
     /// Handle of the thread
@@ -92,8 +91,8 @@ impl DeviceHandler {
         mut adapter: Option<Box<dyn CsiDataAdapter>>,
         mut sinks: Vec<Box<dyn Sink>>,
     ) -> Result<(), TaskError> {
-        let device_id = self.device_id;
-        let stype = self.stype.clone();
+        let device_id = self.config.device_id;
+        let stype = self.config.stype.clone();
 
         let (shutdown_tx, mut shutdown_rx) = watch::channel(());
 
@@ -195,8 +194,7 @@ impl DeviceHandler {
         // Replace internal state
         let new = *new_handler; // unpack Box
 
-        self.device_id = new.device_id;
-        self.stype = new.stype;
+        self.config = new.config;
         self.shutdown_tx = new.shutdown_tx;
         self.handle = new.handle;
 
@@ -221,16 +219,16 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
     /// - Adapter instantiation fails
     /// - Sink instantiation fails
     /// - Starting the handler’s background task fails
-    async fn from_config(config: DeviceHandlerConfig) -> Result<Box<Self>, TaskError> {
+    async fn from_config(cg: DeviceHandlerConfig) -> Result<Box<Self>, TaskError> {
         // instantiate source
-        let mut source = <dyn DataSourceT>::from_config(config.source.clone()).await?;
+        let mut source = <dyn DataSourceT>::from_config(cg.source.clone()).await?;
 
         source.start().await?;
 
         // apply controller if configured
-        if let Some(controller_cfg) = config.controller.clone() {
+        if let Some(controller_cfg) = cg.controller.clone() {
             // check that controller is the correct one to apply to the source
-            match (&controller_cfg, &config.source) {
+            match (&controller_cfg, &cg.source) {
                 (ControllerParams::Esp32(_), DataSourceConfig::Esp32(_))
                 | (ControllerParams::Netlink(_), DataSourceConfig::Netlink(_))
                 | (ControllerParams::Tcp(_), DataSourceConfig::Tcp(_)) => {}
@@ -242,9 +240,9 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
             // Add other checks
         }
         // instantiate adapter if configured
-        let adapter = if let Some(adapt_cfg) = config.adapter {
+        let adapter = if let Some(adapt_cfg) = cg.adapter {
             // Make sure the adapter is the right one for the source
-            match (&adapt_cfg, &config.source) {
+            match (&adapt_cfg, &cg.source) {
                 (DataAdapterConfig::Esp32 { scale_csi: _ }, DataSourceConfig::Esp32(_))
                 | (DataAdapterConfig::Iwl { scale_csi: _ }, DataSourceConfig::Netlink(_))
                 | (_, DataSourceConfig::Tcp(_)) => {}
@@ -255,8 +253,8 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
             None
         };
         // instantiate sinks
-        let mut sinks = Vec::with_capacity(config.sinks.len());
-        for sc in config.sinks.into_iter() {
+        let mut sinks = Vec::with_capacity(cg.sinks.len());
+        for sc in cg.sinks.clone().into_iter() {
             // Checkin that the device id from config is the same in the casee
             // that you are using a tcpsink
             if let SinkConfig::Tcp(TCPConfig {
@@ -264,7 +262,7 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
                 ref device_id,
             }) = sc
             {
-                if device_id != &config.device_id {
+                if device_id != &cg.device_id {
                     return Err(TaskError::WrongSinkDid);
                 }
             }
@@ -272,13 +270,34 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
         }
 
         let mut handler = DeviceHandler {
-            device_id: config.device_id,
-            stype: config.stype.clone(),
+            config: cg.clone(),
             shutdown_tx: None,
             handle: None,
         };
 
         handler.start(source, adapter, sinks).await?;
         Ok(Box::new(handler))
+    }
+}
+
+#[async_trait::async_trait]
+impl ToConfig<DeviceHandlerConfig> for DeviceHandler {
+    /// Converts the current `DeviceHandler` instance into its configuration representation.
+    ///
+    /// This method implements the `ToConfig` trait for `DeviceHandler`, returning a cloned
+    /// copy of its internal `DeviceHandlerConfig`. This allows the handler’s configuration
+    /// to be extracted for serialization, inspection, or export.
+    ///
+    /// # Returns
+    /// - `Ok(DeviceHandlerConfig)` containing a clone of the current configuration.
+    /// - `Err(TaskError)` if an error occurs (not applicable in this implementation).
+    ///
+    /// # Example
+    /// ```
+    /// let config = device_handler.to_config().await?;
+    /// // Use the configuration for export or diagnostics
+    /// ```
+    async fn to_config(&self) -> Result<DeviceHandlerConfig, TaskError> {
+        Ok(self.config.clone())
     }
 }
