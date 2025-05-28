@@ -55,16 +55,6 @@ impl ToConfig<DataSourceConfig> for NetlinkSource {
     ///
     /// * `Ok(DataSourceConfig::Netlink)` containing a clone of the internal configuration.
     /// * `Err(TaskError)` if conversion fails (not expected here since cloning should not fail).
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # async fn example(netlink_source: &NetlinkSource) -> Result<(), TaskError> {
-    /// let config = netlink_source.to_config().await?;
-    /// // You can now serialize `config` or use it for other purposes.
-    /// # Ok(())
-    /// # }
-    /// ```
     async fn to_config(&self) -> Result<DataSourceConfig, TaskError> {
         Ok(DataSourceConfig::Netlink(self.config.clone()))
     }

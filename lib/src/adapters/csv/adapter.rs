@@ -217,12 +217,6 @@ impl ToConfig<DataAdapterConfig> for CSVAdapter<'_> {
     /// # Returns
     /// - `Ok(DataAdapterConfig::CSV)` on successful conversion.
     /// - `Err(TaskError)` if an error occurs (not applicable in this implementation).
-    ///
-    /// # Example
-    /// ```
-    /// let config = csv_adapter.to_config().await?;
-    /// // Serialize or persist the config
-    /// ```
     async fn to_config(&self) -> Result<DataAdapterConfig, TaskError> {
         Ok(DataAdapterConfig::CSV {})
     }

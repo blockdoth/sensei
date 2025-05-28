@@ -103,11 +103,6 @@ impl ToConfig<SinkConfig> for TCPSink {
     /// - `Ok(SinkConfig::TCP)` containing the internal configuration of the `TCPSink`.
     /// - `Err(TaskError)` if any failure occurs during the conversion (though this implementation
     ///   does not currently produce an error).
-    ///
-    /// # Examples
-    /// ```
-    /// let config = tcp_sink.to_config().await?;
-    /// save_config_to_file(&config)?;
     async fn to_config(&self) -> Result<SinkConfig, TaskError> {
         Ok(SinkConfig::Tcp(self.config.clone()))
     }

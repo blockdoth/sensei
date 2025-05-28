@@ -118,16 +118,6 @@ impl ToConfig<DataSourceConfig> for TCPSource {
     ///
     /// * `Ok(DataSourceConfig::Tcp)` containing a `TCPConfig` initialized with the cloned target address.
     /// * `Err(TaskError)` if conversion fails (not expected here as cloning should succeed).
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// # async fn example(netlink_source: &NetlinkSource) -> Result<(), TaskError> {
-    /// let config = netlink_source.to_config().await?;
-    /// // `config` will be a `DataSourceConfig::Tcp` variant.
-    /// # Ok(())
-    /// # }
-    /// ```
     async fn to_config(&self) -> Result<DataSourceConfig, TaskError> {
         Ok(DataSourceConfig::Tcp(TCPConfig {
             target_addr: self.target_addr,

@@ -121,12 +121,6 @@ impl ToConfig<DataSourceConfig> for CsvSource {
     ///
     /// # Returns
     /// - `Err(TaskError::NotImplemented)` to indicate that this functionality is not available.
-    ///
-    /// # Example
-    /// ```
-    /// let config = csv_source.to_config().await;
-    /// assert!(config.is_err());
-    /// ```
     async fn to_config(&self) -> Result<DataSourceConfig, TaskError> {
         Err(TaskError::NotImplemented)
     }

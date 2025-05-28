@@ -539,16 +539,6 @@ impl ToConfig<DataSourceConfig> for Esp32Source {
     ///
     /// * `Ok(DataSourceConfig::Esp32)` containing a clone of the `Esp32SourceConfig`.
     /// * `Err(TaskError)` if the conversion fails (unlikely as cloning should succeed).
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # async fn example(esp32_source: &Esp32Source) -> Result<(), TaskError> {
-    /// let config = esp32_source.to_config().await?;
-    /// // The config can now be serialized or used for other purposes.
-    /// # Ok(())
-    /// # }
-    /// ```
     async fn to_config(&self) -> Result<DataSourceConfig, TaskError> {
         Ok(DataSourceConfig::Esp32(self.config.clone()))
     }

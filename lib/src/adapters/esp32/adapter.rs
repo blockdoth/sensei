@@ -180,12 +180,6 @@ impl ToConfig<DataAdapterConfig> for ESP32Adapter {
     /// # Returns
     /// - `Ok(DataAdapterConfig::Esp32)` containing the cloned `scale_csi` value.
     /// - `Err(TaskError)` if conversion fails (not applicable in this implementation).
-    ///
-    /// # Example
-    /// ```
-    /// let config = esp32_adapter.to_config().await?;
-    /// // Save or transmit the config as needed
-    /// ```
     async fn to_config(&self) -> Result<DataAdapterConfig, TaskError> {
         Ok(DataAdapterConfig::Esp32 { scale_csi: self.scale_csi })
     }

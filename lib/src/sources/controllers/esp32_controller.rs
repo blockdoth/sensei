@@ -223,12 +223,6 @@ impl ToConfig<ControllerParams> for Esp32ControllerParams {
     /// # Returns
     /// - `Ok(ControllerParams::Esp32)` containing a cloned version of the controller parameters.
     /// - `Err(TaskError)` if an error occurs during conversion (not applicable in this implementation).
-    ///
-    /// # Example
-    /// ```
-    /// let controller_config = esp32_controller.to_config().await?;
-    /// // You can now serialize `controller_config` or reuse it elsewhere
-    /// ```
     async fn to_config(&self) -> Result<ControllerParams, TaskError> {
         Ok(ControllerParams::Esp32(self.clone()))
     }

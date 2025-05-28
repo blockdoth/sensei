@@ -86,12 +86,6 @@ impl ToConfig<SinkConfig> for FileSink {
     /// - `Ok(SinkConfig::File)` containing the internal configuration of the `FileSink`.
     /// - `Err(TaskError)` if any failure occurs during the conversion (though this implementation
     ///   does not currently produce an error).
-    ///
-    /// # Examples
-    /// ```
-    /// let config = file_sink.to_config().await?;
-    /// // Serialize `config` to a config file
-    /// ```
     async fn to_config(&self) -> Result<SinkConfig, TaskError> {
         Ok(SinkConfig::File(self.config.clone()))
     }

@@ -56,13 +56,6 @@ impl DeviceHandlerConfig {
     /// - `Ok(Vec<DeviceHandlerConfig>)` if the file is read and deserialized successfully.
     /// - `Err(TaskError::Io)` if the file cannot be read (e.g., missing, permissions).
     /// - `Err(TaskError::Parse)` if deserialization fails (e.g., invalid YAML format).
-    ///
-    /// # Example
-    /// ```rust
-    /// let path = PathBuf::from("config/device_configs.yaml");
-    /// let configs = DeviceHandlerConfig::from_yaml(path).await?;
-    /// ```
-    ///
     /// # Errors
     /// This function may return:
     /// - `TaskError::Io` for file reading issues.
@@ -337,12 +330,6 @@ impl ToConfig<DeviceHandlerConfig> for DeviceHandler {
     /// # Returns
     /// - `Ok(DeviceHandlerConfig)` containing a clone of the current configuration.
     /// - `Err(TaskError)` if an error occurs (not applicable in this implementation).
-    ///
-    /// # Example
-    /// ```
-    /// let config = device_handler.to_config().await?;
-    /// // Use the configuration for export or diagnostics
-    /// ```
     async fn to_config(&self) -> Result<DeviceHandlerConfig, TaskError> {
         Ok(self.config.clone())
     }

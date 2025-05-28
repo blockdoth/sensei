@@ -210,12 +210,6 @@ impl ToConfig<DataAdapterConfig> for IwlAdapter {
     /// # Returns
     /// - `Ok(DataAdapterConfig::Iwl)` containing the cloned `scale_csi` field.
     /// - `Err(TaskError)` if an error occurs during conversion (not applicable in this implementation).
-    ///
-    /// # Example
-    /// ```
-    /// let config = iwl_adapter.to_config().await?;
-    /// // Use the config in your application or save it externally
-    /// ```
     async fn to_config(&self) -> Result<DataAdapterConfig, TaskError> {
         Ok(DataAdapterConfig::Iwl { scale_csi: self.scale_csi })
     }

@@ -42,12 +42,6 @@ impl ToConfig<ControllerParams> for TCPControllerParams {
     /// # Returns
     /// - `Ok(ControllerParams::Tcp)` containing a reference to the current `TCPControllerParams`.
     /// - `Err(TaskError)` if an error occurs during conversion (not applicable in this implementation).
-    ///
-    /// # Example
-    /// ```
-    /// let config = tcp_controller_params.to_config().await?;
-    /// println!("{:?}", config); // or serialize to file
-    /// ```
     async fn to_config(&self) -> Result<ControllerParams, TaskError> {
         Ok(ControllerParams::Tcp(self.clone()))
     }

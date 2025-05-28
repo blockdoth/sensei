@@ -149,12 +149,6 @@ impl ToConfig<ControllerParams> for NetlinkControllerParams {
     /// # Returns
     /// - `Ok(ControllerParams::Netlink)` containing a cloned version of the controller's parameters.
     /// - `Err(TaskError)` if an error occurs during conversion (not applicable in this implementation).
-    ///
-    /// # Example
-    /// ```
-    /// let config = netlink_controller.to_config().await?;
-    /// // Serialize `config` to disk or pass it to another component
-    /// ```
     async fn to_config(&self) -> Result<ControllerParams, TaskError> {
         Ok(ControllerParams::Netlink(self.clone()))
     }

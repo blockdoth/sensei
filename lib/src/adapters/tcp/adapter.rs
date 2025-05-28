@@ -71,12 +71,6 @@ impl ToConfig<DataAdapterConfig> for TCPAdapter {
     /// # Returns
     /// - `Ok(DataAdapterConfig::Tcp)` containing the current value of `scale_csi`.
     /// - `Err(TaskError)` if an error occurs during the conversion (not applicable in this implementation).
-    ///
-    /// # Example
-    /// ```
-    /// let config = tcp_adapter.to_config().await?;
-    /// // Save config to file or transmit to a remote manager
-    /// ```
     async fn to_config(&self) -> Result<DataAdapterConfig, TaskError> {
         Ok(DataAdapterConfig::Tcp { scale_csi: self.scale_csi })
     }
