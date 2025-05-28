@@ -5,11 +5,17 @@ use crate::sources::controllers::{Controller, ControllerParams}; // The controll
 
 // Assume your concrete ESP32 source is located here. Adjust path as needed.
 use crate::sources::esp32::Esp32Source;
+use std::any::Any;
 
 use async_trait::async_trait;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::any::Any; // For downcasting
+
+use crate::errors::ControllerError;
+use crate::sources::DataSourceT;
+use crate::sources::controllers::Controller; // The controller trait
+// Assume your concrete ESP32 source is located here. Adjust path as needed.
+use crate::sources::esp32::Esp32Source; // For downcasting
 
 // --- ESP32 Specific Enums ---
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, JsonSchema)]
@@ -99,11 +105,7 @@ impl Controller for Esp32ControllerParams {
         // This requires `DataSourceT: Any` and `Esp32Source` to be the concrete type.
         let esp_source = (source as &mut dyn Any)
             .downcast_mut::<Esp32Source>()
-            .ok_or_else(|| {
-                ControllerError::InvalidParams(
-                    "Controller expected an ESP32Source compatible type.".to_string(),
-                )
-            })?;
+            .ok_or_else(|| ControllerError::InvalidParams("Controller expected an ESP32Source compatible type.".to_string()))?;
 
         // 1. Set Channel
         if let Some(channel) = self.set_channel {
@@ -123,12 +125,9 @@ impl Controller for Esp32ControllerParams {
         // 2. Apply Device Configuration
         let mut mode_for_acquisition_logic: Option<OperationMode> = None;
         if let Some(ref config_payload) = self.apply_device_config {
-            if config_payload.bandwidth == Bandwidth::Forty
-                && config_payload.secondary_channel == SecondaryChannel::None
-            {
+            if config_payload.bandwidth == Bandwidth::Forty && config_payload.secondary_channel == SecondaryChannel::None {
                 return Err(ControllerError::InvalidParams(
-                    "40MHz bandwidth requires a secondary channel (Above or Below) to be set."
-                        .to_string(),
+                    "40MHz bandwidth requires a secondary channel (Above or Below) to be set.".to_string(),
                 ));
             }
 
@@ -165,10 +164,7 @@ impl Controller for Esp32ControllerParams {
 
         // 4. MAC Filters
         if let Some(true) = self.clear_all_mac_filters {
-            esp_source
-                .send_esp32_command(Esp32Command::WhitelistClear, None)
-                .await
-                .map(|_| ())?;
+            esp_source.send_esp32_command(Esp32Command::WhitelistClear, None).await.map(|_| ())?;
         }
         if let Some(ref filters_to_add) = self.mac_filters_to_add {
             for filter_pair in filters_to_add {
@@ -194,21 +190,13 @@ impl Controller for Esp32ControllerParams {
 
         // 6. Time Synchronization
         if let Some(true) = self.synchronize_time {
-            esp_source
-                .send_esp32_command(Esp32Command::SynchronizeTimeInit, None)
-                .await
-                .map(|_| ())?;
+            esp_source.send_esp32_command(Esp32Command::SynchronizeTimeInit, None).await.map(|_| ())?;
             let time_us = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|e| {
-                    ControllerError::Execution(format!("System time error for sync: {e}"))
-                })?
+                .map_err(|e| ControllerError::Execution(format!("System time error for sync: {e}")))?
                 .as_micros() as u64;
             esp_source
-                .send_esp32_command(
-                    Esp32Command::SynchronizeTimeApply,
-                    Some(time_us.to_le_bytes().to_vec()),
-                )
+                .send_esp32_command(Esp32Command::SynchronizeTimeApply, Some(time_us.to_le_bytes().to_vec()))
                 .await
                 .map(|_| ())?;
         }

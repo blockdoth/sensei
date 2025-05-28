@@ -47,9 +47,7 @@ impl CsiDataAdapter for TCPAdapter {
     /// * `Err(CsiAdapterError) or Some(None)` if parsing fails.
     async fn produce(&mut self, msg: DataMsg) -> Result<Option<DataMsg>, CsiAdapterError> {
         match msg {
-            ref f @ DataMsg::RawFrame {
-                ref source_type, ..
-            } => match source_type {
+            ref f @ DataMsg::RawFrame { ref source_type, .. } => match source_type {
                 SourceType::IWL5300 => IwlAdapter::new(self.scale_csi).produce(f.clone()).await,
                 SourceType::ESP32 => ESP32Adapter::new(self.scale_csi).produce(f.clone()).await,
                 SourceType::CSV => CSVAdapter::default().produce(f.clone()).await,

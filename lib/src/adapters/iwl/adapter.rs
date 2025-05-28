@@ -88,23 +88,11 @@ impl CsiDataAdapter for IwlAdapter {
 
                 // Scale CSI values
                 if self.scale_csi {
-                    scale_csi(
-                        &mut csi,
-                        &header.rssi,
-                        header.noise,
-                        header.agc,
-                        header.ntx,
-                        header.nrx,
-                    );
+                    scale_csi(&mut csi, &header.rssi, header.noise, header.agc, header.ntx, header.nrx);
                 }
 
                 // Unpermute RSSI values using the header's permutation array
-                let rssi: Vec<_> = header
-                    .perm
-                    .iter()
-                    .take(header.nrx)
-                    .map(|&permuted_rx| header.rssi[permuted_rx])
-                    .collect();
+                let rssi: Vec<_> = header.perm.iter().take(header.nrx).map(|&permuted_rx| header.rssi[permuted_rx]).collect();
                 Ok(Some(DataMsg::CsiFrame {
                     csi: CsiData {
                         timestamp: header.timestamp,
@@ -151,10 +139,7 @@ fn dbinv(x: f64) -> f64 {
 ///
 /// Total RSS in dBm.
 fn get_total_rss(rssi: &[u16], agc: u8) -> f64 {
-    let rssi_mag: f64 = rssi
-        .iter()
-        .map(|&r| if r != 0 { dbinv(r as f64) } else { 0.0 })
-        .sum();
+    let rssi_mag: f64 = rssi.iter().map(|&r| if r != 0 { dbinv(r as f64) } else { 0.0 }).sum();
     rssi_mag.log10() * 10.0 - 44.0 - agc as f64
 }
 
@@ -171,14 +156,7 @@ fn get_total_rss(rssi: &[u16], agc: u8) -> f64 {
 /// * `agc` - AGC level for the current capture.
 /// * `ntx` - Number of transmit antennas.
 /// * `nrx` - Number of receive antennas.
-fn scale_csi(
-    csi: &mut [Vec<Vec<Complex>>],
-    rssi: &[u16],
-    noise: i8,
-    agc: u8,
-    ntx: usize,
-    nrx: usize,
-) {
+fn scale_csi(csi: &mut [Vec<Vec<Complex>>], rssi: &[u16], noise: i8, agc: u8, ntx: usize, nrx: usize) {
     // Calculate the total power of the CSI matrix
     let csi_pwr: f64 = csi
         .iter()

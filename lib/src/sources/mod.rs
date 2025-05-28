@@ -30,6 +30,11 @@ use crate::sources::controllers::Controller;
 use std::any::Any;
 use std::net::SocketAddr;
 
+use crate::FromConfig;
+use crate::errors::{DataSourceError, TaskError};
+use crate::network::rpc_message::DataMsg;
+use crate::sources::controllers::Controller;
+
 pub const BUFSIZE: usize = 65535;
 
 /// Data Source Trait
@@ -102,15 +107,9 @@ impl FromConfig<DataSourceConfig> for dyn DataSourceT {
     async fn from_config(config: DataSourceConfig) -> Result<Box<Self>, TaskError> {
         let source: Box<dyn DataSourceT> = match config {
             #[cfg(target_os = "linux")]
-            DataSourceConfig::Netlink(cfg) => {
-                Box::new(netlink::NetlinkSource::new(cfg).map_err(TaskError::DataSourceError)?)
-            }
-            DataSourceConfig::Esp32(cfg) => {
-                Box::new(esp32::Esp32Source::new(cfg).map_err(TaskError::DataSourceError)?)
-            }
-            DataSourceConfig::Tcp(cfg) => {
-                Box::new(tcp::TCPSource::new(cfg).map_err(TaskError::DataSourceError)?)
-            }
+            DataSourceConfig::Netlink(cfg) => Box::new(netlink::NetlinkSource::new(cfg).map_err(TaskError::DataSourceError)?),
+            DataSourceConfig::Esp32(cfg) => Box::new(esp32::Esp32Source::new(cfg).map_err(TaskError::DataSourceError)?),
+            DataSourceConfig::Tcp(cfg) => Box::new(tcp::TCPSource::new(cfg).map_err(TaskError::DataSourceError)?),
         };
         Ok(source)
     }

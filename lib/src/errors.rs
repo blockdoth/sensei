@@ -1,5 +1,6 @@
-use crate::adapters::{csv::CSVAdapter, csv::CSVAdapterError};
 use thiserror::Error;
+
+use crate::adapters::csv::{CSVAdapter, CSVAdapterError};
 
 /// Errors that can occur during network communication with sources or clients.
 #[derive(Error, Debug)]
@@ -76,9 +77,7 @@ pub enum DataSourceError {
     NotImplemented(String),
 
     /// Insufficient privileges to access the source.
-    #[error(
-        "Permission denied: application lacks sufficient privileges. See `README.md` for details on permissions."
-    )]
+    #[error("Permission denied: application lacks sufficient privileges. See `README.md` for details on permissions.")]
     PermissionDenied,
 
     /// Attempted to read from the source before it was started.

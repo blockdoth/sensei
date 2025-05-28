@@ -1,14 +1,14 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::sync::Arc;
 
-use crate::{
-    cli::{GlobalConfig, RegistrySubcommandArgs, SubCommandsArgs},
-    config::RegistryConfig,
-    module::*,
-};
 use anyhow::Ok;
 use lib::network::rpc_message::RpcMessage;
 use log::*;
-use std::net::SocketAddr;
+
+use crate::cli::{GlobalConfig, RegistrySubcommandArgs, SubCommandsArgs};
+use crate::config::RegistryConfig;
+use crate::module::*;
 
 pub struct Registry {
     host_table: HashMap<HostId, HostInfo>,
@@ -59,11 +59,7 @@ impl Registry {
         Ok(hosts)
     }
 
-    fn register_device(
-        &mut self,
-        device_id: DeviceId,
-        device_info: DeviceInfo,
-    ) -> anyhow::Result<()> {
+    fn register_device(&mut self, device_id: DeviceId, device_info: DeviceInfo) -> anyhow::Result<()> {
         self.device_table.insert(device_id, device_info);
         Ok(())
     }
