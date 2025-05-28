@@ -114,7 +114,6 @@ pub enum ChannelMsg {
     Disconnect,
     Subscribe {
         device_id: u64,
-        mode: AdapterMode,
     },
     Unsubscribe {
         device_id: u64,
@@ -122,12 +121,10 @@ pub enum ChannelMsg {
     SubscribeTo {
         target_addr: SocketAddr,
         device_id: u64,
-        mode: AdapterMode,
     },
     UnsubscribeFrom {
         target_addr: SocketAddr,
         device_id: u64,
-        mode: AdapterMode,
     },
     ListenSubscribe {
         addr: SocketAddr,

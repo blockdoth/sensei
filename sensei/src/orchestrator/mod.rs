@@ -53,7 +53,7 @@ impl Orchestrator {
     }
 
     async fn subscribe(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: u64, mode: AdapterMode) {
-        let msg = Ctrl(CtrlMsg::Subscribe { device_id, mode });
+        let msg = Ctrl(CtrlMsg::Subscribe { device_id });
         client.lock().await.send_message(target_addr, msg).await;
     }
 
@@ -153,7 +153,6 @@ impl Orchestrator {
                 let msg = Ctrl(SubscribeTo {
                     target: source_addr,
                     device_id,
-                    mode,
                 });
 
                 send_client.lock().await.send_message(target_addr, msg).await;

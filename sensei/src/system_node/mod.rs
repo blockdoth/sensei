@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::net::SocketAddr;
 use std::ops::Deref;
@@ -99,9 +99,9 @@ impl ConnectionHandler for SystemNode {
                     }
                     return Err(NetworkError::Closed); // Indicate connection should close
                 }
-                Subscribe { device_id, mode } => {
+                Subscribe { device_id} => {
                     // device_id and mode are unused for now
-                    if send_channel.send(ChannelMsg::Subscribe { device_id, mode }).is_err() {
+                    if send_channel.send(ChannelMsg::Subscribe { device_id }).is_err() {
                         warn!("Failed to send Subscribe to own handle_send task; already closed?");
                         return Err(NetworkError::UnableToConnect);
                     }
@@ -116,8 +116,8 @@ impl ConnectionHandler for SystemNode {
                     }
                     info!("Client {} unsubscribed from data stream for device_id: {}", request.src_addr, device_id);
                 }
-                SubscribeTo { target, device_id, mode } => {
-                    let msg = Ctrl(Subscribe { device_id, mode });
+                SubscribeTo { target, device_id} => {
+                    let msg = Ctrl(Subscribe { device_id });
 
                     self.client.lock().await.connect(target);
 
@@ -154,7 +154,7 @@ impl ConnectionHandler for SystemNode {
         mut recv_data_channel: broadcast::Receiver<(DataMsg, u64)>,
         mut send_stream: OwnedWriteHalf,
     ) -> Result<(), NetworkError> {
-        let mut subscribed_ids: HashMap<u64, AdapterMode> = HashMap::new();
+        let mut subscribed_ids: HashSet<u64> = HashSet::new();
         loop {
             if recv_command_channel.has_changed().unwrap_or(false) {
                 let msg_opt = recv_command_channel.borrow_and_update().clone();
@@ -165,9 +165,9 @@ impl ConnectionHandler for SystemNode {
                         debug!("Send close confirmation");
                         break;
                     }
-                    ChannelMsg::Subscribe { device_id, mode } => {
+                    ChannelMsg::Subscribe { device_id  } => {
                         info!("Subscribed");
-                        subscribed_ids.entry(device_id).or_insert(mode);
+                        subscribed_ids.insert(device_id);
                     }
                     ChannelMsg::Unsubscribe { device_id } => {
                         info!("Unsubscribed");
@@ -180,7 +180,7 @@ impl ConnectionHandler for SystemNode {
             if !recv_data_channel.is_empty() {
                 let (data_msg, device_id) = recv_data_channel.recv().await.unwrap();
 
-                for (subscribed_id, mode) in subscribed_ids.clone() {
+                for subscribed_id in subscribed_ids.clone() {
                     if (subscribed_id == device_id) {
                         // TODO: Use the tcp sink and stuff to implement this with adapter mode
                         let msg = Data {

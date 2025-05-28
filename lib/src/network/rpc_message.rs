@@ -31,9 +31,9 @@ pub enum CtrlMsg {
     Connect,
     Disconnect,
     Configure { device_id: u64, cfg: DeviceHandlerConfig },
-    Subscribe { device_id: u64, mode: AdapterMode },
+    Subscribe { device_id: u64 },
     Unsubscribe { device_id: u64 },
-    SubscribeTo { target: SocketAddr, device_id: u64, mode: AdapterMode },
+    SubscribeTo { target: SocketAddr, device_id: u64 },
     UnsubscribeFrom { target: SocketAddr, device_id: u64 },
     PollDevices,
     Heartbeat,
@@ -91,10 +91,8 @@ impl FromStr for CtrlMsg {
             }
             "subscribe" => {
                 let device_id = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0); // TODO better id assignment
-
-                let mode = parts.next().and_then(|s| s.parse::<AdapterMode>().ok()).unwrap_or(AdapterMode::RAW);
-
-                Ok(CtrlMsg::Subscribe { device_id, mode })
+                
+                Ok(CtrlMsg::Subscribe { device_id })
             }
             "unsubscribe" => {
                 let device_id = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
