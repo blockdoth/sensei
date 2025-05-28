@@ -67,8 +67,9 @@ impl DeviceHandlerConfig {
     /// - `TaskError::Io` for file reading issues.
     /// - `TaskError::Parse` for YAML deserialization errors.
     pub async fn from_yaml(file: PathBuf) -> Result<Vec<DeviceHandlerConfig>, TaskError> {
-        let yaml = fs::read_to_string(file).map_err(|e| TaskError::Io(e.to_string()))?;
-        serde_yaml::from_str(&yaml).map_err(|e| TaskError::Parse(e.to_string()))
+        let yaml = fs::read_to_string(file)?;
+        let configs = serde_yaml::from_str(&yaml)?;
+        Ok(configs)
     }
 
     /// Serializes a list of `DeviceHandlerConfig` instances to a YAML file.
@@ -82,15 +83,12 @@ impl DeviceHandlerConfig {
     /// - `Err(TaskError)` if writing or serialization fails.
     pub fn to_yaml(file: PathBuf, configs: Vec<DeviceHandlerConfig>) -> Result<(), TaskError> {
         // Serialize the vector to a YAML string
-        let yaml = serde_yaml::to_string(&configs)
-            .map_err(|e| TaskError::Serialization(e.to_string()))?;
+        let yaml = serde_yaml::to_string(&configs)?;
 
         // Write the string to the file
-        let mut f = File::create(file)
-            .map_err(|e| TaskError::Io(e.to_string()))?;
+        let mut f = File::create(file)?;
 
-        f.write_all(yaml.as_bytes())
-            .map_err(|e| TaskError::Io(e.to_string()))?;
+        f.write_all(yaml.as_bytes())?;
 
         Ok(())
     }

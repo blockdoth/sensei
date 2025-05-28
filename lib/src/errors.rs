@@ -292,9 +292,13 @@ pub enum SinkError {
 /// Top-level task errors used across Sensei's runtime.
 #[derive(Error, Debug)]
 pub enum TaskError {
-    /// Generic task failure not otherwise categorized.
-    #[error("Generic")]
-    Generic,
+    /// Underlying I/O error (e.g., writing to file).
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+
+    // Error when you trying to serialie
+    #[error("Seriliazation error: {0}")]
+    Serde(#[from] serde_yaml::Error),
 
     /// Not implemented error
     #[error("Not Implemented")]
