@@ -39,11 +39,11 @@ pub struct Registry {
     send_data_channel: broadcast::Sender<DataMsg>,
 }
 
-#[derive(Clone, Eq, Hash, PartialEq)]
+#[derive(Clone, Eq, Hash, PartialEq, Debug)]
 struct HostId {
     id: u64,
 }
-#[derive(Eq, Hash, PartialEq, Clone)]
+#[derive(Eq, Hash, PartialEq, Clone, Debug)]
 struct DeviceId {
     id: u64,
 }
@@ -134,6 +134,7 @@ impl Registry {
     async fn register_host(&self, host_id: HostId) -> Result<(), Box<dyn std::error::Error>> {
         // because the host has been registered with priority 0 it will be next in line
         self.hosts.lock().await.push(host_id.clone(), 0);
+        info!("Registered host: {:#?}", host_id);
         Ok(())
     }
 

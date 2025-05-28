@@ -18,6 +18,7 @@ use lib::network::rpc_message::{AdapterMode, CtrlMsg};
 use lib::network::rpc_message::{CtrlMsg::*, DataMsg};
 use lib::network::rpc_message::{DataMsg::*, make_msg};
 use lib::network::rpc_message::{RpcMessage, SourceType};
+use lib::network::rpc_message::RpcMessageKind::Ctrl;
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
@@ -254,6 +255,18 @@ impl Run<SystemNodeConfig> for SystemNode {
         }
 
         info!("ESP32 data reading task started.");
+
+        if (config.registry.use_registry) {
+            info!("Connecting to registry at {}", config.registry.addr);
+            let registry_addr: SocketAddr = config.registry.addr;
+            let heartbeat_msg = Ctrl(CtrlMsg::Heartbeat {
+                host_id: config.host_id.clone(),
+            });
+            let mut client = TcpClient::new();
+            client.connect(registry_addr).await?;
+            client.send_message(registry_addr, heartbeat_msg).await?;
+            info!("Heartbeat sent to registry at {}", config.registry.addr);
+        }
 
         // Start TCP server to handle client connections
         info!("Starting TCP server on {}...", config.addr);

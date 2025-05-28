@@ -70,7 +70,7 @@ pub struct SystemNodeSubcommandArgs {
 
     /// location of config file (default sensei/src/system_node/example_config.yaml)
     #[argh(option, default = "default_device_configs()")]
-    pub device_configs: PathBuf,
+    pub config: PathBuf,
 }
 
 /// Overlays subcommand arguments onto a SystemNodeConfig, overriding fields if provided.
@@ -82,7 +82,7 @@ impl OverlaySubcommandArgs<SystemNodeConfig> for SystemNodeSubcommandArgs {
         // Because of the default value we expact that there's always a file to read
         debug!(
             "Loading system node configuration from YAML file: {}",
-            self.device_configs.display()
+            self.config.display()
         );
         let mut config = full_config.clone();
         // overwrite fields when provided by the subcommand
@@ -195,6 +195,7 @@ mod tests {
     fn create_testing_config() -> SystemNodeConfig {
         SystemNodeConfig {
             addr: "127.0.0.1:8080".parse().unwrap(),
+            host_id: 1,
             registry: SystemNodeRegistryConfig {
                 use_registry: true,
                 addr: "127.0.0.2:8888".parse().unwrap(),
@@ -208,7 +209,7 @@ mod tests {
         let args = SystemNodeSubcommandArgs {
             addr: "10.0.0.1".to_string(),
             port: 4321,
-            device_configs: PathBuf::from("does_not_matter.yaml"), // This will not be used
+            config: PathBuf::from("does_not_matter.yaml"), // This will not be used
         };
 
         let base_cfg = create_testing_config();
@@ -221,7 +222,7 @@ mod tests {
         let args = SystemNodeSubcommandArgs {
             addr: "".to_string(),
             port: 0,
-            device_configs: PathBuf::from("does_not_matter.yaml"), // This will not be used
+            config: PathBuf::from("does_not_matter.yaml"), // This will not be used
         };
 
         // If addr is empty and port is 0, overlay will parse ":0" which is invalid,
@@ -236,7 +237,7 @@ mod tests {
         let args = SystemNodeSubcommandArgs {
             addr: "invalid_addr".to_string(),
             port: 1234,
-            device_configs: PathBuf::from("does_not_matter.yaml"), // This will not be used
+            config: PathBuf::from("does_not_matter.yaml"), // This will not be used
         };
 
         // "invalid_addr:1234" is not a valid SocketAddr, so should fallback to YAML

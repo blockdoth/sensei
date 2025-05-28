@@ -59,7 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match &args.subcommand {
         SubCommandsArgs::One(node_args) => {
-            let yaml_cfg = SystemNodeConfig::from_yaml(node_args.device_configs.clone())?;
+            let yaml_cfg = SystemNodeConfig::from_yaml(node_args.config.clone())?;
             let cfg = node_args.overlay_subcommand_args(yaml_cfg)?;
             SystemNode::new(cfg.clone()).run(cfg.clone()).await?
         }

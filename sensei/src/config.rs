@@ -59,6 +59,7 @@ pub struct SystemNodeRegistryConfig {
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct SystemNodeConfig {
     pub addr: SocketAddr,
+    pub host_id: u64,
     pub registry: SystemNodeRegistryConfig,
     pub device_configs: Vec<DeviceHandlerConfig>,
 }
