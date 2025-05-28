@@ -73,7 +73,9 @@ pub struct RegistrySubcommandArgs {}
 
 impl RegistrySubcommandArgs {
     pub fn parse(&self) -> Result<RegistryConfig, AddrParseError> {
-        Ok(RegistryConfig { targets: vec![] })
+        Ok(RegistryConfig {
+            addr: "127.0.0.1:8080".parse()?,
+        })
     }
 }
 /// Orchestrator node commands

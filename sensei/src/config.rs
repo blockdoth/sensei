@@ -14,7 +14,7 @@ pub struct SystemNodeConfig {
 }
 
 pub struct RegistryConfig {
-    pub targets: Vec<SocketAddr>,
+    pub addr: SocketAddr,
 }
 
 pub struct VisualiserConfig {

@@ -1,35 +1,50 @@
+use async_trait::async_trait;
+use lib::errors::NetworkError;
+use lib::network::rpc_message::{CtrlMsg, DataMsg, RpcMessageKind, SourceType};
+use lib::network::tcp::server::TcpServer;
+use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
 use std::{collections::HashMap, sync::Arc};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
+use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
+use tokio::sync::broadcast;
+use tokio::sync::watch::{self, Receiver, Sender};
 
-use crate::{
-    cli::{GlobalConfig, RegistrySubcommandArgs, SubCommandsArgs},
-    config::RegistryConfig,
-    module::*,
+use lib::network::rpc_message::{
+    RpcMessage,
+    RpcMessageKind::{Ctrl, Data},
 };
-use anyhow::Ok;
-use lib::network::rpc_message::RpcMessage;
 use log::*;
 use std::net::SocketAddr;
 
+use crate::cli::{GlobalConfig, RegistrySubcommandArgs, SubCommandsArgs};
+use crate::config::RegistryConfig;
+use crate::module::Run;
+
+#[derive(Clone)]
 pub struct Registry {
     host_table: HashMap<HostId, HostInfo>,
     device_table: HashMap<DeviceId, DeviceInfo>,
+    send_data_channel: broadcast::Sender<DataMsg>,
 }
 
 #[derive(Clone, Eq, Hash, PartialEq)]
 struct HostId {
     id: u32,
 }
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Eq, Hash, PartialEq, Clone)]
 struct DeviceId {
     id: u32,
 }
 
+#[derive(Clone)]
 struct HostInfo {
     name: String,
     rpc_addr: String,
     state: String,
     last_heartbeat: u32,
 }
+#[derive(Clone)]
 struct DeviceInfo {
     host_id: HostId,
     kind: String,
@@ -42,14 +57,42 @@ impl Run<RegistryConfig> for Registry {
         Registry {
             host_table: HashMap::new(),
             device_table: HashMap::new(),
+            send_data_channel: broadcast::channel(100).0, // magic buffer for now
         }
     }
 
     async fn run(&self, config: RegistryConfig) -> Result<(), Box<dyn std::error::Error>> {
-        // info!("Starting registry on address {}", config.targets);
-        loop {
-            println!("Balls");
-        }
+        let connection_handler = Arc::new(self.clone());
+        let sender_data_channel = connection_handler.send_data_channel.clone();
+        info!("Starting TCP server on {}...", config.addr);
+        TcpServer::serve(config.addr, connection_handler).await;
+        Ok(())
+    }
+}
+
+impl SubscribeDataChannel for Registry {
+    fn subscribe_data_channel(&self) -> broadcast::Receiver<DataMsg> {
+        self.send_data_channel.subscribe()
+    }
+}
+
+#[async_trait]
+impl ConnectionHandler for Registry {
+    async fn handle_recv(
+        &self,
+        request: RpcMessage,
+        send_commands_channel: watch::Sender<ChannelMsg>,
+    ) -> Result<(), NetworkError> {
+        Ok(())
+    }
+
+    async fn handle_send(
+        &self,
+        mut recv_commands_channel: watch::Receiver<ChannelMsg>,
+        mut recv_data_channel: broadcast::Receiver<DataMsg>,
+        mut send_stream: OwnedWriteHalf,
+    ) -> Result<(), NetworkError> {
+        Ok(())
     }
 }
 
