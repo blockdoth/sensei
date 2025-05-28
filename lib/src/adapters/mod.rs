@@ -11,6 +11,7 @@
 //! Originally authored by: Fabian Portner
 
 use crate::FromConfig;
+use crate::ToConfig;
 use crate::csi_types::CsiData;
 use crate::errors::CsiAdapterError;
 use crate::errors::TaskError;
@@ -33,7 +34,7 @@ pub mod tcp;
 /// the function only starts reutrning data once the CSIData frame has been collected
 /// otherwise returns None
 #[async_trait::async_trait]
-pub trait CsiDataAdapter: Send {
+pub trait CsiDataAdapter: Send + ToConfig<DataAdapterConfig> {
     /// Attempts to consume a DataMsg and produce a CsiFrame variant.
     ///
     /// # Arguments

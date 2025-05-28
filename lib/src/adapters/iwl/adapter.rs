@@ -1,7 +1,8 @@
-use crate::adapters::CsiDataAdapter;
+use crate::ToConfig;
 use crate::adapters::iwl::header::IwlHeader;
+use crate::adapters::{CsiDataAdapter, DataAdapterConfig};
 use crate::csi_types::{Complex, CsiData};
-use crate::errors::CsiAdapterError;
+use crate::errors::{CsiAdapterError, TaskError};
 use crate::network::rpc_message::DataMsg;
 
 const NUM_SUBCARRIER: usize = 30;
@@ -216,5 +217,30 @@ fn scale_csi(
                 *val *= overall_scale;
             }
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl ToConfig<DataAdapterConfig> for IwlAdapter {
+    /// Converts the current `IWLAdapter` instance into its configuration representation.
+    ///
+    /// This method implements the `ToConfig` trait for `IWLAdapter`, enabling the instance
+    /// to be converted into a `DataAdapterConfig::Iwl` variant. This is useful for persisting
+    /// adapter state, exporting it to a configuration file (e.g., JSON or YAML), or sending
+    /// it to remote services for orchestration.
+    ///
+    /// # Returns
+    /// - `Ok(DataAdapterConfig::Iwl)` containing the cloned `scale_csi` field.
+    /// - `Err(TaskError)` if an error occurs during conversion (not applicable in this implementation).
+    ///
+    /// # Example
+    /// ```
+    /// let config = iwl_adapter.to_config().await?;
+    /// // Use the config in your application or save it externally
+    /// ```
+    async fn to_config(&self) -> Result<DataAdapterConfig, TaskError> {
+        Ok(DataAdapterConfig::Iwl {
+            scale_csi: self.scale_csi,
+        })
     }
 }

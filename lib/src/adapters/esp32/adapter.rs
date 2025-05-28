@@ -1,6 +1,7 @@
-use crate::adapters::CsiDataAdapter;
+use crate::ToConfig;
+use crate::adapters::{CsiDataAdapter, DataAdapterConfig};
 use crate::csi_types::{Complex, CsiData};
-use crate::errors::{CsiAdapterError, Esp32AdapterError}; // Import Esp32AdapterError
+use crate::errors::{CsiAdapterError, Esp32AdapterError, TaskError}; // Import Esp32AdapterError
 use crate::network::rpc_message::DataMsg;
 
 use byteorder::{LittleEndian, ReadBytesExt};
@@ -185,5 +186,29 @@ impl CsiDataAdapter for ESP32Adapter {
             }
             DataMsg::CsiFrame { csi } => Ok(Some(DataMsg::CsiFrame { csi })),
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl ToConfig<DataAdapterConfig> for ESP32Adapter {
+    /// Converts the current `ESP32Adapter` instance into its configuration representation.
+    ///
+    /// Implements the `ToConfig` trait for `ESP32Adapter`, returning a `DataAdapterConfig::Esp32`
+    /// variant that encapsulates the current state of the adapter. This configuration can be
+    /// serialized into formats such as JSON or YAML for storage, inspection, or transmission.
+    ///
+    /// # Returns
+    /// - `Ok(DataAdapterConfig::Esp32)` containing the cloned `scale_csi` value.
+    /// - `Err(TaskError)` if conversion fails (not applicable in this implementation).
+    ///
+    /// # Example
+    /// ```
+    /// let config = esp32_adapter.to_config().await?;
+    /// // Save or transmit the config as needed
+    /// ```
+    async fn to_config(&self) -> Result<DataAdapterConfig, TaskError> {
+        Ok(DataAdapterConfig::Esp32 {
+            scale_csi: self.scale_csi,
+        })
     }
 }
