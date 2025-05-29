@@ -7,6 +7,7 @@ use crate::errors::IwlAdapterError;
 ///
 /// This struct contains metadata extracted from the CSI header including sequence numbers,
 /// antenna configuration, RSSI (Received Signal Strength Indicator), and more.
+#[derive(Debug)]
 pub struct IwlHeader {
     /// Wall-clock timestamp (in seconds with microsecond precision) when the header was parsed.
     pub timestamp: f64,
@@ -133,5 +134,105 @@ impl IwlHeader {
             },
             payload,
         ))
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::errors::IwlAdapterError;
+
+    // Dummy packet
+    fn build_test_packet(
+        code: u8,
+        sequence_number: u16,
+        nrx: u8,
+        ntx: u8,
+        rssi: [u8; 3],
+        noise: i8,
+        agc: u8,
+        antenna_sel: u8,
+        csi_len_override: Option<usize>,
+    ) -> Vec<u8> {
+        let mut buf = vec![];
+        buf.push(code); 
+        buf.extend(&0u32.to_le_bytes()); 
+        buf.extend(&0u16.to_le_bytes());
+        buf.extend(&sequence_number.to_le_bytes());
+        buf.push(nrx);
+        buf.push(ntx);
+        buf.extend(&rssi);
+        buf.push(noise as u8);
+        buf.push(agc);
+        buf.push(antenna_sel);
+
+        let nrx_usize = nrx as usize;
+        let ntx_usize = ntx as usize;
+        let csi_len = (30 * (nrx_usize * ntx_usize * 8 * 2 + 3)).div_ceil(8);
+        let len = csi_len_override.unwrap_or(csi_len);
+        buf.extend(&(len as u16).to_le_bytes());
+
+        
+        while buf.len() < 21 {
+            buf.push(0);
+        }
+
+        buf.extend(vec![0xAB; len]);
+
+        buf
+    }
+
+    // Case where everything is alright
+    #[test]
+    fn test_valid_header_parse() {
+        let buf = build_test_packet(187, 100, 2, 2, [40, 41, 42], -92, 7, 0b00011011, None);
+        let res = IwlHeader::parse(&buf);
+
+        assert!(res.is_ok());
+    }
+
+    // Case where the header is is not long enough
+    #[test]
+    fn test_incomplete_header() {
+        let buf = vec![0; 5];
+        assert!(matches!(IwlHeader::parse(&buf).unwrap_err(), IwlAdapterError::IncompleteHeader));
+    }
+
+    // Is not 187
+    #[test]
+    fn test_invalid_netlink_code() {
+        let buf = build_test_packet(80, 100, 2, 2, [40, 41, 42], -92, 7, 0b00011011, None);
+        assert!(matches!(IwlHeader::parse(&buf).unwrap_err(), IwlAdapterError::InvalidCode(80)));
+    }
+
+    // Is not bigger than 4095
+    #[test]
+    fn test_invalid_sequence_number() {
+        let buf = build_test_packet(187, 5000, 2, 2, [40, 41, 42], -92, 7, 0b00011011, None);
+        assert!(matches!(IwlHeader::parse(&buf).unwrap_err(), IwlAdapterError::InvalidSequenceNumber(5000)));
+    }
+
+    // Less than 3 streams 
+    #[test]
+    fn test_invalid_antenna_spec() {
+        let buf = build_test_packet(187, 100, 4, 1, [40, 41, 42], -92, 7, 0b00011011, None);
+        assert!(matches!(IwlHeader::parse(&buf).unwrap_err(), IwlAdapterError::InvalidAntennaSpec { num_rx: 4, num_streams: 1 }));
+    }
+
+    // Payload does not match header
+    #[test]
+    fn test_incomplete_packet_payload() {
+        let buf = build_test_packet(187, 100, 2, 2, [40, 41, 42], -92, 7, 0b00011011, Some(100));
+        let truncated_buf = &buf[0..buf.len() - 40]; 
+        assert!(matches!(IwlHeader::parse(truncated_buf).unwrap_err(), IwlAdapterError::IncompletePacket));
+    }
+
+    // Expected CSI length based on NRX and NTX 
+    // does not match reported length
+    #[test]
+    fn test_invalid_matrix_size() {
+        let buf = build_test_packet(187, 100, 2, 2, [40, 41, 42], -92, 7, 0b00011011, Some(999));
+        assert!(matches!(IwlHeader::parse(&buf).unwrap_err(),  IwlAdapterError::InvalidMatrixSize(999)));
     }
 }
