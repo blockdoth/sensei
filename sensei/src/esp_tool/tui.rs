@@ -144,7 +144,7 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
             Style::default()
         };
 
-        spam_lines.push(Line::from(Span::styled(format!("  Continuous Spam ('t'): {}", spam_status), spam_style)));
+        spam_lines.push(Line::from(Span::styled(format!("  Continuous Spam ('t'): {spam_status}"), spam_style)));
         let border_style = if tui_state.focused_input != FocussedInput::None {
             Style::default().fg(Color::DarkGray)
         } else {

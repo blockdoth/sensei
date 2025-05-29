@@ -213,12 +213,9 @@ impl Tui<EspUpdate, Esp32Controller> for TuiState {
                     _ => self.focused_input = self.focused_input.cursor_down(),
                 },
                 SpamConfigUpdate::Escape => match self.focused_input {
-                    FocussedInput::None => match self.focused_panel {
-                        FocusedPanel::SpamConfig => {
-                            self.focused_panel = FocusedPanel::Main;
-                            self.apply_spam_input_buffer();
-                        }
-                        _ => (),
+                    FocussedInput::None => if self.focused_panel == FocusedPanel::SpamConfig {
+                        self.focused_panel = FocusedPanel::Main;
+                        self.apply_spam_input_buffer();
                     },
                     _ => self.focused_input = FocussedInput::None,
                 },
@@ -320,7 +317,7 @@ impl Tui<EspUpdate, Esp32Controller> for TuiState {
     // Gets called each tick of the main loop, useful for updating graphs and live views, should only make small changes to state
 
     async fn on_tick(&mut self) {
-        ()
+        
     }
 
     // Whether the tui should quit

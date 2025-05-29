@@ -58,7 +58,7 @@ impl log::Log for TuiLogger {
                     record.level(),
                     record.args()
                 );
-            }     
+            }
         }
     }
     fn flush(&self) {}

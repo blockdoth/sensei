@@ -60,11 +60,11 @@ impl SpamSettings {
     fn format_mac(&self, header: String, mac: [u8; 6], selected_index: Option<usize>) -> Vec<Span> {
         let mut spans = vec![Span::raw(header)];
         for (idx, byte) in mac.iter().enumerate() {
-            let hex_str = format!("{:02X}", byte);
+            let hex_str = format!("{byte:02X}");
             let (first, second) = hex_str.split_at(1);
             if selected_index.map(|i| i / 2) == Some(idx) {
                 let mut style_1 = Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD);
-                let mut style_2 = style_1.clone();
+                let mut style_2 = style_1;
                 if selected_index.unwrap_or(0) % 2 == 0 {
                     style_1 = style_1.add_modifier(Modifier::UNDERLINED);
                 } else {
@@ -73,7 +73,7 @@ impl SpamSettings {
                 spans.push(Span::styled(first.to_string(), style_1));
                 spans.push(Span::styled(second.to_string(), style_2));
             } else {
-                spans.push(Span::styled(format!("{}{}", first, second), Style::default()));
+                spans.push(Span::styled(format!("{first}{second}"), Style::default()));
             };
 
             if idx != mac.len() - 1 {
@@ -87,9 +87,9 @@ impl SpamSettings {
     pub fn update_mac(old: u8, chr: char, index: usize) -> u8 {
         let ascii_char: u8 = chr as u8;
         let u4 = match ascii_char {
-            b'0'..=b'9' => ascii_char as u8 - b'0',
-            b'a'..=b'f' => ascii_char as u8 - b'a' + 10,
-            b'A'..=b'F' => ascii_char as u8 - b'A' + 10,
+            b'0'..=b'9' => ascii_char - b'0',
+            b'a'..=b'f' => ascii_char - b'a' + 10,
+            b'A'..=b'F' => ascii_char - b'A' + 10,
             _ => 0,
         };
         if index % 2 == 0 {
