@@ -1,6 +1,5 @@
 mod cli;
 mod esp_tool;
-mod esp_tool_2;
 mod orchestrator;
 mod registry;
 mod services;
@@ -37,7 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ColorChoice::Auto,
             ),
             WriteLogger::new(
-                LevelFilter::Error, // You might want this to be args.level for file logging too
+                LevelFilter::Error,
                 simplelog::ConfigBuilder::new()
                     // .add_filter_allow("sensei".into())
                     .set_location_level(LevelFilter::Error)
@@ -51,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // For EspTest, logging will be handled by its TuiLogger.
         // You might want a minimal print or log here indicating EspTest is starting,
         // but TuiLogger in esp_tool.rs will print its own startup messages.
-        println!("Starting ESP Test Tool..."); // Simple console feedback before TUI takes over
+        // println!("Starting ESP Test Tool..."); // Simple console feedback before TUI takes over
     }
 
     debug!("Parsed args and initialized CombinedLogger");

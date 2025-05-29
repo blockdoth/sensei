@@ -1,5 +1,6 @@
 //! Robust CLI tool for ESP32 CSI monitoring.
 
+mod spam_settings;
 mod state;
 mod tui;
 
@@ -46,7 +47,7 @@ use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table, Wrap};
 use ratatui::{Frame, Terminal};
-use state::TuiState;
+use state::{EspUpdate, TuiState};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
@@ -62,9 +63,9 @@ const UI_REFRESH_INTERVAL_MS: u64 = 20;
 const ACTOR_CHANNEL_CAPACITY: usize = 10;
 const ESP_READ_BUFFER_SIZE: usize = 4096;
 
-impl FromLog for AppUpdate {
+impl FromLog for EspUpdate {
     fn from_log(log: LogEntry) -> Self {
-        AppUpdate::Log(log)
+        EspUpdate::Log(log)
     }
 }
 
@@ -75,95 +76,93 @@ impl Run<EspToolConfig> for EspTool {
         EspTool {}
     }
 
-    async fn run(&mut self, global_config: GlobalConfig, config: EspToolConfig) -> Result<(), Box<dyn std::error::Error>> {
+    async fn run(&mut self, global_config: GlobalConfig, esp_config: EspToolConfig) -> Result<(), Box<dyn std::error::Error>> {
         let (command_send, mut command_recv) = mpsc::channel::<Esp32Controller>(10);
-        let (update_send, mut update_recv) = mpsc::channel::<AppUpdate>(10);
+        let (update_send, mut update_recv) = mpsc::channel::<EspUpdate>(10);
 
         let update_send_clone = update_send.clone();
 
-        // Showcases messages going both ways
-        let other_task = tokio::spawn(async move {
-            loop {
-                update_send_clone.send(AppUpdate::Status("test".into())).await;
-                if command_recv.try_recv().is_ok() {
-                    warn!("Balls have been touched");
-                }
+        let mut esp_src_config = Esp32SourceConfig::default();
+        esp_src_config.port_name = esp_config.serial_port;
+
+        let esp_source: Esp32Source = match Esp32Source::new(esp_src_config) {
+            Ok(src) => src,
+            Err(e) => {
+                info!("Failed to initialize ESP32Source: {e}");
+                return Err(Box::new(e));
             }
-        });
+        };
+        let esp_device_config = Esp32DeviceConfig::default();
 
-        let tui = TuiState::new();
-        let tui_runner = TuiRunner::new(tui, command_send, update_recv, update_send, global_config.log_level);
+        let esp_task = Self::esp_source_task(esp_source, esp_device_config, update_send_clone, command_recv);
+        let tasks = vec![esp_task];
 
+        let tui_runner = TuiRunner::new(TuiState::new(), command_send, update_recv, update_send, global_config.log_level);
+        tui_runner.run(tasks).await;
         Ok(())
     }
 }
 
 impl EspTool {
     // Handles updates to the state of the TUI based the esp source
-    pub async fn esp_source_task(
+    pub fn esp_source_task(
         mut esp: Esp32Source,
         device_config: Esp32DeviceConfig,
-        update_send_channel: Sender<AppUpdate>,
+        update_send_channel: Sender<EspUpdate>,
         mut command_recv_channel: Receiver<Esp32Controller>,
-        shutdown_signal: Arc<AtomicBool>,
-    ) -> JoinHandle<()> {
-        let controller = Esp32Controller {
-            device_config,
-            mac_filters_to_add: vec![],
-            clear_all_mac_filters: true,
-            control_acquisition: true,
-            control_wifi_transmit: true,
-            synchronize_time: true,
-            transmit_custom_frame: None,
-        };
+    ) -> impl Future<Output = ()> + Send + 'static {
+        async move {
+            let controller = Esp32Controller {
+                device_config,
+                mac_filters_to_add: vec![],
+                clear_all_mac_filters: true,
+                control_acquisition: true,
+                control_wifi_transmit: true,
+                synchronize_time: true,
+                transmit_custom_frame: None,
+            };
 
-        if let Err(e) = controller.apply(&mut esp).await {
-            warn!("ESP Actor: Failed to apply initial ESP32 configuration: {e}");
+            if let Err(e) = controller.apply(&mut esp).await {
+                warn!("ESP Actor: Failed to apply initial ESP32 configuration: {e}");
+                update_send_channel
+                    .send(EspUpdate::Error(format!("Initial ESP config failed: {e}")))
+                    .await;
+            } else {
+                info!("ESP Actor: Initial ESP32 configuration applied successfully.");
+                update_send_channel.send(EspUpdate::ControllerUpdateSuccess).await;
+            }
+
+            info!("ESP actor task started for port {:?}.", esp.port);
+
+            if let Err(e) = esp.start().await {
+                error!("ESP Actor: Failed to start Esp32Source: {e}");
+                update_send_channel.send(EspUpdate::Error(format!("ESP Start Fail: {e}"))).await;
+                update_send_channel.send(EspUpdate::Status("DISCONNECTED (Start Fail)".to_string())).await;
+            }
+
             update_send_channel
-                .send(AppUpdate::ControllerUpdateError(format!("Initial ESP config failed: {e}")))
+                .send(EspUpdate::Status("CONNECTED (Source Started)".to_string()))
                 .await;
-        } else {
-            info!("ESP Actor: Initial ESP32 configuration applied successfully.");
-            update_send_channel.send(AppUpdate::ControllerUpdateSuccess).await;
-        }
 
-        info!("ESP actor task started for port {:?}.", esp.port);
+            let mut read_buffer = vec![0u8; ESP_READ_BUFFER_SIZE];
+            let mut esp_adapter = ESP32Adapter::new(false);
 
-        if let Err(e) = esp.start().await {
-            error!("ESP Actor: Failed to start Esp32Source: {e}");
-            update_send_channel.send(AppUpdate::Error(format!("ESP Start Fail: {e}"))).await;
-            update_send_channel.send(AppUpdate::Status("DISCONNECTED (Start Fail)".to_string())).await;
-        }
-
-        update_send_channel
-            .send(AppUpdate::Status("CONNECTED (Source Started)".to_string()))
-            .await;
-
-        let mut read_buffer = vec![0u8; ESP_READ_BUFFER_SIZE];
-        let mut esp_adapter = ESP32Adapter::new(false);
-
-        tokio::spawn(async move {
             loop {
                 tokio::select! {
                     biased; // Prioritizes based on order
-
-                    _ = tokio::time::sleep(Duration::from_millis(1)), if shutdown_signal.load(AtomicOrdering::Relaxed) => {
-                        info!("ESP Actor: Shutdown signal received.");
-                        break;
-                    }
 
                     Some(updated_controller) = command_recv_channel.recv() => {
                         info!("ESP Actor: Received command: {updated_controller:?}");
                         match updated_controller.apply(&mut esp).await {
                             Ok(_) => {
                                 debug!("ESP Actor: Command applied successfully.");
-                                if update_send_channel.send(AppUpdate::ControllerUpdateSuccess).await.is_err() {
+                                if update_send_channel.send(EspUpdate::ControllerUpdateSuccess).await.is_err() {
                                     break;
                                 }
                             }
                             Err(e) => {
                                 error!("ESP Actor: Failed to apply command: {e}");
-                                if update_send_channel.send(AppUpdate::ControllerUpdateError(e.to_string())).await.is_err() {
+                                if update_send_channel.send(EspUpdate::Error(e.to_string())).await.is_err() {
                                     break;
                                 }
                             }
@@ -175,7 +174,7 @@ impl EspTool {
                             Ok(None) => {
                                 if !esp.is_running.load(AtomicOrdering::Relaxed) {
                                     info!("ESP Actor: Source reported not running and read Ok(0). Signaling disconnect.");
-                                    let _ = update_send_channel.send(AppUpdate::EspDisconnected).await;
+                                    let _ = update_send_channel.send(EspUpdate::EspDisconnected).await;
                                     break;
                                 }
                                 tokio::time::sleep(Duration::from_millis(100)).await;
@@ -183,7 +182,7 @@ impl EspTool {
                             Ok(Some(data_msg)) => {
                                 match esp_adapter.produce(data_msg).await {
                                     Ok(Some(DataMsg::CsiFrame { csi })) => {
-                                        match update_send_channel.try_send(AppUpdate::Csi(csi)) {
+                                        match update_send_channel.try_send(EspUpdate::CsiData(csi)) {
                                             Ok(_) => {}
                                             Err(mpsc::error::TrySendError::Full(_)) => {
                                                 static LOG_DROP_COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -202,17 +201,17 @@ impl EspTool {
                                     Ok(None) => {}
                                     Err(e) => {
                                         warn!("ESP Actor: ESP32Adapter failed to parse CSI: {e:?}");
-                                        update_send_channel.try_send(AppUpdate::Error(format!("Adapter Parse Fail: {e}")));
+                                        update_send_channel.try_send(EspUpdate::Error(format!("Adapter Parse Fail: {e}")));
                                     }
                                 }
                             }
                             Err(e @ DataSourceError::NotConnected(_)) | Err(e @ DataSourceError::Io(_)) if !esp.is_running.load(AtomicOrdering::Relaxed) => {
                                 info!("ESP Actor: Source disconnected (Error: {e}), signaling UI.");
-                                update_send_channel.send(AppUpdate::EspDisconnected).await;
+                                update_send_channel.send(EspUpdate::EspDisconnected).await;
                             }
                             Err(e) => {
                                 warn!("ESP Actor: Error reading from ESP32 source: {e:?}");
-                                if update_send_channel.send(AppUpdate::Error(format!("ESP Read Fail: {e}"))).await.is_err() {
+                                if update_send_channel.send(EspUpdate::Error(format!("ESP Read Fail: {e}"))).await.is_err() {
                                     break;
                                 }
                                 tokio::time::sleep(Duration::from_secs(1)).await;
@@ -229,9 +228,9 @@ impl EspTool {
             }
 
             update_send_channel
-                .send(AppUpdate::Status("DISCONNECTED (Actor Stopped)".to_string()))
+                .send(EspUpdate::Status("DISCONNECTED (Actor Stopped)".to_string()))
                 .await;
             info!("ESP actor task for port {:?} stopped.", esp.port);
-        })
+        }
     }
 }
