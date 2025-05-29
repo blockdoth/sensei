@@ -6,9 +6,12 @@
 //! Letting the hosts periodically send heartbeats to the registry would mean that
 //! the hosts have to keep track another task, which could overwhelm the lowest compute
 //! devices in the network.
+use anyhow::Error;
 use async_trait::async_trait;
+use lib::errors::AppError;
 use lib::errors::NetworkError;
 use lib::network::rpc_message::{CtrlMsg, DataMsg, RpcMessageKind};
+use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
 use priority_queue::PriorityQueue;
@@ -19,6 +22,8 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::sync::Mutex;
 use tokio::sync::broadcast;
 use tokio::sync::watch::{self, Receiver, Sender};
+use tokio::task;
+use tokio::time::{Duration, interval};
 
 use lib::network::rpc_message::{
     RpcMessage,
@@ -27,15 +32,15 @@ use lib::network::rpc_message::{
 use log::*;
 use std::net::SocketAddr;
 
+use crate::cli;
 use crate::cli::{GlobalConfig, RegistrySubcommandArgs, SubCommandsArgs};
 use crate::config::RegistryConfig;
 use crate::module::Run;
 
 #[derive(Clone)]
 pub struct Registry {
-    hosts: Arc<Mutex<PriorityQueue<HostId, u32>>>,
-    host_table: HashMap<HostId, HostInfo>,
-    device_table: HashMap<DeviceId, DeviceInfo>,
+    hosts: Arc<Mutex<PriorityQueue<(HostId, SocketAddr), u32>>>,
+    host_table: Arc<Mutex<HashMap<HostId, CtrlMsg>>>,
     send_data_channel: broadcast::Sender<DataMsg>,
 }
 
@@ -63,21 +68,40 @@ struct DeviceInfo {
     current_cfg: String,
 }
 
+/// The registry spawns two threads. A TCP server that allows new hosts to register themselves
+/// and a background thread that periodically requests the status of the hosts.
 impl Run<RegistryConfig> for Registry {
     fn new(config: RegistryConfig) -> Self {
         Registry {
             hosts: Arc::from(Mutex::from(PriorityQueue::new())),
-            host_table: HashMap::new(),
-            device_table: HashMap::new(),
+            host_table: Arc::from(Mutex::from(HashMap::new())),
             send_data_channel: broadcast::channel(100).0, // magic buffer for now
         }
     }
 
     async fn run(&self, config: RegistryConfig) -> Result<(), Box<dyn std::error::Error>> {
-        let connection_handler = Arc::new(self.clone());
-        let sender_data_channel = connection_handler.send_data_channel.clone();
-        info!("Starting TCP server on {}...", config.addr);
-        TcpServer::serve(config.addr, connection_handler).await;
+        let sender_data_channel = &self.send_data_channel;
+
+        let server_task = {
+            let connection_handler = Arc::new(self.clone());
+            task::spawn(async move {
+                info!("Starting TCP server on {}...", config.addr);
+                TcpServer::serve(config.addr, connection_handler).await;
+            })
+        };
+
+        let client_task = {
+            let connection_handler = Arc::new(self.clone());
+            task::spawn(async move {
+                info!("Starting TCP client to poll hosts...");
+                let mut client = TcpClient::new();
+                connection_handler
+                    .poll_hosts(client, Duration::from_secs(config.poll_interval))
+                    .await;
+            })
+        };
+
+        let _ = tokio::try_join!(server_task, client_task);
         Ok(())
     }
 }
@@ -98,8 +122,13 @@ impl ConnectionHandler for Registry {
         debug!("Received request: {:?}", request);
 
         match request.msg {
-            Ctrl(CtrlMsg::Heartbeat { host_id }) => {
-                self.register_host(HostId { id: host_id }).await.unwrap();
+            Ctrl(CtrlMsg::Heartbeat {
+                host_id,
+                host_address,
+            }) => {
+                self.register_host(HostId { id: host_id }, host_address)
+                    .await
+                    .unwrap();
                 Ok(())
             }
             _ => Ok(()),
@@ -117,32 +146,67 @@ impl ConnectionHandler for Registry {
 }
 
 impl Registry {
-    fn list_hosts(&self) -> anyhow::Result<Vec<HostId>> {
-        let hosts: Vec<HostId> = self.host_table.keys().cloned().collect();
-        Ok(hosts)
+    /// Go though the list of hosts and poll their status
+    async fn poll_hosts(&self, mut client: TcpClient, poll_interval: Duration) -> () {
+        let mut interval = interval(poll_interval);
+        loop {
+            interval.tick().await;
+            for (host, addr) in self.list_hosts().await {
+                info!("Polling host: {:#?} at address: {}", host, addr);
+                client.connect(addr).await;
+                client
+                    .send_message(addr, RpcMessageKind::Ctrl(CtrlMsg::PollHostStatus))
+                    .await;
+                let msg = client.read_message(addr).await;
+                info!("msg: {:?}", msg);
+                client.disconnect(addr).await;
+            }
+        }
     }
 
-    fn register_device(
-        &mut self,
-        device_id: DeviceId,
-        device_info: DeviceInfo,
-    ) -> anyhow::Result<()> {
-        self.device_table.insert(device_id, device_info);
+    fn remove_host(&self, host_id: HostId) -> Result<(), Box<dyn std::error::Error>> {
+        info!("Could not reach host: {:?}", host_id);
         Ok(())
     }
-
-    async fn register_host(&self, host_id: HostId) -> Result<(), Box<dyn std::error::Error>> {
+    /// List all registered hosts in the registry.
+    async fn list_hosts(&self) -> Vec<(HostId, SocketAddr)> {
+        self.hosts
+            .lock()
+            .await
+            .iter()
+            .map(|(host, _)| host.clone())
+            .collect()
+    }
+    /// Register a new host with the registry.
+    async fn register_host(
+        &self,
+        host_id: HostId,
+        host_address: SocketAddr,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // because the host has been registered with priority 0 it will be next in line
-        self.hosts.lock().await.push(host_id.clone(), 0);
+        self.hosts
+            .lock()
+            .await
+            .push((host_id.clone(), host_address.clone()), 0);
         info!("Registered host: {:#?}", host_id);
         Ok(())
     }
-
-    fn handle_message(&self, msg: RpcMessage) -> anyhow::Result<()> {
-        Ok(())
-    }
-
-    async fn check_for_heartbeat(&self, msg: RpcMessage, host: HostId) -> anyhow::Result<()> {
-        Ok(())
+    async fn store_host_update(
+        &self,
+        host_id: HostId,
+        host_address: SocketAddr,
+        status: CtrlMsg,
+    ) -> Result<(), AppError> {
+        match status {
+            CtrlMsg::HostStatus {
+                host_id,
+                device_status,
+            } => {
+                // actually store host at some point
+                info!("{:?}", device_status);
+                Ok(())
+            }
+            _ => Err(AppError::ConfigError("No such host".to_string())), // TODO: proper error handling
+        }
     }
 }

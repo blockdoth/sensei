@@ -13,15 +13,20 @@ use lib::adapters::CsiDataAdapter; // Removed esp32 module import here, will use
 use lib::csi_types::{Complex, CsiData};
 use lib::errors::NetworkError;
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
+use lib::network::rpc_message::DeviceStatus;
+use lib::network::rpc_message::RpcMessage;
+use lib::network::rpc_message::RpcMessageKind::Ctrl;
+use lib::network::rpc_message::SourceType;
 use lib::network::rpc_message::SourceType::*;
 use lib::network::rpc_message::{AdapterMode, CtrlMsg};
 use lib::network::rpc_message::{CtrlMsg::*, DataMsg};
 use lib::network::rpc_message::{DataMsg::*, make_msg};
-use lib::network::rpc_message::{RpcMessage, SourceType};
-use lib::network::rpc_message::RpcMessageKind::Ctrl;
+use lib::network::tcp::ChannelMsg;
+use lib::network::tcp::ConnectionHandler;
+use lib::network::tcp::SubscribeDataChannel;
 use lib::network::tcp::client::TcpClient;
+use lib::network::tcp::send_message;
 use lib::network::tcp::server::TcpServer;
-use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
 
 use lib::sources::controllers::Controller; // For the .apply() method
 use lib::sources::controllers::esp32_controller::{
@@ -70,6 +75,7 @@ use lib::network::rpc_message::RpcMessageKind::{
 #[derive(Clone)]
 pub struct SystemNode {
     send_data_channel: broadcast::Sender<DataMsg>,
+    config: SystemNodeConfig,
 }
 
 impl SubscribeDataChannel for SystemNode {
@@ -135,9 +141,22 @@ impl ConnectionHandler for SystemNode {
                         request.src_addr, device_id
                     );
                 }
-                PollDevices => {
-                    // TODO: actually handle
+                PollHostStatus => {
                     info!("Received PollDevices from {}", request.src_addr);
+
+                    let host_status = CtrlMsg::HostStatus {
+                        host_id: self.config.host_id,
+                        device_status: self
+                            .config
+                            .device_configs
+                            .iter()
+                            .map(|cfg| DeviceStatus {
+                                d_id: cfg.device_id,
+                                d_type: cfg.stype.clone(),
+                            })
+                            .collect(),
+                    };
+                    // Somehow send it???
                 }
                 m => {
                     warn!("Received unhandled CtrlMsg: {m:?}");
@@ -231,7 +250,10 @@ impl ConnectionHandler for SystemNode {
 impl Run<SystemNodeConfig> for SystemNode {
     fn new(config: SystemNodeConfig) -> Self {
         let (send_data_channel, _) = broadcast::channel::<DataMsg>(16); // Buffer size 16
-        SystemNode { send_data_channel }
+        SystemNode {
+            send_data_channel,
+            config,
+        }
     }
 
     /// Starts the system node
@@ -260,12 +282,14 @@ impl Run<SystemNodeConfig> for SystemNode {
             info!("Connecting to registry at {}", config.registry.addr);
             let registry_addr: SocketAddr = config.registry.addr;
             let heartbeat_msg = Ctrl(CtrlMsg::Heartbeat {
-                host_id: config.host_id.clone(),
+                host_id: config.host_id,
+                host_address: config.addr,
             });
             let mut client = TcpClient::new();
             client.connect(registry_addr).await?;
             client.send_message(registry_addr, heartbeat_msg).await?;
             info!("Heartbeat sent to registry at {}", config.registry.addr);
+            client.disconnect(registry_addr);
         }
 
         // Start TCP server to handle client connections

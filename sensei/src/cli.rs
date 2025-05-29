@@ -109,6 +109,7 @@ impl RegistrySubcommandArgs {
     pub fn parse(&self) -> Result<RegistryConfig, AddrParseError> {
         Ok(RegistryConfig {
             addr: "127.0.0.1:8080".parse()?,
+            poll_interval: 5,
         })
     }
 }

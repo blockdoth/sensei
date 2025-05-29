@@ -66,6 +66,7 @@ pub struct SystemNodeConfig {
 
 pub struct RegistryConfig {
     pub addr: SocketAddr,
+    pub poll_interval: u64,
 }
 
 pub struct VisualiserConfig {

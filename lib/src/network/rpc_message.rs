@@ -2,6 +2,7 @@ use crate::csi_types::CsiData;
 use crate::handler::device_handler::DeviceHandlerConfig;
 use crate::network::rpc_message::RpcMessageKind::Ctrl;
 use bincode::Error;
+use netlink_sys::Socket;
 use serde::{Deserialize, Serialize};
 use std::{
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
@@ -26,7 +27,7 @@ pub enum RpcMessageKind {
     Data { data_msg: DataMsg, device_id: u64 },
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum CtrlMsg {
     Connect,
     Disconnect,
@@ -41,10 +42,22 @@ pub enum CtrlMsg {
     Unsubscribe {
         device_id: u64,
     },
-    PollDevices,
+    PollHostStatus,
     Heartbeat {
         host_id: u64,
+        host_address: SocketAddr,
     },
+    /// This data message contains all the satus information a host shares with the registry
+    HostStatus {
+        host_id: u64,
+        device_status: Vec<DeviceStatus>, // (device_id, status)
+    },
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DeviceStatus {
+    pub d_id: u64,
+    pub d_type: SourceType,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -124,9 +137,15 @@ impl FromStr for CtrlMsg {
 
                 Ok(CtrlMsg::Unsubscribe { device_id })
             }
-            "polldevices" => Ok(CtrlMsg::PollDevices),
-            "heartbeat" => Ok(CtrlMsg::Heartbeat { host_id: 0 }), // TODO better id assignment
+            "polldevices" => Ok(CtrlMsg::PollHostStatus),
+            "heartbeat" => Ok(CtrlMsg::Heartbeat {
+                host_id: 0,
+                host_address: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 0)),
+            }), // TODO better id assignment
             s => Err(s.to_owned()),
+            _ => {
+                todo!("An unsuppored case was reached!")
+            }
         }
     }
 }

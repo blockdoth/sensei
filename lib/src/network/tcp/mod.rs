@@ -1,10 +1,9 @@
-use std::net::SocketAddr;
-
 use super::rpc_message::{self, DataMsg, RpcMessage, RpcMessageKind};
 use crate::{errors::NetworkError, network::rpc_message::make_msg};
 use async_trait::async_trait;
 use log::{debug, error, info, trace};
 use serde::Deserialize;
+use std::net::SocketAddr;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{
