@@ -18,6 +18,7 @@ pub mod esp32_controller;
 #[cfg(target_os = "linux")]
 pub mod netlink_controller;
 pub mod tcp_controller;
+use crate::ToConfig;
 
 /// Trait that must be implemented by all source controller types.
 ///
@@ -43,7 +44,7 @@ pub mod tcp_controller;
 /// ```
 #[typetag::serde(tag = "type")]
 #[async_trait]
-pub trait Controller: Send + Sync {
+pub trait Controller: Send + Sync + ToConfig<ControllerParams> {
     /// Apply controller parameters or logic to the given source.
     ///
     /// This method allows the controller to source-level setup.

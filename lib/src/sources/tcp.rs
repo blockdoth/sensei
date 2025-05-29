@@ -2,10 +2,11 @@ use std::net::SocketAddr;
 
 use log::trace;
 
-use crate::errors::DataSourceError;
+use crate::ToConfig;
+use crate::errors::{DataSourceError, TaskError};
 use crate::network::rpc_message::{DataMsg, RpcMessage, RpcMessageKind};
 use crate::network::tcp::client::TcpClient;
-use crate::sources::DataSourceT;
+use crate::sources::{DataSourceConfig, DataSourceT};
 
 /// Configuration for a `TCPSource`.
 ///
@@ -102,5 +103,24 @@ impl DataSourceT for TCPSource {
                 Ok(Some(data_msg))
             }
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl ToConfig<DataSourceConfig> for TCPSource {
+    /// Converts this `NetlinkSource` instance into a `DataSourceConfig` representing a TCP source.
+    ///
+    /// **Note:** Although this is implemented on `NetlinkSource`, it returns a `DataSourceConfig::Tcp`
+    /// variant constructed from the `target_addr` field. This might be intentional or a design choice
+    /// depending on your application logic.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(DataSourceConfig::Tcp)` containing a `TCPConfig` initialized with the cloned target address.
+    /// * `Err(TaskError)` if conversion fails (not expected here as cloning should succeed).
+    async fn to_config(&self) -> Result<DataSourceConfig, TaskError> {
+        Ok(DataSourceConfig::Tcp(TCPConfig {
+            target_addr: self.target_addr,
+        }))
     }
 }

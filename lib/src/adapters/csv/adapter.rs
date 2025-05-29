@@ -4,9 +4,10 @@ use std::vec;
 
 use log::info;
 
-use crate::adapters::CsiDataAdapter;
+use crate::ToConfig;
+use crate::adapters::{CsiDataAdapter, DataAdapterConfig};
 use crate::csi_types::{Complex, CsiData};
-use crate::errors::CsiAdapterError;
+use crate::errors::{CsiAdapterError, TaskError};
 use crate::network::rpc_message::DataMsg;
 
 const DEFAULT_LINE_DELIM: u8 = b'\n';
@@ -199,6 +200,25 @@ impl CsiDataAdapter for CSVAdapter<'_> {
                 "Invalid message type".to_string(),
             ))),
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl ToConfig<DataAdapterConfig> for CSVAdapter<'_> {
+    /// Converts the current `CSVAdapter` instance into its configuration representation.
+    ///
+    /// This method implements the `ToConfig` trait for `CSVAdapter`, returning a
+    /// `DataAdapterConfig::CSV` variant. This enables the adapter's configuration
+    /// to be serialized, exported, or stored as part of a broader system configuration.
+    ///
+    /// Since `CSVAdapter` does not currently hold any configurable fields, the
+    /// resulting configuration is an empty struct.
+    ///
+    /// # Returns
+    /// - `Ok(DataAdapterConfig::CSV)` on successful conversion.
+    /// - `Err(TaskError)` if an error occurs (not applicable in this implementation).
+    async fn to_config(&self) -> Result<DataAdapterConfig, TaskError> {
+        Ok(DataAdapterConfig::CSV {})
     }
 }
 

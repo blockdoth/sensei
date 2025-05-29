@@ -2,9 +2,10 @@ use async_trait::async_trait;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 
-use crate::errors::SinkError;
+use crate::ToConfig;
+use crate::errors::{SinkError, TaskError};
 use crate::network::rpc_message::DataMsg;
-use crate::sinks::Sink;
+use crate::sinks::{Sink, SinkConfig};
 
 /// Configuration for a YAML-based file sink.
 ///
@@ -19,6 +20,7 @@ pub struct FileConfig {
 ///
 /// Messages are serialized using `serde_yaml` and separated by `---` for readability.
 pub struct FileSink {
+    config: FileConfig,
     file: File,
 }
 
@@ -28,10 +30,10 @@ impl FileSink {
     /// # Errors
     ///
     /// Returns a `SinkError::Io` if the file cannot be created.
-    pub async fn new(config: FileConfig) -> Result<Self, SinkError> {
-        log::trace!("Creating YAML file sink (file: {})", config.file);
-        let file = File::create(config.file).await.map_err(SinkError::Io)?;
-        Ok(FileSink { file })
+    pub async fn new(cg: FileConfig) -> Result<Self, SinkError> {
+        log::trace!("Creating YAML file sink (file: {})", cg.file);
+        let file = File::create(cg.clone().file).await.map_err(SinkError::Io)?;
+        Ok(FileSink { config: cg.clone(), file })
     }
 }
 
@@ -69,5 +71,22 @@ impl Sink for FileSink {
         self.file.write_all(serialized.as_bytes()).await.map_err(SinkError::Io)?;
         self.file.write_all(b"\n---\n").await.map_err(SinkError::Io)?;
         Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl ToConfig<SinkConfig> for FileSink {
+    /// Converts the current `FileSink` instance into its corresponding configuration representation.
+    ///
+    /// This method implements the `ToConfig` trait for `FileSink`, allowing the runtime instance
+    /// to be converted back into a `SinkConfig::File` variant. This is useful for persisting
+    /// the current state or for exporting configuration to a file (e.g., YAML or JSON).
+    ///
+    /// # Returns
+    /// - `Ok(SinkConfig::File)` containing the internal configuration of the `FileSink`.
+    /// - `Err(TaskError)` if any failure occurs during the conversion (though this implementation
+    ///   does not currently produce an error).
+    async fn to_config(&self) -> Result<SinkConfig, TaskError> {
+        Ok(SinkConfig::File(self.config.clone()))
     }
 }

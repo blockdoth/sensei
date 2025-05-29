@@ -19,10 +19,10 @@ use std::net::SocketAddr;
 
 use async_trait::async_trait;
 
-use crate::FromConfig;
 use crate::errors::{SinkError, TaskError};
 use crate::network::rpc_message::{DataMsg, RpcMessage, RpcMessageKind};
 use crate::network::tcp::client::TcpClient;
+use crate::{FromConfig, ToConfig};
 
 pub mod file;
 pub mod tcp;
@@ -35,7 +35,7 @@ pub mod tcp;
 ///
 /// Implementations must be `Send` to ensure they can be used across asynchronous tasks.
 #[async_trait]
-pub trait Sink: Send {
+pub trait Sink: Send + ToConfig<SinkConfig> {
     /// Open the connection to the sink
     ///
     /// # Errors

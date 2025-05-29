@@ -6,10 +6,11 @@ use log::trace;
 use serde::Deserialize;
 use tempfile::NamedTempFile;
 
-use crate::errors::DataSourceError;
+use crate::ToConfig;
+use crate::errors::{DataSourceError, TaskError};
 use crate::network::rpc_message::SourceType;
 use crate::sources::controllers::Controller;
-use crate::sources::{BUFSIZE, DataMsg, DataSourceT};
+use crate::sources::{BUFSIZE, DataMsg, DataSourceConfig, DataSourceT};
 
 /// Config struct which can be parsed from a toml config
 #[derive(Debug, Deserialize, Clone)]
@@ -107,6 +108,21 @@ impl DataSourceT for CsvSource {
                 source_type: SourceType::CSV,
             })),
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl ToConfig<DataSourceConfig> for CsvSource {
+    /// Attempts to convert the current `CsvSource` instance into its configuration representation.
+    ///
+    /// This method implements the `ToConfig` trait for `CsvSource`, but it is currently not
+    /// implemented and always returns an error. This serves as a placeholder for future
+    /// support, where configuration export for `CsvSource` may be needed.
+    ///
+    /// # Returns
+    /// - `Err(TaskError::NotImplemented)` to indicate that this functionality is not available.
+    async fn to_config(&self) -> Result<DataSourceConfig, TaskError> {
+        Err(TaskError::NotImplemented)
     }
 }
 

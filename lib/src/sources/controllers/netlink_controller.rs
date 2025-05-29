@@ -3,9 +3,10 @@ use std::io::Write;
 
 use tokio::process::Command;
 
-use crate::errors::ControllerError;
+use crate::ToConfig;
+use crate::errors::{ControllerError, TaskError};
 use crate::sources::DataSourceT;
-use crate::sources::controllers::Controller;
+use crate::sources::controllers::{Controller, ControllerParams};
 
 /// Parameters for the Netlink controller, typically parsed from yaml file
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone, schemars::JsonSchema)]
@@ -134,4 +135,21 @@ fn set_rx_chainmask(phy_name: &str, chainmask: u8) -> Result<(), ControllerError
     let mut file = OpenOptions::new().write(true).open(path)?;
     writeln!(file, "{chainmask}")?;
     Ok(())
+}
+
+#[async_trait::async_trait]
+impl ToConfig<ControllerParams> for NetlinkControllerParams {
+    /// Converts the current `NetlinkControllerParams` instance into its configuration representation.
+    ///
+    /// This method implements the `ToConfig` trait for `NetlinkControllerParams`, allowing a live
+    /// controller instance to be converted into a `ControllerParams::Netlink` variant.
+    /// This is useful for persisting the controller's configuration to a file (e.g., YAML or JSON)
+    /// or for reproducing its state programmatically.
+    ///
+    /// # Returns
+    /// - `Ok(ControllerParams::Netlink)` containing a cloned version of the controller's parameters.
+    /// - `Err(TaskError)` if an error occurs during conversion (not applicable in this implementation).
+    async fn to_config(&self) -> Result<ControllerParams, TaskError> {
+        Ok(ControllerParams::Netlink(self.clone()))
+    }
 }
