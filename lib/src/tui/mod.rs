@@ -12,7 +12,7 @@ use std::vec;
 use async_trait::async_trait;
 use crossterm::event::{Event, EventStream, KeyCode, KeyEvent};
 use crossterm::execute;
-use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
+use crossterm::terminal::{Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
 use futures::StreamExt;
 use log::{LevelFilter, debug, info};
 use logs::{FromLog, LogEntry, init_logger};
@@ -30,6 +30,8 @@ pub struct TuiRunner<T: Tui<Update, Command>, Update, Command> {
     command_send: Sender<Command>,
     update_recv: Receiver<Update>,
     update_send: Sender<Update>,
+    log_send: Sender<LogEntry>,
+    log_recv: Receiver<LogEntry>,
     even_stream: EventStream,
     log_level: LevelFilter,
 }
@@ -42,48 +44,62 @@ where
     T: Tui<U, C>,
 {
     pub fn new(app: T, command_send: Sender<C>, update_recv: Receiver<U>, update_send: Sender<U>, log_level: LevelFilter) -> Self {
+        let (log_send, log_recv) = mpsc::channel::<LogEntry>(LOG_BUFFER_CAPACITY);
         Self {
             app,
             command_send,
             update_recv,
             update_send,
+            log_send,
+            log_recv,
             even_stream: EventStream::new(),
             log_level,
         }
     }
 
     // Manages the entire TUI lifecycle
-    pub async fn run(mut self) -> Result<(), Box<dyn Error>> {
+    pub async fn run<F>(mut self, tasks: Vec<F>) -> Result<(), Box<dyn Error>>
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
         let mut terminal = Self::setup_terminal().unwrap(); //TODO remove unwrap
-        let (log_send, log_recv) = mpsc::channel::<LogEntry>(LOG_BUFFER_CAPACITY);
 
-        Self::log_handler_task(log_recv, self.update_send).await;
-        init_logger(self.log_level, log_send.clone());
+        Self::log_handler_task(self.log_recv, self.update_send).await;
+        init_logger(self.log_level, self.log_send.clone());
+
+        let mut handles: Vec<JoinHandle<()>> = vec![];
+        for task in tasks {
+            handles.push(tokio::spawn(task));
+        }
 
         loop {
             terminal.draw(|f| self.app.draw_ui(f))?;
 
             tokio::select! {
-                Some(Ok(Event::Key(key))) = self.even_stream.next() => {
-                    if let Some(update) = self.app.handle_keyboard_event(key) {
-                        self.app.handle_update(update, &self.command_send, &mut self.update_recv).await;
-                    }
-
-                    if self.app.should_quit() {
-                        break;
-                    }
+              Some(Ok(Event::Key(key))) = self.even_stream.next() => {
+                if let Some(update) = self.app.handle_keyboard_event(key) {
+                  self.app.handle_update(update, &self.command_send, &mut self.update_recv).await;
                 }
 
-                Some(update) = self.update_recv.recv() => {
-                    self.app.handle_update(update, &self.command_send, &mut self.update_recv).await;
+                if self.app.should_quit() {
+                  break;
                 }
+              }
 
-                _ = tokio::time::sleep(Duration::from_millis(100)) => {
-                    self.app.on_tick().await;
-                }
+              Some(update) = self.update_recv.recv() => {
+                self.app.handle_update(update, &self.command_send, &mut self.update_recv).await;
+              }
+
+              _ = tokio::time::sleep(Duration::from_millis(100)) => {
+                self.app.on_tick().await;
+              }
             }
         }
-        drop(log_send);
+
+        for handle in &handles {
+            handle.abort();
+        }
+
         Self::restore_terminal(&mut terminal);
 
         Ok(())
@@ -122,14 +138,14 @@ where
     fn setup_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>, Box<dyn Error>> {
         enable_raw_mode()?;
         let mut stdout = stdout();
-        execute!(stdout, EnterAlternateScreen)?;
+        execute!(stdout, EnterAlternateScreen, Clear(ClearType::All))?;
         let backend = CrosstermBackend::new(stdout);
         Terminal::new(backend).map_err(Into::into)
     }
 
     fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<(), Box<dyn Error>> {
         disable_raw_mode()?;
-        execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+        execute!(terminal.backend_mut(), Clear(ClearType::All), LeaveAlternateScreen)?;
         terminal.show_cursor()?;
         Ok(())
     }

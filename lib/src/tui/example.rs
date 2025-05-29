@@ -130,19 +130,17 @@ pub async fn run_example() {
     let update_send_clone = update_send.clone();
 
     // Showcases messages going both ways
-    let other_task = tokio::spawn(async move {
+    let other_task = vec![async move {
         loop {
             update_send_clone.send(Update::Balls).await;
             if command_recv.try_recv().is_ok() {
                 warn!("Balls have been touched");
             }
         }
-    });
+    }];
 
     let tui = TuiState::new();
     let tui_runner = TuiRunner::new(tui, command_send, update_recv, update_send, log::LevelFilter::Info);
 
-    tui_runner.run().await;
-
-    other_task.abort(); // Abort is fine since we do not need graceful shutdown
+    tui_runner.run(other_task).await;
 }

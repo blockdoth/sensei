@@ -50,7 +50,7 @@ impl log::Log for TuiLogger {
                 level: record.level(),
                 message: format!("{}", record.args()),
             };
-            if self.log_sender.try_send(log_entry).is_err() {
+            if self.log_sender.try_send(log_entry.clone()).is_err() {
                 eprintln!(
                     "[TUI_LOG_FALLBACK] {}: {} [{}] - {}",
                     Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
@@ -58,7 +58,7 @@ impl log::Log for TuiLogger {
                     record.level(),
                     record.args()
                 );
-            }
+            }     
         }
     }
     fn flush(&self) {}
@@ -74,7 +74,6 @@ pub fn init_logger(log_level_filter: LevelFilter, sender: Sender<LogEntry>) -> R
 
     log::set_boxed_logger(Box::new(logger))?;
     log::set_max_level(log_level_filter);
-    info!("Initiated channeled logger");
     Ok(())
 }
 
