@@ -76,13 +76,17 @@ impl Run<EspToolConfig> for EspTool {
         EspTool {}
     }
 
+    
     async fn run(&mut self, global_config: GlobalConfig, esp_config: EspToolConfig) -> Result<(), Box<dyn std::error::Error>> {
         let (command_send, mut command_recv) = mpsc::channel::<Esp32Controller>(10);
         let (update_send, mut update_recv) = mpsc::channel::<EspUpdate>(10);
 
         let update_send_clone = update_send.clone();
 
-        let mut esp_src_config = Esp32SourceConfig { port_name: esp_config.serial_port, ..Default::default() };
+        let mut esp_src_config = Esp32SourceConfig {
+            port_name: esp_config.serial_port,
+            ..Default::default()
+        };
 
         let esp_source: Esp32Source = match Esp32Source::new(esp_src_config) {
             Ok(src) => src,
@@ -123,8 +127,9 @@ impl EspTool {
         if let Err(e) = controller.apply(&mut esp).await {
             warn!("ESP Actor: Failed to apply initial ESP32 configuration: {e}");
             update_send_channel
-                .send(EspUpdate::Error(format!("Initial ESP config failed: {e}")))
+                .send(EspUpdate::Status(format!("Failed to initialize")))
                 .await;
+            return;
         } else {
             info!("ESP Actor: Initial ESP32 configuration applied successfully.");
             update_send_channel.send(EspUpdate::ControllerUpdateSuccess).await;

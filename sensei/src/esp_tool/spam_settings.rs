@@ -3,7 +3,7 @@ use ratatui::text::{Line, Span};
 
 use super::state::FocussedInput;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SpamSettings {
     pub src_mac: [u8; 6],
     pub dst_mac: [u8; 6],
@@ -12,6 +12,8 @@ pub struct SpamSettings {
 }
 
 impl SpamSettings {
+
+    // Constructs a properly formatted TUI element from spam settings
     pub fn format(&self, focus: FocussedInput) -> Vec<Line> {
         let (src_mac_f, dst_mac_f, n_reps_f, pause_ms_f) = match focus {
             FocussedInput::SrcMac(i) => (Some(i), None, None, None),
@@ -31,32 +33,34 @@ impl SpamSettings {
         ]
     }
 
+    // Formats text inputs, supports cursors  
     fn format_text<T: ToString>(&self, header: String, value: T, unit: String, selected_index: Option<usize>) -> Vec<Span> {
-        let value_str = value.to_string();
-        let value_str_len = value_str.len();
-        let mut spans = vec![Span::raw(header)];
-        if selected_index.is_some() {
-            for (i, ch) in value_str.chars().enumerate() {
-                let mut style = Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD);
-                if selected_index == Some(i) {
-                    style = style.add_modifier(Modifier::UNDERLINED);
-                }
-                spans.push(Span::styled(ch.to_string(), style));
-            }
-        } else {
-            spans.push(Span::raw(value_str));
-        };
-
-        if selected_index == Some(value_str_len) {
-            spans.push(Span::styled(
-                " ",
-                Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::UNDERLINED),
-            ));
+      let value_str = value.to_string();
+      let value_str_len = value_str.len();
+      let mut spans = vec![Span::raw(header)];
+      if selected_index.is_some() {
+        for (i, ch) in value_str.chars().enumerate() {
+          let mut style = Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD);
+          if selected_index == Some(i) {
+            style = style.add_modifier(Modifier::UNDERLINED);
+          }
+          spans.push(Span::styled(ch.to_string(), style));
         }
-        spans.push(Span::raw(unit));
-        spans
+      } else {
+        spans.push(Span::raw(value_str));
+      };
+      
+      if selected_index == Some(value_str_len) {
+        spans.push(Span::styled(
+          " ",
+          Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::UNDERLINED),
+        ));
+      }
+      spans.push(Span::raw(unit));
+      spans
     }
-
+    
+    // Formats mac inputs, supports cursors  
     fn format_mac(&self, header: String, mac: [u8; 6], selected_index: Option<usize>) -> Vec<Span> {
         let mut spans = vec![Span::raw(header)];
         for (idx, byte) in mac.iter().enumerate() {
@@ -84,6 +88,7 @@ impl SpamSettings {
         spans
     }
 
+    // Updates as mac address u8 as if it is a string
     pub fn update_mac(old: u8, chr: char, index: usize) -> u8 {
         let ascii_char: u8 = chr as u8;
         let u4 = match ascii_char {
@@ -99,6 +104,7 @@ impl SpamSettings {
         }
     }
 
+    // Changes digit at index of a number as if it is a string type
     pub fn modify_digit_at_index(number: u32, index: usize, replacement: Option<char>) -> u32 {
         let mut chars: Vec<char> = number.to_string().chars().collect();
         match replacement {

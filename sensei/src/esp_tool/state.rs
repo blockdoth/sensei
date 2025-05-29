@@ -4,6 +4,7 @@ use std::vec;
 
 use async_trait::async_trait;
 use crossterm::event::{KeyCode, KeyEvent};
+use futures::sink::Send;
 use lib::csi_types::CsiData;
 use lib::sources::controllers::esp32_controller::{
     Bandwidth as EspBandwidth, CsiType as EspCsiType, CustomFrameParams, Esp32Controller, Esp32DeviceConfig, OperationMode as EspOperationMode,
@@ -19,7 +20,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use tokio::sync::mpsc::{self, Receiver, Sender};
 
-use super::spam_settings::SpamSettings;
+use super::spam_settings::{self, SpamSettings};
 use super::tui::ui;
 use super::{CSI_DATA_BUFFER_CAPACITY, LOG_BUFFER_CAPACITY};
 
@@ -92,13 +93,16 @@ pub struct TuiState {
     pub focused_panel: FocusedPanel,
     pub focused_input: FocussedInput,
     pub logs: VecDeque<LogEntry>,
-    pub esp_config: Esp32DeviceConfig,
     pub tool_mode: ToolMode,
     pub device_state: DeviceState,
     pub last_error_message: Option<String>,
     pub csi_data: VecDeque<CsiData>,
-    pub spam_settings: SpamSettings,
     pub last_action_caused_error: bool,
+    pub esp_config: Esp32DeviceConfig,
+    pub unsaved_esp_config: Esp32DeviceConfig,
+
+    pub spam_settings: SpamSettings,
+    pub unsaved_spam_settings: SpamSettings,
 }
 
 #[async_trait]
@@ -146,77 +150,80 @@ impl Tui<EspUpdate, Esp32Controller> for TuiState {
     async fn handle_update(&mut self, update: EspUpdate, command_send: &Sender<Esp32Controller>, update_recv: &mut Receiver<EspUpdate>) {
         match update {
             EspUpdate::SpamConfig(spam_config_update) => match spam_config_update {
-                SpamConfigUpdate::Edit(chr) => match self.focused_input {
-                    FocussedInput::SrcMac(string_idx) if chr.is_ascii_hexdigit() => {
-                        // string_idx / 2 = byte idx
-                        self.spam_settings.src_mac[string_idx / 2] =
-                            SpamSettings::update_mac(self.spam_settings.src_mac[string_idx / 2], chr, string_idx);
-                        self.focused_input = self.focused_input.cursor_right();
-                    }
-                    FocussedInput::DstMac(string_idx) if chr.is_ascii_hexdigit() => {
-                        self.spam_settings.dst_mac[string_idx / 2] =
-                            SpamSettings::update_mac(self.spam_settings.dst_mac[string_idx / 2], chr, string_idx);
-                        self.focused_input = self.focused_input.cursor_right();
-                    }
-                    FocussedInput::PauseMs(string_idx) if chr.is_numeric() => {
-                        self.spam_settings.pause_ms = SpamSettings::modify_digit_at_index(self.spam_settings.pause_ms, string_idx, Some(chr));
-                        self.focused_input = self.focused_input.cursor_right();
-                    }
-                    FocussedInput::Reps(string_idx) if chr.is_numeric() => {
-                        self.spam_settings.n_reps = SpamSettings::modify_digit_at_index(self.spam_settings.n_reps, string_idx, Some(chr));
-                        self.focused_input = self.focused_input.cursor_right();
-                    }
-                    _ => (),
-                },
-                SpamConfigUpdate::Delete => {
+                SpamConfigUpdate::Edit(chr) => {
                     match self.focused_input {
-                        FocussedInput::SrcMac(string_idx) => {
-                            self.spam_settings.src_mac[string_idx / 2] = 0;
+                        FocussedInput::SrcMac(string_idx) if chr.is_ascii_hexdigit() => {
+                            // string_idx / 2 = byte idx
+                            self.unsaved_spam_settings.src_mac[string_idx / 2] =
+                                SpamSettings::update_mac(self.unsaved_spam_settings.src_mac[string_idx / 2], chr, string_idx);
+                            self.focused_input = self.focused_input.cursor_right();
                         }
-                        FocussedInput::DstMac(string_idx) => {
-                            self.spam_settings.dst_mac[string_idx / 2] = 0;
+                        FocussedInput::DstMac(string_idx) if chr.is_ascii_hexdigit() => {
+                            self.unsaved_spam_settings.dst_mac[string_idx / 2] =
+                                SpamSettings::update_mac(self.unsaved_spam_settings.dst_mac[string_idx / 2], chr, string_idx);
+                            self.focused_input = self.focused_input.cursor_right();
                         }
-                        FocussedInput::PauseMs(string_idx) => {
-                            self.spam_settings.pause_ms = SpamSettings::modify_digit_at_index(self.spam_settings.pause_ms, string_idx, None)
+                        FocussedInput::PauseMs(string_idx) if chr.is_numeric() => {
+                            self.unsaved_spam_settings.pause_ms =
+                                SpamSettings::modify_digit_at_index(self.unsaved_spam_settings.pause_ms, string_idx, Some(chr));
+                            self.focused_input = self.focused_input.cursor_right();
                         }
-                        FocussedInput::Reps(string_idx) => {
-                            self.spam_settings.n_reps = SpamSettings::modify_digit_at_index(self.spam_settings.n_reps, string_idx, None)
+                        FocussedInput::Reps(string_idx) if chr.is_numeric() => {
+                            self.unsaved_spam_settings.n_reps =
+                                SpamSettings::modify_digit_at_index(self.unsaved_spam_settings.n_reps, string_idx, Some(chr));
+                            self.focused_input = self.focused_input.cursor_right();
                         }
                         _ => (),
                     }
-
-                    self.apply_spam_input_buffer();
                 }
+                SpamConfigUpdate::Delete => match self.focused_input {
+                    FocussedInput::SrcMac(string_idx) => {
+                        self.unsaved_spam_settings.src_mac[string_idx / 2] = 0;
+                    }
+                    FocussedInput::DstMac(string_idx) => {
+                        self.unsaved_spam_settings.dst_mac[string_idx / 2] = 0;
+                    }
+                    FocussedInput::PauseMs(string_idx) => {
+                        self.unsaved_spam_settings.pause_ms =
+                            SpamSettings::modify_digit_at_index(self.unsaved_spam_settings.pause_ms, string_idx, None);
+                    }
+                    FocussedInput::Reps(string_idx) => {
+                        self.unsaved_spam_settings.n_reps = SpamSettings::modify_digit_at_index(self.unsaved_spam_settings.n_reps, string_idx, None);
+                    }
+                    _ => (),
+                },
                 SpamConfigUpdate::Enter => {
-                    self.apply_spam_input_buffer();
-                    self.focused_input = FocussedInput::None
+                    self.apply_changes(command_send).await;
+                    self.focused_input = FocussedInput::None;
+                    self.focused_panel = FocusedPanel::Main;
                 }
                 SpamConfigUpdate::TabRight => self.focused_input = self.focused_input.tab_right(),
                 SpamConfigUpdate::TabLeft => self.focused_input = self.focused_input.tab_left(),
                 SpamConfigUpdate::CursorRight => match self.focused_input {
-                    FocussedInput::PauseMs(i) if i >= self.spam_settings.pause_ms.to_string().len() => {}
-                    FocussedInput::Reps(i) if i >= self.spam_settings.n_reps.to_string().len() => {}
+                    FocussedInput::PauseMs(i) if i >= self.unsaved_spam_settings.pause_ms.to_string().len() => {}
+                    FocussedInput::Reps(i) if i >= self.unsaved_spam_settings.n_reps.to_string().len() => {}
                     _ => self.focused_input = self.focused_input.cursor_right(),
                 },
                 SpamConfigUpdate::CursorLeft => self.focused_input = self.focused_input.cursor_left(),
                 SpamConfigUpdate::CursorUp => match self.focused_input {
-                    FocussedInput::Reps(i) if i >= self.spam_settings.pause_ms.to_string().len() => {
-                        self.focused_input = FocussedInput::PauseMs(self.spam_settings.n_reps.to_string().len())
+                    FocussedInput::Reps(i) if i >= self.unsaved_spam_settings.pause_ms.to_string().len() => {
+                        self.focused_input = FocussedInput::PauseMs(self.unsaved_spam_settings.n_reps.to_string().len())
                     }
                     _ => self.focused_input = self.focused_input.cursor_up(),
                 },
 
                 SpamConfigUpdate::CursorDown => match self.focused_input {
-                    FocussedInput::Reps(i) if i >= self.spam_settings.n_reps.to_string().len() => {
-                        self.focused_input = FocussedInput::PauseMs(self.spam_settings.pause_ms.to_string().len())
+                    FocussedInput::Reps(i) if i >= self.unsaved_spam_settings.n_reps.to_string().len() => {
+                        self.focused_input = FocussedInput::PauseMs(self.unsaved_spam_settings.pause_ms.to_string().len())
                     }
                     _ => self.focused_input = self.focused_input.cursor_down(),
                 },
                 SpamConfigUpdate::Escape => match self.focused_input {
-                    FocussedInput::None => if self.focused_panel == FocusedPanel::SpamConfig {
-                        self.focused_panel = FocusedPanel::Main;
-                        self.apply_spam_input_buffer();
-                    },
+                    FocussedInput::None => {
+                        if self.focused_panel == FocusedPanel::SpamConfig {
+                            self.focused_panel = FocusedPanel::Main;
+                        }
+                    }
                     _ => self.focused_input = FocussedInput::None,
                 },
             },
@@ -240,64 +247,62 @@ impl Tui<EspUpdate, Esp32Controller> for TuiState {
             }
             EspUpdate::ChangeBandwidth => match self.esp_config.bandwidth {
                 EspBandwidth::Twenty => {
-                    self.esp_config.bandwidth = EspBandwidth::Forty;
-                    self.esp_config.secondary_channel = EspSecondaryChannel::Above;
+                    self.unsaved_esp_config.bandwidth = EspBandwidth::Forty;
+                    self.unsaved_esp_config.secondary_channel = EspSecondaryChannel::Above;
+                    self.apply_changes(command_send).await;
                 }
                 EspBandwidth::Forty => {
-                    self.esp_config.bandwidth = EspBandwidth::Twenty;
-                    self.esp_config.secondary_channel = EspSecondaryChannel::None;
+                    self.unsaved_esp_config.bandwidth = EspBandwidth::Twenty;
+                    self.unsaved_esp_config.secondary_channel = EspSecondaryChannel::None;
+                    self.apply_changes(command_send).await;
                 }
             },
             EspUpdate::ChangeCsiMode => {
-                self.esp_config.csi_type = match self.esp_config.csi_type {
+                self.unsaved_esp_config.csi_type = match self.esp_config.csi_type {
                     EspCsiType::HighThroughputLTF => EspCsiType::LegacyLTF,
                     EspCsiType::LegacyLTF => EspCsiType::HighThroughputLTF,
                 };
+                self.apply_changes(command_send).await;
             }
             EspUpdate::IncrementChannel => {
-                self.esp_config.channel = (self.esp_config.channel % 11) + 1;
+                self.unsaved_esp_config.channel = (self.esp_config.channel % 11) + 1;
+                self.apply_changes(command_send).await;
             }
             EspUpdate::ModeChange => {
                 self.tool_mode = match self.tool_mode {
                     ToolMode::Listen => {
-                        self.esp_config.mode = EspOperationMode::Receive;
+                        self.unsaved_esp_config.mode = EspOperationMode::Receive;
                         self.device_state.spamming = false;
                         ToolMode::Spam
                     }
                     ToolMode::Spam => {
-                        self.esp_config.mode = EspOperationMode::Transmit;
+                        self.unsaved_esp_config.mode = EspOperationMode::Transmit;
                         self.device_state.listening = false;
                         ToolMode::Listen
                     }
                 };
                 self.last_error_message = None;
+                self.apply_changes(command_send).await;
             }
             EspUpdate::TriggerBurstSpam => {
                 if self.tool_mode == ToolMode::Spam {
-                    info!("Requesting to send custom frame burst.");
-                    todo!()
-                    // self.controller.transmit_custom_frame = Some(CustomFrameParams {
-                    //   src_mac: self.spam_settings.src_mac,
-                    //   dst_mac: self.spam_settings.dst_mac,
-                    //   n_reps: self.spam_settings.n_reps,
-                    //   pause_ms: self.spam_settings.pause_ms,
-                    // });
+                    error!("Not yet implemented");
                 } else {
                     self.last_error_message = Some("Send burst spam ('s') for Spam mode only. Switch mode with 'm'.".into());
                 }
             }
             EspUpdate::ToggleContinuousSpam if self.tool_mode == ToolMode::Spam => {
-                todo!()
+                error!("Not yet implemented");
             }
-            EspUpdate::ToggleSendMode => todo!(),
+            EspUpdate::ToggleSendMode => {
+                error!("Not yet implemented");
+            }
             EspUpdate::EditSpamConfig if self.tool_mode == ToolMode::Spam => {
                 self.focused_panel = FocusedPanel::SpamConfig;
                 self.focused_input = FocussedInput::SrcMac(0);
-                // self.last_error_message = None;
             }
             EspUpdate::Exit => {
                 if self.esp_config.mode == EspOperationMode::Transmit {
-                    // next_controller.control_wifi_transmit = false;
                     info!("Shutdown: Requesting to PAUSE WiFi transmit task (was in Transmit mode).");
                 } else {
                     info!("Shutdown: Skipping PauseWifiTransmit command (was in Receive mode, task likely not active).");
@@ -305,7 +310,7 @@ impl Tui<EspUpdate, Esp32Controller> for TuiState {
                 self.should_quit = true;
             }
             EspUpdate::ControllerUpdateSuccess => {
-                self.connection_status = "Controller updated succesfully".to_string();
+                self.connection_status = "Controller updated successfully".to_string();
             }
             EspUpdate::EspDisconnected => {
                 self.connection_status = "ESP disconnected".to_string();
@@ -315,10 +320,7 @@ impl Tui<EspUpdate, Esp32Controller> for TuiState {
     }
 
     // Gets called each tick of the main loop, useful for updating graphs and live views, should only make small changes to state
-
-    async fn on_tick(&mut self) {
-        
-    }
+    async fn on_tick(&mut self) {}
 
     // Whether the tui should quit
     fn should_quit(&self) -> bool {
@@ -336,6 +338,7 @@ impl TuiState {
             focused_input: FocussedInput::None,
             logs: VecDeque::with_capacity(LOG_BUFFER_CAPACITY),
             esp_config: Esp32DeviceConfig::default(),
+            unsaved_esp_config: Esp32DeviceConfig::default(),
             tool_mode: ToolMode::Listen,
             device_state: DeviceState {
                 spamming: false,
@@ -343,33 +346,28 @@ impl TuiState {
             },
             csi_data: VecDeque::with_capacity(CSI_DATA_BUFFER_CAPACITY),
             spam_settings: SpamSettings::default(),
+            unsaved_spam_settings: SpamSettings::default(),
             last_action_caused_error: false,
         }
     }
 
-    // Handles all incoming keyboard events
-    // pub async fn handle_keyboard_event(
-    //     &mut self,
-    //     key_event: KeyEvent,
-    //     command_tx: &mpsc::Sender<Esp32Controller>,
-    //     update_tx: &mpsc::Sender<EspUpdate>,
-    // ) -> bool {
-
-    //     KeyCode::Char(ch) => match self.current_editing_field {
-    //         FocussedInput::SrcMac(_) | FocussedInput::DstMac(_) => {
-    //             if self.spam_input_buffer.len() < 2 && ch.is_ascii_hexdigit() {
-    //                 self.spam_input_buffer.push(ch.to_ascii_uppercase());
-    //                 self.current_field_has_error = false;
-    //             }
-    //         }
-    //         FocussedInput::Reps | FocussedInput::PauseMs => {
-    //             if self.spam_input_buffer.len() < 7 && ch.is_ascii_digit() {
-    //                 self.spam_input_buffer.push(ch);
-    //                 self.current_field_has_error = false;
-    //             }
-    //         }
-    //     },
-    // }
+    // Actually applies the changes made to the ESP source, should be the only place where that happens
+    pub async fn apply_changes(&mut self, command_send: &Sender<Esp32Controller>) {
+        if self.spam_settings == self.unsaved_spam_settings && self.esp_config == self.unsaved_esp_config {
+            info!("Nothing changed")
+        } else {
+            info!("Shit changed");
+            let controller = Esp32Controller::default();
+            match command_send.send(controller).await {
+                Ok(_) => {
+                    error!("Applied update")
+                }
+                Err(_) => {
+                    error!("Failed to apply update")
+                }
+            }
+        }
+    }
 
     // let mut next_controller = Esp32Controller::default();
 
@@ -436,87 +434,4 @@ impl TuiState {
     // }
     //     }
     // }
-
-    // pub fn apply_spam_value_change(&mut self, increment: bool) {
-    //     if !self.is_editing_spam_config {
-    //         return;
-    //     }
-    //     let val_change_u8: u8 = if increment { 1 } else { 255 }; // u8::MAX for wrapping_sub(1)
-    //     let val_change_i32: i32 = if increment { 1 } else { -1 };
-
-    //     match self.current_editing_field {
-    //         FocussedInput::SrcMac(i) => {
-    //             self.spam_settings.src_mac[i] = self.spam_settings.src_mac[i].wrapping_add(val_change_u8);
-    //         }
-    //         FocussedInput::DstMac(i) => {
-    //             self.spam_settings.dst_mac[i] = self.spam_settings.dst_mac[i].wrapping_add(val_change_u8);
-    //         }
-    //         FocussedInput::Reps => {
-    //             self.spam_settings.n_reps = (self.spam_settings.n_reps + val_change_i32).max(0);
-    //         }
-    //         FocussedInput::PauseMs => {
-    //             self.spam_settings.pause_ms = (self.spam_settings.pause_ms + val_change_i32).max(0);
-    //         }
-    //     }
-    // }
-
-    // // Parses and applies the spam input buffer
-    fn apply_spam_input_buffer(&mut self) {
-        // let buffer_content = self.spam_input_buffer.trim();
-        // self.current_field_has_error = false;
-
-        // if buffer_content.is_empty() {
-        //     match self.focused_input {
-        //         FocussedInput::SrcMac(_) | FocussedInput::DstMac(_) => {
-        //             self.last_error_message = Some("MAC octet cannot be empty. Reverted.".to_string());
-        //             self.current_field_has_error = true;
-        //             return;
-        //         }
-        //         FocussedInput::Reps => self.spam_settings.n_reps = 0,
-        //         FocussedInput::PauseMs => self.spam_settings.pause_ms = 0,
-        //         _ => {}
-        //     }
-        //     self.last_error_message = None;
-        //     return;
-        //   }
-    }
 }
-
-//     let parse_result: Result<(), String> = match self.current_editing_field {
-//         FocussedInput::SrcMac(i) => u8::from_str_radix(buffer_content, 16)
-//             .map_err(|e| format!("Invalid SrcMAC Octet value: '{buffer_content}' ({e})"))
-//             .map(|val| self.spam_settings.src_mac[i] = val),
-//         FocussedInput::DstMac(i) => u8::from_str_radix(buffer_content, 16)
-//             .map_err(|e| format!("Invalid DstMAC Octet value: '{buffer_content}' ({e})"))
-//             .map(|val| self.spam_settings.dst_mac[i] = val),
-//         FocussedInput::Reps => buffer_content
-//             .parse::<i32>()
-//             .map_err(|e| format!("Invalid Reps value: '{buffer_content}' ({e})"))
-//             .and_then(|val| {
-//                 if val >= 0 {
-//                     self.spam_settings.n_reps = val;
-//                     Ok(())
-//                 } else {
-//                     Err("Reps must be non-negative".to_string())
-//                 }
-//             }),
-//         FocussedInput::PauseMs => buffer_content
-//             .parse::<i32>()
-//             .map_err(|e| format!("Invalid PauseMs value: '{buffer_content}' ({e})"))
-//             .and_then(|val| {
-//                 if val >= 0 {
-//                     self.spam_settings.pause_ms = val;
-//                     Ok(())
-//                 } else {
-//                     Err("PauseMs must be non-negative".to_string())
-//                 }
-//             }),
-//     };
-
-//     if let Err(e) = parse_result {
-//         self.last_error_message = Some(e);
-//         self.current_field_has_error = true;
-//     } else {
-//         self.last_error_message = None;
-//     }
-// }

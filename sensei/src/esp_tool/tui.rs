@@ -71,12 +71,12 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
     let padding = Padding::new(1, 1, 0, 0);
     let header_style = Style::default().fg(Color::White).add_modifier(Modifier::BOLD);
     // --- Build Status Block Content ---
-    let mode_str = match tui_state.esp_config.mode {
+    let mode_str = match tui_state.unsaved_esp_config.mode {
         // Read from esp_config
         EspOperationMode::Receive => "CSI RX",
         EspOperationMode::Transmit => "WiFi SPAM TX",
     };
-    let dev_conf = &tui_state.esp_config;
+    let dev_conf = &tui_state.unsaved_esp_config;
     let bw_str = match dev_conf.bandwidth {
         EspBandwidth::Twenty => "20MHz",
         EspBandwidth::Forty => "40MHz",
@@ -107,7 +107,7 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
     // WiFi Channel, Bandwidth, and Secondary Channel line
     let mut wifi_line_spans = vec![
         Span::raw("WiFi Channel: "),
-        Span::styled(format!("{:02}", tui_state.esp_config.channel), Style::default().fg(Color::Yellow)),
+        Span::styled(format!("{:02}", tui_state.unsaved_esp_config.channel), Style::default().fg(Color::Yellow)),
         Span::raw(" | Bandwidth: "),
         Span::styled(bw_str, Style::default().fg(Color::Yellow)),
     ];
@@ -135,7 +135,7 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
     ]));
 
     if let Some(spam_area) = spam_config_area {
-        let mut spam_lines = tui_state.spam_settings.format(tui_state.focused_input);
+        let mut spam_lines = tui_state.unsaved_spam_settings.format(tui_state.focused_input);
 
         let spam_status = if tui_state.device_state.spamming { "ON" } else { "OFF" };
         let spam_style = if tui_state.device_state.spamming {

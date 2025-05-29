@@ -74,7 +74,7 @@ pub struct CustomFrameParams {
     pub pause_ms: i32,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
+#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema, PartialEq)]
 pub struct Esp32DeviceConfig {
     pub channel: u8,
     pub mode: OperationMode,
