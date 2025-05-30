@@ -1,3 +1,4 @@
+use lib::sources::controllers::esp32_controller::CustomFrameParams;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 

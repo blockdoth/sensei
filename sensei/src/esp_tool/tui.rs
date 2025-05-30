@@ -1,7 +1,9 @@
+use std::fmt::format;
+
 use crossterm::style;
 use lib::csi_types::CsiData;
 use lib::sources::controllers::esp32_controller::{
-    Bandwidth as EspBandwidth, CsiType as EspCsiType, OperationMode as EspOperationMode, SecondaryChannel as EspSecondaryChannel,
+    Bandwidth as EspBandwidth, CsiType as EspCsiType, EspMode, OperationMode as EspOperationMode, SecondaryChannel as EspSecondaryChannel,
 };
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout};
@@ -9,12 +11,12 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Cell, Padding, Paragraph, Row, Table, Wrap};
 
-use super::state::{DeviceState, TuiState};
+use super::state::TuiState;
 use crate::esp_tool::state::{FocusedPanel, FocussedInput, ToolMode};
 use crate::esp_tool::{CSI_DATA_BUFFER_CAPACITY, LOG_BUFFER_CAPACITY};
 
-const BASE_ESP_CONFIG_LINES: u16 = 6; // General ESP32 config lines
-const SPAM_DETAILS_LINES: u16 = 5; // Lines for spam-specific configuration details
+const BASE_ESP_CONFIG_LINES: u16 = 7; // General ESP32 config lines
+const SPAM_DETAILS_LINES: u16 = 4; // Lines for spam-specific configuration details
 
 // Renders the UI based on the state, should not contain any state changing logic
 pub fn ui(f: &mut Frame, tui_state: &TuiState) {
@@ -71,10 +73,10 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
     let padding = Padding::new(1, 1, 0, 0);
     let header_style = Style::default().fg(Color::White).add_modifier(Modifier::BOLD);
     // --- Build Status Block Content ---
-    let mode_str = match tui_state.unsaved_esp_config.mode {
-        // Read from esp_config
-        EspOperationMode::Receive => "CSI RX",
-        EspOperationMode::Transmit => "WiFi SPAM TX",
+    let mode_str = match tui_state.esp_mode {
+        EspMode::SendingPaused => "Spam (Paused)",
+        EspMode::Sending => "Spam",
+        EspMode::Listening => "Monitor",
     };
     let dev_conf = &tui_state.unsaved_esp_config;
     let bw_str = match dev_conf.bandwidth {
@@ -134,18 +136,17 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
         ),
     ]));
 
+    let settings_synced = match tui_state.synced {
+        0 => Line::raw("All changes are synced"),
+        i => Line::from(Span::styled(format!("Syncing {i} changes"), Style::default().fg(Color::Cyan))),
+    };
+    status_lines.push(settings_synced);
+
     if let Some(spam_area) = spam_config_area {
         let mut spam_lines = tui_state.unsaved_spam_settings.format(tui_state.focused_input);
 
-        let spam_status = if tui_state.device_state.spamming { "ON" } else { "OFF" };
-        let spam_style = if tui_state.device_state.spamming {
-            Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default()
-        };
-
-        spam_lines.push(Line::from(Span::styled(format!("  Continuous Spam ('t'): {spam_status}"), spam_style)));
-        let border_style = if tui_state.focused_input != FocussedInput::None {
+        // Might be a bit computationally expensive
+        let border_style = if tui_state.unsaved_spam_settings != tui_state.spam_settings {
             Style::default().fg(Color::DarkGray)
         } else {
             Style::default()
@@ -202,7 +203,7 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
             Block::default()
                 .borders(Borders::ALL)
                 .padding(padding)
-                .title(Span::styled("Info / Errors", header_style)),
+                .title(Span::styled("Controls", header_style)),
         )
         .row_highlight_style(Style::default().add_modifier(Modifier::REVERSED))
         .highlight_symbol(">> ");
@@ -238,12 +239,11 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
         match tui_state.focused_panel {
             FocusedPanel::SpamConfig => match tui_state.focused_input {
                 FocussedInput::None => {
-                    "Controls: [Q]uit | [M]ode | [C]h | [B]W | [L]TF | [↑]ClrCSI | [↓]SyncTime | [R]ClrErr | SpamMode: [E]dit | [S]Burst | [T]Cont"
-                        .to_string()
+                    "[Q]uit | [M]ode | [C]hannel | [B]andwidth | [L] CSI Type SpamMode: [E]dit | [S]end Burst | [T] Send Continuous".to_string()
                 }
-                _ => "[Esc] Exit Edit | [Tab]/[Ent] Next | [Shft+Tab] Prev | [←→↑↓] Move".to_string(),
+                _ => "[Esc] Exit Spam Config | [Tab]/[Ent] Next | [Shft+Tab] Prev | [←→↑↓] Move".to_string(),
             },
-            FocusedPanel::Main => "Controls: [Q]uit | [M]ode | [C]h | [B]W | [L]TF | [↑]ClrCSI | [↓]SyncTime | [R]ClrErr ".to_string(),
+            FocusedPanel::Main => "[Q]uit | [M]ode | [C]hannel | [B]andwidth | [L] CSI Type".to_string(),
         }
     };
 

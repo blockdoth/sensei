@@ -163,7 +163,7 @@ impl Esp32Source {
                 // ack_payload_result is Result<Vec<u8>, ControllerError>
                 match ack_payload_result {
                     Ok(ack_data) => {
-                        info!("ACK received for command: {cmd:?}");
+                        debug!("ACK received for command: {cmd:?}");
                         Ok(ack_data)
                     }
                     Err(e) => {
@@ -396,7 +396,7 @@ impl Esp32Source {
 impl DataSourceT for Esp32Source {
     async fn start(&mut self) -> Result<(), DataSourceError> {
         if self.is_running.load(AtomicOrdering::SeqCst) {
-            info!("ESP32Source already running.");
+            warn!("ESP32Source already running.");
             return Ok(());
         }
         info!(
