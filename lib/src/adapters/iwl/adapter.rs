@@ -214,3 +214,42 @@ impl ToConfig<DataAdapterConfig> for IwlAdapter {
         Ok(DataAdapterConfig::Iwl { scale_csi: self.scale_csi })
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::network::rpc_message::DataMsg;
+    use crate::csi_types::CsiData;
+    use crate::adapters::DataAdapterConfig;
+    use crate::errors::CsiAdapterError;
+    use crate::adapters::iwl::test_utils::build_test_packet;
+
+    #[tokio::test]
+    async fn test_produce_raw() {
+        let buf = build_test_packet(187, 100, 2, 2, [40, 41, 42], -92, 7, 0b00011011, None);
+        
+
+    }
+
+    #[tokio::test]
+    async fn test_produce_raw_scale() {
+    }
+
+    #[tokio::test]
+    async fn test_produce_csi() {
+        
+    }
+
+    #[test]
+    fn test_dbinv_get_total_rss() {
+    }
+
+    #[test]
+    fn test_scale_csi() {
+    }
+
+    #[tokio::test]
+    async fn test_to_config() {
+    }
+}

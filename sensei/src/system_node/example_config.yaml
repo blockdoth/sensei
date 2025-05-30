@@ -24,6 +24,7 @@
     type: Esp32
     scale_csi: true
   sinks:
-    - type: File
-      file: "/dev/stdout"
+    - type: Tcp
+      target_addr: 127.0.0.1:6969
+      device_id: 42
 
