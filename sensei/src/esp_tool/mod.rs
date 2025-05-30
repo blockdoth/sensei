@@ -76,7 +76,6 @@ impl Run<EspToolConfig> for EspTool {
         EspTool {}
     }
 
-    
     async fn run(&mut self, global_config: GlobalConfig, esp_config: EspToolConfig) -> Result<(), Box<dyn std::error::Error>> {
         let (command_send, mut command_recv) = mpsc::channel::<Esp32Controller>(10);
         let (update_send, mut update_recv) = mpsc::channel::<EspUpdate>(10);
@@ -126,9 +125,7 @@ impl EspTool {
 
         if let Err(e) = controller.apply(&mut esp).await {
             warn!("ESP Actor: Failed to apply initial ESP32 configuration: {e}");
-            update_send_channel
-                .send(EspUpdate::Status(format!("Failed to initialize")))
-                .await;
+            update_send_channel.send(EspUpdate::Status("Failed to initialize".to_string())).await;
             return;
         } else {
             info!("ESP Actor: Initial ESP32 configuration applied successfully.");
