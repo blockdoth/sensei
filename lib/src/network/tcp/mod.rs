@@ -1,4 +1,4 @@
-use super::rpc_message::{self, DataMsg, RpcMessage, RpcMessageKind};
+use super::rpc_message::{self, DataMsg, RpcMessage, RpcMessageKind, SourceType};
 use crate::{errors::NetworkError, network::rpc_message::make_msg};
 use async_trait::async_trait;
 use log::{debug, error, info, trace};
@@ -136,4 +136,5 @@ pub enum ChannelMsg {
     ListenUnsubscribe { addr: SocketAddr },
     Unsubscribe,
     Poll,
+    SendHostStatus { reg_addr: SocketAddr },
 }

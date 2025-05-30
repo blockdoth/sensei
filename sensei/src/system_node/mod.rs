@@ -13,7 +13,6 @@ use lib::adapters::CsiDataAdapter; // Removed esp32 module import here, will use
 use lib::csi_types::{Complex, CsiData};
 use lib::errors::NetworkError;
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
-use lib::network::rpc_message::DeviceStatus;
 use lib::network::rpc_message::RpcMessage;
 use lib::network::rpc_message::RpcMessageKind::Ctrl;
 use lib::network::rpc_message::SourceType;
@@ -98,7 +97,7 @@ impl ConnectionHandler for SystemNode {
     async fn handle_recv(
         &self,
         request: RpcMessage,
-        send_channel: watch::Sender<ChannelMsg>,
+        send_channel_msg_channel: watch::Sender<ChannelMsg>,
     ) -> Result<(), NetworkError> {
         info!(
             "Received message {:?} from {}",
@@ -112,14 +111,20 @@ impl ConnectionHandler for SystemNode {
                 }
                 Disconnect => {
                     // Correct way to signal disconnect to the sending task for this connection
-                    if send_channel.send(ChannelMsg::Disconnect).is_err() {
+                    if send_channel_msg_channel
+                        .send(ChannelMsg::Disconnect)
+                        .is_err()
+                    {
                         warn!("Failed to send Disconnect to own handle_send task; already closed?");
                     }
                     return Err(NetworkError::Closed); // Indicate connection should close
                 }
                 Subscribe { device_id, mode } => {
                     // device_id and mode are unused for now
-                    if send_channel.send(ChannelMsg::Subscribe).is_err() {
+                    if send_channel_msg_channel
+                        .send(ChannelMsg::Subscribe)
+                        .is_err()
+                    {
                         warn!("Failed to send Subscribe to own handle_send task; already closed?");
                         return Err(NetworkError::UnableToConnect);
                     }
@@ -130,7 +135,10 @@ impl ConnectionHandler for SystemNode {
                 }
                 Unsubscribe { device_id } => {
                     // device_id is unused for now
-                    if send_channel.send(ChannelMsg::Unsubscribe).is_err() {
+                    if send_channel_msg_channel
+                        .send(ChannelMsg::Unsubscribe)
+                        .is_err()
+                    {
                         warn!(
                             "Failed to send Unsubscribe to own handle_send task; already closed?"
                         );
@@ -143,20 +151,15 @@ impl ConnectionHandler for SystemNode {
                 }
                 PollHostStatus => {
                     info!("Received PollDevices from {}", request.src_addr);
-
-                    let host_status = CtrlMsg::HostStatus {
-                        host_id: self.config.host_id,
-                        device_status: self
-                            .config
-                            .device_configs
-                            .iter()
-                            .map(|cfg| DeviceStatus {
-                                d_id: cfg.device_id,
-                                d_type: cfg.stype.clone(),
-                            })
-                            .collect(),
-                    };
-                    // Somehow send it???
+                    if send_channel_msg_channel
+                        .send(ChannelMsg::SendHostStatus {
+                            reg_addr: request.src_addr,
+                        })
+                        .is_err()
+                    {
+                        warn!("Could not send HostStatus message");
+                        return Err(NetworkError::UnableToConnect);
+                    }
                 }
                 m => {
                     warn!("Received unhandled CtrlMsg: {m:?}");
@@ -209,6 +212,16 @@ impl ConnectionHandler for SystemNode {
                         ChannelMsg::Unsubscribe => {
                             info!("Subscription deactivated for client, will stop sending data.");
                             sending_active = false;
+                        }
+                        ChannelMsg::SendHostStatus { reg_addr } => {
+                            sending_active = false;
+                            let host_status = CtrlMsg::HostStatus {
+                                host_id: self.config.host_id,
+                                device_status: vec![],
+                            };
+                            let msg = RpcMessageKindCtrl(host_status);
+                            tcp::send_message(&mut send_stream, msg).await;
+                            return Ok(());
                         }
                         _ => (), // Other ChannelMsg types not relevant here
                     }
@@ -288,8 +301,8 @@ impl Run<SystemNodeConfig> for SystemNode {
             let mut client = TcpClient::new();
             client.connect(registry_addr).await?;
             client.send_message(registry_addr, heartbeat_msg).await?;
-            info!("Heartbeat sent to registry at {}", config.registry.addr);
             client.disconnect(registry_addr);
+            info!("Heartbeat sent to registry at {}", config.registry.addr);
         }
 
         // Start TCP server to handle client connections
