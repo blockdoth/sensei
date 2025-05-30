@@ -7,6 +7,7 @@
 //! the hosts have to keep track another task, which could overwhelm the lowest compute
 //! devices in the network.
 use std::collections::HashMap;
+use std::convert::From;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -14,12 +15,11 @@ use anyhow::Error;
 use async_trait::async_trait;
 use lib::errors::{AppError, NetworkError};
 use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
-use lib::network::rpc_message::{CtrlMsg, DataMsg, RpcMessage, RpcMessageKind};
+use lib::network::rpc_message::{self, CtrlMsg, DataMsg, DeviceStatus, HostId, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
 use log::*;
-use priority_queue::PriorityQueue;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
@@ -34,15 +34,10 @@ use crate::module::Run;
 
 #[derive(Clone)]
 pub struct Registry {
-    hosts: Arc<Mutex<PriorityQueue<(HostId, SocketAddr), u32>>>,
-    host_table: Arc<Mutex<HashMap<HostId, CtrlMsg>>>,
+    hosts: Arc<Mutex<HashMap<HostId, HostInfo>>>,
     send_data_channel: broadcast::Sender<DataMsg>,
 }
 
-#[derive(Clone, Eq, Hash, PartialEq, Debug)]
-struct HostId {
-    id: u64,
-}
 #[derive(Eq, Hash, PartialEq, Clone, Debug)]
 struct DeviceId {
     id: u64,
@@ -50,17 +45,28 @@ struct DeviceId {
 
 #[derive(Clone)]
 struct HostInfo {
-    name: String,
-    rpc_addr: String,
-    state: String,
-    last_heartbeat: u32,
+    addr: SocketAddr,
+    status: RegHostStatus,
+    responded_to_last_heardbeat: bool, // A host is allowed to miss one
 }
+
+/// This is nearly the same type as in rpc_message.
+/// I don't want to match on rpc_message every time, so I transfer the type.
 #[derive(Clone)]
-struct DeviceInfo {
+struct RegHostStatus {
     host_id: HostId,
-    kind: String,
-    state: String,
-    current_cfg: String,
+    device_status: Vec<DeviceStatus>, // (device_id, status)
+}
+
+impl From<CtrlMsg> for RegHostStatus {
+    fn from(item: CtrlMsg) -> Self {
+        match item {
+            CtrlMsg::HostStatus { host_id, device_status } => RegHostStatus { host_id, device_status },
+            _ => {
+                todo!("Throw propper error here");
+            }
+        }
+    }
 }
 
 /// The registry spawns two threads. A TCP server that allows new hosts to register themselves
@@ -68,8 +74,7 @@ struct DeviceInfo {
 impl Run<RegistryConfig> for Registry {
     fn new(config: RegistryConfig) -> Self {
         Registry {
-            hosts: Arc::from(Mutex::from(PriorityQueue::new())),
-            host_table: Arc::from(Mutex::from(HashMap::new())),
+            hosts: Arc::from(Mutex::from(HashMap::new())),
             send_data_channel: broadcast::channel(100).0, // magic buffer for now
         }
     }
@@ -112,7 +117,7 @@ impl ConnectionHandler for Registry {
 
         match request.msg {
             Ctrl(CtrlMsg::Heartbeat { host_id, host_address }) => {
-                self.register_host(HostId { id: host_id }, host_address).await.unwrap();
+                self.register_host(host_id, host_address).await.unwrap();
                 Ok(())
             }
             _ => Ok(()),
@@ -131,41 +136,69 @@ impl ConnectionHandler for Registry {
 
 impl Registry {
     /// Go though the list of hosts and poll their status
-    async fn poll_hosts(&self, mut client: TcpClient, poll_interval: Duration) {
+    async fn poll_hosts(&self, mut client: TcpClient, poll_interval: Duration) -> Result<(), Error> {
         let mut interval = interval(poll_interval);
         loop {
             interval.tick().await;
             for (host, addr) in self.list_hosts().await {
                 info!("Polling host: {host:#?} at address: {addr}");
-                client.connect(addr).await;
-                client.send_message(addr, RpcMessageKind::Ctrl(CtrlMsg::PollHostStatus)).await;
-                let msg = client.read_message(addr).await;
+                client.connect(addr).await?;
+                client.send_message(addr, RpcMessageKind::Ctrl(CtrlMsg::PollHostStatus)).await?;
+                let msg = client.read_message(addr).await?;
                 info!("msg: {msg:?}");
+                self.store_host_update(host, addr, msg.msg);
                 client.disconnect(addr).await;
             }
         }
     }
 
-    fn remove_host(&self, host_id: HostId) -> Result<(), Box<dyn std::error::Error>> {
+    async fn remove_host(&self, host_id: HostId) -> Result<(), Box<dyn std::error::Error>> {
         info!("Could not reach host: {host_id:?}");
+        let mut host_info_table = self.hosts.lock().await;
+        let info = host_info_table.get(&host_id).unwrap();
+        if !info.responded_to_last_heardbeat {
+            let hosts = self.hosts.lock().await.remove(&host_id);
+        } else {
+            let new_info = HostInfo {
+                addr: info.addr,
+                status: info.status.clone(),
+                responded_to_last_heardbeat: false,
+            };
+            host_info_table.insert(host_id, new_info);
+        }
         Ok(())
     }
     /// List all registered hosts in the registry.
     async fn list_hosts(&self) -> Vec<(HostId, SocketAddr)> {
-        self.hosts.lock().await.iter().map(|(host, _)| host.clone()).collect()
+        self.hosts.lock().await.iter().map(|(id, info)| (*id, info.addr)).collect()
     }
     /// Register a new host with the registry.
     async fn register_host(&self, host_id: HostId, host_address: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
         // because the host has been registered with priority 0 it will be next in line
-        self.hosts.lock().await.push((host_id.clone(), host_address), 0);
+        self.hosts.lock().await.insert(
+            host_id,
+            HostInfo {
+                addr: host_address,
+                status: RegHostStatus {
+                    host_id,
+                    device_status: Vec::new(),
+                },
+                responded_to_last_heardbeat: true,
+            },
+        );
         info!("Registered host: {host_id:#?}");
         Ok(())
     }
-    async fn store_host_update(&self, host_id: HostId, host_address: SocketAddr, status: CtrlMsg) -> Result<(), AppError> {
+    async fn store_host_update(&self, host_id: HostId, host_address: SocketAddr, status: RpcMessageKind) -> Result<(), AppError> {
         match status {
-            CtrlMsg::HostStatus { host_id, device_status } => {
-                // actually store host at some point
+            Ctrl(CtrlMsg::HostStatus { host_id, device_status }) => {
                 info!("{device_status:?}");
+                let status = HostInfo {
+                    addr: host_address,
+                    status: RegHostStatus { host_id, device_status },
+                    responded_to_last_heardbeat: true,
+                };
+                self.hosts.lock().await.insert(host_id, status);
                 Ok(())
             }
             _ => Err(AppError::ConfigError("No such host".to_string())), // TODO: proper error handling

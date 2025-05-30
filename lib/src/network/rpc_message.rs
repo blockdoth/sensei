@@ -27,6 +27,10 @@ pub enum RpcMessageKind {
     Data { data_msg: DataMsg, device_id: u64 },
 }
 
+/// There was some discussion about what we should use as a host id.
+/// This makes it more flexible
+pub use u64 as HostId;
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum CtrlMsg {
     Connect,
@@ -44,12 +48,12 @@ pub enum CtrlMsg {
     },
     PollHostStatus,
     Heartbeat {
-        host_id: u64,
+        host_id: HostId,
         host_address: SocketAddr,
     },
     /// This data message contains all the satus information a host shares with the registry
     HostStatus {
-        host_id: u64,
+        host_id: HostId,
         device_status: Vec<DeviceStatus>, // (device_id, status)
     },
 }
