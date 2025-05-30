@@ -10,12 +10,11 @@
 //! Mofidied based on: wisense/sensei/lib/src/adapters/mod.rs
 //! Originally authored by: Fabian Portner
 
-use crate::FromConfig;
 use crate::csi_types::CsiData;
-use crate::errors::CsiAdapterError;
-use crate::errors::TaskError;
+use crate::errors::{CsiAdapterError, TaskError};
 use crate::network::rpc_message::DataMsg;
 use crate::network::rpc_message::DataMsg::CsiFrame;
+use crate::{FromConfig, ToConfig};
 pub mod csv;
 pub mod esp32;
 pub mod iwl;
@@ -33,7 +32,7 @@ pub mod tcp;
 /// the function only starts reutrning data once the CSIData frame has been collected
 /// otherwise returns None
 #[async_trait::async_trait]
-pub trait CsiDataAdapter: Send {
+pub trait CsiDataAdapter: Send + ToConfig<DataAdapterConfig> {
     /// Attempts to consume a DataMsg and produce a CsiFrame variant.
     ///
     /// # Arguments

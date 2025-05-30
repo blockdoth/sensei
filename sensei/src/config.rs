@@ -1,11 +1,11 @@
-use lib::handler::device_handler::DeviceHandlerConfig;
-use serde::{Deserialize, Serialize};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
 use std::vec;
 
-pub const DEFAULT_ADDRESS: SocketAddr =
-    SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
+use lib::handler::device_handler::DeviceHandlerConfig;
+use serde::{Deserialize, Serialize};
+
+pub const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
 
 /// A trait for parsing a YAML file into a struct using Serde.
 ///
@@ -40,8 +40,7 @@ pub trait FromYaml: Sized + for<'de> Deserialize<'de> {
     ///
     /// This function will panic if the file cannot be read.
     fn from_yaml(file: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
-        let yaml = std::fs::read_to_string(file.clone())
-            .map_err(|e| format!("Failed to read YAML file: {}\n{}", file.display(), e))?;
+        let yaml = std::fs::read_to_string(file.clone()).map_err(|e| format!("Failed to read YAML file: {}\n{}", file.display(), e))?;
         Ok(serde_yaml::from_str(&yaml)?)
     }
 }

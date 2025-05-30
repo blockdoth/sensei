@@ -1,7 +1,8 @@
-use crate::adapters::CsiDataAdapter;
+use crate::ToConfig;
 use crate::adapters::iwl::header::IwlHeader;
+use crate::adapters::{CsiDataAdapter, DataAdapterConfig};
 use crate::csi_types::{Complex, CsiData};
-use crate::errors::CsiAdapterError;
+use crate::errors::{CsiAdapterError, TaskError};
 use crate::network::rpc_message::DataMsg;
 
 const NUM_SUBCARRIER: usize = 30;
@@ -87,23 +88,11 @@ impl CsiDataAdapter for IwlAdapter {
 
                 // Scale CSI values
                 if self.scale_csi {
-                    scale_csi(
-                        &mut csi,
-                        &header.rssi,
-                        header.noise,
-                        header.agc,
-                        header.ntx,
-                        header.nrx,
-                    );
+                    scale_csi(&mut csi, &header.rssi, header.noise, header.agc, header.ntx, header.nrx);
                 }
 
                 // Unpermute RSSI values using the header's permutation array
-                let rssi: Vec<_> = header
-                    .perm
-                    .iter()
-                    .take(header.nrx)
-                    .map(|&permuted_rx| header.rssi[permuted_rx])
-                    .collect();
+                let rssi: Vec<_> = header.perm.iter().take(header.nrx).map(|&permuted_rx| header.rssi[permuted_rx]).collect();
                 Ok(Some(DataMsg::CsiFrame {
                     csi: CsiData {
                         timestamp: header.timestamp,
@@ -150,10 +139,7 @@ fn dbinv(x: f64) -> f64 {
 ///
 /// Total RSS in dBm.
 fn get_total_rss(rssi: &[u16], agc: u8) -> f64 {
-    let rssi_mag: f64 = rssi
-        .iter()
-        .map(|&r| if r != 0 { dbinv(r as f64) } else { 0.0 })
-        .sum();
+    let rssi_mag: f64 = rssi.iter().map(|&r| if r != 0 { dbinv(r as f64) } else { 0.0 }).sum();
     rssi_mag.log10() * 10.0 - 44.0 - agc as f64
 }
 
@@ -170,14 +156,7 @@ fn get_total_rss(rssi: &[u16], agc: u8) -> f64 {
 /// * `agc` - AGC level for the current capture.
 /// * `ntx` - Number of transmit antennas.
 /// * `nrx` - Number of receive antennas.
-fn scale_csi(
-    csi: &mut [Vec<Vec<Complex>>],
-    rssi: &[u16],
-    noise: i8,
-    agc: u8,
-    ntx: usize,
-    nrx: usize,
-) {
+fn scale_csi(csi: &mut [Vec<Vec<Complex>>], rssi: &[u16], noise: i8, agc: u8, ntx: usize, nrx: usize) {
     // Calculate the total power of the CSI matrix
     let csi_pwr: f64 = csi
         .iter()
@@ -216,5 +195,22 @@ fn scale_csi(
                 *val *= overall_scale;
             }
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl ToConfig<DataAdapterConfig> for IwlAdapter {
+    /// Converts the current `IWLAdapter` instance into its configuration representation.
+    ///
+    /// This method implements the `ToConfig` trait for `IWLAdapter`, enabling the instance
+    /// to be converted into a `DataAdapterConfig::Iwl` variant. This is useful for persisting
+    /// adapter state, exporting it to a configuration file (e.g., JSON or YAML), or sending
+    /// it to remote services for orchestration.
+    ///
+    /// # Returns
+    /// - `Ok(DataAdapterConfig::Iwl)` containing the cloned `scale_csi` field.
+    /// - `Err(TaskError)` if an error occurs during conversion (not applicable in this implementation).
+    async fn to_config(&self) -> Result<DataAdapterConfig, TaskError> {
+        Ok(DataAdapterConfig::Iwl { scale_csi: self.scale_csi })
     }
 }

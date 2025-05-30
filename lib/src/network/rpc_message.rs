@@ -1,16 +1,16 @@
-use crate::csi_types::CsiData;
-use crate::handler::device_handler::DeviceHandlerConfig;
-use crate::network::rpc_message::RpcMessageKind::Ctrl;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::str::FromStr;
+use std::sync::Arc;
+
 use bincode::Error;
 use netlink_sys::Socket;
 use serde::{Deserialize, Serialize};
-use std::{
-    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
-    str::FromStr,
-    sync::Arc,
-};
 use tokio::net::{TcpStream, UdpSocket};
 use tokio_stream::Stream;
+
+use crate::csi_types::CsiData;
+use crate::handler::device_handler::DeviceHandlerConfig;
+use crate::network::rpc_message::RpcMessageKind::Ctrl;
 
 const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
 
@@ -62,14 +62,8 @@ pub struct DeviceStatus {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum DataMsg {
-    RawFrame {
-        ts: f64,
-        bytes: Vec<u8>,
-        source_type: SourceType,
-    }, // raw bytestream, requires decoding adapter
-    CsiFrame {
-        csi: CsiData,
-    }, // This would contain a proper deserialized CSI
+    RawFrame { ts: f64, bytes: Vec<u8>, source_type: SourceType }, // raw bytestream, requires decoding adapter
+    CsiFrame { csi: CsiData },                                     // This would contain a proper deserialized CSI
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum SourceType {
@@ -117,23 +111,14 @@ impl FromStr for CtrlMsg {
                 todo!("support this")
             }
             "subscribe" => {
-                let device_id = parts
-                    .next()
-                    .and_then(|s| s.parse::<u64>().ok())
-                    .unwrap_or(0); // TODO better id assignment
+                let device_id = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0); // TODO better id assignment
 
-                let mode = parts
-                    .next()
-                    .and_then(|s| s.parse::<AdapterMode>().ok())
-                    .unwrap_or(AdapterMode::RAW);
+                let mode = parts.next().and_then(|s| s.parse::<AdapterMode>().ok()).unwrap_or(AdapterMode::RAW);
 
                 Ok(CtrlMsg::Subscribe { device_id, mode })
             }
             "unsubscribe" => {
-                let device_id = parts
-                    .next()
-                    .and_then(|s| s.parse::<u64>().ok())
-                    .unwrap_or(0);
+                let device_id = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
 
                 Ok(CtrlMsg::Unsubscribe { device_id })
             }

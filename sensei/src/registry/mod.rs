@@ -6,33 +6,28 @@
 //! Letting the hosts periodically send heartbeats to the registry would mean that
 //! the hosts have to keep track another task, which could overwhelm the lowest compute
 //! devices in the network.
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::sync::Arc;
+
 use anyhow::Error;
 use async_trait::async_trait;
-use lib::errors::AppError;
-use lib::errors::NetworkError;
-use lib::network::rpc_message::{CtrlMsg, DataMsg, RpcMessageKind};
+use lib::errors::{AppError, NetworkError};
+use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
+use lib::network::rpc_message::{CtrlMsg, DataMsg, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
+use log::*;
 use priority_queue::PriorityQueue;
-use std::{collections::HashMap, sync::Arc};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
-use tokio::sync::Mutex;
-use tokio::sync::broadcast;
 use tokio::sync::watch::{self, Receiver, Sender};
+use tokio::sync::{Mutex, broadcast};
 use tokio::task;
 use tokio::time::{Duration, interval};
 
-use lib::network::rpc_message::{
-    RpcMessage,
-    RpcMessageKind::{Ctrl, Data},
-};
-use log::*;
-use std::net::SocketAddr;
-
-use crate::cli;
 use crate::cli::{GlobalConfig, RegistrySubcommandArgs, SubCommandsArgs};
 use crate::config::RegistryConfig;
 use crate::module::Run;
@@ -95,9 +90,7 @@ impl Run<RegistryConfig> for Registry {
             task::spawn(async move {
                 info!("Starting TCP client to poll hosts...");
                 let mut client = TcpClient::new();
-                connection_handler
-                    .poll_hosts(client, Duration::from_secs(config.poll_interval))
-                    .await;
+                connection_handler.poll_hosts(client, Duration::from_secs(config.poll_interval)).await;
             })
         };
 
@@ -114,21 +107,12 @@ impl SubscribeDataChannel for Registry {
 
 #[async_trait]
 impl ConnectionHandler for Registry {
-    async fn handle_recv(
-        &self,
-        request: RpcMessage,
-        send_commands_channel: watch::Sender<ChannelMsg>,
-    ) -> Result<(), NetworkError> {
+    async fn handle_recv(&self, request: RpcMessage, send_commands_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
         debug!("Received request: {:?}", request);
 
         match request.msg {
-            Ctrl(CtrlMsg::Heartbeat {
-                host_id,
-                host_address,
-            }) => {
-                self.register_host(HostId { id: host_id }, host_address)
-                    .await
-                    .unwrap();
+            Ctrl(CtrlMsg::Heartbeat { host_id, host_address }) => {
+                self.register_host(HostId { id: host_id }, host_address).await.unwrap();
                 Ok(())
             }
             _ => Ok(()),
@@ -147,63 +131,41 @@ impl ConnectionHandler for Registry {
 
 impl Registry {
     /// Go though the list of hosts and poll their status
-    async fn poll_hosts(&self, mut client: TcpClient, poll_interval: Duration) -> () {
+    async fn poll_hosts(&self, mut client: TcpClient, poll_interval: Duration) {
         let mut interval = interval(poll_interval);
         loop {
             interval.tick().await;
             for (host, addr) in self.list_hosts().await {
-                info!("Polling host: {:#?} at address: {}", host, addr);
+                info!("Polling host: {host:#?} at address: {addr}");
                 client.connect(addr).await;
-                client
-                    .send_message(addr, RpcMessageKind::Ctrl(CtrlMsg::PollHostStatus))
-                    .await;
+                client.send_message(addr, RpcMessageKind::Ctrl(CtrlMsg::PollHostStatus)).await;
                 let msg = client.read_message(addr).await;
-                info!("msg: {:?}", msg);
+                info!("msg: {msg:?}");
                 client.disconnect(addr).await;
             }
         }
     }
 
     fn remove_host(&self, host_id: HostId) -> Result<(), Box<dyn std::error::Error>> {
-        info!("Could not reach host: {:?}", host_id);
+        info!("Could not reach host: {host_id:?}");
         Ok(())
     }
     /// List all registered hosts in the registry.
     async fn list_hosts(&self) -> Vec<(HostId, SocketAddr)> {
-        self.hosts
-            .lock()
-            .await
-            .iter()
-            .map(|(host, _)| host.clone())
-            .collect()
+        self.hosts.lock().await.iter().map(|(host, _)| host.clone()).collect()
     }
     /// Register a new host with the registry.
-    async fn register_host(
-        &self,
-        host_id: HostId,
-        host_address: SocketAddr,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn register_host(&self, host_id: HostId, host_address: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
         // because the host has been registered with priority 0 it will be next in line
-        self.hosts
-            .lock()
-            .await
-            .push((host_id.clone(), host_address.clone()), 0);
-        info!("Registered host: {:#?}", host_id);
+        self.hosts.lock().await.push((host_id.clone(), host_address), 0);
+        info!("Registered host: {host_id:#?}");
         Ok(())
     }
-    async fn store_host_update(
-        &self,
-        host_id: HostId,
-        host_address: SocketAddr,
-        status: CtrlMsg,
-    ) -> Result<(), AppError> {
+    async fn store_host_update(&self, host_id: HostId, host_address: SocketAddr, status: CtrlMsg) -> Result<(), AppError> {
         match status {
-            CtrlMsg::HostStatus {
-                host_id,
-                device_status,
-            } => {
+            CtrlMsg::HostStatus { host_id, device_status } => {
                 // actually store host at some point
-                info!("{:?}", device_status);
+                info!("{device_status:?}");
                 Ok(())
             }
             _ => Err(AppError::ConfigError("No such host".to_string())), // TODO: proper error handling

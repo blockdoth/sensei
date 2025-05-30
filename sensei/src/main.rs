@@ -7,22 +7,20 @@ mod registry;
 mod system_node;
 mod visualiser;
 
+use std::fs::File;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::Arc;
+
+use cli::*;
+use config::{FromYaml, SystemNodeConfig};
+use log::*;
+use module::Run;
+use simplelog::{ColorChoice, CombinedLogger, LevelFilter, TermLogger, TerminalMode, WriteLogger};
+
 use crate::orchestrator::*;
 use crate::registry::*;
 use crate::system_node::*;
 use crate::visualiser::*;
-use cli::*;
-use config::FromYaml;
-use config::SystemNodeConfig;
-use log::*;
-use module::Run;
-use std::net::IpAddr;
-use std::net::Ipv4Addr;
-use std::net::SocketAddr;
-use std::sync::Arc;
-
-use simplelog::{ColorChoice, CombinedLogger, LevelFilter, TermLogger, TerminalMode, WriteLogger};
-use std::fs::File;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -63,21 +61,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let cfg = node_args.overlay_subcommand_args(yaml_cfg)?;
             SystemNode::new(cfg.clone()).run(cfg.clone()).await?
         }
-        SubCommandsArgs::Two(registry_args) => {
-            Registry::new(registry_args.parse()?)
-                .run(registry_args.parse()?)
-                .await?
-        }
-        SubCommandsArgs::Three(orchestrator_args) => {
-            Orchestrator::new(orchestrator_args.parse()?)
-                .run(orchestrator_args.parse()?)
-                .await?
-        }
-        SubCommandsArgs::Four(visualiser_args) => {
-            Visualiser::new(visualiser_args.parse()?)
-                .run(visualiser_args.parse()?)
-                .await?
-        }
+        SubCommandsArgs::Two(registry_args) => Registry::new(registry_args.parse()?).run(registry_args.parse()?).await?,
+        SubCommandsArgs::Three(orchestrator_args) => Orchestrator::new(orchestrator_args.parse()?).run(orchestrator_args.parse()?).await?,
+        SubCommandsArgs::Four(visualiser_args) => Visualiser::new(visualiser_args.parse()?).run(visualiser_args.parse()?).await?,
         SubCommandsArgs::Five(esp_tool_args) => {
             // Assuming cli.rs has `pub mod esp_tool;` and src/esp_tool.rs contains the function
             esp_tool::run_esp_test_subcommand(esp_tool_args.clone()).await?;

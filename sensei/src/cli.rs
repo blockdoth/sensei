@@ -1,14 +1,12 @@
+use std::net::{AddrParseError, SocketAddr};
+use std::path::PathBuf;
+
 use argh::FromArgs;
 use log::debug;
 use simplelog::{ColorChoice, CombinedLogger, LevelFilter, TermLogger, TerminalMode, WriteLogger};
-use std::net::{AddrParseError, SocketAddr};
-use std::path::PathBuf;
 use warp::filters::path::full;
 
-use crate::config::{
-    FromYaml, OrchestratorConfig, RegistryConfig, SystemNodeConfig, SystemNodeRegistryConfig,
-    VisualiserConfig,
-};
+use crate::config::{FromYaml, OrchestratorConfig, RegistryConfig, SystemNodeConfig, SystemNodeRegistryConfig, VisualiserConfig};
 use crate::esp_tool;
 
 /// A trait for overlaying subcommand arguments onto an existing configuration.
@@ -75,29 +73,19 @@ pub struct SystemNodeSubcommandArgs {
 
 /// Overlays subcommand arguments onto a SystemNodeConfig, overriding fields if provided.
 impl OverlaySubcommandArgs<SystemNodeConfig> for SystemNodeSubcommandArgs {
-    fn overlay_subcommand_args(
-        &self,
-        full_config: SystemNodeConfig,
-    ) -> Result<SystemNodeConfig, Box<dyn std::error::Error>> {
+    fn overlay_subcommand_args(&self, full_config: SystemNodeConfig) -> Result<SystemNodeConfig, Box<dyn std::error::Error>> {
         // Because of the default value we expact that there's always a file to read
-        debug!(
-            "Loading system node configuration from YAML file: {}",
-            self.config.display()
-        );
+        debug!("Loading system node configuration from YAML file: {}", self.config.display());
         let mut config = full_config.clone();
         // overwrite fields when provided by the subcommand
-        config.addr = format!("{}:{}", self.addr, self.port)
-            .parse()
-            .unwrap_or(config.addr);
+        config.addr = format!("{}:{}", self.addr, self.port).parse().unwrap_or(config.addr);
 
         Ok(config)
     }
 }
 
 fn default_device_configs() -> PathBuf {
-    "sensei/src/system_node/example_config.yaml"
-        .parse()
-        .unwrap()
+    "sensei/src/system_node/example_config.yaml".parse().unwrap()
 }
 
 /// Registry node commands
@@ -130,11 +118,7 @@ impl OrchestratorSubcommandArgs {
     pub fn parse(&self) -> Result<OrchestratorConfig, AddrParseError> {
         // TODO input validation
         Ok(OrchestratorConfig {
-            targets: self
-                .target
-                .iter()
-                .map(|addr| addr.parse().unwrap())
-                .collect(),
+            targets: self.target.iter().map(|addr| addr.parse().unwrap()).collect(),
         })
     }
 }

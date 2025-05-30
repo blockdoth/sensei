@@ -1,12 +1,14 @@
-use crate::adapters::CsiDataAdapter;
-use crate::csi_types::{Complex, CsiData};
-use crate::errors::CsiAdapterError;
-use crate::network::rpc_message::DataMsg;
-use log::info;
 use std::fs::File;
-use std::io::Write;
-use std::io::{self, Read, Seek, SeekFrom};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::vec;
+
+use log::info;
+
+use crate::ToConfig;
+use crate::adapters::{CsiDataAdapter, DataAdapterConfig};
+use crate::csi_types::{Complex, CsiData};
+use crate::errors::{CsiAdapterError, TaskError};
+use crate::network::rpc_message::DataMsg;
 
 const DEFAULT_LINE_DELIM: u8 = b'\n';
 const DEFAULT_CELL_DELIM: u8 = b',';
@@ -22,12 +24,7 @@ pub struct CSVAdapter<'a> {
 
 #[allow(clippy::needless_lifetimes)] // TODO: fix this
 impl<'a> CSVAdapter<'a> {
-    pub fn new(
-        buffer: Vec<u8>,
-        tmp_data: Option<CsiData>,
-        cell_delimiter: &'a u8,
-        line_delimiter: &'a u8,
-    ) -> Self {
+    pub fn new(buffer: Vec<u8>, tmp_data: Option<CsiData>, cell_delimiter: &'a u8, line_delimiter: &'a u8) -> Self {
         Self {
             buffer,
             tmp_data,
@@ -67,43 +64,27 @@ impl<'a> CSVAdapter<'a> {
             .collect::<Vec<_>>();
         // parse the row. This includes a bunch of formatting and parsing checks
         if row.len() != ROW_SIZE {
-            return Err(CsiAdapterError::CSV(super::CSVAdapterError::InvalidData(
-                format!("Invalid number of columns in CSV row: {}", row.len()),
-            )));
+            return Err(CsiAdapterError::CSV(super::CSVAdapterError::InvalidData(format!(
+                "Invalid number of columns in CSV row: {}",
+                row.len()
+            ))));
         }
         csi_data.timestamp = row[0]
             .trim_matches(|c| c == '\n' || c == '\0')
             .parse::<f64>()
-            .map_err(|_| {
-                CsiAdapterError::CSV(super::CSVAdapterError::InvalidData(format!(
-                    "Invalid timestamp: {}",
-                    row[0]
-                )))
-            })?;
-        csi_data.sequence_number = row[1].parse::<u16>().map_err(|_| {
-            CsiAdapterError::CSV(super::CSVAdapterError::InvalidData(format!(
-                "Invalid sequence number: {}",
-                row[1]
-            )))
-        })?;
-        let num_cores = row[2].parse::<u8>().map_err(|_| {
-            CsiAdapterError::CSV(super::CSVAdapterError::InvalidData(format!(
-                "Invalid number of cores: {}",
-                row[2]
-            )))
-        })?;
-        let num_streams = row[3].parse::<u8>().map_err(|_| {
-            CsiAdapterError::CSV(super::CSVAdapterError::InvalidData(format!(
-                "Invalid number of streams: {}",
-                row[2]
-            )))
-        })?;
-        let num_subcarriers = row[4].parse::<u8>().map_err(|_| {
-            CsiAdapterError::CSV(super::CSVAdapterError::InvalidData(format!(
-                "Invalid number of subcarriers: {}",
-                row[3]
-            )))
-        })?;
+            .map_err(|_| CsiAdapterError::CSV(super::CSVAdapterError::InvalidData(format!("Invalid timestamp: {}", row[0]))))?;
+        csi_data.sequence_number = row[1]
+            .parse::<u16>()
+            .map_err(|_| CsiAdapterError::CSV(super::CSVAdapterError::InvalidData(format!("Invalid sequence number: {}", row[1]))))?;
+        let num_cores = row[2]
+            .parse::<u8>()
+            .map_err(|_| CsiAdapterError::CSV(super::CSVAdapterError::InvalidData(format!("Invalid number of cores: {}", row[2]))))?;
+        let num_streams = row[3]
+            .parse::<u8>()
+            .map_err(|_| CsiAdapterError::CSV(super::CSVAdapterError::InvalidData(format!("Invalid number of streams: {}", row[2]))))?;
+        let num_subcarriers = row[4]
+            .parse::<u8>()
+            .map_err(|_| CsiAdapterError::CSV(super::CSVAdapterError::InvalidData(format!("Invalid number of subcarriers: {}", row[3]))))?;
         csi_data.rssi = if row[5].starts_with('(') {
             row[5]
                 .get(1..row[5].len() - 2)
@@ -112,17 +93,13 @@ impl<'a> CSVAdapter<'a> {
                 .map(|rssi| rssi.parse::<u16>().unwrap_or_default())
                 .collect::<Vec<_>>()
         } else {
-            row[5]
-                .split(',')
-                .map(|rssi| rssi.parse::<u16>().unwrap_or_default())
-                .collect::<Vec<_>>()
+            row[5].split(',').map(|rssi| rssi.parse::<u16>().unwrap_or_default()).collect::<Vec<_>>()
         };
         let comples_values = row[6]
             .split(',') // Split by subcarriers
             .map(|subcarrier_data| {
                 // Remove the parentheses and 'j' from the complex number
-                let inner =
-                    subcarrier_data.trim_matches(|c| c == '\"' || c == '(' || c == ')' || c == 'j');
+                let inner = subcarrier_data.trim_matches(|c| c == '\"' || c == '(' || c == ')' || c == 'j');
                 let parts: Vec<&str> = if let Some(index) = inner.rfind(['+', '-']) {
                     vec![&inner[..index], &inner[index..]]
                 } else {
@@ -136,11 +113,7 @@ impl<'a> CSVAdapter<'a> {
             .collect::<Vec<Complex>>();
 
         // turn the complex values into a 3D array
-        let mut csi =
-            vec![
-                vec![vec![Complex::default(); num_subcarriers as usize]; num_streams as usize];
-                num_cores as usize
-            ];
+        let mut csi = vec![vec![vec![Complex::default(); num_subcarriers as usize]; num_streams as usize]; num_cores as usize];
         csi.iter_mut()
             .flat_map(|core| core.iter_mut())
             .flat_map(|stream| stream.iter_mut())
@@ -227,6 +200,25 @@ impl CsiDataAdapter for CSVAdapter<'_> {
                 "Invalid message type".to_string(),
             ))),
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl ToConfig<DataAdapterConfig> for CSVAdapter<'_> {
+    /// Converts the current `CSVAdapter` instance into its configuration representation.
+    ///
+    /// This method implements the `ToConfig` trait for `CSVAdapter`, returning a
+    /// `DataAdapterConfig::CSV` variant. This enables the adapter's configuration
+    /// to be serialized, exported, or stored as part of a broader system configuration.
+    ///
+    /// Since `CSVAdapter` does not currently hold any configurable fields, the
+    /// resulting configuration is an empty struct.
+    ///
+    /// # Returns
+    /// - `Ok(DataAdapterConfig::CSV)` on successful conversion.
+    /// - `Err(TaskError)` if an error occurs (not applicable in this implementation).
+    async fn to_config(&self) -> Result<DataAdapterConfig, TaskError> {
+        Ok(DataAdapterConfig::CSV {})
     }
 }
 

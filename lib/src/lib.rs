@@ -8,8 +8,9 @@
 //! Usefull errors are also made available
 //!
 
-use crate::errors::TaskError;
 use async_trait::async_trait;
+
+use crate::errors::TaskError;
 
 pub mod adapters;
 pub mod csi_types;
@@ -25,4 +26,13 @@ pub mod sources;
 #[async_trait]
 pub trait FromConfig<C> {
     async fn from_config(config: C) -> Result<Box<Self>, TaskError>;
+}
+
+/// Trait to convert an instance into its configuration representation.
+/// Useful for serialization or saving the current state to a configuration file (e.g., YAML).
+/// This trait should be implemented for all configurable components such as
+/// sources, controllers, adapters, and sinks.
+#[async_trait]
+pub trait ToConfig<C> {
+    async fn to_config(&self) -> Result<C, TaskError>;
 }

@@ -1,11 +1,12 @@
-use crate::adapters::CsiDataAdapter;
-use crate::csi_types::{Complex, CsiData};
-use crate::errors::{CsiAdapterError, Esp32AdapterError}; // Import Esp32AdapterError
-use crate::network::rpc_message::DataMsg;
+use std::io::{Cursor, Read};
 
 use byteorder::{LittleEndian, ReadBytesExt};
-use std::io::{Cursor, Read}; // <-- Added std::io::Read
 
+use crate::ToConfig;
+use crate::adapters::{CsiDataAdapter, DataAdapterConfig};
+use crate::csi_types::{Complex, CsiData};
+use crate::errors::{CsiAdapterError, Esp32AdapterError, TaskError}; // Import Esp32AdapterError
+use crate::network::rpc_message::DataMsg;
 // ESP32 typically operates in SISO mode (1 Transmit, 1 Receive antenna).
 // If future ESP32 variants support MIMO CSI and the format changes to include Ntx/Nrx,
 // this might need to become configurable or be parsed from the packet.
@@ -84,48 +85,32 @@ impl CsiDataAdapter for ESP32Adapter {
                 let mut cursor = Cursor::new(&bytes);
 
                 let timestamp_us = cursor.read_u64::<LittleEndian>().map_err(|e| {
-                    CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!(
-                        "Failed to read timestamp_us: {e}"
-                    ))) // Corrected
+                    CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!("Failed to read timestamp_us: {e}"))) // Corrected
                 })?;
                 let mut _src_mac = [0u8; 6];
                 cursor.read_exact(&mut _src_mac).map_err(|e| {
                     // std::io::Read::read_exact
-                    CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!(
-                        "Failed to read src_mac: {e}"
-                    ))) // Corrected
+                    CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!("Failed to read src_mac: {e}"))) // Corrected
                 })?;
                 let mut _dst_mac = [0u8; 6];
                 cursor.read_exact(&mut _dst_mac).map_err(|e| {
                     // std::io::Read::read_exact
-                    CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!(
-                        "Failed to read dst_mac: {e}"
-                    ))) // Corrected
+                    CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!("Failed to read dst_mac: {e}"))) // Corrected
                 })?;
                 let sequence_number = cursor.read_u16::<LittleEndian>().map_err(|e| {
-                    CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!(
-                        "Failed to read sequence_number: {e}"
-                    ))) // Corrected
+                    CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!("Failed to read sequence_number: {e}"))) // Corrected
                 })?;
                 let rssi_val = cursor.read_i8().map_err(|e| {
-                    CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!(
-                        "Failed to read rssi: {e}"
-                    ))) // Corrected
+                    CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!("Failed to read rssi: {e}"))) // Corrected
                 })?;
                 let _agc_gain = cursor.read_u8().map_err(|e| {
-                    CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!(
-                        "Failed to read agc_gain: {e}"
-                    ))) // Corrected
+                    CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!("Failed to read agc_gain: {e}"))) // Corrected
                 })?;
                 let _fft_gain = cursor.read_u8().map_err(|e| {
-                    CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!(
-                        "Failed to read fft_gain: {e}"
-                    ))) // Corrected
+                    CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!("Failed to read fft_gain: {e}"))) // Corrected
                 })?;
                 let csi_data_len_bytes = cursor.read_u16::<LittleEndian>().map_err(|e| {
-                    CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!(
-                        "Failed to read csi_data_len: {e}"
-                    ))) // Corrected
+                    CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!("Failed to read csi_data_len: {e}"))) // Corrected
                 })? as usize;
 
                 let current_pos = cursor.position() as usize;
@@ -140,20 +125,16 @@ impl CsiDataAdapter for ESP32Adapter {
                 if csi_data_len_bytes == 0 {
                     return Ok(None); // Corrected: Added return for early exit
                 } else if csi_data_len_bytes % 2 != 0 {
-                    return Err(CsiAdapterError::ESP32(Esp32AdapterError::ParseError(
-                        format!(
-                            // Corrected
-                            "CSI data length ({csi_data_len_bytes}) must be even (I/Q pairs)."
-                        ),
-                    )));
+                    return Err(CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!(
+                        // Corrected
+                        "CSI data length ({csi_data_len_bytes}) must be even (I/Q pairs)."
+                    ))));
                 }
 
                 let mut csi_byte_buffer = vec![0u8; csi_data_len_bytes];
                 cursor.read_exact(&mut csi_byte_buffer).map_err(|e| {
                     // std::io::Read::read_exact
-                    CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!(
-                        "Failed to read CSI data block: {e}"
-                    ))) // Corrected
+                    CsiAdapterError::ESP32(Esp32AdapterError::ParseError(format!("Failed to read CSI data block: {e}"))) // Corrected
                 })?;
 
                 let num_complex_values = csi_data_len_bytes / 2;
@@ -185,5 +166,21 @@ impl CsiDataAdapter for ESP32Adapter {
             }
             DataMsg::CsiFrame { csi } => Ok(Some(DataMsg::CsiFrame { csi })),
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl ToConfig<DataAdapterConfig> for ESP32Adapter {
+    /// Converts the current `ESP32Adapter` instance into its configuration representation.
+    ///
+    /// Implements the `ToConfig` trait for `ESP32Adapter`, returning a `DataAdapterConfig::Esp32`
+    /// variant that encapsulates the current state of the adapter. This configuration can be
+    /// serialized into formats such as JSON or YAML for storage, inspection, or transmission.
+    ///
+    /// # Returns
+    /// - `Ok(DataAdapterConfig::Esp32)` containing the cloned `scale_csi` value.
+    /// - `Err(TaskError)` if conversion fails (not applicable in this implementation).
+    async fn to_config(&self) -> Result<DataAdapterConfig, TaskError> {
+        Ok(DataAdapterConfig::Esp32 { scale_csi: self.scale_csi })
     }
 }

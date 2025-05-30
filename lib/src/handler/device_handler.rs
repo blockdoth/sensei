@@ -1,14 +1,22 @@
-use crate::FromConfig;
-use crate::adapters::{CsiDataAdapter, DataAdapterConfig};
-use crate::errors::{ControllerError, CsiAdapterError, DataSourceError, SinkError, TaskError};
-use crate::network::rpc_message::{DataMsg, SourceType};
-use crate::sinks::{Sink, SinkConfig};
-use crate::sources::controllers::{Controller, ControllerParams};
-use crate::sources::{DataSourceConfig, DataSourceT};
+//! DeviceHandler manages the lifecycle and data flow for a single device,
+//! including source reading, data adaptation, and dispatching to sinks.
 use std::fs;
+use std::fs::File;
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+use tokio::sync::watch;
 use tokio::task::JoinHandle;
+
+use crate::adapters::*;
+use crate::errors::{ControllerError, CsiAdapterError, DataSourceError, SinkError, TaskError};
+use crate::network::rpc_message::{DataMsg, SourceType};
+use crate::sinks::tcp::*;
+use crate::sinks::*;
+use crate::sources::controllers::*;
+use crate::sources::{DataSourceConfig, DataSourceT};
+use crate::{FromConfig, ToConfig};
 
 /// Configuration for a single device handler.
 ///
@@ -35,11 +43,48 @@ pub struct DeviceHandlerConfig {
 }
 
 impl DeviceHandlerConfig {
-    /// Creates a list of device handlers configs from a yaml file
-    pub async fn from_yaml(file: PathBuf) -> Vec<DeviceHandlerConfig> {
-        let yaml = fs::read_to_string(file).unwrap();
+    /// Asynchronously loads a list of `DeviceHandlerConfig` instances from a YAML file.
+    ///
+    /// This function reads the contents of the provided YAML file and deserializes it into
+    /// a `Vec<DeviceHandlerConfig>`. It is intended for use during system initialization
+    /// or configuration loading from a persisted file (e.g., `device_configs.yaml`).
+    ///
+    /// # Parameters
+    /// - `file`: A `PathBuf` specifying the location of the YAML file to load.
+    ///
+    /// # Returns
+    /// - `Ok(Vec<DeviceHandlerConfig>)` if the file is read and deserialized successfully.
+    /// - `Err(TaskError::Io)` if the file cannot be read (e.g., missing, permissions).
+    /// - `Err(TaskError::Parse)` if deserialization fails (e.g., invalid YAML format).
+    /// # Errors
+    /// This function may return:
+    /// - `TaskError::Io` for file reading issues.
+    /// - `TaskError::Parse` for YAML deserialization errors.
+    pub async fn from_yaml(file: PathBuf) -> Result<Vec<DeviceHandlerConfig>, TaskError> {
+        let yaml = fs::read_to_string(file)?;
+        let configs = serde_yaml::from_str(&yaml)?;
+        Ok(configs)
+    }
 
-        serde_yaml::from_str(&yaml).unwrap()
+    /// Serializes a list of `DeviceHandlerConfig` instances to a YAML file.
+    ///
+    /// # Parameters
+    /// - `file`: The output file path.
+    /// - `configs`: A vector of `DeviceHandlerConfig` instances to serialize.
+    ///
+    /// # Returns
+    /// - `Ok(())` if the serialization and writing succeed.
+    /// - `Err(TaskError)` if writing or serialization fails.
+    pub fn to_yaml(file: PathBuf, configs: Vec<DeviceHandlerConfig>) -> Result<(), TaskError> {
+        // Serialize the vector to a YAML string
+        let yaml = serde_yaml::to_string(&configs)?;
+
+        // Write the string to the file
+        let mut f = File::create(file)?;
+
+        f.write_all(yaml.as_bytes())?;
+
+        Ok(())
     }
 }
 
@@ -48,8 +93,12 @@ impl DeviceHandlerConfig {
 /// optionally adapting it, and dispatching it to one or more sinks.
 /// It runs on it's own thread
 pub struct DeviceHandler {
-    device_id: u64,
-    stype: SourceType,
+    /// Configuration of the device Handler
+    config: DeviceHandlerConfig,
+    /// Used for stop mechanism
+    shutdown_tx: Option<watch::Sender<()>>,
+    /// Handle of the thread
+    handle: Option<JoinHandle<()>>,
 }
 
 impl DeviceHandler {
@@ -75,39 +124,40 @@ impl DeviceHandler {
     /// 4. Passes the frame through the adapter (if present).
     /// 5. For each outgoing message, calls `.provide(msg).await` on each sink.
     /// 6. Logs and continues on adapter or sink errors, breaks the loop on source read error.
+    ///    Aditionally provides functionality for shutting down the thread
     pub async fn start(
         &mut self,
         mut source: Box<dyn DataSourceT>,
         mut adapter: Option<Box<dyn CsiDataAdapter>>,
         mut sinks: Vec<Box<dyn Sink>>,
     ) -> Result<(), TaskError> {
-        let device_id = self.device_id;
-        let stype = self.stype.clone();
+        let device_id = self.config.device_id;
+        let stype = self.config.stype.clone();
 
-        // spawn the main loop
-        tokio::spawn(async move {
-            // activate source
+        let (shutdown_tx, mut shutdown_rx) = watch::channel(());
+
+        let handle = tokio::spawn(async move {
             if let Err(e) = source.start().await {
                 log::error!("Device {device_id} source start failed: {e:?}");
                 return;
             }
 
-            let mut buf = vec![0u8; 8192];
             loop {
                 tokio::select! {
-                    read_res = source.read(&mut buf) => {
+                    // Shutdown the thread if it's called from stop
+                    _ = shutdown_rx.changed() => {
+                        log::info!("Shutting down device {device_id}");
+                        break;
+                    }
+                    read_res = source.read() => {
+                        // check that there is something read from source
                         match read_res {
-                            Ok(size) => {
-                                let raw = DataMsg::RawFrame {
-                                    ts: chrono::Utc::now().timestamp_millis() as f64 / 1e3,
-                                    bytes: buf[..size].to_vec(),
-                                    source_type: stype.clone(),
-                                };
-                                // feed through adapter
+                            Ok(Some(raw)) => {
+                                // optional adapter
                                 let outgoing = if let Some(adapter) = adapter.as_mut() {
                                     match adapter.produce(raw).await {
                                         Ok(Some(csi_msg)) => vec![csi_msg],
-                                        Ok(None) => continue, // need more data
+                                        Ok(None) => continue,
                                         Err(err) => {
                                             //log::error!("Adapter error on device {device_id}: {err:?}"); THIS WILL LOG ERRORS IF THERE IS SIMPLY NO DATA
                                             continue;
@@ -116,7 +166,7 @@ impl DeviceHandler {
                                 } else {
                                     vec![raw]
                                 };
-                                // send to sinks
+                                // send to all sinks
                                 for mut sink in sinks.iter_mut() {
                                     for msg in outgoing.iter().cloned() {
                                         if let Err(err) = sink.provide(msg).await {
@@ -125,6 +175,7 @@ impl DeviceHandler {
                                     }
                                 }
                             }
+                            Ok(None) => continue,
                             Err(e) => {
                                 log::error!("Device {device_id} read error: {e:?}");
                                 break;
@@ -133,7 +184,60 @@ impl DeviceHandler {
                     }
                 }
             }
+            source.stop().await;
         });
+
+        self.shutdown_tx = Some(shutdown_tx);
+        self.handle = Some(handle);
+        Ok(())
+    }
+
+    /// Stops the device task by sending a shutdown signal and awaiting task completion.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` on successful shutdown
+    /// * `Err(TaskError)` if the task join fails
+    pub async fn stop(&mut self) -> Result<(), TaskError> {
+        if let Some(tx) = self.shutdown_tx.take() {
+            let _ = tx.send(());
+        }
+        if let Some(handle) = self.handle.take() {
+            if let Err(e) = handle.await {
+                log::error!("Device task join failed: {e}");
+                return Err(TaskError::JoinError(e.to_string()));
+            }
+        }
+        Ok(())
+    }
+
+    /// Reconfigures the device handler with a new configuration.
+    ///
+    /// This function stops the current task, applies the new configuration,
+    /// and starts a new task using the updated parameters.
+    ///
+    /// # Arguments
+    ///
+    /// * `new_config` - New configuration to apply
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` on successful reconfiguration
+    /// * `Err(TaskError)` if stop or reinitialization fails
+    pub async fn reconfigure(&mut self, new_config: DeviceHandlerConfig) -> Result<(), TaskError> {
+        // Stop current task
+        self.stop().await?;
+
+        // Create a new handler from config
+        let new_handler = DeviceHandler::from_config(new_config).await?;
+
+        // Replace internal state
+        let new = *new_handler; // unpack Box
+
+        self.config = new.config;
+        self.shutdown_tx = new.shutdown_tx;
+        self.handle = new.handle;
+
         Ok(())
     }
 }
@@ -155,38 +259,98 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
     /// - Adapter instantiation fails
     /// - Sink instantiation fails
     /// - Starting the handler’s background task fails
-    async fn from_config(config: DeviceHandlerConfig) -> Result<Box<Self>, TaskError> {
+    async fn from_config(cg: DeviceHandlerConfig) -> Result<Box<Self>, TaskError> {
         // instantiate source
-        let mut source = <dyn DataSourceT>::from_config(config.source).await?;
+        let mut source = <dyn DataSourceT>::from_config(cg.source.clone()).await?;
 
         source.start().await?;
 
         // apply controller if configured
-        if let Some(controller_cfg) = config.controller {
-            let controller: Box<dyn Controller> =
-                <dyn Controller>::from_config(controller_cfg).await?;
+        if let Some(controller_cfg) = cg.controller.clone() {
+            // check that controller is the correct one to apply to the source
+            match (&controller_cfg, &cg.source) {
+                (ControllerParams::Esp32(_), DataSourceConfig::Esp32(_)) | (ControllerParams::Tcp(_), DataSourceConfig::Tcp(_)) => {
+                    // These combinations are allowed on any OS
+                }
+                // --- Conditional arm for Netlink on Linux ---
+                #[cfg(target_os = "linux")] // This arm is only compiled for Linux
+                (ControllerParams::Netlink(_), DataSourceConfig::Netlink(_)) => {
+                    // Netlink is allowed on Linux
+                }
+                _ => {
+                    // This will be hit if:
+                    // 1. It's a general mismatch (e.g., Esp32 controller with Tcp source).
+                    // 2. It's a Netlink controller/source on a non-Linux OS (because the above arm is compiled out).
+                    return Err(TaskError::IncorrectController);
+                }
+            }
+            let controller: Box<dyn Controller> = <dyn Controller>::from_config(controller_cfg).await?;
             controller.apply(source.as_mut()).await?;
+            // Add other checks
         }
         // instantiate adapter if configured
-        let adapter = if let Some(adapt_cfg) = config.adapter {
+        let adapter = if let Some(adapt_cfg) = cg.adapter {
+            // Make sure the adapter is the right one for the source
+            match (&adapt_cfg, &cg.source) {
+                // This combination is always valid
+                (DataAdapterConfig::Esp32 { scale_csi: _ }, DataSourceConfig::Esp32(_)) => {}
+
+                // This combination (Iwl adapter with Netlink source) is valid only on Linux
+                #[cfg(target_os = "linux")]
+                (DataAdapterConfig::Iwl { scale_csi: _ }, DataSourceConfig::Netlink(_)) => {}
+
+                // This combination (any adapter with Tcp source) is always valid
+                (_, DataSourceConfig::Tcp(_)) => {}
+
+                // If none of the above specific (and potentially conditional) arms match,
+                // it's an incorrect adapter for the source.
+                _ => return Err(TaskError::IncorrectAdapter),
+            }
+            // If we reached here, the combination was valid, so proceed
             Some(<dyn CsiDataAdapter>::from_config(adapt_cfg).await?)
         } else {
             None
         };
         // instantiate sinks
-        let mut sinks = Vec::with_capacity(config.sinks.len());
-        for sc in config.sinks.into_iter() {
+        let mut sinks = Vec::with_capacity(cg.sinks.len());
+        for sc in cg.sinks.clone().into_iter() {
+            // Checkin that the device id from config is the same in the casee
+            // that you are using a tcpsink
+            if let SinkConfig::Tcp(TCPConfig {
+                target_addr: _,
+                ref device_id,
+            }) = sc
+            {
+                if device_id != &cg.device_id {
+                    return Err(TaskError::WrongSinkDid);
+                }
+            }
             sinks.push(<dyn Sink>::from_config(sc).await?);
         }
 
-        // build handler
         let mut handler = DeviceHandler {
-            device_id: config.device_id,
-            stype: config.stype.clone(),
+            config: cg.clone(),
+            shutdown_tx: None,
+            handle: None,
         };
 
-        // start processing
         handler.start(source, adapter, sinks).await?;
         Ok(Box::new(handler))
+    }
+}
+
+#[async_trait::async_trait]
+impl ToConfig<DeviceHandlerConfig> for DeviceHandler {
+    /// Converts the current `DeviceHandler` instance into its configuration representation.
+    ///
+    /// This method implements the `ToConfig` trait for `DeviceHandler`, returning a cloned
+    /// copy of its internal `DeviceHandlerConfig`. This allows the handler’s configuration
+    /// to be extracted for serialization, inspection, or export.
+    ///
+    /// # Returns
+    /// - `Ok(DeviceHandlerConfig)` containing a clone of the current configuration.
+    /// - `Err(TaskError)` if an error occurs (not applicable in this implementation).
+    async fn to_config(&self) -> Result<DeviceHandlerConfig, TaskError> {
+        Ok(self.config.clone())
     }
 }
