@@ -24,10 +24,10 @@ pub mod tcp;
 use std::any::Any;
 use std::net::SocketAddr;
 
-use crate::FromConfig;
 use crate::errors::{DataSourceError, TaskError};
 use crate::network::rpc_message::DataMsg;
 use crate::sources::controllers::Controller;
+use crate::{FromConfig, ToConfig};
 
 pub const BUFSIZE: usize = 65535;
 
@@ -38,7 +38,7 @@ pub const BUFSIZE: usize = 65535;
 /// interpreted by CSI adapters. It is up to the user to correct a source
 /// sensibly with an adapter.
 #[async_trait::async_trait]
-pub trait DataSourceT: Send + Any {
+pub trait DataSourceT: Send + Any + ToConfig<DataSourceConfig> {
     /// Start collecting data
     /// ---------------------
     /// Must activate the source, such that we can read from it. For example, starting

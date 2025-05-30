@@ -11,10 +11,11 @@ use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, bounded};
 use log::{debug, error, info, warn};
 use serialport::{ClearBuffer, SerialPort};
 
-use crate::errors::{ControllerError, DataSourceError}; // Ensure ControllerError is accessible
+use crate::ToConfig;
+use crate::errors::{ControllerError, DataSourceError, TaskError}; // Ensure ControllerError is accessible
 use crate::network::rpc_message::SourceType;
 use crate::sources::controllers::esp32_controller::Esp32Command;
-use crate::sources::{BUFSIZE, DataMsg, DataSourceT};
+use crate::sources::{BUFSIZE, DataMsg, DataSourceConfig, DataSourceT};
 
 const CMD_PREAMBLE_HOST_TO_ESP: [u8; 4] = [0xC3; 4];
 const CMD_PACKET_TOTAL_SIZE_HOST_TO_ESP: usize = 128;
@@ -535,5 +536,22 @@ impl Drop for Esp32Source {
                 debug!("Reader thread handle taken in drop. Thread should self-terminate.");
             }
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl ToConfig<DataSourceConfig> for Esp32Source {
+    /// Converts this `Esp32Source` instance into its configuration representation.
+    ///
+    /// This method creates a clone of the internal configuration and wraps it
+    /// in the `DataSourceConfig::Esp32` variant, enabling serialization or
+    /// saving the current source state as a configuration.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(DataSourceConfig::Esp32)` containing a clone of the `Esp32SourceConfig`.
+    /// * `Err(TaskError)` if the conversion fails (unlikely as cloning should succeed).
+    async fn to_config(&self) -> Result<DataSourceConfig, TaskError> {
+        Ok(DataSourceConfig::Esp32(self.config.clone()))
     }
 }

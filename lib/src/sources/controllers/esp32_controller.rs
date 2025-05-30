@@ -10,10 +10,12 @@ use log::{info, warn};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::errors::ControllerError;
+use crate::ToConfig;
+use crate::errors::{ControllerError, TaskError};
 use crate::sources::DataSourceT;
-use crate::sources::controllers::Controller;
 use crate::sources::esp32::Esp32Source; // Adjusted path // Required for downcasting if using source.as_any_mut()
+use crate::sources::controllers::{Controller, ControllerParams};
+// Assume your concrete ESP32 source is located here. Adjust path as needed.
 
 // --- ESP32 Specific Enums (Kept as they are well-defined) ---
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, JsonSchema)]
@@ -329,5 +331,21 @@ impl Esp32Controller {
                 details: e.to_string(),
             })?;
         Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl ToConfig<ControllerParams> for Esp32ControllerParams {
+    /// Converts the current `Esp32ControllerParams` instance into its configuration representation.
+    ///
+    /// This method implements the `ToConfig` trait for `Esp32ControllerParams`, allowing a runtime
+    /// instance to be transformed into a `ControllerParams::Esp32` variant. This is useful for tasks
+    /// like saving the controller configuration to disk or exporting it for reproducibility.
+    ///
+    /// # Returns
+    /// - `Ok(ControllerParams::Esp32)` containing a cloned version of the controller parameters.
+    /// - `Err(TaskError)` if an error occurs during conversion (not applicable in this implementation).
+    async fn to_config(&self) -> Result<ControllerParams, TaskError> {
+        Ok(ControllerParams::Esp32(self.clone()))
     }
 }

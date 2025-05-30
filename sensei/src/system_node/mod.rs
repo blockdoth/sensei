@@ -207,7 +207,7 @@ impl Run<SystemNodeConfig> for SystemNode {
 
         let default_config_path: PathBuf = config.device_configs;
 
-        let device_handler_configs: Vec<DeviceHandlerConfig> = DeviceHandlerConfig::from_yaml(default_config_path).await;
+        let device_handler_configs: Vec<DeviceHandlerConfig> = DeviceHandlerConfig::from_yaml(default_config_path).await?;
 
         let handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>> = Arc::new(Mutex::new(HashMap::new()));
 

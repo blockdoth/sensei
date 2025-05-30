@@ -2,11 +2,11 @@ use std::io::{Cursor, Read};
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use crate::adapters::CsiDataAdapter;
+use crate::ToConfig;
+use crate::adapters::{CsiDataAdapter, DataAdapterConfig};
 use crate::csi_types::{Complex, CsiData};
-use crate::errors::{CsiAdapterError, Esp32AdapterError}; // Import Esp32AdapterError
-use crate::network::rpc_message::DataMsg; // <-- Added std::io::Read
-
+use crate::errors::{CsiAdapterError, Esp32AdapterError, TaskError}; // Import Esp32AdapterError
+use crate::network::rpc_message::DataMsg;
 // ESP32 typically operates in SISO mode (1 Transmit, 1 Receive antenna).
 // If future ESP32 variants support MIMO CSI and the format changes to include Ntx/Nrx,
 // this might need to become configurable or be parsed from the packet.
@@ -166,5 +166,21 @@ impl CsiDataAdapter for ESP32Adapter {
             }
             DataMsg::CsiFrame { csi } => Ok(Some(DataMsg::CsiFrame { csi })),
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl ToConfig<DataAdapterConfig> for ESP32Adapter {
+    /// Converts the current `ESP32Adapter` instance into its configuration representation.
+    ///
+    /// Implements the `ToConfig` trait for `ESP32Adapter`, returning a `DataAdapterConfig::Esp32`
+    /// variant that encapsulates the current state of the adapter. This configuration can be
+    /// serialized into formats such as JSON or YAML for storage, inspection, or transmission.
+    ///
+    /// # Returns
+    /// - `Ok(DataAdapterConfig::Esp32)` containing the cloned `scale_csi` value.
+    /// - `Err(TaskError)` if conversion fails (not applicable in this implementation).
+    async fn to_config(&self) -> Result<DataAdapterConfig, TaskError> {
+        Ok(DataAdapterConfig::Esp32 { scale_csi: self.scale_csi })
     }
 }
