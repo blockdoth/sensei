@@ -266,13 +266,24 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
         source.start().await?;
 
         // apply controller if configured
-        if let Some(controller_cfg) = cg.controller.clone() {
+       if let Some(controller_cfg) = cg.controller.clone() {
             // check that controller is the correct one to apply to the source
             match (&controller_cfg, &cg.source) {
                 (ControllerParams::Esp32(_), DataSourceConfig::Esp32(_))
-                | (ControllerParams::Netlink(_), DataSourceConfig::Netlink(_))
-                | (ControllerParams::Tcp(_), DataSourceConfig::Tcp(_)) => {}
-                _ => return Err(TaskError::IncorrectController),
+                | (ControllerParams::Tcp(_), DataSourceConfig::Tcp(_)) => {
+                    // These combinations are allowed on any OS
+                }
+                // --- Conditional arm for Netlink on Linux ---
+                #[cfg(target_os = "linux")] // This arm is only compiled for Linux
+                (ControllerParams::Netlink(_), DataSourceConfig::Netlink(_)) => {
+                    // Netlink is allowed on Linux
+                }
+                _ => {
+                    // This will be hit if:
+                    // 1. It's a general mismatch (e.g., Esp32 controller with Tcp source).
+                    // 2. It's a Netlink controller/source on a non-Linux OS (because the above arm is compiled out).
+                    return Err(TaskError::IncorrectController);
+                }
             }
             let controller: Box<dyn Controller> = <dyn Controller>::from_config(controller_cfg).await?;
             controller.apply(source.as_mut()).await?;
@@ -282,11 +293,21 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
         let adapter = if let Some(adapt_cfg) = cg.adapter {
             // Make sure the adapter is the right one for the source
             match (&adapt_cfg, &cg.source) {
-                (DataAdapterConfig::Esp32 { scale_csi: _ }, DataSourceConfig::Esp32(_))
-                | (DataAdapterConfig::Iwl { scale_csi: _ }, DataSourceConfig::Netlink(_))
-                | (_, DataSourceConfig::Tcp(_)) => {}
+                // This combination is always valid
+                (DataAdapterConfig::Esp32 { scale_csi: _ }, DataSourceConfig::Esp32(_)) => {}
+
+                // This combination (Iwl adapter with Netlink source) is valid only on Linux
+                #[cfg(target_os = "linux")]
+                (DataAdapterConfig::Iwl { scale_csi: _ }, DataSourceConfig::Netlink(_)) => {}
+
+                // This combination (any adapter with Tcp source) is always valid
+                (_, DataSourceConfig::Tcp(_)) => {}
+
+                // If none of the above specific (and potentially conditional) arms match,
+                // it's an incorrect adapter for the source.
                 _ => return Err(TaskError::IncorrectAdapter),
             }
+            // If we reached here, the combination was valid, so proceed
             Some(<dyn CsiDataAdapter>::from_config(adapt_cfg).await?)
         } else {
             None
