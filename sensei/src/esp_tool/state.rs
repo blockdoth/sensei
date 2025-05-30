@@ -7,7 +7,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 use futures::sink::Send;
 use lib::csi_types::CsiData;
 use lib::sources::controllers::esp32_controller::{
-    Bandwidth as EspBandwidth, CsiType as EspCsiType, CustomFrameParams, Esp32Controller, Esp32DeviceConfig, OperationMode as EspOperationMode,
+    Bandwidth as EspBandwidth, CsiType as EspCsiType, CustomFrameParams, Esp32ControllerParams, Esp32DeviceConfig, OperationMode as EspOperationMode,
     SecondaryChannel as EspSecondaryChannel,
 };
 use lib::sources::esp32::Esp32SourceConfig;
@@ -106,7 +106,7 @@ pub struct TuiState {
 }
 
 #[async_trait]
-impl Tui<EspUpdate, Esp32Controller> for TuiState {
+impl Tui<EspUpdate, Esp32ControllerParams> for TuiState {
     // Draws the UI based on the state of the TUI, should not change any state by itself
     fn draw_ui(&self, f: &mut Frame) {
         ui(f, self);
@@ -147,7 +147,7 @@ impl Tui<EspUpdate, Esp32Controller> for TuiState {
     }
 
     // Handles incoming Updates produced from any source, this is the only place where state should change
-    async fn handle_update(&mut self, update: EspUpdate, command_send: &Sender<Esp32Controller>, update_recv: &mut Receiver<EspUpdate>) {
+    async fn handle_update(&mut self, update: EspUpdate, command_send: &Sender<Esp32ControllerParams>, update_recv: &mut Receiver<EspUpdate>) {
         match update {
             EspUpdate::SpamConfig(spam_config_update) => match spam_config_update {
                 SpamConfigUpdate::Edit(chr) => {
@@ -352,12 +352,12 @@ impl TuiState {
     }
 
     // Actually applies the changes made to the ESP source, should be the only place where that happens
-    pub async fn apply_changes(&mut self, command_send: &Sender<Esp32Controller>) {
+    pub async fn apply_changes(&mut self, command_send: &Sender<Esp32ControllerParams>) {
         if self.spam_settings == self.unsaved_spam_settings && self.esp_config == self.unsaved_esp_config {
             info!("Nothing changed")
         } else {
             info!("Shit changed");
-            let controller = Esp32Controller::default();
+            let controller = Esp32ControllerParams::default();
             match command_send.send(controller).await {
                 Ok(_) => {
                     error!("Applied update")

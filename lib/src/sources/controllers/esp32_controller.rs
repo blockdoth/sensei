@@ -102,7 +102,7 @@ impl Default for Esp32DeviceConfig {
 /// Parameters for controlling an ESP32 device.
 #[derive(Serialize, Deserialize, Debug, Clone, Default, JsonSchema)]
 #[serde(default)]
-pub struct Esp32Controller {
+pub struct Esp32ControllerParams {
     pub device_config: Esp32DeviceConfig,
     pub mac_filters_to_add: Vec<MacFilterPair>,
     pub clear_all_mac_filters: bool,
@@ -114,7 +114,7 @@ pub struct Esp32Controller {
 
 #[typetag::serde(name = "ESP32Controller")]
 #[async_trait]
-impl Controller for Esp32Controller {
+impl Controller for Esp32ControllerParams {
     async fn apply(&self, source: &mut dyn DataSourceT) -> Result<(), ControllerError> {
         // Ensure your DataSourceT trait has `fn as_any_mut(&mut self) -> &mut dyn Any;`
         // and Esp32Source implements it.
@@ -183,7 +183,7 @@ impl Controller for Esp32Controller {
         new_operation_mode_for_logic = Some(self.device_config.mode);
 
         if self.clear_all_mac_filters {
-            Esp32Controller::clear_macs(esp_source).await?;
+            Esp32ControllerParams::clear_macs(esp_source).await?;
         }
 
         info!("Controller: Adding {} MAC filter(s) to ESP32.", self.mac_filters_to_add.len());
@@ -321,7 +321,7 @@ impl Controller for Esp32Controller {
     }
 }
 
-impl Esp32Controller {
+impl Esp32ControllerParams {
     async fn clear_macs(esp: &mut Esp32Source) -> Result<(), ControllerError> {
         info!("Controller: Clearing all MAC filters on ESP32.");
         esp.send_esp32_command(Esp32Command::WhitelistClear, None)

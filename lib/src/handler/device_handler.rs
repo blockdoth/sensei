@@ -9,7 +9,6 @@ use std::sync::Arc;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
-use crate::FromConfig;
 use crate::adapters::{CsiDataAdapter, DataAdapterConfig, *};
 use crate::errors::{ControllerError, CsiAdapterError, DataSourceError, SinkError, TaskError};
 use crate::network::rpc_message::{DataMsg, SourceType};

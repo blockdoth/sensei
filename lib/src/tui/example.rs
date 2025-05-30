@@ -21,7 +21,7 @@ use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::task::JoinHandle;
 
 use super::{FromLog, LogEntry, Tui, TuiRunner};
-use crate::sources::controllers::esp32_controller::Esp32Controller;
+use crate::sources::controllers::esp32_controller::Esp32ControllerParams;
 
 pub struct TuiState {
     should_quit: bool,

@@ -34,7 +34,7 @@ use lib::sources::DataSourceT;
 // you might need: use crate::cli::EspToolSubcommandArgs;
 use lib::sources::controllers::Controller;
 use lib::sources::controllers::esp32_controller::{
-    Bandwidth as EspBandwidth, CsiType as EspCsiType, CustomFrameParams, Esp32Controller, Esp32DeviceConfig, OperationMode as EspOperationMode,
+    Bandwidth as EspBandwidth, CsiType as EspCsiType, CustomFrameParams, Esp32ControllerParams, Esp32DeviceConfig, OperationMode as EspOperationMode,
     SecondaryChannel as EspSecondaryChannel,
 };
 use lib::sources::esp32::{Esp32Source, Esp32SourceConfig};
@@ -77,7 +77,7 @@ impl Run<EspToolConfig> for EspTool {
     }
 
     async fn run(&mut self, global_config: GlobalConfig, esp_config: EspToolConfig) -> Result<(), Box<dyn std::error::Error>> {
-        let (command_send, mut command_recv) = mpsc::channel::<Esp32Controller>(10);
+        let (command_send, mut command_recv) = mpsc::channel::<Esp32ControllerParams>(10);
         let (update_send, mut update_recv) = mpsc::channel::<EspUpdate>(10);
 
         let update_send_clone = update_send.clone();
@@ -111,9 +111,9 @@ impl EspTool {
         mut esp: Esp32Source,
         device_config: Esp32DeviceConfig,
         update_send_channel: Sender<EspUpdate>,
-        mut command_recv_channel: Receiver<Esp32Controller>,
+        mut command_recv_channel: Receiver<Esp32ControllerParams>,
     ) {
-        let controller = Esp32Controller {
+        let controller = Esp32ControllerParams {
             device_config,
             mac_filters_to_add: vec![],
             clear_all_mac_filters: true,

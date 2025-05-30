@@ -26,7 +26,7 @@ use lib::sinks::file::{FileConfig, FileSink};
 use lib::sources::DataSourceT;
 use lib::sources::controllers::Controller;
 use lib::sources::controllers::esp32_controller::{
-    Bandwidth as EspBandwidth, CsiType as EspCsiType, Esp32Controller, Esp32DeviceConfig, OperationMode as EspOperationMode,
+    Bandwidth as EspBandwidth, CsiType as EspCsiType, Esp32ControllerParams, Esp32DeviceConfig, OperationMode as EspOperationMode,
     SecondaryChannel as EspSecondaryChannel,
 };
 use lib::sources::esp32::{Esp32Source, Esp32SourceConfig};
