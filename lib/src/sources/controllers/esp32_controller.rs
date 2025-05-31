@@ -68,7 +68,7 @@ pub struct MacFilterPair {
     pub dst_mac: [u8; 6],
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
+#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema, Default)]
 pub struct CustomFrameParams {
     pub src_mac: [u8; 6],
     pub dst_mac: [u8; 6],
@@ -303,15 +303,12 @@ impl Controller for Esp32ControllerParams {
             debug!("Controller: Time synchronization sequence sent.");
         }
 
-        if let Some(ref frame_params) = self.transmit_custom_frame {
-            debug!("Controller: Transmitting custom frames: {frame_params:?}");
-            if self.mode == EspMode::Listening {
-                warn!("Transmitting custom frames typically requires OperationMode::Transmit. Current/new mode may not be optimal.");
-                return Err(ControllerError::InvalidParams(format!("Wrong mode {:?}", self.mode)));
-            }
-
+        if self.mode == EspMode::Sending
+            && let Some(frame) = &self.transmit_custom_frame
+        {
+            debug!("Controller: Transmitting custom frames: {:?}", self.transmit_custom_frame);
             esp_source
-                .send_esp32_command(Esp32Command::TransmitCustomFrame, Some(frame_params.to_vec()))
+                .send_esp32_command(Esp32Command::TransmitCustomFrame, Some(frame.to_vec()))
                 .await
                 .map_err(|e| ControllerError::CommandFailed {
                     command_name: "TransmitCustomFrame".to_string(),

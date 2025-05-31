@@ -13,7 +13,7 @@ use lib::sources::controllers::esp32_controller::{
 use lib::sources::esp32::Esp32SourceConfig;
 use lib::tui::Tui;
 use lib::tui::logs::LogEntry;
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use ratatui::Frame;
 use ratatui::prelude::Color;
 use ratatui::style::{Modifier, Style};
@@ -214,15 +214,15 @@ impl Tui<EspUpdate, EspChannelCommand> for TuiState {
                     }
                     _ => self.focused_input = self.focused_input.cursor_down(),
                 },
-                SpamConfigUpdate::Escape => match self.focused_input {
-                    FocussedInput::None => {
-                        if self.focused_panel == FocusedPanel::SpamConfig {
-                            self.focused_panel = FocusedPanel::Main;
-                        }
-                    }
-                    _ => self.focused_input = FocussedInput::None,
-                },
+                SpamConfigUpdate::Escape => {
+                    self.focused_input = FocussedInput::None;
+                    self.focused_panel = FocusedPanel::Main;
+                }
             },
+            EspUpdate::EditSpamConfig if self.tool_mode == ToolMode::Spam => {
+                self.focused_panel = FocusedPanel::SpamConfig;
+                self.focused_input = FocussedInput::SrcMac(0);
+            }
             EspUpdate::Log(log_entry) => {
                 if self.logs.len() >= LOG_BUFFER_CAPACITY {
                     self.logs.pop_front();
@@ -231,7 +231,7 @@ impl Tui<EspUpdate, EspChannelCommand> for TuiState {
             }
             EspUpdate::Status(message) => self.connection_status = message,
             EspUpdate::CsiData(csi) => {
-                info!("Received CSI data");
+                debug!("Received CSI data");
                 if self.csi_data.len() >= CSI_DATA_BUFFER_CAPACITY {
                     self.csi_data.pop_front();
                 }
@@ -295,12 +295,14 @@ impl Tui<EspUpdate, EspChannelCommand> for TuiState {
             },
             EspUpdate::ToggleContinuousSpam => match self.esp_mode {
                 EspMode::Sending => {
+                    info!("Turned off spam mode");
                     self.unsaved_esp_config.mode = EspOperationMode::Transmit;
                     self.esp_mode = EspMode::SendingPaused;
                     self.unsaved_changes = true;
                     self.apply_changes(command_send);
                 }
                 EspMode::SendingPaused => {
+                    info!("Turning on spam mode");
                     self.unsaved_esp_config.mode = EspOperationMode::Transmit;
                     self.esp_mode = EspMode::Sending;
                     self.unsaved_changes = true;
@@ -308,10 +310,6 @@ impl Tui<EspUpdate, EspChannelCommand> for TuiState {
                 }
                 _ => {}
             },
-            EspUpdate::EditSpamConfig if self.tool_mode == ToolMode::Spam => {
-                self.focused_panel = FocusedPanel::SpamConfig;
-                self.focused_input = FocussedInput::SrcMac(0);
-            }
             EspUpdate::Exit => {
                 if self.esp_config.mode == EspOperationMode::Transmit {
                     info!("Shutdown: Requesting to PAUSE WiFi transmit task (was in Transmit mode).");
@@ -368,7 +366,12 @@ impl TuiState {
         if self.unsaved_changes {
             // TODO figure out a more elegant solution
             let spam_settings = if self.esp_mode != EspMode::Listening {
-                Some(self.spam_settings.clone())
+                Some(CustomFrameParams {
+                    src_mac: self.spam_settings.src_mac,
+                    dst_mac: self.spam_settings.dst_mac,
+                    pause_ms: self.spam_settings.pause_ms,
+                    n_reps: self.spam_settings.n_reps,
+                })
             } else {
                 None
             };
@@ -378,12 +381,7 @@ impl TuiState {
                 mac_filters: vec![], // TODO support mac filtering
                 mode: self.esp_mode.clone(),
                 synchronize_time: false,
-                transmit_custom_frame: Some(CustomFrameParams {
-                    src_mac: self.spam_settings.src_mac,
-                    dst_mac: self.spam_settings.dst_mac,
-                    pause_ms: self.spam_settings.pause_ms,
-                    n_reps: self.spam_settings.n_reps,
-                }),
+                transmit_custom_frame: spam_settings,
             };
 
             let msg = EspChannelCommand::UpdatedConfig(new_controller);

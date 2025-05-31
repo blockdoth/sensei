@@ -85,8 +85,8 @@ impl Run<EspToolConfig> for EspTool {
     }
 
     async fn run(&mut self, global_config: GlobalConfig, esp_config: EspToolConfig) -> Result<(), Box<dyn std::error::Error>> {
-        let (command_send, mut command_recv) = mpsc::channel::<EspChannelCommand>(10);
-        let (update_send, mut update_recv) = mpsc::channel::<EspUpdate>(10);
+        let (command_send, mut command_recv) = mpsc::channel::<EspChannelCommand>(1000);
+        let (update_send, mut update_recv) = mpsc::channel::<EspUpdate>(1000);
 
         let update_send_clone = update_send.clone();
 

@@ -236,14 +236,14 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
     let footer_text_str = if let Some(err_msg) = &tui_state.last_error_message {
         format!("ERROR: {err_msg} (Press 'R' to dismiss)")
     } else {
-        match tui_state.focused_panel {
-            FocusedPanel::SpamConfig => match tui_state.focused_input {
-                FocussedInput::None => {
-                    "[Q]uit | [M]ode | [C]hannel | [B]andwidth | [L] CSI Type SpamMode: [E]dit | [S]end Burst | [T] Send Continuous".to_string()
-                }
-                _ => "[Esc] Exit Spam Config | [Tab]/[Ent] Next | [Shft+Tab] Prev | [←→↑↓] Move".to_string(),
-            },
-            FocusedPanel::Main => "[Q]uit | [M]ode | [C]hannel | [B]andwidth | [L] CSI Type".to_string(),
+        match (&tui_state.tool_mode, &tui_state.focused_panel) {
+            (ToolMode::Spam, FocusedPanel::SpamConfig) if tui_state.focused_input != FocussedInput::None => {
+                "[Esc] Exit Spam Config | [Tab]/[Ent] Next | [Shft+Tab] Prev | [←→↑↓] Move".to_string()
+            }
+            (ToolMode::Spam, _) => {
+                "[Q]uit | [M]ode | [C]hannel | [B]andwidth | [L] CSI Type SpamMode: [E]dit | [S]end Burst | [T] Send Continuous".to_string()
+            }
+            _ => "[Q]uit | [M]ode | [C]hannel | [B]andwidth | [L] CSI Type".to_string(),
         }
     };
 
