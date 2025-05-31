@@ -126,15 +126,17 @@ impl FromStr for CtrlMsg {
 
                 Ok(CtrlMsg::Unsubscribe { device_id })
             }
-            "polldevices" => Ok(CtrlMsg::PollHostStatus),
+            "pollhoststatus" => Ok(CtrlMsg::PollHostStatus),
+            "hoststatus" => Ok(CtrlMsg::HostStatus {
+                host_id: 0,
+                device_status: vec![],
+            }),
             "heartbeat" => Ok(CtrlMsg::Heartbeat {
                 host_id: 0,
-                host_address: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 0)),
+                host_address: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 8080)),
             }), // TODO better id assignment
             s => Err(s.to_owned()),
-            _ => {
-                todo!("An unsuppored case was reached!")
-            }
+            _ => Err(format!("An unsuppored case was reached! {kind}")),
         }
     }
 }

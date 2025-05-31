@@ -127,7 +127,6 @@ impl ConnectionHandler for SystemNode {
                 }
                 m => {
                     warn!("Received unhandled CtrlMsg: {m:?}");
-                    // todo!("{:?}", m); // Avoid panic on unhandled
                 }
             },
             RpcMessageKindData {
@@ -136,7 +135,6 @@ impl ConnectionHandler for SystemNode {
                 device_id,
             } => {
                 warn!("Received unexpected DataMsg: {data_msg:?} for device_id: {device_id}");
-                // todo!();
             }
         }
         Ok(())

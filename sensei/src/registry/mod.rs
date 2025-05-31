@@ -1,11 +1,9 @@
-//! A high level overview of the registry module.
-//! The registry keeps tabs on the status of the hosts in the network.
-//! When a new hosts joins, it registers itself with the registry.
-//! The registry will then peroidically check the status of the hosts.
-//! We are polling from the registry to the hosts.
-//! Letting the hosts periodically send heartbeats to the registry would mean that
-//! the hosts have to keep track another task, which could overwhelm the lowest compute
-//! devices in the network.
+//! # Registry Module
+//!
+//! The registry keeps track of the status of hosts in the network. When a new host joins, it registers itself with the registry.
+//! The registry periodically checks the status of the hosts by polling them. This design avoids requiring hosts to run extra tasks for heartbeats,
+//! which is important for low-compute devices. The registry spawns two threads: a TCP server for host registration and a background thread for polling hosts.
+
 use std::collections::HashMap;
 use std::convert::From;
 use std::net::SocketAddr;
@@ -38,11 +36,7 @@ pub struct Registry {
     send_data_channel: broadcast::Sender<DataMsg>,
 }
 
-#[derive(Eq, Hash, PartialEq, Clone, Debug)]
-struct DeviceId {
-    id: u64,
-}
-
+/// Information about a registered host.
 #[derive(Clone)]
 struct HostInfo {
     addr: SocketAddr,
@@ -50,28 +44,29 @@ struct HostInfo {
     responded_to_last_heardbeat: bool, // A host is allowed to miss one
 }
 
-/// This is nearly the same type as in rpc_message.
-/// I don't want to match on rpc_message every time, so I transfer the type.
+/// Registry's internal representation of a host's status.
+/// This is similar to the type in rpc_message, but avoids matching on rpc_message every time.
 #[derive(Clone)]
 struct RegHostStatus {
     host_id: HostId,
     device_status: Vec<DeviceStatus>, // (device_id, status)
 }
 
+/// Conversion from a control message to a registry host status.
 impl From<CtrlMsg> for RegHostStatus {
     fn from(item: CtrlMsg) -> Self {
         match item {
             CtrlMsg::HostStatus { host_id, device_status } => RegHostStatus { host_id, device_status },
             _ => {
-                todo!("Throw propper error here");
+                panic!("Could not convert from this type of CtrlMsg: {item:?}");
             }
         }
     }
 }
 
-/// The registry spawns two threads. A TCP server that allows new hosts to register themselves
-/// and a background thread that periodically requests the status of the hosts.
+/// The registry spawns two threads: a TCP server for host registration and a background thread for polling hosts.
 impl Run<RegistryConfig> for Registry {
+    /// Create a new registry with the given configuration.
     fn new(config: RegistryConfig) -> Self {
         Registry {
             hosts: Arc::from(Mutex::from(HashMap::new())),
@@ -79,6 +74,7 @@ impl Run<RegistryConfig> for Registry {
         }
     }
 
+    /// Run the registry, spawning the TCP server and polling background task.
     async fn run(&self, config: RegistryConfig) -> Result<(), Box<dyn std::error::Error>> {
         let sender_data_channel = &self.send_data_channel;
 
@@ -104,6 +100,7 @@ impl Run<RegistryConfig> for Registry {
     }
 }
 
+/// Allows clients to subscribe to the registry's data channel.
 impl SubscribeDataChannel for Registry {
     fn subscribe_data_channel(&self) -> broadcast::Receiver<DataMsg> {
         self.send_data_channel.subscribe()
@@ -111,7 +108,9 @@ impl SubscribeDataChannel for Registry {
 }
 
 #[async_trait]
+/// Handles incoming and outgoing network connections for the registry.
 impl ConnectionHandler for Registry {
+    /// Handle an incoming message from a host or client.
     async fn handle_recv(&self, request: RpcMessage, send_commands_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
         debug!("Received request: {:?}", request);
 
@@ -120,10 +119,11 @@ impl ConnectionHandler for Registry {
                 self.register_host(host_id, host_address).await.unwrap();
                 Ok(())
             }
-            _ => Ok(()),
+            _ => Err(NetworkError::MessageError),
         }
     }
 
+    /// Handle outgoing messages to a host or client.
     async fn handle_send(
         &self,
         mut recv_commands_channel: watch::Receiver<ChannelMsg>,
@@ -152,7 +152,8 @@ impl Registry {
         }
     }
 
-    async fn remove_host(&self, host_id: HostId) -> Result<(), Box<dyn std::error::Error>> {
+    /// Remove a host from the registry if it did not respond to the last heartbeat.
+    async fn remove_host(&self, host_id: HostId) -> Result<(), Error> {
         info!("Could not reach host: {host_id:?}");
         let mut host_info_table = self.hosts.lock().await;
         let info = host_info_table.get(&host_id).unwrap();
@@ -173,7 +174,7 @@ impl Registry {
         self.hosts.lock().await.iter().map(|(id, info)| (*id, info.addr)).collect()
     }
     /// Register a new host with the registry.
-    async fn register_host(&self, host_id: HostId, host_address: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
+    async fn register_host(&self, host_id: HostId, host_address: SocketAddr) -> Result<(), Error> {
         // because the host has been registered with priority 0 it will be next in line
         self.hosts.lock().await.insert(
             host_id,
@@ -189,6 +190,7 @@ impl Registry {
         info!("Registered host: {host_id:#?}");
         Ok(())
     }
+    /// Store an update to a host's status in the registry.
     async fn store_host_update(&self, host_id: HostId, host_address: SocketAddr, status: RpcMessageKind) -> Result<(), AppError> {
         match status {
             Ctrl(CtrlMsg::HostStatus { host_id, device_status }) => {
@@ -201,7 +203,7 @@ impl Registry {
                 self.hosts.lock().await.insert(host_id, status);
                 Ok(())
             }
-            _ => Err(AppError::ConfigError("No such host".to_string())), // TODO: proper error handling
+            _ => Err(AppError::NoSuchHost),
         }
     }
 }
