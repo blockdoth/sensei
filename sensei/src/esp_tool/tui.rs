@@ -1,5 +1,7 @@
+use core::time;
 use std::fmt::format;
 
+use chrono::{DateTime, TimeZone, Utc};
 use crossterm::style;
 use lib::csi_types::CsiData;
 use lib::sources::controllers::esp32_controller::{
@@ -15,7 +17,7 @@ use super::state::TuiState;
 use crate::esp_tool::state::{FocusedPanel, FocussedInput, ToolMode};
 use crate::esp_tool::{CSI_DATA_BUFFER_CAPACITY, LOG_BUFFER_CAPACITY};
 
-const BASE_ESP_CONFIG_LINES: u16 = 7; // General ESP32 config lines
+const BASE_ESP_CONFIG_LINES: u16 = 6; // General ESP32 config lines
 const SPAM_DETAILS_LINES: u16 = 4; // Lines for spam-specific configuration details
 
 // Renders the UI based on the state, should not contain any state changing logic
@@ -127,14 +129,6 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
         Span::styled(dev_conf.manual_scale.to_string(), Style::default().fg(Color::Yellow)),
     ]));
 
-    // CSI Buffer line
-    status_lines.push(Line::from(vec![
-        Span::raw("CSI Data Rx Buffer: "),
-        Span::styled(
-            format!("{}/{}", tui_state.csi_data.len(), CSI_DATA_BUFFER_CAPACITY),
-            Style::default().fg(Color::Cyan),
-        ),
-    ]));
 
     let settings_synced = match tui_state.synced {
         0 => Line::raw("All changes are synced"),
@@ -187,8 +181,13 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
         .map(|p: &CsiData| {
             let num_subcarriers = p.csi.first().and_then(|rx| rx.first()).map_or(0, |sc_row| sc_row.len());
             let rssi_str = p.rssi.first().map_or_else(|| "N/A".to_string(), |r| r.to_string());
+
+            let secs = p.timestamp.trunc() as i64;
+            let nsecs = (p.timestamp.fract() * 1_000_000_000.0) as u32;
+            let time_stamp: DateTime<Utc> = Utc.timestamp_opt(secs, nsecs).unwrap();
+
             Row::new(vec![
-                Cell::from(format!("{:.6}", p.timestamp)),
+                Cell::from(format!("{}", time_stamp.format("%Y-%m-%d %H:%M:%S%.3f"))),
                 Cell::from(p.sequence_number.to_string()),
                 Cell::from(rssi_str),
                 Cell::from(num_subcarriers.to_string()),
@@ -196,18 +195,27 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
         })
         .collect();
 
-    let table_widths = [Constraint::Length(18), Constraint::Length(7), Constraint::Length(6), Constraint::Min(10)];
+    let table_widths = [Constraint::Length(28), Constraint::Length(5), Constraint::Length(7), Constraint::Min(10)];
     let csi_table = Table::new(rows, &table_widths)
         .header(table_header)
         .block(
             Block::default()
                 .borders(Borders::ALL)
                 .padding(padding)
-                .title(Span::styled("Controls", header_style)),
+                .title(Line::from(vec![
+                  Span::styled("CSI Data Log ", header_style),
+                  Span::styled(
+                      format!("({}/{})", tui_state.csi_data.len(), CSI_DATA_BUFFER_CAPACITY),
+                      Style::default().fg(Color::Yellow),
+                  ),
+              ])),
         )
         .row_highlight_style(Style::default().add_modifier(Modifier::REVERSED))
         .highlight_symbol(">> ");
     f.render_widget(csi_table, table_area);
+
+
+
 
     // --- Log Output (Right Panel) ---
     let log_panel_content_height = log_panel_area.height.saturating_sub(2) as usize;

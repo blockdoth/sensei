@@ -60,7 +60,7 @@ use crate::cli::EspToolSubcommandArgs;
 use crate::services::{EspToolConfig, GlobalConfig, Run};
 
 const LOG_BUFFER_CAPACITY: usize = 200;
-const CSI_DATA_BUFFER_CAPACITY: usize = 1000;
+const CSI_DATA_BUFFER_CAPACITY: usize = 50000;
 const UI_REFRESH_INTERVAL_MS: u64 = 20;
 const ACTOR_CHANNEL_CAPACITY: usize = 10;
 const ESP_READ_BUFFER_SIZE: usize = 4096;
