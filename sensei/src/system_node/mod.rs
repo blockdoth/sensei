@@ -17,7 +17,7 @@ use lib::errors::NetworkError;
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
 use lib::network::rpc_message::CtrlMsg::*;
 use lib::network::rpc_message::DataMsg::*;
-use lib::network::rpc_message::RpcMessageKind::{Ctrl, Ctrl as RpcMessageKindCtrl, Data as RpcMessageKindData};
+use lib::network::rpc_message::RpcMessageKind::{Ctrl as RpcMessageKindCtrl, Data as RpcMessageKindData};
 use lib::network::rpc_message::SourceType::*;
 use lib::network::rpc_message::{AdapterMode, CtrlMsg, DataMsg, RpcMessage, SourceType, make_msg};
 use lib::network::tcp::client::TcpClient;
@@ -116,11 +116,9 @@ impl ConnectionHandler for SystemNode {
                     info!("Client {} unsubscribed from data stream for device_id: {}", request.src_addr, device_id);
                 }
                 PollHostStatus => {
-                    info!("Received PollDevices from {}", request.src_addr);
-                    if send_channel_msg_channel
-                        .send(ChannelMsg::SendHostStatus { reg_addr: request.src_addr })
-                        .is_err()
-                    {
+                    let reg_addr = request.src_addr;
+                    info!("Received PollDevices from {reg_addr}");
+                    if send_channel_msg_channel.send(ChannelMsg::SendHostStatus { reg_addr }).is_err() {
                         warn!("Could not send HostStatus message");
                         return Err(NetworkError::UnableToConnect);
                     }
@@ -176,14 +174,12 @@ impl ConnectionHandler for SystemNode {
                             sending_active = false;
                         }
                         ChannelMsg::SendHostStatus { reg_addr } => {
-                            sending_active = false;
                             let host_status = CtrlMsg::HostStatus {
                                 host_id: self.config.host_id,
                                 device_status: vec![],
                             };
                             let msg = RpcMessageKindCtrl(host_status);
                             tcp::send_message(&mut send_stream, msg).await;
-                            return Ok(());
                         }
                         _ => (), // Other ChannelMsg types not relevant here
                     }
@@ -252,7 +248,7 @@ impl Run<SystemNodeConfig> for SystemNode {
         if (config.registry.use_registry) {
             info!("Connecting to registry at {}", config.registry.addr);
             let registry_addr: SocketAddr = config.registry.addr;
-            let heartbeat_msg = Ctrl(CtrlMsg::Heartbeat {
+            let heartbeat_msg = RpcMessageKindCtrl(CtrlMsg::Heartbeat {
                 host_id: config.host_id,
                 host_address: config.addr,
             });

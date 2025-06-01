@@ -30,38 +30,24 @@ pub enum RpcMessageKind {
 /// There was some discussion about what we should use as a host id.
 /// This makes it more flexible
 pub use u64 as HostId;
+pub use u64 as DeviceId;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum CtrlMsg {
     Connect,
     Disconnect,
-    Configure {
-        device_id: u64,
-        cfg: DeviceHandlerConfig,
-    },
-    Subscribe {
-        device_id: u64,
-        mode: AdapterMode,
-    },
-    Unsubscribe {
-        device_id: u64,
-    },
+    Configure { device_id: DeviceId, cfg: DeviceHandlerConfig },
+    Subscribe { device_id: DeviceId, mode: AdapterMode },
+    Unsubscribe { device_id: DeviceId },
     PollHostStatus,
-    Heartbeat {
-        host_id: HostId,
-        host_address: SocketAddr,
-    },
-    /// This data message contains all the satus information a host shares with the registry
-    HostStatus {
-        host_id: HostId,
-        device_status: Vec<DeviceStatus>, // (device_id, status)
-    },
+    Heartbeat { host_id: HostId, host_address: SocketAddr },
+    HostStatus { host_id: HostId, device_status: Vec<DeviceStatus> },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DeviceStatus {
-    pub d_id: u64,
-    pub d_type: SourceType,
+    pub id: DeviceId,
+    pub dev_type: SourceType,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
