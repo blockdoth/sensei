@@ -159,7 +159,8 @@ impl Registry {
                     self.store_host_update(host, addr, msg.msg);
                     client.disconnect(addr).await;
                     Ok(())
-                }.await;
+                }
+                .await;
                 if res.is_err() {
                     // if a host throws errors, handle them here
                     // Might have to be split out into error types later
@@ -226,11 +227,11 @@ impl Registry {
 mod tests {
     use lib::csi_types::CsiData;
 
+    use super::*;
     use crate::system_node;
 
-    use super::*;
-
-    fn test_host_id(n: u64) -> HostId { // placeholder in case the IDs get more complex
+    fn test_host_id(n: u64) -> HostId {
+        // placeholder in case the IDs get more complex
         n
     }
 
@@ -300,7 +301,10 @@ mod tests {
         let registry = make_registry();
         let host_id = test_host_id(4);
         let addr = test_socket_addr(4567);
-        let device_status = vec![DeviceStatus { id: 1, dev_type: SourceType::ESP32 }];
+        let device_status = vec![DeviceStatus {
+            id: 1,
+            dev_type: SourceType::ESP32,
+        }];
         let msg_kind = RpcMessageKind::Ctrl(CtrlMsg::HostStatus {
             host_id,
             device_status: device_status.clone(),
@@ -322,7 +326,9 @@ mod tests {
         let host_id = test_host_id(5);
         let addr = test_socket_addr(5678);
 
-        let result = registry.store_host_update(host_id, addr, RpcMessageKind::Ctrl(CtrlMsg::PollHostStatus)).await;
+        let result = registry
+            .store_host_update(host_id, addr, RpcMessageKind::Ctrl(CtrlMsg::PollHostStatus))
+            .await;
         assert!(matches!(result, Err(AppError::NoSuchHost)));
     }
 }
