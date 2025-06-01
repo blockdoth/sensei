@@ -3,17 +3,16 @@
 //! The registry keeps track of the status of hosts in the network. When a new host joins, it registers itself with the registry.
 //! The registry periodically checks the status of the hosts by polling them. This design avoids requiring hosts to run extra tasks for heartbeats,
 //! which is important for low-compute devices. The registry spawns two threads: a TCP server for host registration and a background thread for polling hosts.
-
 use std::collections::HashMap;
 use std::convert::From;
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
 use anyhow::Error;
 use async_trait::async_trait;
 use lib::errors::{AppError, NetworkError};
 use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
-use lib::network::rpc_message::{self, CtrlMsg, DataMsg, DeviceStatus, HostId, RpcMessage, RpcMessageKind};
+use lib::network::rpc_message::{self, CtrlMsg, DataMsg, DeviceStatus, HostId, RpcMessage, RpcMessageKind, SourceType};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
@@ -21,6 +20,7 @@ use log::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
+use tokio::runtime::Runtime;
 use tokio::sync::watch::{self, Receiver, Sender};
 use tokio::sync::{Mutex, broadcast};
 use tokio::task;
@@ -64,7 +64,7 @@ impl From<CtrlMsg> for RegHostStatus {
     }
 }
 
-/// The registry spawns two threads: a TCP server for host registration and a background thread for polling hosts.
+/// The registry spawns two threads: a TCP server for host registration and a separate task for polling hosts.
 impl Run<RegistryConfig> for Registry {
     /// Create a new registry with the given configuration.
     fn new(config: RegistryConfig) -> Self {
@@ -134,6 +134,15 @@ impl ConnectionHandler for Registry {
     }
 }
 
+/// The `Registry` struct manages a collection of hosts, providing asynchronous methods to poll their status,
+/// register new hosts, remove unresponsive hosts, list all registered hosts, and store updates to host status.
+///
+/// # Methods
+/// - `poll_hosts`: Periodically polls all registered hosts for their status using a TCP client.
+/// - `handle_unresponsive_host`: Removes a host from the registry if it did not respond to the last two heartbeats.
+/// - `list_hosts`: Returns a list of all registered hosts and their socket addresses.
+/// - `register_host`: Registers a new host with the registry.
+/// - `store_host_update`: Stores an update to a host's status in the registry.
 impl Registry {
     /// Go though the list of hosts and poll their status
     async fn poll_hosts(&self, mut client: TcpClient, poll_interval: Duration) -> Result<(), Error> {
@@ -141,31 +150,37 @@ impl Registry {
         loop {
             interval.tick().await;
             for (host, addr) in self.list_hosts().await {
-                info!("Polling host: {host:#?} at address: {addr}");
-                client.connect(addr).await?;
-                client.send_message(addr, RpcMessageKind::Ctrl(CtrlMsg::PollHostStatus)).await?;
-                let msg = client.read_message(addr).await?;
-                info!("msg: {msg:?}");
-                self.store_host_update(host, addr, msg.msg);
-                client.disconnect(addr).await;
+                let res: Result<(), Error> = async {
+                    info!("Polling host: {host:#?} at address: {addr}");
+                    client.connect(addr).await?;
+                    client.send_message(addr, RpcMessageKind::Ctrl(CtrlMsg::PollHostStatus)).await?;
+                    let msg = client.read_message(addr).await?;
+                    info!("msg: {msg:?}");
+                    self.store_host_update(host, addr, msg.msg);
+                    client.disconnect(addr).await;
+                    Ok(())
+                }.await;
+                if res.is_err() {
+                    // if a host throws errors, handle them here
+                    // Might have to be split out into error types later
+                    self.handle_unresponsive_host(host).await;
+                }
             }
         }
     }
 
-    /// Remove a host from the registry if it did not respond to the last heartbeat.
-    async fn remove_host(&self, host_id: HostId) -> Result<(), Error> {
+    /// Remove a host from the registry if it did not respond to the last two heartbeats.
+    async fn handle_unresponsive_host(&self, host_id: HostId) -> Result<(), Error> {
         info!("Could not reach host: {host_id:?}");
         let mut host_info_table = self.hosts.lock().await;
-        let info = host_info_table.get(&host_id).unwrap();
-        if !info.responded_to_last_heardbeat {
-            let hosts = self.hosts.lock().await.remove(&host_id);
+        if let Some(info) = host_info_table.get_mut(&host_id) {
+            if !info.responded_to_last_heardbeat {
+                host_info_table.remove(&host_id);
+            } else {
+                info.responded_to_last_heardbeat = false;
+            }
         } else {
-            let new_info = HostInfo {
-                addr: info.addr,
-                status: info.status.clone(),
-                responded_to_last_heardbeat: false,
-            };
-            host_info_table.insert(host_id, new_info);
+            info!("Could not remove host: {host_id} does not exit.")
         }
         Ok(())
     }
@@ -205,5 +220,109 @@ impl Registry {
             }
             _ => Err(AppError::NoSuchHost),
         }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use lib::csi_types::CsiData;
+
+    use crate::system_node;
+
+    use super::*;
+
+    fn test_host_id(n: u64) -> HostId { // placeholder in case the IDs get more complex
+        n
+    }
+
+    fn test_socket_addr(port: u16) -> SocketAddr {
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port)
+    }
+
+    fn make_registry() -> Registry {
+        Registry {
+            hosts: Arc::new(Mutex::new(HashMap::new())),
+            send_data_channel: broadcast::channel(10).0,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_register_and_list_hosts() {
+        let registry = make_registry();
+        let host_id = test_host_id(1);
+        let addr = test_socket_addr(1234);
+
+        registry.register_host(host_id, addr).await.unwrap();
+        let hosts = registry.list_hosts().await;
+        assert_eq!(hosts.len(), 1);
+        assert_eq!(hosts[0], (host_id, addr));
+    }
+
+    #[tokio::test]
+    async fn test_remove_host_unresponsive() {
+        let registry = make_registry();
+        let host_id = test_host_id(2);
+        let addr = test_socket_addr(2345);
+
+        registry.register_host(host_id, addr).await.unwrap();
+        // Mark as not responded
+        registry.handle_unresponsive_host(host_id).await.unwrap();
+        assert!(!registry.list_hosts().await.is_empty());
+        // Now remove it if it happens again
+        registry.handle_unresponsive_host(host_id).await.unwrap();
+        assert!(registry.list_hosts().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_remove_host_responsive() {
+        let registry = make_registry();
+        let host_id = test_host_id(3);
+        let addr = test_socket_addr(3456);
+
+        registry.register_host(host_id, addr).await.unwrap();
+        // Mark as responded
+        {
+            let mut hosts = registry.hosts.lock().await;
+            if let Some(info) = hosts.get_mut(&host_id) {
+                info.responded_to_last_heardbeat = true;
+            }
+        }
+        registry.handle_unresponsive_host(host_id).await.unwrap();
+        let hosts = registry.list_hosts().await;
+        assert_eq!(hosts.len(), 1);
+        assert_eq!(hosts[0], (host_id, addr));
+        // Should now be marked as not responded
+        let hosts_map = registry.hosts.lock().await;
+        assert!(!hosts_map.get(&host_id).unwrap().responded_to_last_heardbeat);
+    }
+
+    #[tokio::test]
+    async fn test_store_host_update_success() {
+        let registry = make_registry();
+        let host_id = test_host_id(4);
+        let addr = test_socket_addr(4567);
+        let device_status = vec![DeviceStatus { id: 1, dev_type: SourceType::ESP32 }];
+        let msg_kind = RpcMessageKind::Ctrl(CtrlMsg::HostStatus {
+            host_id,
+            device_status: device_status.clone(),
+        });
+
+        let result = registry.store_host_update(host_id, addr, msg_kind).await;
+        assert!(result.is_ok());
+        let hosts = registry.hosts.lock().await;
+        let info = hosts.get(&host_id).unwrap();
+        assert_eq!(info.addr, addr);
+        assert_eq!(info.status.host_id, host_id);
+        assert_eq!(info.status.device_status, device_status);
+        assert!(info.responded_to_last_heardbeat);
+    }
+
+    #[tokio::test]
+    async fn test_store_host_update_invalid() {
+        let registry = make_registry();
+        let host_id = test_host_id(5);
+        let addr = test_socket_addr(5678);
+
+        let result = registry.store_host_update(host_id, addr, RpcMessageKind::Ctrl(CtrlMsg::PollHostStatus)).await;
+        assert!(matches!(result, Err(AppError::NoSuchHost)));
     }
 }

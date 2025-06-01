@@ -44,7 +44,7 @@ pub enum CtrlMsg {
     HostStatus { host_id: HostId, device_status: Vec<DeviceStatus> },
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct DeviceStatus {
     pub id: DeviceId,
     pub dev_type: SourceType,
@@ -55,7 +55,7 @@ pub enum DataMsg {
     RawFrame { ts: f64, bytes: Vec<u8>, source_type: SourceType }, // raw bytestream, requires decoding adapter
     CsiFrame { csi: CsiData },                                     // This would contain a proper deserialized CSI
 }
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum SourceType {
     ESP32,
     IWL5300,
