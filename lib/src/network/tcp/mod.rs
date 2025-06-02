@@ -11,6 +11,7 @@ use tokio::sync::watch::{self, Receiver, Sender};
 
 use super::rpc_message::{self, DataMsg, DeviceId, RpcMessage, RpcMessageKind};
 use crate::errors::NetworkError;
+use crate::handler::device_handler::CfgType;
 use crate::network::rpc_message::make_msg;
 
 pub mod client;
@@ -118,6 +119,7 @@ pub enum ChannelMsg {
     UnsubscribeFrom { target_addr: SocketAddr, device_id: DeviceId },
     ListenSubscribe { addr: SocketAddr },
     ListenUnsubscribe { addr: SocketAddr },
+    Configure { device_id: DeviceId, cfg_type: CfgType },
     Poll,
     SendHostStatus { reg_addr: SocketAddr },
     Data { data: DataMsg },

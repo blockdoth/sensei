@@ -2,6 +2,7 @@ use std::arch::global_asm;
 use std::io::BufRead;
 use std::net::SocketAddr;
 use std::ops::Index;
+use std::path::PathBuf;
 use std::str::SplitWhitespace;
 use std::sync::Arc;
 use std::vec;
@@ -11,7 +12,7 @@ use lib::network::rpc_message::CtrlMsg::*;
 use lib::network::rpc_message::DataMsg::RawFrame;
 use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
 use lib::network::rpc_message::SourceType::ESP32;
-use lib::network::rpc_message::{AdapterMode, CtrlMsg, DataMsg, RpcMessage, SourceType};
+use lib::network::rpc_message::{AdapterMode, CtrlMsg, DataMsg, DeviceId, RpcMessage, SourceType};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::{ChannelMsg, client, send_message};
 use log::*;
@@ -22,7 +23,8 @@ use tokio::signal;
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::{Mutex, watch};
 use tokio::task::JoinHandle;
-
+use lib::handler::device_handler::{CfgType, DeviceHandlerConfig};
+use lib::handler::device_handler::CfgType::Delete;
 use crate::cli::{self, GlobalConfig, OrchestratorSubcommandArgs, SubCommandsArgs};
 use crate::config::{DEFAULT_ADDRESS, OrchestratorConfig};
 use crate::module::*;
@@ -121,7 +123,7 @@ impl Orchestrator {
             Some("sub") => {
                 // Subscribe the orchestrator to the data output of a node
                 let target_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
-                let device_id: u64 = input.next().unwrap_or("0").parse().unwrap();
+                let device_id: DeviceId = input.next().unwrap_or("0").parse().unwrap();
 
                 Self::subscribe(&send_client, target_addr, device_id).await;
                 send_commands_channel.send(ChannelMsg::ListenSubscribe { addr: target_addr });
@@ -133,7 +135,7 @@ impl Orchestrator {
                     .unwrap_or("") // #TODO remove unwrap
                     .parse()
                     .unwrap_or(DEFAULT_ADDRESS);
-                let device_id: u64 = input.next().unwrap_or("0").parse().unwrap();
+                let device_id: DeviceId = input.next().unwrap_or("0").parse().unwrap();
                 Self::unsubscribe(&send_client, target_addr, device_id).await;
                 send_commands_channel.send(ChannelMsg::ListenUnsubscribe { addr: target_addr });
             }
@@ -141,7 +143,7 @@ impl Orchestrator {
                 // Tells a node to subscribe to another node
                 let target_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
                 let source_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
-                let device_id: u64 = input.next().unwrap_or("0").parse().unwrap();
+                let device_id: DeviceId = input.next().unwrap_or("0").parse().unwrap();
 
                 let msg = Ctrl(SubscribeTo {
                     target: source_addr,
@@ -156,7 +158,7 @@ impl Orchestrator {
                 // Tells a node to unsubscribe from another node
                 let target_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
                 let source_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
-                let device_id: u64 = input.next().unwrap_or("0").parse().unwrap();
+                let device_id: DeviceId = input.next().unwrap_or("0").parse().unwrap();
 
                 let msg = Ctrl(UnsubscribeFrom {
                     target: source_addr,
@@ -186,6 +188,27 @@ impl Orchestrator {
             Some("sendstatus") => {
                 let target_addr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
                 send_commands_channel.send(ChannelMsg::SendHostStatus { reg_addr: target_addr });
+            }
+            Some("configure") => {
+                let target_addr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
+                let device_id: DeviceId = input.next().unwrap_or("0").parse().unwrap();
+                match input.next() {
+                    Some("create") => {}
+                    Some("edit") => {}
+                    Some("delete") => {
+                        let cfg_type = Delete;
+                        let msg = Ctrl(Configure {device_id, cfg_type});
+                        send_client.lock().await.send_message(target_addr, msg).await;
+                    }
+                    _ => {
+                        info!("Invalid configuration type");
+                    }
+                }
+                let config_path: PathBuf = input.next().unwrap_or("sensei/src/orchestrator/example_config.yaml").into();
+                let config = match DeviceHandlerConfig::from_yaml(config_path).await {
+                    Ok(configs) => configs,
+                    _ => return,
+                };
             }
             _ => {
                 info!("Failed to parse command")
