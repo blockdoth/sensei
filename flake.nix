@@ -46,12 +46,16 @@
                 rust-analyzer-unwrapped
                 mprocs
                 pkg-config
+                pkgs.llvmPackages_latest.llvm # required for coverage tool
+                pkgs.cargo-llvm-cov
               ]
               ++ lib.optionals pkgs.stdenv.isLinux [ pkgs.udev ];
             RUST_SRC_PATH = "${toolchain}/lib/rustlib/src/rust/library";
+            # env vars for coverage tool
+            LLVM_COV = "${pkgs.llvmPackages_latest.llvm}/bin/llvm-cov";
+            LLVM_PROFDATA = "${pkgs.llvmPackages_latest.llvm}/bin/llvm-profdata";
           };
 
-          # Example package definition
           packages.default = pkgs.rustPlatform.buildRustPackage {
             pname = "sensei";
             version = "0.1.0";
