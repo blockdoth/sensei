@@ -193,8 +193,36 @@ impl Orchestrator {
                 let target_addr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
                 let device_id: DeviceId = input.next().unwrap_or("0").parse().unwrap();
                 match input.next() {
-                    Some("create") => {}
-                    Some("edit") => {}
+                    Some("create") => {
+                        let config_path: PathBuf = input.next().unwrap_or("sensei/src/orchestrator/example_config.yaml").into();
+                        let cfg = match DeviceHandlerConfig::from_yaml(config_path).await {
+                            Ok(configs) => match configs.first().cloned() {
+                                Some(config) => config,
+                                _ => return info!("invalid config"),
+                            }
+                            _ => return info!("invalid config"),
+                        };
+                        
+                        let cfg_type = CfgType::Create { cfg };
+                        let msg = Ctrl(Configure { device_id, cfg_type });
+                        
+                        send_client.lock().await.send_message(target_addr, msg).await;
+                    }
+                    Some("edit") => {
+                        let config_path: PathBuf = input.next().unwrap_or("sensei/src/orchestrator/example_config.yaml").into();
+                        let cfg = match DeviceHandlerConfig::from_yaml(config_path).await {
+                            Ok(configs) => match configs.first().cloned() {
+                                Some(config) => config,
+                                _ => return info!("invalid config"),
+                            }
+                            _ => return info!("invalid config"),
+                        };
+
+                        let cfg_type = CfgType::Edit { cfg };
+                        let msg = Ctrl(Configure { device_id, cfg_type });
+
+                        send_client.lock().await.send_message(target_addr, msg).await;
+                    }
                     Some("delete") => {
                         let cfg_type = Delete;
                         let msg = Ctrl(Configure {device_id, cfg_type});
@@ -204,11 +232,6 @@ impl Orchestrator {
                         info!("Invalid configuration type");
                     }
                 }
-                let config_path: PathBuf = input.next().unwrap_or("sensei/src/orchestrator/example_config.yaml").into();
-                let config = match DeviceHandlerConfig::from_yaml(config_path).await {
-                    Ok(configs) => configs,
-                    _ => return,
-                };
             }
             _ => {
                 info!("Failed to parse command")
