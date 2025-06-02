@@ -18,9 +18,9 @@ use lib::errors::NetworkError;
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
 use lib::network::rpc_message::CtrlMsg::*;
 use lib::network::rpc_message::DataMsg::*;
-use lib::network::rpc_message::RpcMessageKind::{Ctrl as RpcMessageKindCtrl, Ctrl, Data as RpcMessageKindData, Data};
+use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
 use lib::network::rpc_message::SourceType::*;
-use lib::network::rpc_message::{AdapterMode, CtrlMsg, DataMsg, RpcMessage, SourceType, make_msg};
+use lib::network::rpc_message::{AdapterMode, CtrlMsg, DataMsg, DeviceId, RpcMessage, SourceType, make_msg};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
@@ -67,9 +67,10 @@ use crate::module::*;
 /// send_data_channel: the System Node communicates which data should be sent to other receivers across its threads using this tokio channel
 #[derive(Clone)]
 pub struct SystemNode {
-    send_data_channel: broadcast::Sender<(DataMsg, u64)>, // Call .subscribe() on the sender in order to get a receiver
+    send_data_channel: broadcast::Sender<(DataMsg, DeviceId)>, // Call .subscribe() on the sender in order to get a receiver
     handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
     addr: SocketAddr,
+    config: SystemNodeConfig,
 }
 
 impl SubscribeDataChannel for SystemNode {
@@ -89,7 +90,7 @@ impl ConnectionHandler for SystemNode {
     /// - Connect/Disconnect
     /// - Subscribe/Unsubscribe
     /// - Configure
-    async fn handle_recv(&self, request: RpcMessage, send_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
+    async fn handle_recv(&self, request: RpcMessage, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
         info!("Received message {:?} from {}", request.msg, request.src_addr);
         match request.msg {
             Ctrl(command) => match command {
@@ -99,13 +100,13 @@ impl ConnectionHandler for SystemNode {
                 }
                 Disconnect => {
                     // Correct way to signal disconnect to the sending task for this connection
-                    if send_channel.send(ChannelMsg::Disconnect).is_err() {
+                    if send_channel_msg_channel.send(ChannelMsg::Disconnect).is_err() {
                         warn!("Failed to send Disconnect to own handle_send task; already closed?");
                     }
                     return Err(NetworkError::Closed); // Indicate connection should close
                 }
                 Subscribe { device_id } => {
-                    if send_channel.send(ChannelMsg::Subscribe { device_id }).is_err() {
+                    if send_channel_msg_channel.send(ChannelMsg::Subscribe { device_id }).is_err() {
                         warn!("Failed to send Subscribe to own handle_send task; already closed?");
                         return Err(NetworkError::UnableToConnect);
                     }
@@ -113,7 +114,7 @@ impl ConnectionHandler for SystemNode {
                     info!("Client {} subscribed to data stream for device_id: {}", request.src_addr, device_id);
                 }
                 Unsubscribe { device_id } => {
-                    if send_channel.send(ChannelMsg::Unsubscribe { device_id }).is_err() {
+                    if send_channel_msg_channel.send(ChannelMsg::Unsubscribe { device_id }).is_err() {
                         warn!("Failed to send Unsubscribe to own handle_send task; already closed?");
                         return Err(NetworkError::UnableToConnect);
                     }
@@ -163,6 +164,14 @@ impl ConnectionHandler for SystemNode {
                         _ => info!("This handler does not exist."),
                     }
                 }
+                PollHostStatus => {
+                    let reg_addr = request.src_addr;
+                    info!("Received PollDevices from {reg_addr}");
+                    if send_channel_msg_channel.send(ChannelMsg::SendHostStatus { reg_addr }).is_err() {
+                        warn!("Could not send HostStatus message");
+                        return Err(NetworkError::UnableToConnect);
+                    }
+                }
                 Configure { device_id, cfg_type } => {
                     match cfg_type {
                         Create { cfg } => {
@@ -186,8 +195,9 @@ impl ConnectionHandler for SystemNode {
                         }
                     }
                 }
-                PollDevices => {}
-                Heartbeat => {}
+                m => {
+                    warn!("Received unhandled CtrlMsg: {m:?}");
+                }
             },
             Data { data_msg, device_id } => {
                 // TODO: Pass it through relevant TCP sources
@@ -203,7 +213,7 @@ impl ConnectionHandler for SystemNode {
     async fn handle_send(
         &self,
         mut recv_command_channel: watch::Receiver<ChannelMsg>,
-        mut recv_data_channel: broadcast::Receiver<(DataMsg, u64)>,
+        mut recv_data_channel: broadcast::Receiver<(DataMsg, DeviceId)>,
         mut send_stream: OwnedWriteHalf,
     ) -> Result<(), NetworkError> {
         let mut subscribed_ids: HashSet<u64> = HashSet::new();
@@ -225,6 +235,14 @@ impl ConnectionHandler for SystemNode {
                         info!("Unsubscribed");
                         subscribed_ids.remove(&device_id);
                     }
+                    ChannelMsg::SendHostStatus { reg_addr } => {
+                        let host_status = CtrlMsg::HostStatus {
+                            host_id: self.config.host_id,
+                            device_status: vec![],
+                        };
+                        let msg = Ctrl(host_status);
+                        tcp::send_message(&mut send_stream, msg).await;
+                    }
                     _ => (),
                 }
             }
@@ -238,17 +256,19 @@ impl ConnectionHandler for SystemNode {
                 send_message(&mut send_stream, msg).await;
             }
         }
+        // Loop is infinite unless broken by Disconnect or error
         Ok(())
     }
 }
 
 impl Run<SystemNodeConfig> for SystemNode {
     fn new(config: SystemNodeConfig) -> Self {
-        let (send_data_channel, _) = broadcast::channel::<(DataMsg, u64)>(16);
+        let (send_data_channel, _) = broadcast::channel::<(DataMsg, DeviceId)>(16);
         SystemNode {
             send_data_channel,
             handlers: Arc::new(Mutex::new(HashMap::new())),
             addr: config.addr,
+            config,
         }
     }
 
@@ -264,9 +284,7 @@ impl Run<SystemNodeConfig> for SystemNode {
 
         let sender_data_channel = connection_handler.send_data_channel.clone();
 
-        let default_config_path: PathBuf = config.device_configs;
-
-        let device_handler_configs: Vec<DeviceHandlerConfig> = DeviceHandlerConfig::from_yaml(default_config_path).await?;
+        let device_handler_configs: Vec<DeviceHandlerConfig> = config.device_configs;
 
         for cfg in device_handler_configs {
             self.handlers
@@ -275,6 +293,22 @@ impl Run<SystemNodeConfig> for SystemNode {
                 .insert(cfg.device_id, DeviceHandler::from_config(cfg.clone()).await.unwrap());
         }
 
+        if (config.registry.use_registry) {
+            info!("Connecting to registry at {}", config.registry.addr);
+            let registry_addr: SocketAddr = config.registry.addr;
+            let heartbeat_msg = Ctrl(CtrlMsg::AnnouncePresence {
+                host_id: config.host_id,
+                host_address: config.addr,
+            });
+            let mut client = TcpClient::new();
+            client.connect(registry_addr).await?;
+            client.send_message(registry_addr, heartbeat_msg).await?;
+            client.disconnect(registry_addr);
+            info!("Heartbeat sent to registry at {}", config.registry.addr);
+        }
+
+        // Start TCP server to handle client connections
+        info!("Starting TCP server on {}...", config.addr);
         TcpServer::serve(config.addr, connection_handler).await;
         Ok(())
     }

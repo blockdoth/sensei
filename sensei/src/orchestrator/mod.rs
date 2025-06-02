@@ -1,4 +1,5 @@
 use std::arch::global_asm;
+use std::io::BufRead;
 use std::net::SocketAddr;
 use std::ops::Index;
 use std::str::SplitWhitespace;
@@ -181,6 +182,10 @@ impl Orchestrator {
 
                 info!("Sending dummy data to {target_addr}");
                 send_client.lock().await.send_message(target_addr, msg).await;
+            }
+            Some("sendstatus") => {
+                let target_addr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
+                send_commands_channel.send(ChannelMsg::SendHostStatus { reg_addr: target_addr });
             }
             _ => {
                 info!("Failed to parse command")

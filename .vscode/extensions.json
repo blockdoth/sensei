@@ -1,0 +1,7 @@
+{
+    "recommendations": [
+        "vadimcn.vscode-lldb",
+        "ryanluker.vscode-coverage-gutters",
+        "rust-lang.rust-analyzer"
+    ]
+}
