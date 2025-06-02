@@ -8,7 +8,7 @@ use tokio::net::{TcpStream, UdpSocket};
 use tokio_stream::Stream;
 
 use crate::csi_types::CsiData;
-use crate::handler::device_handler::DeviceHandlerConfig;
+use crate::handler::device_handler::{CfgType, DeviceHandlerConfig};
 use crate::network::rpc_message::RpcMessageKind::Ctrl;
 
 const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
@@ -30,7 +30,7 @@ pub enum RpcMessageKind {
 pub enum CtrlMsg {
     Connect,
     Disconnect,
-    Configure { device_id: u64, cfg: DeviceHandlerConfig },
+    Configure { device_id: u64, cfg_type: CfgType },
     Subscribe { device_id: u64 },
     Unsubscribe { device_id: u64 },
     SubscribeTo { target: SocketAddr, device_id: u64 }, // Orchestrator to node, node subscribes to another node
