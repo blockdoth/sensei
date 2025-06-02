@@ -33,8 +33,8 @@ pub enum CtrlMsg {
     Configure { device_id: u64, cfg: DeviceHandlerConfig },
     Subscribe { device_id: u64 },
     Unsubscribe { device_id: u64 },
-    SubscribeTo { target: SocketAddr, device_id: u64 },
-    UnsubscribeFrom { target: SocketAddr, device_id: u64 },
+    SubscribeTo { target: SocketAddr, device_id: u64 }, // Orchestrator to node, node subscribes to another node
+    UnsubscribeFrom { target: SocketAddr, device_id: u64 }, // Orchestrator to node
     PollDevices,
     Heartbeat,
 }
@@ -52,6 +52,7 @@ pub enum SourceType {
     AX210,
     AtherosQCA,
     CSV,
+    TCP,
     Unknown,
 }
 
@@ -91,7 +92,7 @@ impl FromStr for CtrlMsg {
             }
             "subscribe" => {
                 let device_id = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0); // TODO better id assignment
-                
+
                 Ok(CtrlMsg::Subscribe { device_id })
             }
             "unsubscribe" => {

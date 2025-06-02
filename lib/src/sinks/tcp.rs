@@ -56,7 +56,7 @@ impl Sink for TCPSink {
     /// # Errors
     ///
     /// Returns a ['SinkError'] if the operation fails (e.g., I/O failure)
-    async fn open(&mut self, _data: DataMsg) -> Result<(), SinkError> {
+    async fn open(&mut self) -> Result<(), SinkError> {
         trace!("Connecting to TCP socket at {}", self.target_addr);
         self.client.connect(self.target_addr).await.map_err(SinkError::from)?;
         Ok(())
@@ -69,7 +69,7 @@ impl Sink for TCPSink {
     /// # Errors
     ///
     /// Returns a ['SinkError'] if the operation fails (e.g., I/O failure)
-    async fn close(&mut self, _data: DataMsg) -> Result<(), SinkError> {
+    async fn close(&mut self) -> Result<(), SinkError> {
         trace!("Disconnecting from TCP socket at {}", self.target_addr);
         self.client.disconnect(self.target_addr).await.map_err(SinkError::from)?;
         Ok(())

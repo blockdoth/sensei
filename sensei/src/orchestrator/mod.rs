@@ -18,7 +18,8 @@ use tokio::signal;
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::{Mutex, watch};
 use tokio::task::JoinHandle;
-
+use lib::network::rpc_message::DataMsg::RawFrame;
+use lib::network::rpc_message::SourceType::ESP32;
 use crate::cli::{self, GlobalConfig, OrchestratorSubcommandArgs, SubCommandsArgs};
 use crate::config::{DEFAULT_ADDRESS, OrchestratorConfig};
 use crate::module::*;
@@ -52,7 +53,7 @@ impl Orchestrator {
         client.lock().await.disconnect(target_addr).await;
     }
 
-    async fn subscribe(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: u64, mode: AdapterMode) {
+    async fn subscribe(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: u64) {
         let msg = Ctrl(CtrlMsg::Subscribe { device_id });
         client.lock().await.send_message(target_addr, msg).await;
     }
@@ -91,7 +92,7 @@ impl Orchestrator {
         let recv_task = tokio::spawn(async move {
             Self::recv_task(recv_commands_channel, recv_client.clone()).await;
         });
-        
+
         pending::<()>().await;
 
         Ok(())
@@ -118,13 +119,8 @@ impl Orchestrator {
                 // Subscribe the orchestrator to the data output of a node
                 let target_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
                 let device_id: u64 = input.next().unwrap_or("0").parse().unwrap();
-                let mode: AdapterMode = match input.next() {
-                    Some("source") => AdapterMode::SOURCE,
-                    Some("raw") => AdapterMode::RAW,
-                    Some("target") => AdapterMode::TARGET,
-                    _ => AdapterMode::RAW,
-                };
-                Self::subscribe(&send_client, target_addr, device_id, mode).await;
+
+                Self::subscribe(&send_client, target_addr, device_id).await;
                 send_commands_channel.send(ChannelMsg::ListenSubscribe { addr: target_addr });
             }
             Some("unsub") => {
@@ -143,17 +139,13 @@ impl Orchestrator {
                 let target_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
                 let source_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
                 let device_id: u64 = input.next().unwrap_or("0").parse().unwrap();
-                let mode: AdapterMode = match input.next() {
-                    Some("source") => AdapterMode::SOURCE,
-                    Some("raw") => AdapterMode::RAW,
-                    Some("target") => AdapterMode::TARGET,
-                    _ => AdapterMode::RAW,
-                };
 
                 let msg = Ctrl(SubscribeTo {
                     target: source_addr,
                     device_id,
                 });
+                
+                info!("Telling {target_addr} to subscribe to {source_addr} on device id {device_id}");
 
                 send_client.lock().await.send_message(target_addr, msg).await;
             }
@@ -167,7 +159,17 @@ impl Orchestrator {
                     target: source_addr,
                     device_id,
                 });
+                
+                info!("Telling {target_addr} to unsubscribe from device id {device_id} from {source_addr}");
 
+                send_client.lock().await.send_message(target_addr, msg).await;
+            }
+            Some("dummydata") => { // To test the subscription mechanic
+                let target_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
+                
+                let msg = Data {data_msg: RawFrame {ts: 1234f64, bytes: vec!(), source_type: ESP32}, device_id: 0};
+                
+                info!("Sending dummy data to {target_addr}");
                 send_client.lock().await.send_message(target_addr, msg).await;
             }
             _ => {
