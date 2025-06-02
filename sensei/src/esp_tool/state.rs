@@ -19,7 +19,7 @@ use ratatui::prelude::Color;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use tokio::sync::mpsc::{self, Receiver, Sender};
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 use super::spam_settings::{self, SpamSettings};
 use super::tui::ui;
@@ -327,22 +327,21 @@ impl Tui<EspUpdate, EspChannelCommand> for TuiState {
                     error!("Already continuously sending, please pause sending before starting a burst")
                 }
                 EspMode::SendingBurst => {
-                  // There is currently no way to know when a burst has ended, so this has to do
-                  warn!("Previous burst might not have ended yet, please wait until it is done before starting another burst");
-                  self.esp_mode = EspMode::SendingPaused;
-                  
+                    // There is currently no way to know when a burst has ended, so this has to do
+                    warn!("Previous burst might not have ended yet, please wait until it is done before starting another burst");
+                    self.esp_mode = EspMode::SendingPaused;
                 }
                 EspMode::SendingPaused => {
                     self.unsaved_esp_config.mode = EspOperationMode::Transmit;
                     self.esp_mode = EspMode::SendingBurst;
                     self.unsaved_changes = true;
-                    self.apply_changes(command_send).await;                   
+                    self.apply_changes(command_send).await;
                 }
                 _ => {}
             },
             EspUpdate::ToggleContinuousSpam => match self.esp_mode {
                 EspMode::SendingBurst => {
-                  error!("Already in burst, please pause or wait until it is done before starting spamming")
+                    error!("Already in burst, please pause or wait until it is done before starting spamming")
                 }
                 EspMode::SendingContinuous => {
                     info!("Turned off spam mode");
@@ -375,14 +374,14 @@ impl Tui<EspUpdate, EspChannelCommand> for TuiState {
             EspUpdate::EspDisconnected => {
                 self.connection_status = "ESP disconnected".to_string();
                 self.synced = 0;
-            },
-            EspUpdate::ClearCSI =>{
-              info!("CSI logs cleared");
-              self.csi_data.clear();
-            },
-            EspUpdate::ClearLogs =>{
-              info!("Logs cleared");
-              self.logs.clear();
+            }
+            EspUpdate::ClearCSI => {
+                info!("CSI logs cleared");
+                self.csi_data.clear();
+            }
+            EspUpdate::ClearLogs => {
+                info!("Logs cleared");
+                self.logs.clear();
             }
             _ => {}
         }

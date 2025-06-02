@@ -180,7 +180,7 @@ impl Controller for Esp32ControllerParams {
                     .send_esp32_command(Esp32Command::SendingPause, None)
                     .await
                     .map_err(|e| ControllerError::CommandFailed {
-                        command_name: format!("Failed to pause sending"),
+                        command_name: "Failed to pause sending".to_string(),
                         details: e.to_string(),
                     })?;
             }
@@ -190,7 +190,7 @@ impl Controller for Esp32ControllerParams {
                     .send_esp32_command(Esp32Command::ListeningPause, None)
                     .await
                     .map_err(|e| ControllerError::CommandFailed {
-                        command_name: format!("Failed to pause listening"),
+                        command_name: "Failed to pause listening".to_string(),
                         details: e.to_string(),
                     })?;
             }
@@ -287,7 +287,7 @@ impl Controller for Esp32ControllerParams {
                     .send_esp32_command(Esp32Command::ListeningResume, None)
                     .await
                     .map_err(|e| ControllerError::CommandFailed {
-                        command_name: format!("UnpauseAcquisition"),
+                        command_name: "UnpauseAcquisition".to_string(),
                         details: e.to_string(),
                     })?;
             }
@@ -298,7 +298,7 @@ impl Controller for Esp32ControllerParams {
                         .send_esp32_command(Esp32Command::SendingResume, Some(frame.to_vec()))
                         .await
                         .map_err(|e| ControllerError::CommandFailed {
-                            command_name: format!("ResumeWifiTransmit"),
+                            command_name: "ResumeWifiTransmit".to_string(),
                             details: e.to_string(),
                         })?;
                 } else {
