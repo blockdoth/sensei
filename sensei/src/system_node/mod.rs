@@ -18,7 +18,7 @@ use lib::errors::NetworkError;
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
 use lib::network::rpc_message::CtrlMsg::*;
 use lib::network::rpc_message::DataMsg::*;
-use lib::network::rpc_message::RpcMessageKind::{Ctrl as RpcMessageKindCtrl, Ctrl, Data as RpcMessageKindData, Data};
+use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
 use lib::network::rpc_message::SourceType::*;
 use lib::network::rpc_message::{AdapterMode, CtrlMsg, DataMsg, RpcMessage, SourceType, make_msg};
 use lib::network::tcp::client::TcpClient;
@@ -216,6 +216,7 @@ impl ConnectionHandler for SystemNode {
                 send_message(&mut send_stream, msg).await;
             }
         }
+        // Loop is infinite unless broken by Disconnect or error
         Ok(())
     }
 }
