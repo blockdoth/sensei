@@ -27,7 +27,7 @@ pub async fn read_message(read_stream: &mut OwnedReadHalf, buffer: &mut [u8]) ->
             info!("Stream closed by peer.");
             Err(NetworkError::Closed)
         }
-        Err(e) => todo!("idk"),
+        Err(e) => todo!("idk"), //TODO: better error handling
     }?;
 
     debug!("Received message of length {msg_length}");
@@ -117,4 +117,5 @@ pub enum ChannelMsg {
     ListenUnsubscribe { addr: SocketAddr },
     Unsubscribe,
     Poll,
+    SendHostStatus { reg_addr: SocketAddr },
 }

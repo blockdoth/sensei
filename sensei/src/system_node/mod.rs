@@ -64,6 +64,7 @@ use crate::module::*;
 #[derive(Clone)]
 pub struct SystemNode {
     send_data_channel: broadcast::Sender<DataMsg>,
+    config: SystemNodeConfig,
 }
 
 impl SubscribeDataChannel for SystemNode {
@@ -83,7 +84,7 @@ impl ConnectionHandler for SystemNode {
     /// - Connect/Disconnect
     /// - Subscribe/Unsubscribe
     /// - Configure
-    async fn handle_recv(&self, request: RpcMessage, send_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
+    async fn handle_recv(&self, request: RpcMessage, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
         info!("Received message {:?} from {}", request.msg, request.src_addr);
         match request.msg {
             RpcMessageKindCtrl(command) => match command {
@@ -93,14 +94,14 @@ impl ConnectionHandler for SystemNode {
                 }
                 Disconnect => {
                     // Correct way to signal disconnect to the sending task for this connection
-                    if send_channel.send(ChannelMsg::Disconnect).is_err() {
+                    if send_channel_msg_channel.send(ChannelMsg::Disconnect).is_err() {
                         warn!("Failed to send Disconnect to own handle_send task; already closed?");
                     }
                     return Err(NetworkError::Closed); // Indicate connection should close
                 }
                 Subscribe { device_id, mode } => {
                     // device_id and mode are unused for now
-                    if send_channel.send(ChannelMsg::Subscribe).is_err() {
+                    if send_channel_msg_channel.send(ChannelMsg::Subscribe).is_err() {
                         warn!("Failed to send Subscribe to own handle_send task; already closed?");
                         return Err(NetworkError::UnableToConnect);
                     }
@@ -108,15 +109,22 @@ impl ConnectionHandler for SystemNode {
                 }
                 Unsubscribe { device_id } => {
                     // device_id is unused for now
-                    if send_channel.send(ChannelMsg::Unsubscribe).is_err() {
+                    if send_channel_msg_channel.send(ChannelMsg::Unsubscribe).is_err() {
                         warn!("Failed to send Unsubscribe to own handle_send task; already closed?");
                         return Err(NetworkError::UnableToConnect);
                     }
                     info!("Client {} unsubscribed from data stream for device_id: {}", request.src_addr, device_id);
                 }
+                PollHostStatus => {
+                    let reg_addr = request.src_addr;
+                    info!("Received PollDevices from {reg_addr}");
+                    if send_channel_msg_channel.send(ChannelMsg::SendHostStatus { reg_addr }).is_err() {
+                        warn!("Could not send HostStatus message");
+                        return Err(NetworkError::UnableToConnect);
+                    }
+                }
                 m => {
                     warn!("Received unhandled CtrlMsg: {m:?}");
-                    // todo!("{:?}", m); // Avoid panic on unhandled
                 }
             },
             RpcMessageKindData {
@@ -125,7 +133,6 @@ impl ConnectionHandler for SystemNode {
                 device_id,
             } => {
                 warn!("Received unexpected DataMsg: {data_msg:?} for device_id: {device_id}");
-                // todo!();
             }
         }
         Ok(())
@@ -165,6 +172,14 @@ impl ConnectionHandler for SystemNode {
                         ChannelMsg::Unsubscribe => {
                             info!("Subscription deactivated for client, will stop sending data.");
                             sending_active = false;
+                        }
+                        ChannelMsg::SendHostStatus { reg_addr } => {
+                            let host_status = CtrlMsg::HostStatus {
+                                host_id: self.config.host_id,
+                                device_status: vec![],
+                            };
+                            let msg = RpcMessageKindCtrl(host_status);
+                            tcp::send_message(&mut send_stream, msg).await;
                         }
                         _ => (), // Other ChannelMsg types not relevant here
                     }
@@ -206,7 +221,7 @@ impl ConnectionHandler for SystemNode {
 impl Run<SystemNodeConfig> for SystemNode {
     fn new(config: SystemNodeConfig) -> Self {
         let (send_data_channel, _) = broadcast::channel::<DataMsg>(16); // Buffer size 16
-        SystemNode { send_data_channel }
+        SystemNode { send_data_channel, config }
     }
 
     /// Starts the system node
@@ -219,13 +234,9 @@ impl Run<SystemNodeConfig> for SystemNode {
 
         let sender_data_channel = connection_handler.send_data_channel.clone();
 
-        let default_config_path: PathBuf = config.device_configs;
-
-        let device_handler_configs: Vec<DeviceHandlerConfig> = DeviceHandlerConfig::from_yaml(default_config_path).await?;
-
         let handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>> = Arc::new(Mutex::new(HashMap::new()));
 
-        for cfg in device_handler_configs {
+        for cfg in config.device_configs {
             handlers
                 .lock()
                 .await
@@ -233,6 +244,20 @@ impl Run<SystemNodeConfig> for SystemNode {
         }
 
         info!("ESP32 data reading task started.");
+
+        if (config.registry.use_registry) {
+            info!("Connecting to registry at {}", config.registry.addr);
+            let registry_addr: SocketAddr = config.registry.addr;
+            let heartbeat_msg = RpcMessageKindCtrl(CtrlMsg::AnnouncePresence {
+                host_id: config.host_id,
+                host_address: config.addr,
+            });
+            let mut client = TcpClient::new();
+            client.connect(registry_addr).await?;
+            client.send_message(registry_addr, heartbeat_msg).await?;
+            client.disconnect(registry_addr);
+            info!("Heartbeat sent to registry at {}", config.registry.addr);
+        }
 
         // Start TCP server to handle client connections
         info!("Starting TCP server on {}...", config.addr);
