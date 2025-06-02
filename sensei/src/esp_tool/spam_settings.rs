@@ -180,8 +180,8 @@ impl Default for SpamSettings {
         Self {
             src_mac: [0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC],
             dst_mac: [0xB4, 0x82, 0xC5, 0x58, 0xA1, 0xC0],
-            n_reps: 1000,
-            pause_ms: 100,
+            n_reps: 10,
+            pause_ms: 10,
         }
     }
 }

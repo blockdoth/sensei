@@ -51,12 +51,12 @@ pub enum Esp32Command {
     SetChannel = 0x01,
     WhitelistAddMacPair = 0x02,
     WhitelistClear = 0x03,
-    PauseAcquisition = 0x04,
-    UnpauseAcquisition = 0x05,
+    ListeningPause = 0x04,
+    ListeningResume = 0x05,
     ApplyDeviceConfig = 0x06,
-    PauseWifiTransmit = 0x07,
-    ResumeWifiTransmit = 0x08,
-    TransmitCustomFrame = 0x09,
+    SendingPause = 0x07,
+    SendingResume = 0x08,
+    SetCustomFrame = 0x09,
     SynchronizeTimeInit = 0x0A,
     SynchronizeTimeApply = 0x0B,
 }
@@ -111,7 +111,8 @@ impl CustomFrameParams {
 pub enum EspMode {
     #[default]
     SendingPaused,
-    Sending,
+    SendingBurst,
+    SendingContinuous,
     Listening,
 }
 
@@ -171,28 +172,39 @@ impl Controller for Esp32ControllerParams {
             .downcast_mut::<Esp32Source>()
             .ok_or_else(|| ControllerError::InvalidDataSource("Esp32Controller requires an Esp32Source.".to_string()))?;
 
-        if esp_source.send_esp32_command(Esp32Command::PauseAcquisition, None).await.is_err() {
-            warn!("Pre-config: Failed to explicitly pause CSI acquisition. Continuing with config changes.");
-        } else {
-            debug!("Pre-config: Paused CSI acquisition.");
-        }
+        // Pauses the relevant modes, be aware that double pausing could cause problems
+        match self.mode {
+            EspMode::Listening => {
+                debug!("Pausing sending to prepare for listening");
+                esp_source
+                    .send_esp32_command(Esp32Command::SendingPause, None)
+                    .await
+                    .map_err(|e| ControllerError::CommandFailed {
+                        command_name: format!("Failed to pause sending"),
+                        details: e.to_string(),
+                    })?;
+            }
+            EspMode::SendingContinuous | EspMode::SendingBurst => {
+                debug!("Pausing listening to prepare for sending");
+                esp_source
+                    .send_esp32_command(Esp32Command::ListeningPause, None)
+                    .await
+                    .map_err(|e| ControllerError::CommandFailed {
+                        command_name: format!("Failed to pause listening"),
+                        details: e.to_string(),
+                    })?;
+            }
+            _ => {}
+        };
 
+        debug!("Controller: Checking ESP32 device configuration: {:?}", self.device_config);
         let channel = &self.device_config.channel;
-        if !(1..=14).contains(channel) {
+        if !(1..=11).contains(channel) {
             return Err(ControllerError::InvalidParams(format!(
-                "Invalid WiFi channel: {channel}. Must be between 1 and 14.",
+                "Invalid WiFi channel: {channel}. Must be between 1 and 11.",
             )));
         }
-        debug!("Controller: Setting ESP32 channel to {channel}");
-        esp_source
-            .send_esp32_command(Esp32Command::SetChannel, Some(vec![*channel]))
-            .await
-            .map_err(|e| ControllerError::CommandFailed {
-                command_name: "SetChannel".to_string(),
-                details: e.to_string(),
-            })?;
 
-        debug!("Controller: Applying ESP32 device configuration: {:?}", self.device_config);
         if self.device_config.bandwidth == Bandwidth::Forty && self.device_config.secondary_channel == SecondaryChannel::None {
             return Err(ControllerError::InvalidParams(
                 "40MHz bandwidth requires a secondary channel (Above or Below) to be set.".to_string(),
@@ -208,7 +220,9 @@ impl Controller for Esp32ControllerParams {
                 "Manual scale {} might be too high for L-LTF, ESP32 typically expects 0-1.",
                 self.device_config.manual_scale
             );
-        }
+        };
+
+        debug!("Controller: Applying ESP32 device configuration: {:?}", self.device_config);
         esp_source
             .send_esp32_command(Esp32Command::ApplyDeviceConfig, Some(self.device_config.to_vec()))
             .await
@@ -217,7 +231,15 @@ impl Controller for Esp32ControllerParams {
                 details: e.to_string(),
             })?;
 
-        Esp32ControllerParams::clear_macs(esp_source).await?;
+        debug!("Controller: Clearing all MAC filters on ESP32.");
+        esp_source
+            .send_esp32_command(Esp32Command::WhitelistClear, None)
+            .await
+            .map_err(|e| ControllerError::CommandFailed {
+                command_name: "WhitelistClear".to_string(),
+                details: e.to_string(),
+            })?;
+
         debug!("Controller: Adding {} MAC filter(s) to ESP32.", self.mac_filters.len());
         for filter_pair in self.mac_filters.clone() {
             let mut filter_data = Vec::with_capacity(12);
@@ -230,52 +252,6 @@ impl Controller for Esp32ControllerParams {
                     command_name: "WhitelistAddMacPair".to_string(),
                     details: e.to_string(),
                 })?;
-        }
-
-        let mode_cmd = match self.mode {
-            EspMode::Listening => {
-                debug!("Changed mode to [Listening]");
-                Esp32Command::UnpauseAcquisition
-            }
-            EspMode::Sending => {
-                debug!("Changed mode to [Sending]");
-                Esp32Command::PauseWifiTransmit
-            }
-            EspMode::SendingPaused => {
-                debug!("Changed mode to [SendingPaused]");
-                Esp32Command::ResumeWifiTransmit
-            }
-        };
-
-        esp_source
-            .send_esp32_command(mode_cmd, None)
-            .await
-            .map_err(|e| ControllerError::CommandFailed {
-                command_name: format!("{mode_cmd:?}"),
-                details: e.to_string(),
-            })?;
-
-        match self.mode {
-            EspMode::Listening => {
-                debug!("Restarting acquisition");
-                esp_source
-                    .send_esp32_command(Esp32Command::UnpauseAcquisition, None)
-                    .await
-                    .map_err(|e| ControllerError::CommandFailed {
-                        command_name: "Restarting acquisition".to_string(),
-                        details: e.to_string(),
-                    })?;
-            }
-            EspMode::Sending => {
-                esp_source
-                    .send_esp32_command(Esp32Command::ResumeWifiTransmit, None)
-                    .await
-                    .map_err(|e| ControllerError::CommandFailed {
-                        command_name: "Resuming Wifi Transmit".to_string(),
-                        details: e.to_string(),
-                    })?;
-            }
-            EspMode::SendingPaused => {}
         }
 
         if self.synchronize_time {
@@ -303,33 +279,50 @@ impl Controller for Esp32ControllerParams {
             debug!("Controller: Time synchronization sequence sent.");
         }
 
-        if self.mode == EspMode::Sending
-            && let Some(frame) = &self.transmit_custom_frame
-        {
-            debug!("Controller: Transmitting custom frames: {:?}", self.transmit_custom_frame);
-            esp_source
-                .send_esp32_command(Esp32Command::TransmitCustomFrame, Some(frame.to_vec()))
-                .await
-                .map_err(|e| ControllerError::CommandFailed {
-                    command_name: "TransmitCustomFrame".to_string(),
-                    details: e.to_string(),
-                })?;
-        }
+        // Resumes the relevant modes
+        match self.mode {
+            EspMode::Listening => {
+                debug!("Changed mode to [Listening]");
+                esp_source
+                    .send_esp32_command(Esp32Command::ListeningResume, None)
+                    .await
+                    .map_err(|e| ControllerError::CommandFailed {
+                        command_name: format!("UnpauseAcquisition"),
+                        details: e.to_string(),
+                    })?;
+            }
+            EspMode::SendingContinuous => {
+                if let Some(frame) = &self.transmit_custom_frame {
+                    debug!("Changed mode to [Sending]");
+                    esp_source
+                        .send_esp32_command(Esp32Command::SendingResume, Some(frame.to_vec()))
+                        .await
+                        .map_err(|e| ControllerError::CommandFailed {
+                            command_name: format!("ResumeWifiTransmit"),
+                            details: e.to_string(),
+                        })?;
+                } else {
+                    return Err(ControllerError::InvalidParams("No custom frame type for sending specifed".to_string()));
+                }
+            }
+            EspMode::SendingBurst => {
+                if let Some(frame) = &self.transmit_custom_frame {
+                    debug!("Controller: Transmitting custom frames: {:?}", self.transmit_custom_frame);
+                    esp_source
+                        .send_esp32_command(Esp32Command::SetCustomFrame, Some(frame.to_vec()))
+                        .await
+                        .map_err(|e| ControllerError::CommandFailed {
+                            command_name: "TransmitCustomFrame".to_string(),
+                            details: e.to_string(),
+                        })?;
+                } else {
+                    return Err(ControllerError::InvalidParams("No custom frame type for sending specifed".to_string()));
+                }
+            }
+            _ => {}
+        };
 
         debug!("Controller: Esp32Controller applied successfully.");
-        Ok(())
-    }
-}
-
-impl Esp32ControllerParams {
-    async fn clear_macs(esp: &mut Esp32Source) -> Result<(), ControllerError> {
-        debug!("Controller: Clearing all MAC filters on ESP32.");
-        esp.send_esp32_command(Esp32Command::WhitelistClear, None)
-            .await
-            .map_err(|e| ControllerError::CommandFailed {
-                command_name: "WhitelistClear".to_string(),
-                details: e.to_string(),
-            })?;
         Ok(())
     }
 }

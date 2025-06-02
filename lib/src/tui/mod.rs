@@ -109,16 +109,16 @@ where
                 self.app.handle_update(update, &self.command_send, &mut self.update_recv).await;
               }
 
-              _ = tokio::time::sleep(Duration::from_millis(100)) => {
+              _ = tokio::time::sleep(Duration::from_millis(0)) => {
                 self.app.on_tick().await;
               }
             }
         }
 
         for handle in &handles {
-          handle.abort();
+            handle.abort();
         }
-        
+
         tokio::time::sleep(Duration::from_millis(100)).await; // TODO graceful shutdown
         Self::restore_terminal(&mut terminal);
 

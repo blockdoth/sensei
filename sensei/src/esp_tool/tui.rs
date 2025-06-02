@@ -80,8 +80,9 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
 
     // === Build ESP32 Status Paragraph ===
     let mode_str = match tui_state.esp_mode {
-        EspMode::SendingPaused => "Spam (Paused)",
-        EspMode::Sending => "Spam",
+        EspMode::SendingPaused => "Sending (Paused)",
+        EspMode::SendingBurst => "Sending Burst",
+        EspMode::SendingContinuous => "Sending Continuously",
         EspMode::Listening => "Monitor",
     };
     let dev_conf = &tui_state.unsaved_esp_config;
@@ -244,7 +245,7 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
             (ToolMode::Spam, _) => {
                 "[Q]uit | [M]ode | [C]hannel | [B]andwidth | [L] CSI Type SpamMode: [E]dit | [S]end Burst | [T] Send Continuous".to_string()
             }
-            _ => "[Q]uit | [M]ode | [C]hannel | [B]andwidth | [L] CSI Type".to_string(),
+            _ => "[Q]uit | [M]ode | [C]hannel | [B]andwidth | [L] CSI Type | [.] Clear Logs | [,] Clear CSI Logs".to_string(),
         }
     };
 

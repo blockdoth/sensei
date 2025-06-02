@@ -19,6 +19,7 @@ use ratatui::prelude::Color;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use tokio::sync::mpsc::{self, Receiver, Sender};
+use tokio::time::{sleep, Duration};
 
 use super::spam_settings::{self, SpamSettings};
 use super::tui::ui;
@@ -95,6 +96,10 @@ pub enum EspUpdate {
     /// Acknowledge a successful controller update.
     ControllerUpdateSuccess,
     /// Handle ESP device disconnection.
+    ClearLogs,
+    /// Clears the logs
+    ClearCSI,
+    /// Clears CSI log
     EspDisconnected,
     /// Exit the application.
     Exit,
@@ -167,6 +172,8 @@ impl Tui<EspUpdate, EspChannelCommand> for TuiState {
                 KeyCode::Char('l') | KeyCode::Char('L') => Some(EspUpdate::ChangeCsiMode),
                 KeyCode::Char('b') | KeyCode::Char('B') => Some(EspUpdate::ChangeBandwidth),
                 KeyCode::Char('q') | KeyCode::Char('Q') => Some(EspUpdate::Exit),
+                KeyCode::Char(',') => Some(EspUpdate::ClearCSI),
+                KeyCode::Char('.') => Some(EspUpdate::ClearLogs),
                 _ => None,
             },
         }
@@ -316,31 +323,39 @@ impl Tui<EspUpdate, EspChannelCommand> for TuiState {
                 self.apply_changes(command_send).await;
             }
             EspUpdate::TriggerBurstSpam => match self.esp_mode {
-                EspMode::Sending => {
-                    error!("Already sending, please wait until it is done")
+                EspMode::SendingContinuous => {
+                    error!("Already continuously sending, please pause sending before starting a burst")
+                }
+                EspMode::SendingBurst => {
+                  // There is currently no way to know when a burst has ended, so this has to do
+                  warn!("Previous burst might not have ended yet, please wait until it is done before starting another burst");
+                  self.esp_mode = EspMode::SendingPaused;
+                  
                 }
                 EspMode::SendingPaused => {
                     self.unsaved_esp_config.mode = EspOperationMode::Transmit;
-                    self.esp_mode = EspMode::Sending;
+                    self.esp_mode = EspMode::SendingBurst;
                     self.unsaved_changes = true;
-                    self.apply_changes(command_send);
+                    self.apply_changes(command_send).await;                   
                 }
                 _ => {}
             },
             EspUpdate::ToggleContinuousSpam => match self.esp_mode {
-                EspMode::Sending => {
+                EspMode::SendingBurst => {
+                  error!("Already in burst, please pause or wait until it is done before starting spamming")
+                }
+                EspMode::SendingContinuous => {
                     info!("Turned off spam mode");
-                    self.unsaved_esp_config.mode = EspOperationMode::Transmit;
                     self.esp_mode = EspMode::SendingPaused;
                     self.unsaved_changes = true;
-                    self.apply_changes(command_send);
+                    self.apply_changes(command_send).await;
                 }
                 EspMode::SendingPaused => {
                     info!("Turning on spam mode");
                     self.unsaved_esp_config.mode = EspOperationMode::Transmit;
-                    self.esp_mode = EspMode::Sending;
+                    self.esp_mode = EspMode::SendingContinuous;
                     self.unsaved_changes = true;
-                    self.apply_changes(command_send);
+                    self.apply_changes(command_send).await;
                 }
                 _ => {}
             },
@@ -360,8 +375,16 @@ impl Tui<EspUpdate, EspChannelCommand> for TuiState {
             EspUpdate::EspDisconnected => {
                 self.connection_status = "ESP disconnected".to_string();
                 self.synced = 0;
+            },
+            EspUpdate::ClearCSI =>{
+              info!("CSI logs cleared");
+              self.csi_data.clear();
+            },
+            EspUpdate::ClearLogs =>{
+              info!("Logs cleared");
+              self.logs.clear();
             }
-            _ => (),
+            _ => {}
         }
     }
 

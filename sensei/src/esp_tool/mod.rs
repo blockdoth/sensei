@@ -152,7 +152,7 @@ impl EspTool {
             return;
         }
 
-        let mut controller = Esp32ControllerParams {
+        let default_controller = Esp32ControllerParams {
             device_config,
             mac_filters: vec![],
             mode: EspMode::Listening,
@@ -160,7 +160,7 @@ impl EspTool {
             transmit_custom_frame: None,
         };
 
-        if let Err(e) = controller.apply(&mut esp).await {
+        if let Err(e) = default_controller.apply(&mut esp).await {
             warn!("ESP Actor: Failed to apply initial ESP32 configuration: {e}");
             update_send_channel.send(EspUpdate::Status("Failed to initialize".to_string())).await;
             warn!("Shuting down ESP task");
@@ -169,7 +169,6 @@ impl EspTool {
             info!("ESP Actor: Initial ESP32 configuration applied successfully.");
             update_send_channel.send(EspUpdate::ControllerUpdateSuccess).await;
         }
-        controller.synchronize_time = false;
 
         // Do not look at this
         info!("ESP actor task started for port {port_name}.");
@@ -203,7 +202,22 @@ impl EspTool {
                           }
 
                         }
-                        EspChannelCommand::Exit => break,
+                        EspChannelCommand::Exit => {
+                          debug!("Starting graceful exit");
+                          match default_controller.apply(&mut esp).await {
+                            Ok(_) => {
+                                debug!("ESP Actor: Reverted ESP back to default config ");
+                                if update_send_channel.send(EspUpdate::ControllerUpdateSuccess).await.is_err() {
+                                    break;
+                                }
+                            }
+                            Err(e) => {
+                                error!("ESP Actor: Failed to reset ESP: {e}");
+                                break;
+                            }
+                          }
+                          break
+                        },
                     }
 
                 }

@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use byteorder::{LittleEndian, ReadBytesExt as _}; // Use _ to import extension methods
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, bounded};
-use log::{debug, error, info, warn};
+use log::{debug, error, info, trace, warn};
 use serialport::{ClearBuffer, SerialPort};
 
 use crate::ToConfig;
@@ -367,7 +367,7 @@ impl Esp32Source {
                     // No preamble found
                     if partial_buffer.len() >= ESP_PACKET_PREAMBLE_ESP_TO_HOST.len() {
                         let discard_len = partial_buffer.len() - (ESP_PACKET_PREAMBLE_ESP_TO_HOST.len() - 1);
-                        debug!(
+                        trace!(
                             "No preamble found, buffer len {}. Discarding {} bytes.",
                             partial_buffer.len(),
                             discard_len
