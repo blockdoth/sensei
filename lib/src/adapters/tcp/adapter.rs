@@ -1,9 +1,10 @@
-use crate::adapters::CsiDataAdapter;
+use crate::ToConfig;
 pub use crate::adapters::csv::adapter::CSVAdapter;
 pub use crate::adapters::esp32::adapter::ESP32Adapter;
 pub use crate::adapters::iwl::adapter::IwlAdapter;
+use crate::adapters::{CsiDataAdapter, DataAdapterConfig};
 use crate::csi_types::{Complex, CsiData};
-use crate::errors::CsiAdapterError;
+use crate::errors::{CsiAdapterError, TaskError};
 use crate::network::rpc_message::{DataMsg, SourceType};
 
 /// Adapter that delegates CSI parsing to appropriate source-specific adapters
@@ -55,5 +56,22 @@ impl CsiDataAdapter for TCPAdapter {
             // Already parsed just forward
             DataMsg::CsiFrame { csi } => Ok(Some(DataMsg::CsiFrame { csi })),
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl ToConfig<DataAdapterConfig> for TCPAdapter {
+    /// Converts the current `TCPAdapter` instance into its configuration representation.
+    ///
+    /// This method implements the `ToConfig` trait for `TCPAdapter`, enabling the instance
+    /// to be converted into a `DataAdapterConfig::Tcp` variant. This is particularly useful
+    /// for persisting the adapter's configuration or exporting it as part of a system-wide
+    /// configuration file (e.g., JSON or YAML).
+    ///
+    /// # Returns
+    /// - `Ok(DataAdapterConfig::Tcp)` containing the current value of `scale_csi`.
+    /// - `Err(TaskError)` if an error occurs during the conversion (not applicable in this implementation).
+    async fn to_config(&self) -> Result<DataAdapterConfig, TaskError> {
+        Ok(DataAdapterConfig::Tcp { scale_csi: self.scale_csi })
     }
 }

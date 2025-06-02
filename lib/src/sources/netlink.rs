@@ -3,10 +3,11 @@ use netlink_sys::protocols::NETLINK_CONNECTOR;
 use netlink_sys::{Socket, SocketAddr};
 use serde::{Deserialize, Serialize};
 
+use crate::ToConfig;
 use crate::errors::DataSourceError;
 use crate::network::rpc_message::SourceType;
 use crate::sources::controllers::Controller;
-use crate::sources::{BUFSIZE, DataMsg, DataSourceT};
+use crate::sources::{BUFSIZE, DataMsg, DataSourceConfig, DataSourceT, TaskError};
 
 // Configuration structure for a Netlink source.
 ///
@@ -40,6 +41,22 @@ impl NetlinkSource {
             socket: None,
             buffer: [0; 8192],
         })
+    }
+}
+
+#[async_trait::async_trait]
+impl ToConfig<DataSourceConfig> for NetlinkSource {
+    /// Converts this `NetlinkSource` instance into its configuration representation.
+    ///
+    /// This allows serializing or saving the current state of the `NetlinkSource`
+    /// back into a `DataSourceConfig` enum variant, specifically `DataSourceConfig::Netlink`.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(DataSourceConfig::Netlink)` containing a clone of the internal configuration.
+    /// * `Err(TaskError)` if conversion fails (not expected here since cloning should not fail).
+    async fn to_config(&self) -> Result<DataSourceConfig, TaskError> {
+        Ok(DataSourceConfig::Netlink(self.config.clone()))
     }
 }
 
