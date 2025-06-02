@@ -7,4 +7,4 @@ members = [
 resolver = "2"
 
 [workspace.lints.rust]
-unused = "allow"
+unused = "allow" # TODO: make this a warninng
