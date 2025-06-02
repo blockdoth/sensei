@@ -1,3 +1,9 @@
+//! A minimal example implementation of a TUI (Terminal User Interface) using the custom TUI framework
+//!
+//! This module includes a basic example TUI application (`TuiState`) that supports toggling a UI state,
+//! quitting the application, and logging. It is designed to demonstrate how the `TuiRunner` and `Tui`
+//! trait can be used to manage event-driven TUI workflows.
+
 use std::error::Error;
 use std::io::{self, stdout};
 use std::sync::Arc;
@@ -23,9 +29,15 @@ use tokio::task::JoinHandle;
 use super::{FromLog, LogEntry, Tui, TuiRunner};
 use crate::sources::controllers::esp32_controller::Esp32ControllerParams;
 
+/// Represents the state of the TUI application.
 pub struct TuiState {
+    /// Flag to indicate whether the application should quit.
     should_quit: bool,
+
+    /// Toggles a boolean state which affects the displayed UI.
     toggled: bool,
+
+    /// A log of recent log entries displayed in the UI.
     pub logs: Vec<LogEntry>,
 }
 
@@ -45,13 +57,24 @@ impl TuiState {
     }
 }
 
+/// Commands that can be sent to background tasks from the UI.
 pub enum Command {
+    /// Command indicating some user interaction occurred (e.g., toggle).
     TouchedBalls,
 }
+
+/// Updates that can be applied to the TUI state.
 pub enum Update {
+    /// User requested to quit the application.
     Quit,
+
+    /// User toggled the UI toggle.
     Toggle,
+
+    /// A message sent to demonstrate background-to-UI communication.
     Balls,
+
+    /// A log message to display in the log section of the UI.
     Log(LogEntry),
 }
 
@@ -63,6 +86,7 @@ impl FromLog for Update {
 
 #[async_trait]
 impl Tui<Update, Command> for TuiState {
+    /// Draws the UI layout and content.
     fn draw_ui(&self, frame: &mut Frame) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -89,6 +113,7 @@ impl Tui<Update, Command> for TuiState {
         frame.render_widget(logs_widget, chunks[1]);
     }
 
+    /// Handles keyboard input events and maps them to updates.
     fn handle_keyboard_event(&self, key_event: KeyEvent) -> Option<Update> {
         match key_event.code {
             KeyCode::Char('q') => Some(Update::Quit),
@@ -103,6 +128,7 @@ impl Tui<Update, Command> for TuiState {
 
     async fn on_tick(&mut self) {}
 
+    /// Applies updates and potentially sends commands to background tasks.
     async fn handle_update(&mut self, update: Update, command_send: &Sender<Command>, update_recv: &mut Receiver<Update>) {
         match update {
             Update::Quit => {
@@ -123,6 +149,18 @@ impl Tui<Update, Command> for TuiState {
     }
 }
 
+/// Launches and runs the example TUI application.
+///
+/// This function demonstrates communication between a background task and the TUI.
+/// The background task sends `Update::Balls` periodically, and reacts to `Command::TouchedBalls`.
+///
+/// # Example
+/// ```rust,ignore
+/// tokio::main
+/// async fn main() {
+///     run_example().await;
+/// }
+/// ```
 pub async fn run_example() {
     let (command_send, mut command_recv) = mpsc::channel::<Command>(10);
     let (update_send, mut update_recv) = mpsc::channel::<Update>(10);

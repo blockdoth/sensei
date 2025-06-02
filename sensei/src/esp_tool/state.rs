@@ -24,50 +24,83 @@ use super::spam_settings::{self, SpamSettings};
 use super::tui::ui;
 use super::{CSI_DATA_BUFFER_CAPACITY, EspChannelCommand, LOG_BUFFER_CAPACITY};
 
+/// Indicates which panel in the TUI currently has focus.
 #[derive(Debug, PartialEq)]
 pub enum FocusedPanel {
+    /// The main display panel.
     Main,
+    /// The spam configuration editor panel.
     SpamConfig,
 }
 
+/// Specifies the current operational mode of the tool.
 #[derive(Debug, PartialEq)]
 pub enum ToolMode {
+    /// Listening for CSI (Channel State Information) data.
     Listen,
+    /// Transmitting spam packets.
     Spam,
 }
 
+/// Represents possible user interactions or changes in the spam configuration panel.
 #[derive(Debug)]
 pub enum SpamConfigUpdate {
+    /// Insert a character into the focused field.
     Edit(char),
+    /// Confirm and apply the changes.
     Enter,
+    /// Move focus to the next input field.
     TabRight,
+    /// Move focus to the previous input field.
     TabLeft,
+    /// Move the input cursor one character to the left.
     CursorLeft,
+    /// Move the input cursor one character to the right.
     CursorRight,
+    /// Move the cursor/input focus to the field above.
     CursorUp,
+    /// Move the cursor/input focus to the field below.
     CursorDown,
+    /// Exit the spam config editing panel.
     Escape,
+    /// Delete the current character at the cursor.
     Delete,
 }
 
+/// Represents all possible events or updates handled by the TUI.
 #[derive(Debug)]
 pub enum EspUpdate {
+    /// A user interaction within the spam configuration panel.
     SpamConfig(SpamConfigUpdate),
+    /// A new log entry to display.
     Log(LogEntry),
+    /// Status update for connection or operation.
     Status(String),
+    /// New CSI data received.
     CsiData(CsiData),
+    /// Toggle between Listen and Spam mode.
     ModeChange,
+    /// Enter the spam configuration editor.
     EditSpamConfig,
+    /// Trigger a single burst of spam packets.
     TriggerBurstSpam,
+    /// Toggle continuous spam mode on or off.
     ToggleContinuousSpam,
+    /// Increment the current WiFi channel.
     IncrementChannel,
+    /// Change the bandwidth setting (e.g., 20 MHz ↔ 40 MHz).
     ChangeBandwidth,
+    /// Switch between Legacy and HT CSI modes.
     ChangeCsiMode,
+    /// Acknowledge a successful controller update.
     ControllerUpdateSuccess,
+    /// Handle ESP device disconnection.
     EspDisconnected,
+    /// Exit the application.
     Exit,
 }
 
+/// Specifies which input field is currently focused during spam config editing.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum FocussedInput {
     SrcMac(usize),
@@ -77,6 +110,7 @@ pub enum FocussedInput {
     None,
 }
 
+/// Holds the entire state of the TUI, including configurations, logs, and mode information.
 #[derive(Debug)]
 pub struct TuiState {
     pub connection_status: String,
@@ -100,12 +134,12 @@ pub struct TuiState {
 
 #[async_trait]
 impl Tui<EspUpdate, EspChannelCommand> for TuiState {
-    // Draws the UI based on the state of the TUI, should not change any state by itself
+    /// Draws the UI based on the state of the TUI, should not change any state by itself
     fn draw_ui(&self, f: &mut Frame) {
         ui(f, self);
     }
 
-    // Handles a single keyboard event and produces and Update, should not change any state
+    /// Handles a single keyboard event and produces and Update, should not change any state
     fn handle_keyboard_event(&self, key_event: KeyEvent) -> Option<EspUpdate> {
         let key_code = key_event.code;
         match self.focused_panel {
@@ -138,7 +172,7 @@ impl Tui<EspUpdate, EspChannelCommand> for TuiState {
         }
     }
 
-    // Handles incoming Updates produced from any source, this is the only place where state should change
+    /// Handles incoming Updates produced from any source, this is the only place where state should change
     async fn handle_update(&mut self, update: EspUpdate, command_send: &Sender<EspChannelCommand>, update_recv: &mut Receiver<EspUpdate>) {
         match update {
             EspUpdate::SpamConfig(spam_config_update) => match spam_config_update {
@@ -341,6 +375,7 @@ impl Tui<EspUpdate, EspChannelCommand> for TuiState {
 }
 
 impl TuiState {
+    /// Constructs a new `TuiState` with default configurations.
     pub fn new() -> Self {
         Self {
             last_error_message: None,
@@ -361,7 +396,9 @@ impl TuiState {
         }
     }
 
-    // Actually applies the changes made to the ESP source, should be the only place where that happens
+    /// Applies any pending changes in the ESP or spam configuration to the controller.
+    ///
+    /// This function is responsible for sending updates over the command channel.
     pub async fn apply_changes(&mut self, command_send: &Sender<EspChannelCommand>) {
         if self.unsaved_changes {
             // TODO figure out a more elegant solution

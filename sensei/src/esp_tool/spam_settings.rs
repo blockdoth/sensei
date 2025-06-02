@@ -4,6 +4,9 @@ use ratatui::text::{Line, Span};
 
 use super::state::FocussedInput;
 
+/// Represents the settings used for Wi-Fi frame spamming.
+/// Includes source and destination MAC addresses, number of repetitions,
+/// and pause duration in milliseconds.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SpamSettings {
     pub src_mac: [u8; 6],
@@ -13,7 +16,14 @@ pub struct SpamSettings {
 }
 
 impl SpamSettings {
-    // Constructs a properly formatted TUI element from spam settings
+    /// Formats the current spam settings into a TUI-compatible set of lines,
+    /// applying style and highlighting based on the currently focused input.
+    ///
+    /// # Arguments
+    /// * `focus` - The input field that currently has focus, used for styling.
+    ///
+    /// # Returns
+    /// A vector of `Line` elements that can be rendered in a terminal UI.
     pub fn format(&self, focus: FocussedInput) -> Vec<Line> {
         let (src_mac_f, dst_mac_f, n_reps_f, pause_ms_f) = match focus {
             FocussedInput::SrcMac(i) => (Some(i), None, None, None),
@@ -33,7 +43,17 @@ impl SpamSettings {
         ]
     }
 
-    // Formats text inputs, supports cursors
+    /// Formats a numeric field (e.g., repetitions or pause duration) into styled spans,
+    /// allowing for visual cursor highlighting of a digit.
+    ///
+    /// # Arguments
+    /// * `header` - The label shown before the value (e.g., "Reps:").
+    /// * `value` - The actual numeric value to be rendered.
+    /// * `unit` - A string to be appended after the value (e.g., "ms").
+    /// * `selected_index` - The index of the digit that is currently selected.
+    ///
+    /// # Returns
+    /// A vector of `Span` objects with appropriate styling.
     fn format_text<T: ToString>(&self, header: String, value: T, unit: String, selected_index: Option<usize>) -> Vec<Span> {
         let value_str = value.to_string();
         let value_str_len = value_str.len();
@@ -60,7 +80,16 @@ impl SpamSettings {
         spans
     }
 
-    // Formats mac inputs, supports cursors
+    /// Formats a MAC address as a set of styled spans for TUI rendering.
+    /// Supports highlighting a specific nibble based on cursor position.
+    ///
+    /// # Arguments
+    /// * `header` - Label before the MAC (e.g., "Src MAC:").
+    /// * `mac` - A 6-byte MAC address.
+    /// * `selected_index` - The nibble index (0 to 11) currently focused.
+    ///
+    /// # Returns
+    /// A vector of `Span` objects with appropriate styling.
     fn format_mac(&self, header: String, mac: [u8; 6], selected_index: Option<usize>) -> Vec<Span> {
         let mut spans = vec![Span::raw(header)];
         for (idx, byte) in mac.iter().enumerate() {
@@ -88,7 +117,16 @@ impl SpamSettings {
         spans
     }
 
-    // Updates as mac address u8 as if it is a string
+    /// Updates a single byte of a MAC address by modifying one nibble (half-byte)
+    /// based on cursor position and character input.
+    ///
+    /// # Arguments
+    /// * `old` - The original byte value.
+    /// * `chr` - The new character input (hex digit).
+    /// * `index` - The nibble index to update (even = high nibble, odd = low nibble).
+    ///
+    /// # Returns
+    /// A new `u8` with the updated nibble.    
     pub fn update_mac(old: u8, chr: char, index: usize) -> u8 {
         let ascii_char: u8 = chr as u8;
         let u4 = match ascii_char {
@@ -104,7 +142,15 @@ impl SpamSettings {
         }
     }
 
-    // Changes digit at index of a number as if it is a string type
+    /// Modifies a digit at a specified index in a `u32` number as if the number were a string.
+    ///
+    /// # Arguments
+    /// * `number` - The original number.
+    /// * `index` - The index of the digit to replace or remove.
+    /// * `replacement` - An optional character to insert. If `None`, the digit is removed.
+    ///
+    /// # Returns
+    /// The new number after modification, or 0 on failure.
     pub fn modify_digit_at_index(number: u32, index: usize, replacement: Option<char>) -> u32 {
         let mut chars: Vec<char> = number.to_string().chars().collect();
         match replacement {
@@ -141,6 +187,8 @@ impl Default for SpamSettings {
 }
 
 impl FocussedInput {
+    /// Moves focus to the next logical input field to the right.
+    /// Cycles from SrcMac → Reps → DstMac → PauseMs → SrcMac.
     pub fn tab_right(self) -> Self {
         match self {
             FocussedInput::SrcMac(i) if i > 9 => FocussedInput::Reps(0),
@@ -152,6 +200,9 @@ impl FocussedInput {
             FocussedInput::None => FocussedInput::SrcMac(0),
         }
     }
+
+    /// Moves focus to the next logical input field to the left.
+    /// Cycles in reverse of `tab_right`.
     pub fn tab_left(self) -> Self {
         match self {
             FocussedInput::SrcMac(i) if i >= 2 => FocussedInput::SrcMac(i - 2),
@@ -163,6 +214,8 @@ impl FocussedInput {
             FocussedInput::None => FocussedInput::SrcMac(0),
         }
     }
+    /// Moves the cursor one position to the left within the current input field.
+    /// If at the start of a field, moves to the end of the previous logical field.
     pub fn cursor_left(self) -> Self {
         match self {
             FocussedInput::SrcMac(0) => FocussedInput::SrcMac(0),
@@ -176,7 +229,8 @@ impl FocussedInput {
             FocussedInput::None => FocussedInput::SrcMac(0),
         }
     }
-
+    /// Moves the cursor one position to the right within the current input field.
+    /// If at the end of a field, moves to the beginning of the next logical field.
     pub fn cursor_right(self) -> Self {
         match self {
             FocussedInput::SrcMac(11) => FocussedInput::Reps(0),
@@ -190,7 +244,8 @@ impl FocussedInput {
             FocussedInput::None => FocussedInput::SrcMac(0),
         }
     }
-
+    /// Moves the focus vertically up (e.g., from DstMac to SrcMac).
+    /// Keeps the cursor in the same relative position when possible.
     pub fn cursor_up(self) -> Self {
         match self {
             FocussedInput::SrcMac(i) => FocussedInput::SrcMac(i),
@@ -201,6 +256,8 @@ impl FocussedInput {
         }
     }
 
+    /// Moves the focus vertically down (e.g., from SrcMac to DstMac).
+    /// Keeps the cursor in the same relative position when possible.
     pub fn cursor_down(self) -> Self {
         match self {
             FocussedInput::SrcMac(i) => FocussedInput::DstMac(i),

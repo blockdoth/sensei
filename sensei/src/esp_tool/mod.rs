@@ -14,24 +14,17 @@ use std::sync::mpsc::RecvTimeoutError;
 use std::time::Duration;
 
 use chrono::{DateTime, Local};
-// Logging facade and our custom logger components
 use crossbeam_channel::{Receiver as CrossbeamReceiver, Sender as CrossbeamSender};
-use crossterm::event::EventStream; // For async event reading
-use crossterm::event::{Event as CEvent, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{Event as CEvent, EventStream, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::execute;
 use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
 use futures::StreamExt;
-// Project-specific imports - Changed csi_collection_lib to crate
-// Project-specific imports - Changed crate:: to lib::
 use lib::adapters::CsiDataAdapter;
 use lib::adapters::esp32::ESP32Adapter;
 use lib::csi_types::CsiData;
 use lib::errors::{ControllerError, DataSourceError};
 use lib::network::rpc_message::{DataMsg, SourceType};
 use lib::sources::DataSourceT;
-// If cli.rs is in src/main.rs or src/lib.rs and esp_tool.rs is src/esp_tool.rs,
-// and EspToolSubcommandArgs is in a cli module (e.g. src/cli/mod.rs)
-// you might need: use crate::cli::EspToolSubcommandArgs;
 use lib::sources::controllers::Controller;
 use lib::sources::controllers::esp32_controller::{
     Bandwidth as EspBandwidth, CsiType as EspCsiType, Esp32Command, Esp32ControllerParams, Esp32DeviceConfig, EspMode,
@@ -65,25 +58,44 @@ const UI_REFRESH_INTERVAL_MS: u64 = 20;
 const ACTOR_CHANNEL_CAPACITY: usize = 10;
 const ESP_READ_BUFFER_SIZE: usize = 4096;
 
+/// Commands that can be sent to the ESP32 actor task.
+///
+/// Used to update the ESP32 configuration or terminate the task.
 #[derive(Debug)]
 pub enum EspChannelCommand {
+    /// Updates the ESP32 configuration with new parameters.
     UpdatedConfig(Esp32ControllerParams),
+    /// Signals the ESP task to terminate.
     Exit,
 }
 
 impl FromLog for EspUpdate {
+    /// Converts a `LogEntry` into a `EspUpdate::Log`.
     fn from_log(log: LogEntry) -> Self {
         EspUpdate::Log(log)
     }
 }
 
+/// Command-line tool for monitoring CSI data from ESP32 devices.
+///
+/// This tool sets up a TUI to visualize CSI data, manages the ESP32 connection,
+/// and handles configuration commands for the ESP device.
 pub struct EspTool {}
 
 impl Run<EspToolConfig> for EspTool {
     fn new() -> Self {
         EspTool {}
     }
-
+    /// Starts the ESP32 monitoring tool with the provided configuration.
+    ///
+    /// Spawns the ESP32 actor task and starts the TUI.
+    ///
+    /// # Arguments
+    /// * `global_config` - Global logging and system config.
+    /// * `esp_config` - Configuration specific to ESP32 source (e.g., serial port).
+    ///
+    /// # Errors
+    /// Returns a boxed `Error` if initialization or runtime encounters a failure.
     async fn run(&mut self, global_config: GlobalConfig, esp_config: EspToolConfig) -> Result<(), Box<dyn std::error::Error>> {
         let (command_send, mut command_recv) = mpsc::channel::<EspChannelCommand>(1000);
         let (update_send, mut update_recv) = mpsc::channel::<EspUpdate>(1000);
@@ -107,7 +119,19 @@ impl Run<EspToolConfig> for EspTool {
 }
 
 impl EspTool {
-    // Handles updates to the state of the TUI based the esp source
+    /// ESP32 actor task responsible for data acquisition and command handling.
+    ///
+    /// This task:
+    /// - Starts and configures the ESP32 data source.
+    /// - Listens for CSI frames from the device.
+    /// - Forwards CSI data or status updates to the TUI.
+    /// - Applies runtime configuration updates when received via channel.
+    ///
+    /// # Arguments
+    /// * `esp_src_config` - Configuration for initializing the ESP32 source.
+    /// * `device_config` - Initial device configuration for the ESP32.
+    /// * `update_send_channel` - Channel to send updates to the TUI.
+    /// * `command_recv_channel` - Channel to receive commands like configuration changes or exit.
     pub async fn esp_source_task(
         esp_src_config: Esp32SourceConfig,
         device_config: Esp32DeviceConfig,

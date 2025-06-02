@@ -4,15 +4,19 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use tokio::sync::mpsc::{Receiver, Sender};
 
-#[derive(Debug, Clone)] // Added derive Debug
+/// Represents a single log entry captured for display in the TUI.
+#[derive(Debug, Clone)]
 pub struct LogEntry {
+    /// Local timestamp when the log was generated.
     pub timestamp: DateTime<Local>,
+    /// Log level (e.g., Info, Error, Debug).
     pub level: log::Level,
+    /// The actual log message.
     pub message: String,
 }
 
 impl LogEntry {
-    // Nicely formats the logs for printing to the TUI
+    /// Converts a log entry into a styled `Line` for display in the terminal UI.
     pub fn format(&self) -> Line {
         let timestamp_str = self.timestamp.format("%H:%M:%S").to_string();
         let level_str = format!("[{}]", self.level);
@@ -33,8 +37,12 @@ impl LogEntry {
     }
 }
 
+/// Custom logger that implements the `log::Log` trait and sends log entries
+/// over a Tokio channel to be handled by the TUI rendering system.
 pub struct TuiLogger {
+    /// Sender channel to pass log entries to the async TUI task.
     pub log_sender: Sender<LogEntry>,
+    /// Minimum log level that should be recorded.
     pub level: Level,
 }
 
@@ -64,8 +72,16 @@ impl log::Log for TuiLogger {
     fn flush(&self) {}
 }
 
-// Configures the global logger such that all logs get routed to our custom TuiLogger struct
-// which sends them over a channel to a log handler task
+/// Initializes the global logger with a custom `TuiLogger`, routing log messages
+/// through a Tokio channel for asynchronous TUI display.
+///
+/// # Arguments
+/// * `log_level_filter` - The maximum log level to be captured.
+/// * `sender` - A Tokio `Sender` that receives `LogEntry` items.
+///
+/// # Returns
+/// * `Ok(())` if the logger was successfully set.
+/// * `Err(SetLoggerError)` if logger setup fails.
 pub fn init_logger(log_level_filter: LevelFilter, sender: Sender<LogEntry>) -> Result<(), SetLoggerError> {
     let logger = TuiLogger {
         log_sender: sender,
@@ -77,7 +93,8 @@ pub fn init_logger(log_level_filter: LevelFilter, sender: Sender<LogEntry>) -> R
     Ok(())
 }
 
-// Makes sure a LogEntry carrying struct is available on the Update enum
+/// Trait for converting from a `LogEntry` into an implementing type,
+/// allowing integration of logs into other components such as update/event enums.
 pub trait FromLog {
     fn from_log(log: LogEntry) -> Self;
 }

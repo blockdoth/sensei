@@ -25,6 +25,8 @@ use tokio::task::JoinHandle;
 
 use crate::sources::controllers::esp32_controller::Esp32ControllerParams;
 
+/// A configurable and generic runner that manages the entire lifecycle of a TUI application.
+/// It handles input events, log streaming, periodic ticks, and state updates.
 pub struct TuiRunner<T: Tui<Update, Command>, Update, Command> {
     app: T,
     command_send: Sender<Command>,
@@ -43,6 +45,14 @@ where
     U: FromLog + Send + 'static, // Required for extracting a LogEntry from the Update enum
     T: Tui<U, C>,
 {
+    /// Creates a new `TuiRunner` with required communication channels and configuration.
+    ///
+    /// # Parameters
+    /// - `app`: The application state implementing the `Tui` trait.
+    /// - `command_send`: Channel to send commands to async task handlers.
+    /// - `update_recv`: Channel to receive updates for the TUI.
+    /// - `update_send`: Channel to send updates (e.g., from logs or external sources).
+    /// - `log_level`: Logging level for filtering logs.
     pub fn new(app: T, command_send: Sender<C>, update_recv: Receiver<U>, update_send: Sender<U>, log_level: LevelFilter) -> Self {
         let (log_send, log_recv) = mpsc::channel::<LogEntry>(LOG_BUFFER_CAPACITY);
         Self {
@@ -57,7 +67,16 @@ where
         }
     }
 
-    // Manages the entire TUI lifecycle
+    /// Starts the main event loop for the TUI and runs any background async tasks.
+    ///
+    /// This function sets up the terminal, handles logs, polls for keyboard events,
+    /// and applies periodic updates.
+    ///
+    /// # Arguments
+    /// - `tasks`: Background async tasks to spawn during runtime.
+    ///
+    /// # Returns
+    /// A `Result` indicating success or any terminal-related errors.
     pub async fn run<F>(mut self, tasks: Vec<F>) -> Result<(), Box<dyn Error>>
     where
         F: Future<Output = ()> + Send + 'static,
@@ -97,15 +116,17 @@ where
         }
 
         for handle in &handles {
-            handle.abort();
+          handle.abort();
         }
-
+        
+        tokio::time::sleep(Duration::from_millis(100)).await; // TODO graceful shutdown
         Self::restore_terminal(&mut terminal);
 
         Ok(())
     }
 
-    // Processes all incoming logs by routing them through a channel connected to the TUI, this allows for complete flexibility in where to display logs
+    /// Launches an async task that listens for log entries and converts them to updates
+    /// using the `FromLog` trait. These updates are then forwarded into the update stream.
     async fn log_handler_task(mut log_recv_channel: Receiver<LogEntry>, update_send_channel: Sender<U>) -> JoinHandle<()> {
         tokio::spawn(async move {
             info!("Log processor task started.");
@@ -135,6 +156,7 @@ where
         })
     }
 
+    /// Prepares the terminal for raw mode and alternate screen usage.
     fn setup_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>, Box<dyn Error>> {
         enable_raw_mode()?;
         let mut stdout = stdout();
@@ -143,6 +165,7 @@ where
         Terminal::new(backend).map_err(Into::into)
     }
 
+    /// Restores the terminal to its original state after exiting the application.
     fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<(), Box<dyn Error>> {
         disable_raw_mode()?;
         execute!(terminal.backend_mut(), Clear(ClearType::All), LeaveAlternateScreen)?;
@@ -151,20 +174,24 @@ where
     }
 }
 
+/// Trait that any TUI application must implement to work with `TuiRunner`.
 #[async_trait]
 pub trait Tui<Update, Cmd> {
-    // Draws the UI based on the state of the TUI, should not change any state by itself
+    /// Draws the UI using the current state. Should be purely visual with no side effects.
     fn draw_ui(&self, f: &mut Frame);
 
-    // Handles a single keyboard event and produces and Update, should not change any state
+    /// Handles a keyboard event and optionally returns an update to process.
+    /// Should not mutate state directly.
     fn handle_keyboard_event(&self, key_event: KeyEvent) -> Option<Update>;
 
-    // Handles incoming Updates produced from any source, this is the only place where state should change
+    /// Main update handler that reacts to updates from events, logs, or commands.
+    /// This is where all state mutations should occur.
     async fn handle_update(&mut self, update: Update, command_send: &Sender<Cmd>, update_recv: &mut Receiver<Update>);
 
-    // Gets called each tick of the main loop, useful for updating graphs and live views, should only make small changes to state
+    /// Periodic tick handler that gets called every loop iteration.
+    /// Suitable for lightweight background updates like animations or polling.
     async fn on_tick(&mut self);
 
-    // Whether the tui should quit
+    /// Determines if the TUI application should terminate.
     fn should_quit(&self) -> bool;
 }
