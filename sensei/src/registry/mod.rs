@@ -115,7 +115,7 @@ impl ConnectionHandler for Registry {
         debug!("Received request: {:?}", request);
 
         match request.msg {
-            Ctrl(CtrlMsg::Heartbeat { host_id, host_address }) => {
+            Ctrl(CtrlMsg::AnnouncePresence { host_id, host_address }) => {
                 self.register_host(host_id, host_address).await.unwrap();
                 Ok(())
             }

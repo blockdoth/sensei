@@ -40,7 +40,7 @@ pub enum CtrlMsg {
     Subscribe { device_id: DeviceId, mode: AdapterMode },
     Unsubscribe { device_id: DeviceId },
     PollHostStatus,
-    Heartbeat { host_id: HostId, host_address: SocketAddr },
+    AnnouncePresence { host_id: HostId, host_address: SocketAddr },
     HostStatus { host_id: HostId, device_status: Vec<DeviceStatus> },
 }
 
@@ -117,7 +117,7 @@ impl FromStr for CtrlMsg {
                 host_id: 0,
                 device_status: vec![],
             }),
-            "heartbeat" => Ok(CtrlMsg::Heartbeat {
+            "heartbeat" => Ok(CtrlMsg::AnnouncePresence {
                 host_id: 0,
                 host_address: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 8080)),
             }), // TODO better id assignment

@@ -248,7 +248,7 @@ impl Run<SystemNodeConfig> for SystemNode {
         if (config.registry.use_registry) {
             info!("Connecting to registry at {}", config.registry.addr);
             let registry_addr: SocketAddr = config.registry.addr;
-            let heartbeat_msg = RpcMessageKindCtrl(CtrlMsg::Heartbeat {
+            let heartbeat_msg = RpcMessageKindCtrl(CtrlMsg::AnnouncePresence {
                 host_id: config.host_id,
                 host_address: config.addr,
             });
