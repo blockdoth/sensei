@@ -451,7 +451,7 @@ impl Visualiser {
             let mut client = client.lock().await;
             client.connect(target_addr).await;
 
-            let msg = Ctrl(CtrlMsg::Subscribe { device_id: 0, mode: SOURCE });
+            let msg = Ctrl(CtrlMsg::Subscribe { device_id: 0 });
             client.send_message(target_addr, msg).await;
             info!("Subscribed to node {target_addr}")
         }

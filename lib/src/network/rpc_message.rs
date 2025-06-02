@@ -3,7 +3,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use bincode::Error;
-use netlink_sys::Socket;
 use serde::{Deserialize, Serialize};
 use tokio::net::{TcpStream, UdpSocket};
 use tokio_stream::Stream;
@@ -29,16 +28,18 @@ pub enum RpcMessageKind {
 
 /// There was some discussion about what we should use as a host id.
 /// This makes it more flexible
-pub use u64 as HostId;
-pub use u64 as DeviceId;
+pub type HostId = u64;
+pub type DeviceId = u64;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum CtrlMsg {
     Connect,
     Disconnect,
     Configure { device_id: DeviceId, cfg: DeviceHandlerConfig },
-    Subscribe { device_id: DeviceId, mode: AdapterMode },
+    Subscribe { device_id: DeviceId },
     Unsubscribe { device_id: DeviceId },
+    SubscribeTo { target: SocketAddr, device_id: DeviceId }, // Orchestrator to node, node subscribes to another node
+    UnsubscribeFrom { target: SocketAddr, device_id: DeviceId }, // Orchestrator to node
     PollHostStatus,
     AnnouncePresence { host_id: HostId, host_address: SocketAddr },
     HostStatus { host_id: HostId, device_status: Vec<DeviceStatus> },
@@ -63,6 +64,7 @@ pub enum SourceType {
     AX210,
     AtherosQCA,
     CSV,
+    TCP,
     Unknown,
 }
 
@@ -103,9 +105,7 @@ impl FromStr for CtrlMsg {
             "subscribe" => {
                 let device_id = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0); // TODO better id assignment
 
-                let mode = parts.next().and_then(|s| s.parse::<AdapterMode>().ok()).unwrap_or(AdapterMode::RAW);
-
-                Ok(CtrlMsg::Subscribe { device_id, mode })
+                Ok(CtrlMsg::Subscribe { device_id })
             }
             "unsubscribe" => {
                 let device_id = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);

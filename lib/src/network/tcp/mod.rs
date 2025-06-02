@@ -9,7 +9,7 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::sync::broadcast;
 use tokio::sync::watch::{self, Receiver, Sender};
 
-use super::rpc_message::{self, DataMsg, RpcMessage, RpcMessageKind};
+use super::rpc_message::{self, DataMsg, DeviceId, RpcMessage, RpcMessageKind};
 use crate::errors::NetworkError;
 use crate::network::rpc_message::make_msg;
 
@@ -98,24 +98,27 @@ pub trait ConnectionHandler: Send + Sync {
     async fn handle_send(
         &self,
         mut recv_commands_channel: watch::Receiver<ChannelMsg>,
-        mut recv_data_channel: broadcast::Receiver<DataMsg>,
+        mut recv_data_channel: broadcast::Receiver<(DataMsg, DeviceId)>,
         mut send_stream: OwnedWriteHalf,
     ) -> Result<(), NetworkError>;
 }
 
 #[async_trait]
 pub trait SubscribeDataChannel {
-    fn subscribe_data_channel(&self) -> broadcast::Receiver<DataMsg>;
+    fn subscribe_data_channel(&self) -> broadcast::Receiver<(DataMsg, DeviceId)>;
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub enum ChannelMsg {
     Empty,
     Disconnect,
-    Subscribe,
+    Subscribe { device_id: DeviceId },
+    Unsubscribe { device_id: DeviceId },
+    SubscribeTo { target_addr: SocketAddr, device_id: DeviceId },
+    UnsubscribeFrom { target_addr: SocketAddr, device_id: DeviceId },
     ListenSubscribe { addr: SocketAddr },
     ListenUnsubscribe { addr: SocketAddr },
-    Unsubscribe,
     Poll,
     SendHostStatus { reg_addr: SocketAddr },
+    Data { data: DataMsg },
 }

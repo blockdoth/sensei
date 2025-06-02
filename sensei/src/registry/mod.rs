@@ -12,7 +12,7 @@ use anyhow::Error;
 use async_trait::async_trait;
 use lib::errors::{AppError, NetworkError};
 use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
-use lib::network::rpc_message::{self, CtrlMsg, DataMsg, DeviceStatus, HostId, RpcMessage, RpcMessageKind, SourceType};
+use lib::network::rpc_message::{self, CtrlMsg, DataMsg, DeviceId, DeviceStatus, HostId, RpcMessage, RpcMessageKind, SourceType};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
@@ -33,7 +33,7 @@ use crate::module::Run;
 #[derive(Clone)]
 pub struct Registry {
     hosts: Arc<Mutex<HashMap<HostId, HostInfo>>>,
-    send_data_channel: broadcast::Sender<DataMsg>,
+    send_data_channel: broadcast::Sender<(DataMsg, DeviceId)>,
 }
 
 /// Information about a registered host.
@@ -102,7 +102,7 @@ impl Run<RegistryConfig> for Registry {
 
 /// Allows clients to subscribe to the registry's data channel.
 impl SubscribeDataChannel for Registry {
-    fn subscribe_data_channel(&self) -> broadcast::Receiver<DataMsg> {
+    fn subscribe_data_channel(&self) -> broadcast::Receiver<(DataMsg, DeviceId)> {
         self.send_data_channel.subscribe()
     }
 }
@@ -127,7 +127,7 @@ impl ConnectionHandler for Registry {
     async fn handle_send(
         &self,
         mut recv_commands_channel: watch::Receiver<ChannelMsg>,
-        mut recv_data_channel: broadcast::Receiver<DataMsg>,
+        mut recv_data_channel: broadcast::Receiver<(DataMsg, DeviceId)>,
         mut send_stream: OwnedWriteHalf,
     ) -> Result<(), NetworkError> {
         Ok(())
