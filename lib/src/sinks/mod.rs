@@ -38,14 +38,14 @@ pub trait Sink: Send + ToConfig<SinkConfig> {
     /// # Errors
     ///
     /// Returns a ['SinkError'] if the operation fails (e.g., I/O failure)
-    async fn open(&mut self, data: DataMsg) -> Result<(), SinkError>;
+    async fn open(&mut self) -> Result<(), SinkError>;
 
     /// Closes the connection to the sink
     ///
     /// # Errors
     ///
     /// Returns a ['SinkError'] if the operation fails (e.g., I/O failure)
-    async fn close(&mut self, data: DataMsg) -> Result<(), SinkError>;
+    async fn close(&mut self) -> Result<(), SinkError>;
 
     /// Consume a DataMsg and process it (e.g., write to file, send over network).
     /// Consume a [`DataMsg`] and perform a sink-specific operation.

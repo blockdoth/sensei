@@ -1,14 +1,17 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::vec;
 
+use futures::future::pending;
+use lib::network::rpc_message::CtrlMsg::*;
+use lib::network::rpc_message::DataMsg::RawFrame;
 use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
-use lib::network::rpc_message::{AdapterMode, CtrlMsg, DataMsg};
+use lib::network::rpc_message::SourceType::ESP32;
+use lib::network::rpc_message::{CtrlMsg, DataMsg};
 use lib::network::tcp::ChannelMsg;
 use lib::network::tcp::client::TcpClient;
 use log::*;
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::signal;
+use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::{Mutex, watch};
 
 use crate::config::{DEFAULT_ADDRESS, OrchestratorConfig};
@@ -43,13 +46,8 @@ impl Orchestrator {
         Ok(client.lock().await.disconnect(target_addr).await?)
     }
 
-    async fn subscribe(
-        client: &Arc<Mutex<TcpClient>>,
-        target_addr: SocketAddr,
-        device_id: u64,
-        mode: AdapterMode,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let msg = Ctrl(CtrlMsg::Subscribe { device_id, mode });
+    async fn subscribe(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: u64) -> Result<(), Box<dyn std::error::Error>> {
+        let msg = Ctrl(CtrlMsg::Subscribe { device_id });
         Ok(client.lock().await.send_message(target_addr, msg).await?)
     }
 
@@ -60,12 +58,12 @@ impl Orchestrator {
 
     // Temporary, refactor once TUI gets added
     async fn cli_interface(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let (send_commands_channel, mut recv_commands_channel) = watch::channel::<ChannelMsg>(ChannelMsg::Empty);
+        let (send_commands_channel, recv_commands_channel) = watch::channel::<ChannelMsg>(ChannelMsg::Empty);
 
         let send_client = self.client.clone();
         let recv_client = self.client.clone();
 
-        let command_task = tokio::spawn(async move {
+        let _command_task = tokio::spawn(async move {
             // Create the input reader
             let stdin: BufReader<io::Stdin> = BufReader::new(io::stdin());
             let mut lines = stdin.lines();
@@ -78,98 +76,167 @@ impl Orchestrator {
                 if line.is_empty() {
                     continue;
                 }
-
-                let mut line_iter = line.split_whitespace();
-                match line_iter.next() {
-                    Some("connect") => {
-                        let target_addr = line_iter
-                            .next()
-                            .unwrap() // #TODO remove unwrap
-                            .parse()
-                            .unwrap_or(DEFAULT_ADDRESS);
-                        Self::connect(&send_client, target_addr).await.unwrap();
-                    }
-                    Some("disconnect") => {
-                        let target_addr = line_iter.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
-                        Self::disconnect(&send_client, target_addr).await.unwrap()
-                    }
-                    Some("sub") => {
-                        let target_addr = line_iter.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
-                        let device_id = line_iter.next().unwrap_or("0").parse().unwrap();
-                        let mode: AdapterMode = match line_iter.next() {
-                            Some("source") => AdapterMode::SOURCE,
-                            Some("raw") => AdapterMode::RAW,
-                            _ => AdapterMode::RAW,
-                        };
-                        Self::subscribe(&send_client, target_addr, device_id, mode).await.unwrap();
-                        send_commands_channel.send(ChannelMsg::ListenSubscribe { addr: target_addr }).unwrap();
-                    }
-                    Some("unsub") => {
-                        let target_addr = line_iter
-                            .next()
-                            .unwrap_or("") // #TODO remove unwrap
-                            .parse()
-                            .unwrap_or(DEFAULT_ADDRESS);
-                        let device_id = line_iter.next().unwrap_or("0").parse().unwrap();
-                        Self::unsubscribe(&send_client, target_addr, device_id).await.unwrap();
-                        send_commands_channel.send(ChannelMsg::ListenUnsubscribe { addr: target_addr }).unwrap();
-                    }
-                    Some("sendstatus") => {
-                        let target_addr = line_iter.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
-                        send_commands_channel.send(ChannelMsg::SendHostStatus { reg_addr: target_addr }).unwrap();
-                    }
-                    _ => {
-                        info!("Failed to parse command")
-                    }
-                }
-                let _ = io::stdout().flush().await; // Ensure prompt shows up again
+                Self::parse_command(line, send_client.clone(), send_commands_channel.clone())
+                    .await
+                    .unwrap();
+                io::stdout().flush().await.unwrap();
             }
             println!("Send loop ended (stdin closed).");
         });
 
-        let recv_task = tokio::spawn(async move {
-            let mut receiving = false;
-            let mut targets: Vec<SocketAddr> = vec![];
-            loop {
-                if recv_commands_channel.has_changed().unwrap_or(false) {
-                    let msg_opt = recv_commands_channel.borrow_and_update().clone();
-                    if let ChannelMsg::ListenSubscribe { addr } = msg_opt {
+        let _recv_task = tokio::spawn(async move {
+            Self::recv_task(recv_commands_channel, recv_client.clone()).await;
+        });
+
+        pending::<()>().await;
+
+        Ok(())
+    }
+
+    async fn parse_command(
+        line: &str,
+        send_client: Arc<Mutex<TcpClient>>,
+        send_commands_channel: Sender<ChannelMsg>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut input = line.split_whitespace();
+        match input.next() {
+            Some("connect") => {
+                // Connect the orchestrator and another target node
+                let target_addr: SocketAddr = input
+                    .next()
+                    .unwrap() // #TODO remove unwrap
+                    .parse()
+                    .unwrap_or(DEFAULT_ADDRESS);
+                Self::connect(&send_client, target_addr).await?;
+            }
+            Some("disconnect") => {
+                // Disconnect the orchestrator from another target node
+                let target_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
+                Self::disconnect(&send_client, target_addr).await?;
+            }
+            Some("sub") => {
+                // Subscribe the orchestrator to the data output of a node
+                let target_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
+                let device_id: u64 = input.next().unwrap_or("0").parse().unwrap();
+
+                Self::subscribe(&send_client, target_addr, device_id).await?;
+                send_commands_channel.send(ChannelMsg::ListenSubscribe { addr: target_addr })?;
+            }
+            Some("unsub") => {
+                // Unsubscribe the orchestrator from the data output of another node
+                let target_addr: SocketAddr = input
+                    .next()
+                    .unwrap_or("") // #TODO remove unwrap
+                    .parse()
+                    .unwrap_or(DEFAULT_ADDRESS);
+                let device_id: u64 = input.next().unwrap_or("0").parse().unwrap();
+                Self::unsubscribe(&send_client, target_addr, device_id).await?;
+                send_commands_channel.send(ChannelMsg::ListenUnsubscribe { addr: target_addr })?;
+            }
+            Some("subto") => {
+                // Tells a node to subscribe to another node
+                let target_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
+                let source_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
+                let device_id: u64 = input.next().unwrap_or("0").parse().unwrap();
+
+                let msg = Ctrl(SubscribeTo {
+                    target: source_addr,
+                    device_id,
+                });
+
+                info!("Telling {target_addr} to subscribe to {source_addr} on device id {device_id}");
+
+                send_client.lock().await.send_message(target_addr, msg).await?;
+            }
+            Some("unsubfrom") => {
+                // Tells a node to unsubscribe from another node
+                let target_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
+                let source_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
+                let device_id: u64 = input.next().unwrap_or("0").parse().unwrap();
+
+                let msg = Ctrl(UnsubscribeFrom {
+                    target: source_addr,
+                    device_id,
+                });
+
+                info!("Telling {target_addr} to unsubscribe from device id {device_id} from {source_addr}");
+
+                send_client.lock().await.send_message(target_addr, msg).await?;
+            }
+            Some("dummydata") => {
+                // To test the subscription mechanic
+                let target_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
+
+                let msg = Data {
+                    data_msg: RawFrame {
+                        ts: 1234f64,
+                        bytes: vec![],
+                        source_type: ESP32,
+                    },
+                    device_id: 0,
+                };
+
+                info!("Sending dummy data to {target_addr}");
+                send_client.lock().await.send_message(target_addr, msg).await?;
+            }
+            Some("sendstatus") => {
+                let target_addr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
+                send_commands_channel.send(ChannelMsg::SendHostStatus { reg_addr: target_addr })?;
+            }
+            _ => {
+                info!("Failed to parse command")
+            }
+        }
+        Ok(())
+    }
+
+    async fn recv_task(mut recv_commands_channel: Receiver<ChannelMsg>, recv_client: Arc<Mutex<TcpClient>>) {
+        let mut receiving = false;
+        let mut targets: Vec<SocketAddr> = vec![];
+        loop {
+            if recv_commands_channel.has_changed().unwrap_or(false) {
+                let msg_opt = recv_commands_channel.borrow_and_update().clone();
+                match msg_opt {
+                    ChannelMsg::ListenSubscribe { addr } => {
                         if !targets.contains(&addr) {
                             targets.push(addr);
                         }
                         receiving = true;
                     }
-                }
-                if receiving {
-                    for target_addr in targets.iter() {
-                        let msg = recv_client.lock().await.read_message(*target_addr).await.unwrap();
-                        match msg.msg {
-                            Data {
-                                data_msg: DataMsg::CsiFrame { csi },
-                                device_id: _,
-                            } => {
-                                info!("{}: {}", msg.src_addr, csi.timestamp)
-                            }
-                            Data {
-                                data_msg:
-                                    DataMsg::RawFrame {
-                                        ts,
-                                        bytes: _,
-                                        source_type: _,
-                                    },
-                                device_id: _,
-                            } => info!("{}: {ts}", msg.src_addr),
-                            _ => (),
+                    ChannelMsg::ListenUnsubscribe { addr } => {
+                        if let Some(pos) = targets.iter().position(|x| *x == addr) {
+                            targets.remove(pos);
                         }
+                        if targets.is_empty() {
+                            receiving = false;
+                        }
+                    }
+                    _ => (),
+                }
+            }
+            if receiving {
+                for target_addr in targets.iter() {
+                    let msg = recv_client.lock().await.read_message(*target_addr).await.unwrap();
+                    match msg.msg {
+                        Data {
+                            data_msg: DataMsg::CsiFrame { csi },
+                            device_id: _,
+                        } => {
+                            info!("{}: {}", msg.src_addr, csi.timestamp)
+                        }
+                        Data {
+                            data_msg:
+                                DataMsg::RawFrame {
+                                    ts,
+                                    bytes: _,
+                                    source_type: _,
+                                },
+                            device_id: _,
+                        } => info!("{}: {ts}", msg.src_addr),
+                        _ => (),
                     }
                 }
             }
-        });
-        signal::ctrl_c().await?;
-        info!("Shutdown signal received. Exiting.");
-        command_task.abort();
-        recv_task.abort();
-
-        Ok(())
+        }
     }
 }

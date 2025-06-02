@@ -5,6 +5,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
+use log::info;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
@@ -139,6 +140,12 @@ impl DeviceHandler {
                 log::error!("Device {device_id} source start failed: {e:?}");
                 return;
             }
+            for sink in sinks.iter_mut() {
+                if let Err(e) = sink.open().await {
+                    log::error!("Device {device_id} sink open failed: {e:?}");
+                    return;
+                }
+            }
 
             loop {
                 tokio::select! {
@@ -152,6 +159,7 @@ impl DeviceHandler {
                         match read_res {
                             Ok(Some(raw)) => {
                                 // optional adapter
+                                info!("Device handler received {raw:?} for device {device_id}");
                                 let outgoing = if let Some(adapter) = adapter.as_mut() {
                                     match adapter.produce(raw).await {
                                         Ok(Some(csi_msg)) => vec![csi_msg],
@@ -167,6 +175,7 @@ impl DeviceHandler {
                                 // send to all sinks
                                 for sink in sinks.iter_mut() {
                                     for msg in outgoing.iter().cloned() {
+                                        info!("Device handler outputting {msg:?} to sink");
                                         if let Err(err) = sink.provide(msg).await {
                                             log::error!("Sink error on device {device_id}: {err:?}" );
                                         }
@@ -183,6 +192,11 @@ impl DeviceHandler {
                 }
             }
             let _ = source.stop().await;
+            for sink in sinks.iter_mut() {
+                if let Err(e) = sink.close().await {
+                    log::error!("Device {device_id} sink close failed: {e:?}");
+                }
+            }
         });
 
         self.shutdown_tx = Some(shutdown_tx);
@@ -260,8 +274,6 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
     async fn from_config(cg: DeviceHandlerConfig) -> Result<Box<Self>, TaskError> {
         // instantiate source
         let mut source = <dyn DataSourceT>::from_config(cg.source.clone()).await?;
-
-        source.start().await?;
 
         // apply controller if configured
         if let Some(controller_cfg) = cg.controller.clone() {

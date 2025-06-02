@@ -13,7 +13,6 @@ use charming::element::AxisType;
 use charming::series::Line;
 use charming::theme::Theme;
 use lib::csi_types::CsiData;
-use lib::network::rpc_message::AdapterMode::SOURCE;
 use lib::network::rpc_message::DataMsg::*;
 use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
 use lib::network::rpc_message::{CtrlMsg, RpcMessage};
@@ -434,7 +433,7 @@ impl Visualiser {
             let mut client = client.lock().await;
             client.connect(target_addr).await?;
 
-            let msg = Ctrl(CtrlMsg::Subscribe { device_id: 0, mode: SOURCE });
+            let msg = Ctrl(CtrlMsg::Subscribe { device_id: 0 });
             client.send_message(target_addr, msg).await?;
             info!("Subscribed to node {target_addr}");
             Ok(())
