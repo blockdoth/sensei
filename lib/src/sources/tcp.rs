@@ -127,7 +127,8 @@ impl ToConfig<DataSourceConfig> for TCPSource {
     /// * `Err(TaskError)` if conversion fails (not expected here as cloning should succeed).
     async fn to_config(&self) -> Result<DataSourceConfig, TaskError> {
         Ok(DataSourceConfig::Tcp(TCPConfig {
-            target_addr: self.target_addr,
+            target_addr: self.config.target_addr,
+            device_id: self.config.device_id,
         }))
     }
 }

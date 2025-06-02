@@ -278,11 +278,10 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
         let mut source = <dyn DataSourceT>::from_config(cg.source.clone()).await?;
 
         // apply controller if configured
-       if let Some(controller_cfg) = cg.controller.clone() {
+        if let Some(controller_cfg) = cg.controller.clone() {
             // check that controller is the correct one to apply to the source
             match (&controller_cfg, &cg.source) {
-                (ControllerParams::Esp32(_), DataSourceConfig::Esp32(_))
-                | (ControllerParams::Tcp(_), DataSourceConfig::Tcp(_)) => {
+                (ControllerParams::Esp32(_), DataSourceConfig::Esp32(_)) | (ControllerParams::Tcp(_), DataSourceConfig::Tcp(_)) => {
                     // These combinations are allowed on any OS
                 }
                 // --- Conditional arm for Netlink on Linux ---

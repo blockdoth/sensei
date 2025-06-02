@@ -157,8 +157,11 @@ impl ConnectionHandler for SystemNode {
                 UnsubscribeFrom { target, device_id } => {
                     // TODO: Make it target specific, but for now removing based on device id should be fine.
                     // Would require extracting the source itself from the device handler
-                    info!("Handler subscribing to {device_id} removed");
-                    self.handlers.lock().await.remove(&device_id);
+                    info!("Removing handler subscribing to {device_id}");
+                    match self.handlers.lock().await.remove(&device_id) {
+                        Some(mut handler) => handler.stop().await.expect("Whoopsy"),
+                        _ => info!("This handler does not exist."),
+                    }
                 }
                 Configure { device_id, cfg } => {}
                 PollDevices => {}
