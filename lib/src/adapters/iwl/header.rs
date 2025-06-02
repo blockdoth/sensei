@@ -137,27 +137,21 @@ impl IwlHeader {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::errors::IwlAdapterError;
     use crate::adapters::iwl::test_utils::build_test_packet;
-
-
-    
-
+    use crate::errors::IwlAdapterError;
 
     // Case where everything is alright
     #[test]
     fn test_valid_header_parse() {
-        let buf = build_test_packet(187, 100, 2, 2, [40, 41, 42], -92, 7, 0b00011011, None);
+        let buf = build_test_packet(187, 100, [2, 2], [40, 41, 42], -92, [7, 0b00011011], None);
         let res = IwlHeader::parse(&buf);
 
         assert!(res.is_ok());
     }
 
-    
     // Case where the header is is not long enough
     #[test]
     fn test_incomplete_header() {
@@ -168,37 +162,43 @@ mod tests {
     // Is not 187
     #[test]
     fn test_invalid_netlink_code() {
-        let buf = build_test_packet(80, 100, 2, 2, [40, 41, 42], -92, 7, 0b00011011, None);
+        let buf = build_test_packet(80, 100, [2, 2], [40, 41, 42], -92, [7, 0b00011011], None);
         assert!(matches!(IwlHeader::parse(&buf).unwrap_err(), IwlAdapterError::InvalidCode(80)));
     }
 
     // Is not bigger than 4095
     #[test]
     fn test_invalid_sequence_number() {
-        let buf = build_test_packet(187, 5000, 2, 2, [40, 41, 42], -92, 7, 0b00011011, None);
-        assert!(matches!(IwlHeader::parse(&buf).unwrap_err(), IwlAdapterError::InvalidSequenceNumber(5000)));
+        let buf = build_test_packet(187, 5000, [2, 2], [40, 41, 42], -92, [7, 0b00011011], None);
+        assert!(matches!(
+            IwlHeader::parse(&buf).unwrap_err(),
+            IwlAdapterError::InvalidSequenceNumber(5000)
+        ));
     }
 
-    // Less than 3 streams 
+    // Less than 3 streams
     #[test]
     fn test_invalid_antenna_spec() {
-        let buf = build_test_packet(187, 100, 4, 1, [40, 41, 42], -92, 7, 0b00011011, None);
-        assert!(matches!(IwlHeader::parse(&buf).unwrap_err(), IwlAdapterError::InvalidAntennaSpec { num_rx: 4, num_streams: 1 }));
+        let buf = build_test_packet(187, 100, [4, 1], [40, 41, 42], -92, [7, 0b00011011], None);
+        assert!(matches!(
+            IwlHeader::parse(&buf).unwrap_err(),
+            IwlAdapterError::InvalidAntennaSpec { num_rx: 4, num_streams: 1 }
+        ));
     }
 
     // Payload does not match header
     #[test]
     fn test_incomplete_packet_payload() {
-        let buf = build_test_packet(187, 100, 2, 2, [40, 41, 42], -92, 7, 0b00011011, Some(100));
-        let truncated_buf = &buf[0..buf.len() - 40]; 
+        let buf = build_test_packet(187, 100, [2, 2], [40, 41, 42], -92, [7, 0b00011011], Some(100));
+        let truncated_buf = &buf[0..buf.len() - 40];
         assert!(matches!(IwlHeader::parse(truncated_buf).unwrap_err(), IwlAdapterError::IncompletePacket));
     }
 
-    // Expected CSI length based on NRX and NTX 
+    // Expected CSI length based on NRX and NTX
     // does not match reported length
     #[test]
     fn test_invalid_matrix_size() {
-        let buf = build_test_packet(187, 100, 2, 2, [40, 41, 42], -92, 7, 0b00011011, Some(999));
-        assert!(matches!(IwlHeader::parse(&buf).unwrap_err(),  IwlAdapterError::InvalidMatrixSize(999)));
+        let buf = build_test_packet(187, 100, [2, 2], [40, 41, 42], -92, [7, 0b00011011], Some(999));
+        assert!(matches!(IwlHeader::parse(&buf).unwrap_err(), IwlAdapterError::InvalidMatrixSize(999)));
     }
 }
