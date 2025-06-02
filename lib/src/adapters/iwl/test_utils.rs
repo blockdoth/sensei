@@ -1,7 +1,7 @@
 
 
 // Dummy packet
-fn build_test_packet(
+pub fn build_test_packet(
     code: u8,
     sequence_number: u16,
     nrx: u8,
