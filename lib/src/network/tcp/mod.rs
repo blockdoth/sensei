@@ -9,7 +9,7 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::sync::broadcast;
 use tokio::sync::watch::{self, Receiver, Sender};
 
-use super::rpc_message::{self, AdapterMode, DataMsg, RpcMessage, RpcMessageKind};
+use super::rpc_message::{self, DataMsg, DeviceId, RpcMessage, RpcMessageKind};
 use crate::errors::NetworkError;
 use crate::network::rpc_message::make_msg;
 
@@ -27,7 +27,7 @@ pub async fn read_message(read_stream: &mut OwnedReadHalf, buffer: &mut [u8]) ->
             info!("Stream closed by peer.");
             Err(NetworkError::Closed)
         }
-        Err(e) => todo!("idk"),
+        Err(e) => todo!("idk"), //TODO: better error handling
     }?;
 
     debug!("Received message of length {msg_length}");
@@ -98,26 +98,27 @@ pub trait ConnectionHandler: Send + Sync {
     async fn handle_send(
         &self,
         mut recv_commands_channel: watch::Receiver<ChannelMsg>,
-        mut recv_data_channel: broadcast::Receiver<(DataMsg, u64)>,
+        mut recv_data_channel: broadcast::Receiver<(DataMsg, DeviceId)>,
         mut send_stream: OwnedWriteHalf,
     ) -> Result<(), NetworkError>;
 }
 
 #[async_trait]
 pub trait SubscribeDataChannel {
-    fn subscribe_data_channel(&self) -> broadcast::Receiver<(DataMsg, u64)>;
+    fn subscribe_data_channel(&self) -> broadcast::Receiver<(DataMsg, DeviceId)>;
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub enum ChannelMsg {
     Empty,
     Disconnect,
-    Subscribe { device_id: u64 },
-    Unsubscribe { device_id: u64 },
-    SubscribeTo { target_addr: SocketAddr, device_id: u64 },
-    UnsubscribeFrom { target_addr: SocketAddr, device_id: u64 },
+    Subscribe { device_id: DeviceId },
+    Unsubscribe { device_id: DeviceId },
+    SubscribeTo { target_addr: SocketAddr, device_id: DeviceId },
+    UnsubscribeFrom { target_addr: SocketAddr, device_id: DeviceId },
     ListenSubscribe { addr: SocketAddr },
     ListenUnsubscribe { addr: SocketAddr },
     Poll,
+    SendHostStatus { reg_addr: SocketAddr },
     Data { data: DataMsg },
 }

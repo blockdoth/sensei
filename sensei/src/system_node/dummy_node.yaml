@@ -1,0 +1,6 @@
+addr: "127.0.0.1:8000"
+host_id: 1
+registry:
+  use_registry: true
+  addr: "127.0.0.1:8080"
+device_configs:
