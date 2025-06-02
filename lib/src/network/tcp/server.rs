@@ -1,18 +1,19 @@
-use super::{ConnectionHandler, MAX_MESSAGE_LENGTH, SubscribeDataChannel, read_message};
-use crate::{
-    errors::NetworkError,
-    network::{rpc_message::RpcMessage, tcp::ChannelMsg},
-};
+use std::net::SocketAddr;
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use log::{debug, error, info, warn};
-use std::{net::SocketAddr, sync::Arc};
-use tokio::{
-    net::{TcpListener, TcpStream},
-    sync::watch,
-};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::watch;
+
+use super::{ConnectionHandler, MAX_MESSAGE_LENGTH, SubscribeDataChannel, read_message};
+use crate::errors::NetworkError;
+use crate::network::rpc_message::RpcMessage;
+use crate::network::tcp::ChannelMsg;
 
 pub struct TcpServer {}
 
+// TODO: write docs
 impl TcpServer {
     pub async fn serve<H>(addr: SocketAddr, connection_handler: Arc<H>) -> Result<(), NetworkError>
     where
@@ -37,10 +38,7 @@ impl TcpServer {
         }
     }
 
-    async fn init_connection<H>(
-        stream: TcpStream,
-        connection_handler: Arc<H>,
-    ) -> Result<(), NetworkError>
+    async fn init_connection<H>(stream: TcpStream, connection_handler: Arc<H>) -> Result<(), NetworkError>
     where
         H: ConnectionHandler + SubscribeDataChannel + Clone + 'static,
     {
@@ -51,8 +49,7 @@ impl TcpServer {
 
         let (mut read_stream, write_stream) = stream.into_split();
 
-        let (send_commands_channel, mut recv_commands_channel) =
-            watch::channel::<ChannelMsg>(ChannelMsg::Empty);
+        let (send_commands_channel, mut recv_commands_channel) = watch::channel::<ChannelMsg>(ChannelMsg::Empty);
 
         let send_commands_channel_local = send_commands_channel.clone();
         let connection_handler_local = connection_handler.clone();
@@ -64,10 +61,7 @@ impl TcpServer {
             loop {
                 match read_message(&mut read_stream, &mut read_buffer).await {
                     Ok(Some(request)) => {
-                        if let Err(NetworkError::Closed) = connection_handler
-                            .handle_recv(request, send_commands_channel_local.clone())
-                            .await
-                        {
+                        if let Err(NetworkError::Closed) = connection_handler.handle_recv(request, send_commands_channel_local.clone()).await {
                             break;
                         }
                     }

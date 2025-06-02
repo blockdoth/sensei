@@ -1,15 +1,16 @@
-use crate::csi_types::CsiData;
-use crate::devices::DeviceCfg;
-use crate::network::rpc_message::RpcMessageKind::Ctrl;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::str::FromStr;
+use std::sync::Arc;
+
 use bincode::Error;
+use netlink_sys::Socket;
 use serde::{Deserialize, Serialize};
-use std::{
-    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
-    str::FromStr,
-    sync::Arc,
-};
 use tokio::net::{TcpStream, UdpSocket};
 use tokio_stream::Stream;
+
+use crate::csi_types::CsiData;
+use crate::handler::device_handler::DeviceHandlerConfig;
+use crate::network::rpc_message::RpcMessageKind::Ctrl;
 
 const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
 
@@ -23,38 +24,45 @@ pub struct RpcMessage {
 #[derive(Serialize, Deserialize, Debug)]
 pub enum RpcMessageKind {
     Ctrl(CtrlMsg),
-    Data(DataMsg),
+    Data { data_msg: DataMsg, device_id: u64 },
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+/// There was some discussion about what we should use as a host id.
+/// This makes it more flexible
+pub use u64 as HostId;
+pub use u64 as DeviceId;
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum CtrlMsg {
     Connect,
     Disconnect,
-    Configure { device_id: u64, cfg: DeviceCfg },
-    Subscribe { device_id: u64, mode: AdapterMode },
-    Unsubscribe { device_id: u64 },
-    PollDevices,
-    Heartbeat,
+    Configure { device_id: DeviceId, cfg: DeviceHandlerConfig },
+    Subscribe { device_id: DeviceId, mode: AdapterMode },
+    Unsubscribe { device_id: DeviceId },
+    PollHostStatus,
+    Heartbeat { host_id: HostId, host_address: SocketAddr },
+    HostStatus { host_id: HostId, device_status: Vec<DeviceStatus> },
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct DeviceStatus {
+    pub id: DeviceId,
+    pub dev_type: SourceType,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum DataMsg {
-    RawFrame {
-        ts: f64,
-        bytes: Vec<u8>,
-        source_type: SourceType,
-    }, // raw bytestream, requires decoding adapter
-    CsiFrame {
-        csi: CsiData,
-    }, // This would contain a proper deserialized CSI
+    RawFrame { ts: f64, bytes: Vec<u8>, source_type: SourceType }, // raw bytestream, requires decoding adapter
+    CsiFrame { csi: CsiData },                                     // This would contain a proper deserialized CSI
 }
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum SourceType {
     ESP32,
     IWL5300,
     AX200,
     AX210,
     AtherosQCA,
+    CSV,
     Unknown,
 }
 
@@ -93,29 +101,28 @@ impl FromStr for CtrlMsg {
                 todo!("support this")
             }
             "subscribe" => {
-                let device_id = parts
-                    .next()
-                    .and_then(|s| s.parse::<u64>().ok())
-                    .unwrap_or(0); // TODO better id assignment
+                let device_id = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0); // TODO better id assignment
 
-                let mode = parts
-                    .next()
-                    .and_then(|s| s.parse::<AdapterMode>().ok())
-                    .unwrap_or(AdapterMode::RAW);
+                let mode = parts.next().and_then(|s| s.parse::<AdapterMode>().ok()).unwrap_or(AdapterMode::RAW);
 
                 Ok(CtrlMsg::Subscribe { device_id, mode })
             }
             "unsubscribe" => {
-                let device_id = parts
-                    .next()
-                    .and_then(|s| s.parse::<u64>().ok())
-                    .unwrap_or(0);
+                let device_id = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
 
                 Ok(CtrlMsg::Unsubscribe { device_id })
             }
-            "polldevices" => Ok(CtrlMsg::PollDevices),
-            "heartbeat" => Ok(CtrlMsg::Heartbeat),
+            "pollhoststatus" => Ok(CtrlMsg::PollHostStatus),
+            "hoststatus" => Ok(CtrlMsg::HostStatus {
+                host_id: 0,
+                device_status: vec![],
+            }),
+            "heartbeat" => Ok(CtrlMsg::Heartbeat {
+                host_id: 0,
+                host_address: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 8080)),
+            }), // TODO better id assignment
             s => Err(s.to_owned()),
+            _ => Err(format!("An unsuppored case was reached! {kind}")),
         }
     }
 }
