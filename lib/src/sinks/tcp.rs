@@ -5,7 +5,7 @@ use log::trace;
 
 use crate::ToConfig;
 use crate::errors::{SinkError, TaskError};
-use crate::network::rpc_message::{DataMsg, RpcMessage, RpcMessageKind};
+use crate::network::rpc_message::{DataMsg, RpcMessageKind};
 use crate::network::tcp::client::TcpClient;
 use crate::sinks::{Sink, SinkConfig};
 

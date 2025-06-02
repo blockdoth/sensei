@@ -3,13 +3,12 @@
 
 #![allow(clippy::await_holding_lock)] // Kept as it was in the original file
 
-use core::time;
 use std::collections::VecDeque; // For log buffer
 use std::env; // Keep for RUST_LOG, though port comes from args
 use std::error::Error;
 use std::io;
 use std::sync::{Arc, Mutex as StdMutex}; // Standard Mutex for AppState
-use std::thread::sleep; // May not be needed if all sleeps are tokio::time::sleep
+// May not be needed if all sleeps are tokio::time::sleep
 use std::time::Duration;
 
 use chrono::{DateTime, Local};
@@ -24,7 +23,7 @@ use futures::StreamExt; // For EventStream.next()
 // Project-specific imports - Changed crate:: to lib::
 use lib::adapters::CsiDataAdapter;
 use lib::adapters::esp32::ESP32Adapter;
-use lib::csi_types::{Complex, CsiData};
+use lib::csi_types::CsiData;
 use lib::errors::{ControllerError, DataSourceError};
 use lib::network::rpc_message::{DataMsg, SourceType};
 // If cli.rs is in src/main.rs or src/lib.rs and esp_tool.rs is src/esp_tool.rs,
@@ -48,7 +47,7 @@ use ratatui::{
     Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
-    style::{Color, Modifier, Style, Stylize},
+    style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table},
 };
@@ -384,7 +383,7 @@ pub async fn run_esp_test_subcommand(args: EspToolSubcommandArgs) -> Result<(), 
     info!("ESP32 initial setup sequence complete.");
 
     let app_state_log_clone = Arc::clone(&app_state);
-    let mut log_listener_handle: JoinHandle<()> = tokio::spawn(async move {
+    let log_listener_handle: JoinHandle<()> = tokio::spawn(async move {
         // Changed variable name to avoid conflict
         loop {
             tokio::task::yield_now().await;

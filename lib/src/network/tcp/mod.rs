@@ -1,15 +1,14 @@
 use std::net::SocketAddr;
 
 use async_trait::async_trait;
-use log::{debug, error, info, trace};
+use log::{debug, error, info};
 use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::sync::broadcast;
-use tokio::sync::watch::{self, Receiver, Sender};
+use tokio::sync::watch::{self};
 
-use super::rpc_message::{self, DataMsg, RpcMessage, RpcMessageKind};
+use super::rpc_message::{DataMsg, RpcMessage, RpcMessageKind};
 use crate::errors::NetworkError;
 use crate::network::rpc_message::make_msg;
 
@@ -27,7 +26,7 @@ pub async fn read_message(read_stream: &mut OwnedReadHalf, buffer: &mut [u8]) ->
             info!("Stream closed by peer.");
             Err(NetworkError::Closed)
         }
-        Err(e) => todo!("idk"), //TODO: better error handling
+        Err(_) => todo!("idk"), //TODO: better error handling
     }?;
 
     debug!("Received message of length {msg_length}");

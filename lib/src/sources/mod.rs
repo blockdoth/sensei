@@ -22,11 +22,9 @@ pub mod netlink;
 pub mod tcp;
 
 use std::any::Any;
-use std::net::SocketAddr;
 
 use crate::errors::{DataSourceError, TaskError};
 use crate::network::rpc_message::DataMsg;
-use crate::sources::controllers::Controller;
 use crate::{FromConfig, ToConfig};
 
 pub const BUFSIZE: usize = 65535;

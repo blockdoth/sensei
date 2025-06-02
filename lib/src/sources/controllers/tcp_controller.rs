@@ -1,5 +1,3 @@
-use std::net::SocketAddr;
-
 use crate::ToConfig;
 use crate::errors::{ControllerError, TaskError};
 use crate::sources::DataSourceT;
@@ -25,7 +23,7 @@ pub struct TCPControllerParams {}
 #[typetag::serde(name = "TCP")]
 #[async_trait::async_trait]
 impl Controller for TCPControllerParams {
-    async fn apply(&self, source: &mut dyn DataSourceT) -> Result<(), ControllerError> {
+    async fn apply(&self, _source: &mut dyn DataSourceT) -> Result<(), ControllerError> {
         Ok(())
     }
 }

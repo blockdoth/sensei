@@ -45,7 +45,7 @@ impl Sink for FileSink {
     /// # Errors
     ///
     /// Returns a ['SinkError'] if the operation fails (e.g., I/O failure)
-    async fn open(&mut self, data: DataMsg) -> Result<(), SinkError> {
+    async fn open(&mut self, _data: DataMsg) -> Result<(), SinkError> {
         Ok(())
     }
 
@@ -56,7 +56,7 @@ impl Sink for FileSink {
     /// # Errors
     ///
     /// Returns a ['SinkError'] if the operation fails (e.g., I/O failure)
-    async fn close(&mut self, data: DataMsg) -> Result<(), SinkError> {
+    async fn close(&mut self, _data: DataMsg) -> Result<(), SinkError> {
         Ok(())
     }
 

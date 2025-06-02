@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::adapters::csv::{CSVAdapter, CSVAdapterError};
+use crate::adapters::csv::CSVAdapterError;
 
 /// Errors that can occur during network communication with sources or clients.
 #[derive(Error, Debug)]

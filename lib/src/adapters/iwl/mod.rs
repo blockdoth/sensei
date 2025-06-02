@@ -8,8 +8,6 @@
 pub mod adapter;
 mod header;
 
-use thiserror::Error;
-
 /// Re-export of the main adapter interface for IWL devices.
 ///
 /// This allows external crates/modules to access the adapter functionality

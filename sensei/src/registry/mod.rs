@@ -5,28 +5,24 @@
 //! which is important for low-compute devices. The registry spawns two threads: a TCP server for host registration and a background thread for polling hosts.
 use std::collections::HashMap;
 use std::convert::From;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use anyhow::Error;
 use async_trait::async_trait;
 use lib::errors::{AppError, NetworkError};
-use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
-use lib::network::rpc_message::{self, CtrlMsg, DataMsg, DeviceStatus, HostId, RpcMessage, RpcMessageKind, SourceType};
+use lib::network::rpc_message::RpcMessageKind::Ctrl;
+use lib::network::rpc_message::{CtrlMsg, DataMsg, DeviceStatus, HostId, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
-use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
+use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel};
 use log::*;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
-use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
-use tokio::runtime::Runtime;
-use tokio::sync::watch::{self, Receiver, Sender};
+use tokio::net::tcp::OwnedWriteHalf;
+use tokio::sync::watch::{self};
 use tokio::sync::{Mutex, broadcast};
 use tokio::task;
 use tokio::time::{Duration, interval};
 
-use crate::cli::{GlobalConfig, RegistrySubcommandArgs, SubCommandsArgs};
 use crate::config::RegistryConfig;
 use crate::module::Run;
 
@@ -67,7 +63,7 @@ impl From<CtrlMsg> for RegHostStatus {
 /// The registry spawns two threads: a TCP server for host registration and a separate task for polling hosts.
 impl Run<RegistryConfig> for Registry {
     /// Create a new registry with the given configuration.
-    fn new(config: RegistryConfig) -> Self {
+    fn new(_config: RegistryConfig) -> Self {
         Registry {
             hosts: Arc::from(Mutex::from(HashMap::new())),
             send_data_channel: broadcast::channel(100).0, // magic buffer for now
@@ -76,13 +72,13 @@ impl Run<RegistryConfig> for Registry {
 
     /// Run the registry, spawning the TCP server and polling background task.
     async fn run(&self, config: RegistryConfig) -> Result<(), Box<dyn std::error::Error>> {
-        let sender_data_channel = &self.send_data_channel;
+        let _sender_data_channel = &self.send_data_channel;
 
         let server_task = {
             let connection_handler = Arc::new(self.clone());
             task::spawn(async move {
                 info!("Starting TCP server on {}...", config.addr);
-                TcpServer::serve(config.addr, connection_handler).await;
+                TcpServer::serve(config.addr, connection_handler).await.unwrap();
             })
         };
 
@@ -90,8 +86,11 @@ impl Run<RegistryConfig> for Registry {
             let connection_handler = Arc::new(self.clone());
             task::spawn(async move {
                 info!("Starting TCP client to poll hosts...");
-                let mut client = TcpClient::new();
-                connection_handler.poll_hosts(client, Duration::from_secs(config.poll_interval)).await;
+                let client = TcpClient::new();
+                connection_handler
+                    .poll_hosts(client, Duration::from_secs(config.poll_interval))
+                    .await
+                    .unwrap();
             })
         };
 
@@ -111,7 +110,7 @@ impl SubscribeDataChannel for Registry {
 /// Handles incoming and outgoing network connections for the registry.
 impl ConnectionHandler for Registry {
     /// Handle an incoming message from a host or client.
-    async fn handle_recv(&self, request: RpcMessage, send_commands_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
+    async fn handle_recv(&self, request: RpcMessage, _send_commands_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
         debug!("Received request: {:?}", request);
 
         match request.msg {
@@ -126,9 +125,9 @@ impl ConnectionHandler for Registry {
     /// Handle outgoing messages to a host or client.
     async fn handle_send(
         &self,
-        mut recv_commands_channel: watch::Receiver<ChannelMsg>,
-        mut recv_data_channel: broadcast::Receiver<DataMsg>,
-        mut send_stream: OwnedWriteHalf,
+        _recv_commands_channel: watch::Receiver<ChannelMsg>,
+        _recv_data_channel: broadcast::Receiver<DataMsg>,
+        _send_stream: OwnedWriteHalf,
     ) -> Result<(), NetworkError> {
         Ok(())
     }
@@ -156,15 +155,15 @@ impl Registry {
                     client.send_message(addr, RpcMessageKind::Ctrl(CtrlMsg::PollHostStatus)).await?;
                     let msg = client.read_message(addr).await?;
                     info!("msg: {msg:?}");
-                    self.store_host_update(host, addr, msg.msg);
-                    client.disconnect(addr).await;
+                    self.store_host_update(host, addr, msg.msg).await?;
+                    client.disconnect(addr).await?;
                     Ok(())
                 }
                 .await;
                 if res.is_err() {
                     // if a host throws errors, handle them here
                     // Might have to be split out into error types later
-                    self.handle_unresponsive_host(host).await;
+                    self.handle_unresponsive_host(host).await?;
                 }
             }
         }
@@ -207,7 +206,7 @@ impl Registry {
         Ok(())
     }
     /// Store an update to a host's status in the registry.
-    async fn store_host_update(&self, host_id: HostId, host_address: SocketAddr, status: RpcMessageKind) -> Result<(), AppError> {
+    async fn store_host_update(&self, _host_id: HostId, host_address: SocketAddr, status: RpcMessageKind) -> Result<(), AppError> {
         match status {
             Ctrl(CtrlMsg::HostStatus { host_id, device_status }) => {
                 info!("{device_status:?}");
@@ -225,10 +224,11 @@ impl Registry {
 }
 #[cfg(test)]
 mod tests {
-    use lib::csi_types::CsiData;
+    use std::net::{IpAddr, Ipv4Addr};
+
+    use lib::network::rpc_message::SourceType;
 
     use super::*;
-    use crate::system_node;
 
     fn test_host_id(n: u64) -> HostId {
         // placeholder in case the IDs get more complex

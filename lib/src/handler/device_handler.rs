@@ -4,14 +4,13 @@ use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use crate::adapters::*;
-use crate::errors::{ControllerError, CsiAdapterError, DataSourceError, SinkError, TaskError};
-use crate::network::rpc_message::{DataMsg, SourceType};
+use crate::errors::TaskError;
+use crate::network::rpc_message::SourceType;
 use crate::sinks::tcp::*;
 use crate::sinks::*;
 use crate::sources::controllers::*;
@@ -132,7 +131,6 @@ impl DeviceHandler {
         mut sinks: Vec<Box<dyn Sink>>,
     ) -> Result<(), TaskError> {
         let device_id = self.config.device_id;
-        let stype = self.config.stype.clone();
 
         let (shutdown_tx, mut shutdown_rx) = watch::channel(());
 
@@ -158,7 +156,7 @@ impl DeviceHandler {
                                     match adapter.produce(raw).await {
                                         Ok(Some(csi_msg)) => vec![csi_msg],
                                         Ok(None) => continue,
-                                        Err(err) => {
+                                        Err(_) => {
                                             //log::error!("Adapter error on device {device_id}: {err:?}"); THIS WILL LOG ERRORS IF THERE IS SIMPLY NO DATA
                                             continue;
                                         }
@@ -167,7 +165,7 @@ impl DeviceHandler {
                                     vec![raw]
                                 };
                                 // send to all sinks
-                                for mut sink in sinks.iter_mut() {
+                                for sink in sinks.iter_mut() {
                                     for msg in outgoing.iter().cloned() {
                                         if let Err(err) = sink.provide(msg).await {
                                             log::error!("Sink error on device {device_id}: {err:?}" );
@@ -184,7 +182,7 @@ impl DeviceHandler {
                     }
                 }
             }
-            source.stop().await;
+            let _ = source.stop().await;
         });
 
         self.shutdown_tx = Some(shutdown_tx);
