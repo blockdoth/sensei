@@ -1,8 +1,4 @@
-use std::fs::File;
-use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::vec;
-
-use log::info;
 
 use crate::ToConfig;
 use crate::adapters::{CsiDataAdapter, DataAdapterConfig};
@@ -16,7 +12,6 @@ const ROW_SIZE: usize = 7;
 
 pub struct CSVAdapter<'a> {
     buffer: Vec<u8>,
-    cursor_pos: usize,
     tmp_data: Option<CsiData>,
     cell_delimiter: &'a u8,
     line_delimiter: &'a u8,
@@ -28,7 +23,6 @@ impl<'a> CSVAdapter<'a> {
         Self {
             buffer,
             tmp_data,
-            cursor_pos: 0,
             cell_delimiter,
             line_delimiter,
         }
@@ -37,8 +31,6 @@ impl<'a> CSVAdapter<'a> {
     fn consume(&mut self, buf: &[u8]) -> Result<Option<CsiData>, CsiAdapterError> {
         // Append the incoming bytes to the buffer
         self.buffer.extend_from_slice(buf);
-        // Check if the buffer contains a complete row
-        let mut found = false;
         // Find the first EOL character in the buffer
         let x: Vec<_> = self.buffer.split(|c| c == self.line_delimiter).collect();
         // we care about the second to last row, as that's the most recent complete row
@@ -196,9 +188,6 @@ impl CsiDataAdapter for CSVAdapter<'_> {
                 // If the message is already a CsiFrame, we can directly return it
                 Ok(Some(DataMsg::CsiFrame { csi }))
             }
-            _ => Err(CsiAdapterError::CSV(super::CSVAdapterError::InvalidData(
-                "Invalid message type".to_string(),
-            ))),
         }
     }
 }

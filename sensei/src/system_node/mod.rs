@@ -1,58 +1,31 @@
 use std::collections::{HashMap, HashSet};
-use std::env;
 use std::net::SocketAddr;
-use std::ops::Deref;
-use std::path::PathBuf;
 use std::sync::Arc;
-// use std::thread::sleep; // Not used
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use argh::{CommandInfo, FromArgs};
+// use std::thread::sleep; // Not used
 use async_trait::async_trait;
 use lib::FromConfig;
 // use lib::FromConfig; // Not using FromConfig for adapter to keep changes minimal here
-use lib::adapters::CsiDataAdapter; // Removed esp32 module import here, will use full path
-use lib::adapters::tcp::TCPAdapter;
-use lib::csi_types::{Complex, CsiData};
 use lib::errors::NetworkError;
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
 use lib::network::rpc_message::CtrlMsg::*;
-use lib::network::rpc_message::DataMsg::*;
 use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
 use lib::network::rpc_message::SourceType::*;
-use lib::network::rpc_message::{AdapterMode, CtrlMsg, DataMsg, DeviceId, RpcMessage, SourceType, make_msg};
+use lib::network::rpc_message::{CtrlMsg, DataMsg, DeviceId, RpcMessage};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
 use lib::network::*;
-use lib::sinks::file::{FileConfig, FileSink};
-use lib::sources::DataSourceConfig::Tcp;
-use lib::sources::controllers::Controller; // For the .apply() method
-use lib::sources::controllers::esp32_controller::{
-    Bandwidth as EspBandwidth,               // Enum for bandwidth
-    CsiType as EspCsiType,                   // Enum for CSI type
-    Esp32ControllerParams,                   // The parameters struct
-    Esp32DeviceConfigPayload,                // Payload for device config
-    OperationMode as EspOperationMode,       // Enum for operation mode
-    SecondaryChannel as EspSecondaryChannel, // Enum for secondary channel
-};
-use lib::sources::controllers::tcp_controller::TCPControllerParams;
-use lib::sources::esp32::{Esp32Source, Esp32SourceConfig};
+use lib::sources::DataSourceConfig;
 // use lib::sources::csv::{CsvConfig, CsvSource}; // Removed CSV source
 #[cfg(target_os = "linux")]
-use lib::sources::netlink::NetlinkConfig; // Keep for conditional compilation
-use lib::sources::tcp::{TCPConfig, TCPSource};
-use lib::sources::{DataSourceConfig, DataSourceT};
+use lib::sources::tcp::TCPConfig;
 use log::*;
-use tokio::io::AsyncWriteExt;
 use tokio::net::tcp::OwnedWriteHalf;
-use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::{Mutex, broadcast, watch};
-use tokio::task::JoinHandle;
 
-use crate::cli::*;
 // use crate::cli::{SubCommandsArgs, SystemNodeSubcommandArgs}; // SystemNodeSubcommandArgs not used here
-use crate::config::{OrchestratorConfig, SystemNodeConfig};
+use crate::config::SystemNodeConfig;
 use crate::module::*;
 
 /// The System Node is a sender and a receiver in the network of Sensei.
@@ -155,7 +128,7 @@ impl ConnectionHandler for SystemNode {
 
                     self.handlers.lock().await.insert(device_id, new_handler);
                 }
-                UnsubscribeFrom { target, device_id } => {
+                UnsubscribeFrom { target: _, device_id } => {
                     // TODO: Make it target specific, but for now removing based on device id should be fine.
                     // Would require extracting the source itself from the device handler
                     info!("Removing handler subscribing to {device_id}");
@@ -172,14 +145,14 @@ impl ConnectionHandler for SystemNode {
                         return Err(NetworkError::UnableToConnect);
                     }
                 }
-                Configure { device_id, cfg } => {}
+                Configure { device_id: _, cfg: _ } => {}
                 m => {
                     warn!("Received unhandled CtrlMsg: {m:?}");
                 }
             },
             Data { data_msg, device_id } => {
                 // TODO: Pass it through relevant TCP sources
-                self.send_data_channel.send((data_msg, device_id));
+                self.send_data_channel.send((data_msg, device_id))?;
             }
         }
         Ok(())
@@ -201,7 +174,7 @@ impl ConnectionHandler for SystemNode {
                 debug!("Received message {msg_opt:?} over channel");
                 match msg_opt {
                     ChannelMsg::Disconnect => {
-                        send_message(&mut send_stream, Ctrl(CtrlMsg::Disconnect)).await;
+                        send_message(&mut send_stream, Ctrl(CtrlMsg::Disconnect)).await?;
                         debug!("Send close confirmation");
                         break;
                     }
@@ -213,13 +186,13 @@ impl ConnectionHandler for SystemNode {
                         info!("Unsubscribed");
                         subscribed_ids.remove(&device_id);
                     }
-                    ChannelMsg::SendHostStatus { reg_addr } => {
+                    ChannelMsg::SendHostStatus { reg_addr: _ } => {
                         let host_status = CtrlMsg::HostStatus {
                             host_id: self.config.host_id,
                             device_status: vec![],
                         };
                         let msg = Ctrl(host_status);
-                        tcp::send_message(&mut send_stream, msg).await;
+                        tcp::send_message(&mut send_stream, msg).await?;
                     }
                     _ => (),
                 }
@@ -231,7 +204,7 @@ impl ConnectionHandler for SystemNode {
                 info!("Sending data {data_msg:?} for {device_id} to {send_stream:?}");
                 let msg = Data { data_msg, device_id };
 
-                send_message(&mut send_stream, msg).await;
+                send_message(&mut send_stream, msg).await?;
             }
         }
         // Loop is infinite unless broken by Disconnect or error
@@ -259,9 +232,6 @@ impl Run<SystemNodeConfig> for SystemNode {
     /// SystemNodeConfig: Specifies the target address
     async fn run(&self, config: SystemNodeConfig) -> Result<(), Box<dyn std::error::Error>> {
         let connection_handler = Arc::new(self.clone());
-
-        let sender_data_channel = connection_handler.send_data_channel.clone();
-
         let device_handler_configs: Vec<DeviceHandlerConfig> = config.device_configs;
 
         for cfg in device_handler_configs {
@@ -271,7 +241,7 @@ impl Run<SystemNodeConfig> for SystemNode {
                 .insert(cfg.device_id, DeviceHandler::from_config(cfg.clone()).await.unwrap());
         }
 
-        if (config.registry.use_registry) {
+        if config.registry.use_registry {
             info!("Connecting to registry at {}", config.registry.addr);
             let registry_addr: SocketAddr = config.registry.addr;
             let heartbeat_msg = Ctrl(CtrlMsg::AnnouncePresence {
@@ -281,13 +251,13 @@ impl Run<SystemNodeConfig> for SystemNode {
             let mut client = TcpClient::new();
             client.connect(registry_addr).await?;
             client.send_message(registry_addr, heartbeat_msg).await?;
-            client.disconnect(registry_addr);
+            client.disconnect(registry_addr).await?;
             info!("Heartbeat sent to registry at {}", config.registry.addr);
         }
 
         // Start TCP server to handle client connections
         info!("Starting TCP server on {}...", config.addr);
-        TcpServer::serve(config.addr, connection_handler).await;
+        TcpServer::serve(config.addr, connection_handler).await?;
         Ok(())
     }
 }

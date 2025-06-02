@@ -1,17 +1,13 @@
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::str::FromStr;
-use std::sync::Arc;
 
-use bincode::Error;
 use serde::{Deserialize, Serialize};
-use tokio::net::{TcpStream, UdpSocket};
-use tokio_stream::Stream;
+use tokio::net::TcpStream;
 
 use crate::csi_types::CsiData;
 use crate::handler::device_handler::DeviceHandlerConfig;
-use crate::network::rpc_message::RpcMessageKind::Ctrl;
 
-const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
+pub const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RpcMessage {
@@ -122,7 +118,6 @@ impl FromStr for CtrlMsg {
                 host_address: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 8080)),
             }), // TODO better id assignment
             s => Err(s.to_owned()),
-            _ => Err(format!("An unsuppored case was reached! {kind}")),
         }
     }
 }

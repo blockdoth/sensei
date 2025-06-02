@@ -1,15 +1,13 @@
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::{path, vec};
 
 use log::trace;
 use serde::Deserialize;
-use tempfile::NamedTempFile;
 
 use crate::ToConfig;
 use crate::errors::{DataSourceError, TaskError};
 use crate::network::rpc_message::SourceType;
-use crate::sources::controllers::Controller;
 use crate::sources::{BUFSIZE, DataMsg, DataSourceConfig, DataSourceT};
 
 /// Config struct which can be parsed from a toml config
@@ -29,9 +27,7 @@ pub struct CsvConfig {
 
 pub struct CsvSource {
     config: CsvConfig,
-    file: File,
     reader: BufReader<File>,
-    buffer: Vec<u8>,
 }
 
 impl CsvSource {
@@ -43,19 +39,13 @@ impl CsvSource {
             file.try_clone()
                 .map_err(|e| DataSourceError::GenericError(format!("Failed to clone CSV file: {}: {}", config.path.display(), e)))?,
         );
-        let mut buffer = vec![0; 8192];
 
         if config.header {
             reader
                 .read_until(config.row_delimiter, &mut Vec::new())
                 .map_err(|e| DataSourceError::GenericError(format!("Failed to read header from CSV file: {}: {}", config.path.display(), e)))?;
         }
-        Ok(Self {
-            config,
-            file,
-            reader,
-            buffer,
-        })
+        Ok(Self { config, reader })
     }
 }
 
@@ -68,7 +58,7 @@ impl DataSourceT for CsvSource {
     /// its size.
     async fn read_buf(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError> {
         // create str buff
-        let mut line: &mut Vec<u8> = &mut Vec::new();
+        let line: &mut Vec<u8> = &mut Vec::new();
         // read line from file
         let bytes_read = self
             .reader
@@ -128,6 +118,10 @@ impl ToConfig<DataSourceConfig> for CsvSource {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
+
+    use tempfile::NamedTempFile;
+
     use super::*;
 
     #[tokio::test]

@@ -10,15 +10,12 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::thread;
 use std::time::Duration;
 
-use log::{debug, error, info, trace};
-use tcpserver::ConnectEventType;
+use log::{debug, error, info};
 use tokio::io::AsyncWriteExt;
-use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf, ReadHalf, WriteHalf};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::stream;
+use tokio::net::TcpStream;
+use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::sync::Mutex;
 
 use crate::errors::NetworkError;
@@ -27,10 +24,6 @@ use crate::network::rpc_message::{RpcMessage, RpcMessageKind, *};
 use crate::network::tcp;
 use crate::network::tcp::MAX_MESSAGE_LENGTH;
 
-/// Initial size of internal buffer to handle fragmentation.
-/// Socket reading will automatically resize this buffer if insufficient.
-const MAX_BUFFER_SIZE: usize = 65536;
-const ETH_HEADER_LEN: usize = 42;
 const CONNECTION_TIME: u64 = 10;
 
 /// Tcp Client
@@ -88,7 +81,7 @@ impl TcpClient {
                 let target_addr = write_stream.peer_addr().unwrap();
                 let src_addr = write_stream.local_addr().unwrap();
 
-                tcp::send_message(&mut write_stream, Ctrl(CtrlMsg::Connect)).await;
+                tcp::send_message(&mut write_stream, Ctrl(CtrlMsg::Connect)).await?;
 
                 self.connections.lock().await.insert(
                     target_addr,
