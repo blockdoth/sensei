@@ -13,6 +13,7 @@ use crate::network::tcp::ChannelMsg;
 
 pub struct TcpServer {}
 
+// TODO: write docs
 impl TcpServer {
     pub async fn serve<H>(addr: SocketAddr, connection_handler: Arc<H>) -> Result<(), NetworkError>
     where

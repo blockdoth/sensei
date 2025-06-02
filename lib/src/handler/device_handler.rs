@@ -60,7 +60,7 @@ impl DeviceHandlerConfig {
     /// This function may return:
     /// - `TaskError::Io` for file reading issues.
     /// - `TaskError::Parse` for YAML deserialization errors.
-    pub async fn from_yaml(file: PathBuf) -> Result<Vec<DeviceHandlerConfig>, TaskError> {
+    pub fn from_yaml(file: PathBuf) -> Result<Vec<DeviceHandlerConfig>, TaskError> {
         let yaml = fs::read_to_string(file)?;
         let configs = serde_yaml::from_str(&yaml)?;
         Ok(configs)

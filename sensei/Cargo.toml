@@ -18,6 +18,8 @@ crossterm = "0.29.0"
 futures = "0.3.31"
 serialport = "4.7.2"
 crossbeam-channel = "0.5.15"
+serde = "1.0.219"
+serde_yaml = "0.9.34"
 
 [lints]
 workspace = true

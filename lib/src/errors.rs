@@ -28,6 +28,10 @@ pub enum NetworkError {
     /// Communication operation timed out.
     #[error("Communication timed out")]
     Timeout(#[from] tokio::time::error::Elapsed),
+
+    /// The response could not be parsed.
+    #[error("Message could not be parsed")]
+    MessageError,
 }
 
 /// Generic application-level error for unimplemented functionality.
@@ -105,6 +109,10 @@ pub enum AppError {
     /// Configuration is invalid or incomplete.
     #[error("Configuration error: {0}")]
     ConfigError(String),
+
+    /// No such host
+    #[error("No such host exists")]
+    NoSuchHost,
 }
 
 /// Common error enum for all CSI adapters (IWL, ESP32, CSV).

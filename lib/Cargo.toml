@@ -21,13 +21,11 @@ ratatui = { version = "0.29.0", features = ["all-widgets", "crossterm"] }
 crossbeam-channel = "0.5.15"
 argh = "0.1"
 tokio = { version = "1.44.2", features = ["full"] }
-simplelog = "0.12.2"
 serde_json = "1.0.140"
 async-trait = "0.1.88"
 serde_yaml = "0.9.34"
 num-complex = { version = "0.4.6", features = ["serde"] }
-file = "1.1.2" 
-queue = "0.3.1" 
+file = "1.1.2" # Note: 'file' might be a very generic name, ensure it's the correct crate.
 tcpserver = "2.2.0"
 tokio-stream = "0.1.17"
 async-stream = "0.3.6"
@@ -35,7 +33,6 @@ schemars = "0.8.22"
 log = "0.4.27"
 env_logger = "0.11.8"
 thiserror = "2.0.12"
-anyhow = "1.0.98"
 chrono = "0.4.41"
 clap = { version = "4.5.38", features = ["derive"] }
 futures = "0.3.31"

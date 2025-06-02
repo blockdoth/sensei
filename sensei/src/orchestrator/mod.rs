@@ -82,7 +82,7 @@ impl Orchestrator {
                 let mut line_iter = line.split_whitespace();
                 match line_iter.next() {
                     Some("connect") => {
-                        let target_addr: SocketAddr = line_iter
+                        let target_addr = line_iter
                             .next()
                             .unwrap() // #TODO remove unwrap
                             .parse()
@@ -90,12 +90,12 @@ impl Orchestrator {
                         Self::connect(&send_client, target_addr).await;
                     }
                     Some("disconnect") => {
-                        let target_addr: SocketAddr = line_iter.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
+                        let target_addr = line_iter.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
                         Self::disconnect(&send_client, target_addr).await;
                     }
                     Some("sub") => {
-                        let target_addr: SocketAddr = line_iter.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
-                        let device_id: u64 = line_iter.next().unwrap_or("0").parse().unwrap();
+                        let target_addr = line_iter.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
+                        let device_id = line_iter.next().unwrap_or("0").parse().unwrap();
                         let mode: AdapterMode = match line_iter.next() {
                             Some("source") => AdapterMode::SOURCE,
                             Some("raw") => AdapterMode::RAW,
@@ -105,14 +105,18 @@ impl Orchestrator {
                         send_commands_channel.send(ChannelMsg::ListenSubscribe { addr: target_addr });
                     }
                     Some("unsub") => {
-                        let target_addr: SocketAddr = line_iter
+                        let target_addr = line_iter
                             .next()
                             .unwrap_or("") // #TODO remove unwrap
                             .parse()
                             .unwrap_or(DEFAULT_ADDRESS);
-                        let device_id: u64 = line_iter.next().unwrap_or("0").parse().unwrap();
+                        let device_id = line_iter.next().unwrap_or("0").parse().unwrap();
                         Self::unsubscribe(&send_client, target_addr, device_id).await;
                         send_commands_channel.send(ChannelMsg::ListenUnsubscribe { addr: target_addr });
+                    }
+                    Some("sendstatus") => {
+                        let target_addr = line_iter.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
+                        send_commands_channel.send(ChannelMsg::SendHostStatus { reg_addr: target_addr });
                     }
                     _ => {
                         info!("Failed to parse command")

@@ -13,7 +13,7 @@ use std::sync::Arc;
 use cli::*;
 use esp_tool::EspTool;
 use log::*;
-use services::Run;
+use services::{FromYaml, Run, SystemNodeConfig};
 use simplelog::{ColorChoice, CombinedLogger, LevelFilter, TermLogger, TerminalMode, WriteLogger};
 
 use crate::orchestrator::*;
@@ -58,7 +58,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match &args.subcommand {
         None => lib::tui::example::run_example().await,
         Some(subcommand) => match subcommand {
-            SubCommandsArgs::One(args) => SystemNode::new().run(global_args, args.parse()?).await?,
+            SubCommandsArgs::One(args) => {
+                SystemNode::new()
+                    .run(
+                        global_args,
+                        args.overlay_subcommand_args(SystemNodeConfig::from_yaml(args.config_path.clone())?)?,
+                    )
+                    .await?
+            }
             SubCommandsArgs::Two(args) => Registry::new().run(global_args, args.parse()?).await?,
             SubCommandsArgs::Three(args) => Orchestrator::new().run(global_args, args.parse()?).await?,
             SubCommandsArgs::Four(args) => Visualiser::new().run(global_args, args.parse()?).await?,
