@@ -112,28 +112,12 @@ pub trait SubscribeDataChannel {
 pub enum ChannelMsg {
     Empty,
     Disconnect,
-    Subscribe {
-        device_id: u64,
-    },
-    Unsubscribe {
-        device_id: u64,
-    },
-    SubscribeTo {
-        target_addr: SocketAddr,
-        device_id: u64,
-    },
-    UnsubscribeFrom {
-        target_addr: SocketAddr,
-        device_id: u64,
-    },
-    ListenSubscribe {
-        addr: SocketAddr,
-    },
-    ListenUnsubscribe {
-        addr: SocketAddr,
-    },
+    Subscribe { device_id: u64 },
+    Unsubscribe { device_id: u64 },
+    SubscribeTo { target_addr: SocketAddr, device_id: u64 },
+    UnsubscribeFrom { target_addr: SocketAddr, device_id: u64 },
+    ListenSubscribe { addr: SocketAddr },
+    ListenUnsubscribe { addr: SocketAddr },
     Poll,
-    Data {
-        data: DataMsg,
-    },
+    Data { data: DataMsg },
 }

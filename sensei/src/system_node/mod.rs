@@ -12,6 +12,7 @@ use async_trait::async_trait;
 use lib::FromConfig;
 // use lib::FromConfig; // Not using FromConfig for adapter to keep changes minimal here
 use lib::adapters::CsiDataAdapter; // Removed esp32 module import here, will use full path
+use lib::adapters::tcp::TCPAdapter;
 use lib::csi_types::{Complex, CsiData};
 use lib::errors::NetworkError;
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
@@ -25,7 +26,7 @@ use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
 use lib::network::*;
 use lib::sinks::file::{FileConfig, FileSink};
-use lib::sources::{DataSourceConfig, DataSourceT};
+use lib::sources::DataSourceConfig::Tcp;
 use lib::sources::controllers::Controller; // For the .apply() method
 use lib::sources::controllers::esp32_controller::{
     Bandwidth as EspBandwidth,               // Enum for bandwidth
@@ -35,20 +36,20 @@ use lib::sources::controllers::esp32_controller::{
     OperationMode as EspOperationMode,       // Enum for operation mode
     SecondaryChannel as EspSecondaryChannel, // Enum for secondary channel
 };
+use lib::sources::controllers::tcp_controller::TCPControllerParams;
 use lib::sources::esp32::{Esp32Source, Esp32SourceConfig};
 // use lib::sources::csv::{CsvConfig, CsvSource}; // Removed CSV source
 #[cfg(target_os = "linux")]
 use lib::sources::netlink::NetlinkConfig; // Keep for conditional compilation
+use lib::sources::tcp::{TCPConfig, TCPSource};
+use lib::sources::{DataSourceConfig, DataSourceT};
 use log::*;
 use tokio::io::AsyncWriteExt;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::{Mutex, broadcast, watch};
 use tokio::task::JoinHandle;
-use lib::adapters::tcp::TCPAdapter;
-use lib::sources::controllers::tcp_controller::TCPControllerParams;
-use lib::sources::DataSourceConfig::Tcp;
-use lib::sources::tcp::{TCPConfig, TCPSource};
+
 use crate::cli::*;
 // use crate::cli::{SubCommandsArgs, SystemNodeSubcommandArgs}; // SystemNodeSubcommandArgs not used here
 use crate::config::{OrchestratorConfig, SystemNodeConfig};
@@ -103,7 +104,7 @@ impl ConnectionHandler for SystemNode {
                     }
                     return Err(NetworkError::Closed); // Indicate connection should close
                 }
-                Subscribe { device_id} => {
+                Subscribe { device_id } => {
                     if send_channel.send(ChannelMsg::Subscribe { device_id }).is_err() {
                         warn!("Failed to send Subscribe to own handle_send task; already closed?");
                         return Err(NetworkError::UnableToConnect);
@@ -118,7 +119,7 @@ impl ConnectionHandler for SystemNode {
                     }
                     info!("Client {} unsubscribed from data stream for device_id: {}", request.src_addr, device_id);
                 }
-                SubscribeTo { target, device_id} => {
+                SubscribeTo { target, device_id } => {
                     // Create a device handler with a source that will connect to the node server of the target
                     // The sink will connect to this nodes server
                     // Node servers broadcast all incoming data to all connections, but only relevant sources will process this data
@@ -126,15 +127,18 @@ impl ConnectionHandler for SystemNode {
                         target_addr: target,
                         device_id,
                     });
-                    
+
                     let controller = None;
-                    
+
                     let adapter = None;
-                    
-                    let tcp_sink_config = lib::sinks::tcp::TCPConfig { target_addr: self.addr, device_id };
-                    
+
+                    let tcp_sink_config = lib::sinks::tcp::TCPConfig {
+                        target_addr: self.addr,
+                        device_id,
+                    };
+
                     let sinks = vec![lib::sinks::SinkConfig::Tcp(tcp_sink_config)];
-                    
+
                     let new_handler_config = DeviceHandlerConfig {
                         device_id,
                         stype: TCP,
@@ -143,11 +147,11 @@ impl ConnectionHandler for SystemNode {
                         adapter,
                         sinks,
                     };
-                    
+
                     let new_handler = DeviceHandler::from_config(new_handler_config).await.unwrap();
-                    
+
                     info!("Handler created to subscribe to {target}");
-                    
+
                     self.handlers.lock().await.insert(device_id, new_handler);
                 }
                 UnsubscribeFrom { target, device_id } => {
@@ -160,12 +164,8 @@ impl ConnectionHandler for SystemNode {
                 PollDevices => {}
                 Heartbeat => {}
             },
-            Data {
-                data_msg,
-                device_id,
-            } => {
+            Data { data_msg, device_id } => {
                 // TODO: Pass it through relevant TCP sources
-                info!("Received {data_msg:?} relating to device id {device_id}");
                 self.send_data_channel.send((data_msg, device_id));
             }
         }
@@ -192,7 +192,7 @@ impl ConnectionHandler for SystemNode {
                         debug!("Send close confirmation");
                         break;
                     }
-                    ChannelMsg::Subscribe { device_id  } => {
+                    ChannelMsg::Subscribe { device_id } => {
                         info!("Subscribed");
                         subscribed_ids.insert(device_id);
                     }
@@ -208,7 +208,7 @@ impl ConnectionHandler for SystemNode {
                 let (data_msg, device_id) = recv_data_channel.recv().await.unwrap();
 
                 info!("Sending data {data_msg:?} for {device_id} to {send_stream:?}");
-                let msg = Data {data_msg, device_id};
+                let msg = Data { data_msg, device_id };
 
                 send_message(&mut send_stream, msg).await;
             }
@@ -228,7 +228,7 @@ impl Run<SystemNodeConfig> for SystemNode {
     }
 
     /// Starts the system node
-    /// 
+    ///
     /// Initializes a hashmap of device handlers based on the configuration file on startup
     ///
     /// # Arguments

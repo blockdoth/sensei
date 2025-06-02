@@ -4,9 +4,12 @@ use std::ops::Index;
 use std::str::SplitWhitespace;
 use std::sync::Arc;
 use std::vec;
+
 use futures::future::pending;
 use lib::network::rpc_message::CtrlMsg::*;
+use lib::network::rpc_message::DataMsg::RawFrame;
 use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
+use lib::network::rpc_message::SourceType::ESP32;
 use lib::network::rpc_message::{AdapterMode, CtrlMsg, DataMsg, RpcMessage, SourceType};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::{ChannelMsg, client, send_message};
@@ -18,8 +21,7 @@ use tokio::signal;
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::{Mutex, watch};
 use tokio::task::JoinHandle;
-use lib::network::rpc_message::DataMsg::RawFrame;
-use lib::network::rpc_message::SourceType::ESP32;
+
 use crate::cli::{self, GlobalConfig, OrchestratorSubcommandArgs, SubCommandsArgs};
 use crate::config::{DEFAULT_ADDRESS, OrchestratorConfig};
 use crate::module::*;
@@ -144,7 +146,7 @@ impl Orchestrator {
                     target: source_addr,
                     device_id,
                 });
-                
+
                 info!("Telling {target_addr} to subscribe to {source_addr} on device id {device_id}");
 
                 send_client.lock().await.send_message(target_addr, msg).await;
@@ -159,16 +161,24 @@ impl Orchestrator {
                     target: source_addr,
                     device_id,
                 });
-                
+
                 info!("Telling {target_addr} to unsubscribe from device id {device_id} from {source_addr}");
 
                 send_client.lock().await.send_message(target_addr, msg).await;
             }
-            Some("dummydata") => { // To test the subscription mechanic
+            Some("dummydata") => {
+                // To test the subscription mechanic
                 let target_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
-                
-                let msg = Data {data_msg: RawFrame {ts: 1234f64, bytes: vec!(), source_type: ESP32}, device_id: 0};
-                
+
+                let msg = Data {
+                    data_msg: RawFrame {
+                        ts: 1234f64,
+                        bytes: vec![],
+                        source_type: ESP32,
+                    },
+                    device_id: 0,
+                };
+
                 info!("Sending dummy data to {target_addr}");
                 send_client.lock().await.send_message(target_addr, msg).await;
             }

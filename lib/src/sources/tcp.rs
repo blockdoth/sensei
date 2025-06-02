@@ -14,7 +14,7 @@ use crate::sources::DataSourceT;
 pub struct TCPConfig {
     /// source adress from which to read
     pub target_addr: SocketAddr,
-    
+
     /// device id to which this is relevant
     pub device_id: u64,
 }
@@ -103,7 +103,7 @@ impl DataSourceT for TCPSource {
             RpcMessageKind::Data { data_msg, device_id } => {
                 if device_id == self.config.device_id {
                     // return the actual data payload
-                    Ok(Some(data_msg))    
+                    Ok(Some(data_msg))
                 } else {
                     Ok(None)
                 }
