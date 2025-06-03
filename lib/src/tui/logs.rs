@@ -1,8 +1,8 @@
 use chrono::{DateTime, Local};
-use log::{Level, LevelFilter, Metadata, Record, SetLoggerError, info};
+use log::{Level, LevelFilter, Metadata, Record, SetLoggerError};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::Sender;
 
 /// Represents a single log entry captured for display in the TUI.
 #[derive(Debug, Clone)]

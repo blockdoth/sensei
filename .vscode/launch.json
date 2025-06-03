@@ -1,0 +1,225 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'lib'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=lib"
+                ],
+                "filter": {
+                    "name": "lib",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'config'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=config",
+                    "--package=lib"
+                ],
+                "filter": {
+                    "name": "config",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'config'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=config",
+                    "--package=lib"
+                ],
+                "filter": {
+                    "name": "config",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'sensei'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=sensei",
+                    "--package=sensei"
+                ],
+                "filter": {
+                    "name": "sensei",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'sensei' - Registry",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=sensei",
+                    "--package=sensei"
+                ],
+                "filter": {
+                    "name": "sensei",
+                    "kind": "bin"
+                }
+            },
+            "args": [
+                "registry"
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'sensei' - node (dummy)",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=sensei",
+                    "--package=sensei"
+                ],
+                "filter": {
+                    "name": "sensei",
+                    "kind": "bin"
+                }
+            },
+            "args": [
+                "node",
+                "--config",
+                "sensei/src/system_node/dummy_node.yaml"
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'sensei' - node (esp32)",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=sensei",
+                    "--package=sensei"
+                ],
+                "filter": {
+                    "name": "sensei",
+                    "kind": "bin"
+                }
+            },
+            "args": [
+                "node",
+                "--config",
+                "sensei/src/system_node/example_config.yaml"
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'sensei' - visualiser",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=sensei",
+                    "--package=sensei"
+                ],
+                "filter": {
+                    "name": "sensei",
+                    "kind": "bin"
+                }
+            },
+            "args": [
+                "visualiser",
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'sensei' - ESP Tool",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=sensei",
+                    "--package=sensei"
+                ],
+                "filter": {
+                    "name": "sensei",
+                    "kind": "bin"
+                }
+            },
+            "args": [
+                "esp-tool",
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'sensei' - Orchestrator",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=sensei",
+                    "--package=sensei"
+                ],
+                "filter": {
+                    "name": "sensei",
+                    "kind": "bin"
+                }
+            },
+            "args": [
+                "orchestrator",
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'sensei'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=sensei",
+                    "--package=sensei"
+                ],
+                "filter": {
+                    "name": "sensei",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

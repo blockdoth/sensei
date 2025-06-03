@@ -5,34 +5,31 @@
 //! which is important for low-compute devices. The registry spawns two threads: a TCP server for host registration and a background thread for polling hosts.
 use std::collections::HashMap;
 use std::convert::From;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddr};
 use std::sync::Arc;
 
 use anyhow::Error;
 use async_trait::async_trait;
 use lib::errors::{AppError, NetworkError};
-use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
-use lib::network::rpc_message::{self, CtrlMsg, DataMsg, DeviceStatus, HostId, RpcMessage, RpcMessageKind, SourceType};
+use lib::network::rpc_message::RpcMessageKind::Ctrl;
+use lib::network::rpc_message::{CtrlMsg, DataMsg, DeviceId, DeviceStatus, HostId, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
-use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
+use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel};
 use log::*;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
-use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
-use tokio::runtime::Runtime;
-use tokio::sync::watch::{self, Receiver, Sender};
+use tokio::net::tcp::OwnedWriteHalf;
+use tokio::sync::watch::{self};
 use tokio::sync::{Mutex, broadcast};
 use tokio::task;
 use tokio::time::{Duration, interval};
 
-use crate::cli::{RegistrySubcommandArgs, SubCommandsArgs};
-use crate::services::{GlobalConfig, RegistryConfig, Run};
+use crate::config::RegistryConfig;
+use crate::module::Run;
 
 #[derive(Clone)]
 pub struct Registry {
     hosts: Arc<Mutex<HashMap<HostId, HostInfo>>>,
-    send_data_channel: broadcast::Sender<DataMsg>,
+    send_data_channel: broadcast::Sender<(DataMsg, DeviceId)>,
 }
 
 /// Information about a registered host.
@@ -89,13 +86,140 @@ impl Run<RegistryConfig> for Registry {
             let connection_handler = Arc::new(self.clone());
             task::spawn(async move {
                 info!("Starting TCP client to poll hosts...");
-                let mut client = TcpClient::new();
-                connection_handler.poll_hosts(client, Duration::from_secs(config.poll_interval)).await;
+                let client = TcpClient::new();
+                connection_handler
+                    .poll_hosts(client, Duration::from_secs(config.poll_interval))
+                    .await
+                    .unwrap();
             })
         };
 
         let _ = tokio::try_join!(server_task, client_task);
         Ok(())
+    }
+}
+
+/// Allows clients to subscribe to the registry's data channel.
+impl SubscribeDataChannel for Registry {
+    fn subscribe_data_channel(&self) -> broadcast::Receiver<(DataMsg, DeviceId)> {
+        self.send_data_channel.subscribe()
+    }
+}
+
+#[async_trait]
+/// Handles incoming and outgoing network connections for the registry.
+impl ConnectionHandler for Registry {
+    /// Handle an incoming message from a host or client.
+    async fn handle_recv(&self, request: RpcMessage, _send_commands_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
+        debug!("Received request: {:?}", request);
+
+        match request.msg {
+            Ctrl(CtrlMsg::AnnouncePresence { host_id, host_address }) => {
+                self.register_host(host_id, host_address).await.unwrap();
+                Ok(())
+            }
+            _ => Err(NetworkError::MessageError),
+        }
+    }
+
+    /// Handle outgoing messages to a host or client.
+    async fn handle_send(
+        &self,
+        _recv_commands_channel: watch::Receiver<ChannelMsg>,
+        _recv_data_channel: tokio::sync::broadcast::Receiver<(DataMsg, HostId)>,
+        _send_stream: OwnedWriteHalf,
+    ) -> Result<(), NetworkError> {
+        Ok(())
+    }
+}
+
+/// The `Registry` struct manages a collection of hosts, providing asynchronous methods to poll their status,
+/// register new hosts, remove unresponsive hosts, list all registered hosts, and store updates to host status.
+///
+/// # Methods
+/// - `poll_hosts`: Periodically polls all registered hosts for their status using a TCP client.
+/// - `handle_unresponsive_host`: Removes a host from the registry if it did not respond to the last two heartbeats.
+/// - `list_hosts`: Returns a list of all registered hosts and their socket addresses.
+/// - `register_host`: Registers a new host with the registry.
+/// - `store_host_update`: Stores an update to a host's status in the registry.
+impl Registry {
+    /// Go though the list of hosts and poll their status
+    async fn poll_hosts(&self, mut client: TcpClient, poll_interval: Duration) -> Result<(), Error> {
+        let mut interval = interval(poll_interval);
+        loop {
+            interval.tick().await;
+            for (host, addr) in self.list_hosts().await {
+                let res: Result<(), Error> = async {
+                    info!("Polling host: {host:#?} at address: {addr}");
+                    client.connect(addr).await?;
+                    client.send_message(addr, RpcMessageKind::Ctrl(CtrlMsg::PollHostStatus)).await?;
+                    let msg = client.read_message(addr).await?;
+                    info!("msg: {msg:?}");
+                    self.store_host_update(host, addr, msg.msg).await?;
+                    client.disconnect(addr).await?;
+                    Ok(())
+                }
+                .await;
+                if res.is_err() {
+                    // if a host throws errors, handle them here
+                    // Might have to be split out into error types later
+                    self.handle_unresponsive_host(host).await?;
+                }
+            }
+        }
+    }
+
+    /// Remove a host from the registry if it did not respond to the last two heartbeats.
+    async fn handle_unresponsive_host(&self, host_id: HostId) -> Result<(), Error> {
+        info!("Could not reach host: {host_id:?}");
+        let mut host_info_table = self.hosts.lock().await;
+        if let Some(info) = host_info_table.get_mut(&host_id) {
+            if !info.responded_to_last_heardbeat {
+                host_info_table.remove(&host_id);
+            } else {
+                info.responded_to_last_heardbeat = false;
+            }
+        } else {
+            info!("Could not remove host: {host_id} does not exit.")
+        }
+        Ok(())
+    }
+    /// List all registered hosts in the registry.
+    async fn list_hosts(&self) -> Vec<(HostId, SocketAddr)> {
+        self.hosts.lock().await.iter().map(|(id, info)| (*id, info.addr)).collect()
+    }
+    /// Register a new host with the registry.
+    async fn register_host(&self, host_id: HostId, host_address: SocketAddr) -> Result<(), Error> {
+        // because the host has been registered with priority 0 it will be next in line
+        self.hosts.lock().await.insert(
+            host_id,
+            HostInfo {
+                addr: host_address,
+                status: RegHostStatus {
+                    host_id,
+                    device_status: Vec::new(),
+                },
+                responded_to_last_heardbeat: true,
+            },
+        );
+        info!("Registered host: {host_id:#?}");
+        Ok(())
+    }
+    /// Store an update to a host's status in the registry.
+    async fn store_host_update(&self, _host_id: HostId, host_address: SocketAddr, status: RpcMessageKind) -> Result<(), AppError> {
+        match status {
+            Ctrl(CtrlMsg::HostStatus { host_id, device_status }) => {
+                info!("{device_status:?}");
+                let status = HostInfo {
+                    addr: host_address,
+                    status: RegHostStatus { host_id, device_status },
+                    responded_to_last_heardbeat: true,
+                };
+                self.hosts.lock().await.insert(host_id, status);
+                Ok(())
+            }
+            _ => Err(AppError::NoSuchHost),
+        }
     }
 }
 
@@ -228,6 +352,25 @@ mod tests {
 
     use super::*;
     use crate::system_node;
+
+    fn test_host_id(n: u64) -> HostId {
+        // placeholder in case the IDs get more complex
+        n
+    }
+
+    fn test_socket_addr(port: u16) -> SocketAddr {
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port)
+    }
+
+    fn make_registry() -> Registry {
+        Registry {
+            hosts: Arc::new(Mutex::new(HashMap::new())),
+            send_data_channel: broadcast::channel(10).0,
+        }
+    }
+    use lib::network::rpc_message::SourceType;
+
+    use super::*;
 
     fn test_host_id(n: u64) -> HostId {
         // placeholder in case the IDs get more complex

@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 use crate::ToConfig;
 use crate::errors::DataSourceError;
 use crate::network::rpc_message::SourceType;
-use crate::sources::controllers::Controller;
 use crate::sources::{BUFSIZE, DataMsg, DataSourceConfig, DataSourceT, TaskError};
 
 // Configuration structure for a Netlink source.

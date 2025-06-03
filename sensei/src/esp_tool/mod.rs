@@ -5,13 +5,17 @@ mod state;
 mod tui;
 
 use std::collections::VecDeque;
-use std::env;
+use std::collections::VecDeque; // For log buffer
+use std::env; // Keep for RUST_LOG, though port comes from args
 use std::error::Error;
 use std::io::{self, stdout};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering, Ordering as AtomicOrdering};
 use std::sync::mpsc::RecvTimeoutError;
+use std::sync::{Arc, Mutex as StdMutex}; // Standard Mutex for AppState
+// May not be needed if all sleeps are tokio::time::sleep
 use std::time::Duration;
+use std::{env, io};
 
 use chrono::{DateTime, Local};
 use crossbeam_channel::{Receiver as CrossbeamReceiver, Sender as CrossbeamSender};
@@ -33,18 +37,32 @@ use lib::sources::controllers::esp32_controller::{
 use lib::sources::esp32::{Esp32Source, Esp32SourceConfig};
 use lib::tui::TuiRunner;
 use lib::tui::logs::{FromLog, LogEntry, TuiLogger, init_logger};
-use log::{Level, LevelFilter, Metadata, Record, SetLoggerError, debug, error, info, warn};
+use log::{
+    Level, Level, LevelFilter, LevelFilter, Metadata, Metadata, Record, Record, SetLoggerError, SetLoggerError, debug, error, error, info, info,
+    warn, warn,
+};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table, Wrap};
 use ratatui::{Frame, Terminal};
+// Ratatui imports
+use ratatui::{
+    Frame, Terminal,
+    backend::CrosstermBackend,
+    layout::{Constraint, Direction, Layout},
+    style::{Color, Modifier, Style},
+    text::{Line, Span, Text},
+    widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table},
+};
 use serialport::SerialPort;
 use spam_settings::SpamSettings;
 use state::{EspUpdate, TuiState};
+use tokio::sync::Mutex as TokioMutex; // Tokio Mutex for Esp32Source
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{Mutex, mpsc};
+// use tokio::sync::Notify; // Not used in the provided snippet, can be removed if not needed elsewhere
 use tokio::task::JoinHandle;
 use tokio::time::{sleep, timeout};
 use tui::ui;
@@ -146,6 +164,29 @@ impl EspTool {
                 return;
             }
         };
+        let app_state_log_clone = Arc::clone(&app_state);
+        // let log_listener_handle: JoinHandle<()> = tokio::spawn(async move {
+        // Changed variable name to avoid conflict
+        // loop {
+        //     tokio::task::yield_now().await;
+        //     match tokio::task::block_in_place(|| log_rx.recv_timeout(Duration::from_secs(1))) {
+        //         Ok(log_msg) => match app_state_log_clone.try_lock() {
+        //             Ok(mut state_guard) => {
+        //                 state_guard.add_log_message(log_msg);
+        //             }
+        //             Err(std::sync::TryLockError::Poisoned(_)) => {
+        //                 break;
+        //             }
+        //             Err(std::sync::TryLockError::WouldBlock) => {}
+        //         },
+        //         Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+        //             continue;
+        //         }
+        //         Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+        //             break;
+        //         }
+        //     }
+        // };)
         if let Err(e) = esp.start().await {
             update_send_channel.send(EspUpdate::Status("DISCONNECTED (Start Fail)".to_string())).await;
             warn!("Shutting down ESP task");
