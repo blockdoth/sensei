@@ -13,7 +13,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Cell, Padding, Paragraph, Row, Table, Wrap};
 
-use super::state::TuiState;
+use super::state::EspTuiState;
 use crate::esp_tool::state::{FocusedPanel, FocussedInput, ToolMode};
 use crate::esp_tool::{CSI_DATA_BUFFER_CAPACITY, LOG_BUFFER_CAPACITY};
 
@@ -22,7 +22,7 @@ const SPAM_DETAILS_LINES: u16 = 4; // Lines for spam-specific configuration deta
 
 // Renders the full TUI frame based on the current application state (TuiState).
 // This function is *purely presentational* and does not mutate state.
-pub fn ui(f: &mut Frame, tui_state: &TuiState) {
+pub fn ui(f: &mut Frame, tui_state: &EspTuiState) {
     // === Top-level layout: vertical split into main content and footer ===
     let screen_chunks = Layout::default()
         .direction(Direction::Vertical)

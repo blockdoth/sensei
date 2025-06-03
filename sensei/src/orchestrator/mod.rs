@@ -1,3 +1,6 @@
+mod state;
+mod tui;
+
 use std::arch::global_asm;
 use std::net::SocketAddr;
 use std::ops::Index;
@@ -9,12 +12,15 @@ use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
 use lib::network::rpc_message::{AdapterMode, CtrlMsg, DataMsg, RpcMessage, SourceType};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::{ChannelMsg, client};
+use lib::tui::TuiRunner;
 use log::*;
 use ratatui::backend::ClearType;
+use state::{OrgCommand, OrgTuiState, OrgUpdate};
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader, Split};
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::signal;
-use tokio::sync::{Mutex, watch};
+use tokio::sync::mpsc::Receiver;
+use tokio::sync::{Mutex, mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::cli::{self, OrchestratorSubcommandArgs, SubCommandsArgs};
@@ -31,151 +37,71 @@ impl Run<OrchestratorConfig> for Orchestrator {
         }
     }
     async fn run(&mut self, global_config: GlobalConfig, config: OrchestratorConfig) -> Result<(), Box<dyn std::error::Error>> {
-        for target_addr in config.targets.clone() {
-            Self::connect(&self.client, target_addr).await
+        let (command_send, mut command_recv) = mpsc::channel::<ChannelMsg>(1000);
+        let (update_send, mut update_recv) = mpsc::channel::<OrgUpdate>(1000);
+
+        for target_addr in &config.targets {
+          update_send.send(OrgUpdate::Connect(*target_addr));
         }
-        self.cli_interface().await;
+
+        let tasks = vec![Self::listen(command_recv,self.client.clone())];
+
+        let tui = OrgTuiState::new(self.client.clone());
+
+        let tui_runner = TuiRunner::new(tui, command_send, update_recv, update_send, global_config.log_level);
+        tui_runner.run(tasks).await;
         Ok(())
     }
 }
 
 impl Orchestrator {
-    async fn connect(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr) {
-        client.lock().await.connect(target_addr).await;
-    }
 
-    async fn disconnect(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr) {
-        client.lock().await.disconnect(target_addr).await;
-    }
+    async fn listen(mut recv_commands_channel: Receiver<ChannelMsg>, client: Arc<Mutex<TcpClient>>) {
+      async move {
+        let mut receiving = false;
+        let mut targets: Vec<SocketAddr> = vec![];
+        loop {
+            if !recv_commands_channel.is_empty() {
+              let msg_opt = recv_commands_channel.recv().await;
+              match msg_opt {
+                  Some(ChannelMsg::ListenSubscribe { addr }) => {
+                      if !targets.contains(&addr) {
+                          targets.push(addr);
+                      }
+                      receiving = true;
+                  }
+                  Some(ChannelMsg::ListenSubscribe { addr }) => {
+                      if let Some(pos) = targets.iter().position(|x| *x == addr) {
+                          targets.remove(pos);
+                      }
+                      if targets.is_empty() {
+                          receiving = false;
+                      }
+                  }
+                  _ => (),
+              }
 
-    async fn subscribe(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: u64, mode: AdapterMode) {
-        let msg = Ctrl(CtrlMsg::Subscribe { device_id, mode });
-        client.lock().await.send_message(target_addr, msg).await;
-    }
-
-    async fn unsubscribe(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: u64) {
-        let msg = Ctrl(CtrlMsg::Unsubscribe { device_id });
-        client.lock().await.send_message(target_addr, msg).await;
-    }
-
-    // Temporary, refactor once TUI gets added
-    async fn cli_interface(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let (send_commands_channel, mut recv_commands_channel) = watch::channel::<ChannelMsg>(ChannelMsg::Empty);
-
-        let send_client = self.client.clone();
-        let recv_client = self.client.clone();
-
-        let command_task = tokio::spawn(async move {
-            // Create the input reader
-            let stdin: BufReader<io::Stdin> = BufReader::new(io::stdin());
-            let mut lines = stdin.lines();
-
-            info!("Starting TUI interface");
-            info!("Manual mode, type 'help' for commands");
-
-            while let Ok(Some(line)) = lines.next_line().await {
-                let line = line.trim();
-                if line.is_empty() {
-                    continue;
-                }
-
-                let mut line_iter = line.split_whitespace();
-                match line_iter.next() {
-                    Some("connect") => {
-                        let target_addr = line_iter
-                            .next()
-                            .unwrap() // #TODO remove unwrap
-                            .parse()
-                            .unwrap_or(DEFAULT_ADDRESS);
-                        Self::connect(&send_client, target_addr).await;
-                    }
-                    Some("disconnect") => {
-                        let target_addr = line_iter.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
-                        Self::disconnect(&send_client, target_addr).await;
-                    }
-                    Some("sub") => {
-                        let target_addr = line_iter.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
-                        let device_id = line_iter.next().unwrap_or("0").parse().unwrap();
-                        let mode: AdapterMode = match line_iter.next() {
-                            Some("source") => AdapterMode::SOURCE,
-                            Some("raw") => AdapterMode::RAW,
-                            _ => AdapterMode::RAW,
-                        };
-                        Self::subscribe(&send_client, target_addr, device_id, mode).await;
-                        send_commands_channel.send(ChannelMsg::ListenSubscribe { addr: target_addr });
-                    }
-                    Some("unsub") => {
-                        let target_addr = line_iter
-                            .next()
-                            .unwrap_or("") // #TODO remove unwrap
-                            .parse()
-                            .unwrap_or(DEFAULT_ADDRESS);
-                        let device_id = line_iter.next().unwrap_or("0").parse().unwrap();
-                        Self::unsubscribe(&send_client, target_addr, device_id).await;
-                        send_commands_channel.send(ChannelMsg::ListenUnsubscribe { addr: target_addr });
-                    }
-                    Some("sendstatus") => {
-                        let target_addr = line_iter.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
-                        send_commands_channel.send(ChannelMsg::SendHostStatus { reg_addr: target_addr });
-                    }
-                    _ => {
-                        info!("Failed to parse command")
-                    }
-                }
-                io::stdout().flush(); // Ensure prompt shows up again
             }
-            println!("Send loop ended (stdin closed).");
-        });
 
-        let recv_task = tokio::spawn(async move {
-            let mut receiving = false;
-            let mut targets: Vec<SocketAddr> = vec![];
-            loop {
-                if recv_commands_channel.has_changed().unwrap_or(false) {
-                    let msg_opt = recv_commands_channel.borrow_and_update().clone();
-                    match msg_opt {
-                        ChannelMsg::ListenSubscribe { addr } => {
-                            if !targets.contains(&addr) {
-                                targets.push(addr);
-                            }
-                            receiving = true;
+            if receiving {
+                for target_addr in targets.iter() {
+                    let msg = client.lock().await.read_message(*target_addr).await.unwrap();
+                    match msg.msg {
+                        Data {
+                            data_msg: DataMsg::CsiFrame { csi },
+                            device_id,
+                        } => {
+                            info!("{}: {}", msg.src_addr, csi.timestamp)
                         }
-                        ChannelMsg::ListenSubscribe { addr } => {
-                            if let Some(pos) = targets.iter().position(|x| *x == addr) {
-                                targets.remove(pos);
-                            }
-                            if targets.is_empty() {
-                                receiving = false;
-                            }
-                        }
+                        Data {
+                            data_msg: DataMsg::RawFrame { ts, bytes, source_type },
+                            device_id,
+                        } => info!("{}: {ts}", msg.src_addr),
                         _ => (),
                     }
                 }
-                if receiving {
-                    for target_addr in targets.iter() {
-                        let msg = recv_client.lock().await.read_message(*target_addr).await.unwrap();
-                        match msg.msg {
-                            Data {
-                                data_msg: DataMsg::CsiFrame { csi },
-                                device_id,
-                            } => {
-                                info!("{}: {}", msg.src_addr, csi.timestamp)
-                            }
-                            Data {
-                                data_msg: DataMsg::RawFrame { ts, bytes, source_type },
-                                device_id,
-                            } => info!("{}: {ts}", msg.src_addr),
-                            _ => (),
-                        }
-                    }
-                }
             }
-        });
-        signal::ctrl_c().await?;
-        info!("Shutdown signal received. Exiting.");
-        command_task.abort();
-        recv_task.abort();
-
-        Ok(())
+        }
+      };
     }
 }

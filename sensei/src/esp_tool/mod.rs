@@ -42,7 +42,7 @@ use ratatui::widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Tab
 use ratatui::{Frame, Terminal};
 use serialport::SerialPort;
 use spam_settings::SpamSettings;
-use state::{EspUpdate, TuiState};
+use state::{EspTuiState, EspUpdate};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
@@ -112,7 +112,7 @@ impl Run<EspToolConfig> for EspTool {
         let esp_task = Self::esp_source_task(esp_src_config, esp_device_config, update_send_clone, command_recv);
         let tasks = vec![esp_task];
 
-        let tui_runner = TuiRunner::new(TuiState::new(), command_send, update_recv, update_send, global_config.log_level);
+        let tui_runner = TuiRunner::new(EspTuiState::new(), command_send, update_recv, update_send, global_config.log_level);
         tui_runner.run(tasks).await;
         Ok(())
     }

@@ -117,7 +117,7 @@ pub enum FocussedInput {
 
 /// Holds the entire state of the TUI, including configurations, logs, and mode information.
 #[derive(Debug)]
-pub struct TuiState {
+pub struct EspTuiState {
     pub connection_status: String,
     pub should_quit: bool,
     pub focused_panel: FocusedPanel,
@@ -138,7 +138,7 @@ pub struct TuiState {
 }
 
 #[async_trait]
-impl Tui<EspUpdate, EspChannelCommand> for TuiState {
+impl Tui<EspUpdate, EspChannelCommand> for EspTuiState {
     /// Draws the UI based on the state of the TUI, should not change any state by itself
     fn draw_ui(&self, f: &mut Frame) {
         ui(f, self);
@@ -396,7 +396,7 @@ impl Tui<EspUpdate, EspChannelCommand> for TuiState {
     }
 }
 
-impl TuiState {
+impl EspTuiState {
     /// Constructs a new `TuiState` with default configurations.
     pub fn new() -> Self {
         Self {
