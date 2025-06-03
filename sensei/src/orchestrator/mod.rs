@@ -1,4 +1,3 @@
-use std::io::BufRead;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -12,8 +11,8 @@ use lib::network::rpc_message::DataMsg::RawFrame;
 use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
 use lib::network::rpc_message::SourceType::ESP32;
 use lib::network::rpc_message::{CtrlMsg, DataMsg, DeviceId};
-use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::ChannelMsg;
+use lib::network::tcp::client::TcpClient;
 use log::*;
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::watch::{Receiver, Sender};
@@ -27,7 +26,7 @@ pub struct Orchestrator {
 }
 
 impl Run<OrchestratorConfig> for Orchestrator {
-    fn new(config: OrchestratorConfig) -> Self {
+    fn new(_config: OrchestratorConfig) -> Self {
         Orchestrator {
             client: Arc::new(Mutex::new(TcpClient::new())),
         }
@@ -37,30 +36,30 @@ impl Run<OrchestratorConfig> for Orchestrator {
         for target_addr in config.targets.into_iter() {
             Self::connect(&self.client, target_addr).await
         }
-        self.cli_interface().await;
+        self.cli_interface().await.expect("TODO: panic message");
         Ok(())
     }
 }
 
 impl Orchestrator {
     async fn connect(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr) {
-        client.lock().await.connect(target_addr).await;
+        client.lock().await.connect(target_addr).await.expect("TODO: panic message");
     }
 
     async fn disconnect(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr) {
-        client.lock().await.disconnect(target_addr).await;
+        client.lock().await.disconnect(target_addr).await.expect("TODO: panic message");
     }
 
     async fn subscribe(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: u64) {
         let msg = Ctrl(CtrlMsg::Subscribe { device_id });
         info!("Subscribing to {target_addr} for device id {device_id}");
-        client.lock().await.send_message(target_addr, msg).await;
+        client.lock().await.send_message(target_addr, msg).await.expect("TODO: panic message");
     }
 
     async fn unsubscribe(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: u64) {
         let msg = Ctrl(CtrlMsg::Unsubscribe { device_id });
         info!("Unsubscribing from {target_addr} for device id {device_id}");
-        client.lock().await.send_message(target_addr, msg).await;
+        client.lock().await.send_message(target_addr, msg).await.expect("TODO: panic message");
     }
 
     // Temporary, refactor once TUI gets added
@@ -70,7 +69,7 @@ impl Orchestrator {
         let send_client = self.client.clone();
         let recv_client = self.client.clone();
 
-        let command_task = tokio::spawn(async move {
+        let _command_task = tokio::spawn(async move {
             // Create the input reader
             let stdin: BufReader<io::Stdin> = BufReader::new(io::stdin());
             let mut lines = stdin.lines();
@@ -84,12 +83,12 @@ impl Orchestrator {
                     continue;
                 }
                 Self::parse_command(line, send_client.clone(), send_commands_channel.clone()).await;
-                io::stdout().flush(); // Ensure prompt shows up again
+                io::stdout().flush().await.expect("TODO: panic message"); // Ensure prompt shows up again
             }
             println!("Send loop ended (stdin closed).");
         });
 
-        let recv_task = tokio::spawn(async move {
+        let _recv_task = tokio::spawn(async move {
             Self::recv_task(recv_commands_channel, recv_client.clone()).await;
         });
 
@@ -121,7 +120,9 @@ impl Orchestrator {
                 let device_id: DeviceId = input.next().unwrap_or("0").parse().unwrap();
 
                 Self::subscribe(&send_client, target_addr, device_id).await;
-                send_commands_channel.send(ChannelMsg::ListenSubscribe { addr: target_addr });
+                send_commands_channel
+                    .send(ChannelMsg::ListenSubscribe { addr: target_addr })
+                    .expect("TODO: panic message");
             }
             Some("unsub") => {
                 // Unsubscribe the orchestrator from the data output of another node
@@ -132,7 +133,9 @@ impl Orchestrator {
                     .unwrap_or(DEFAULT_ADDRESS);
                 let device_id: DeviceId = input.next().unwrap_or("0").parse().unwrap();
                 Self::unsubscribe(&send_client, target_addr, device_id).await;
-                send_commands_channel.send(ChannelMsg::ListenUnsubscribe { addr: target_addr });
+                send_commands_channel
+                    .send(ChannelMsg::ListenUnsubscribe { addr: target_addr })
+                    .expect("TODO: panic message");
             }
             Some("subto") => {
                 // Tells a node to subscribe to another node
@@ -147,7 +150,12 @@ impl Orchestrator {
 
                 info!("Telling {target_addr} to subscribe to {source_addr} on device id {device_id}");
 
-                send_client.lock().await.send_message(target_addr, msg).await;
+                send_client
+                    .lock()
+                    .await
+                    .send_message(target_addr, msg)
+                    .await
+                    .expect("TODO: panic message");
             }
             Some("unsubfrom") => {
                 // Tells a node to unsubscribe from another node
@@ -162,7 +170,12 @@ impl Orchestrator {
 
                 info!("Telling {target_addr} to unsubscribe from device id {device_id} from {source_addr}");
 
-                send_client.lock().await.send_message(target_addr, msg).await;
+                send_client
+                    .lock()
+                    .await
+                    .send_message(target_addr, msg)
+                    .await
+                    .expect("TODO: panic message");
             }
             Some("dummydata") => {
                 // To test the subscription mechanic
@@ -178,11 +191,18 @@ impl Orchestrator {
                 };
 
                 info!("Sending dummy data to {target_addr}");
-                send_client.lock().await.send_message(target_addr, msg).await;
+                send_client
+                    .lock()
+                    .await
+                    .send_message(target_addr, msg)
+                    .await
+                    .expect("TODO: panic message");
             }
             Some("sendstatus") => {
                 let target_addr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
-                send_commands_channel.send(ChannelMsg::SendHostStatus { reg_addr: target_addr });
+                send_commands_channel
+                    .send(ChannelMsg::SendHostStatus { reg_addr: target_addr })
+                    .expect("TODO: panic message");
             }
             Some("configure") => {
                 let target_addr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
@@ -203,7 +223,12 @@ impl Orchestrator {
 
                         info!("Telling {target_addr} to create a device handler");
 
-                        send_client.lock().await.send_message(target_addr, msg).await;
+                        send_client
+                            .lock()
+                            .await
+                            .send_message(target_addr, msg)
+                            .await
+                            .expect("TODO: panic message");
                     }
                     Some("edit") => {
                         let config_path: PathBuf = input.next().unwrap_or("sensei/src/orchestrator/example_config.yaml").into();
@@ -220,7 +245,12 @@ impl Orchestrator {
 
                         info!("Telling {target_addr} to edit a device handler");
 
-                        send_client.lock().await.send_message(target_addr, msg).await;
+                        send_client
+                            .lock()
+                            .await
+                            .send_message(target_addr, msg)
+                            .await
+                            .expect("TODO: panic message");
                     }
                     Some("delete") => {
                         let cfg_type = Delete;
@@ -228,7 +258,12 @@ impl Orchestrator {
 
                         info!("Telling {target_addr} to delete a device handler");
 
-                        send_client.lock().await.send_message(target_addr, msg).await;
+                        send_client
+                            .lock()
+                            .await
+                            .send_message(target_addr, msg)
+                            .await
+                            .expect("TODO: panic message");
                     }
                     _ => {
                         info!("Invalid configuration type");
@@ -271,13 +306,18 @@ impl Orchestrator {
                     match msg.msg {
                         Data {
                             data_msg: DataMsg::CsiFrame { csi },
-                            device_id,
+                            device_id: _,
                         } => {
                             info!("{}: {}", msg.src_addr, csi.timestamp)
                         }
                         Data {
-                            data_msg: DataMsg::RawFrame { ts, bytes, source_type },
-                            device_id,
+                            data_msg:
+                                DataMsg::RawFrame {
+                                    ts,
+                                    bytes: _,
+                                    source_type: _,
+                                },
+                            device_id: _,
                         } => info!("{}: {ts}", msg.src_addr),
                         _ => (),
                     }

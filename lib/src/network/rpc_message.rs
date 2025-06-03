@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
 use crate::csi_types::CsiData;
-use crate::handler::device_handler::{CfgType};
+use crate::handler::device_handler::CfgType;
 
 pub const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
 

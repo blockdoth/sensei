@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::Arc;
-// use std::thread::sleep; // Not used
 
+// use std::thread::sleep; // Not used
 use async_trait::async_trait;
 use lib::FromConfig;
 // use lib::FromConfig; // Not using FromConfig for adapter to keep changes minimal here
- // Removed esp32 module import here, will use full path
+// Removed esp32 module import here, will use full path
 use lib::errors::NetworkError;
 use lib::handler::device_handler::CfgType::{Create, Delete, Edit};
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
@@ -17,12 +17,11 @@ use lib::network::rpc_message::{CtrlMsg, DataMsg, DeviceId, RpcMessage};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
-use lib::network::*;
- // For the .apply() method
+use lib::sources::DataSourceConfig;
+// For the .apply() method
 // use lib::sources::csv::{CsvConfig, CsvSource}; // Removed CSV source
- // Keep for conditional compilation
+// Keep for conditional compilation
 use lib::sources::tcp::TCPConfig;
-use lib::sources::{DataSourceConfig, DataSourceT};
 use log::*;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::{Mutex, broadcast, watch};
@@ -131,7 +130,7 @@ impl ConnectionHandler for SystemNode {
 
                     self.handlers.lock().await.insert(device_id, new_handler);
                 }
-                UnsubscribeFrom { target, device_id } => {
+                UnsubscribeFrom { target: _, device_id } => {
                     // TODO: Make it target specific, but for now removing based on device id should be fine.
                     // Would require extracting the source itself from the device handler
                     info!("Removing handler subscribing to {device_id}");
@@ -175,7 +174,7 @@ impl ConnectionHandler for SystemNode {
             },
             Data { data_msg, device_id } => {
                 // TODO: Pass it through relevant TCP sources
-                self.send_data_channel.send((data_msg, device_id));
+                self.send_data_channel.send((data_msg, device_id)).expect("TODO: panic message");
             }
         }
         Ok(())
@@ -197,7 +196,9 @@ impl ConnectionHandler for SystemNode {
                 debug!("Received message {msg_opt:?} over channel");
                 match msg_opt {
                     ChannelMsg::Disconnect => {
-                        send_message(&mut send_stream, Ctrl(CtrlMsg::Disconnect)).await;
+                        send_message(&mut send_stream, Ctrl(CtrlMsg::Disconnect))
+                            .await
+                            .expect("TODO: panic message");
                         debug!("Send close confirmation");
                         break;
                     }
@@ -209,13 +210,13 @@ impl ConnectionHandler for SystemNode {
                         info!("Unsubscribed");
                         subscribed_ids.remove(&device_id);
                     }
-                    ChannelMsg::SendHostStatus { reg_addr } => {
-                        let host_status = CtrlMsg::HostStatus {
+                    ChannelMsg::SendHostStatus { reg_addr: _ } => {
+                        let host_status = HostStatus {
                             host_id: self.config.host_id,
                             device_status: vec![],
                         };
                         let msg = Ctrl(host_status);
-                        tcp::send_message(&mut send_stream, msg).await;
+                        send_message(&mut send_stream, msg).await.expect("TODO: panic message");
                     }
                     _ => (),
                 }
@@ -227,7 +228,7 @@ impl ConnectionHandler for SystemNode {
                 info!("Sending data {data_msg:?} for {device_id} to {send_stream:?}");
                 let msg = Data { data_msg, device_id };
 
-                send_message(&mut send_stream, msg).await;
+                send_message(&mut send_stream, msg).await.expect("TODO: panic message");
             }
         }
         // Loop is infinite unless broken by Disconnect or error
@@ -256,8 +257,6 @@ impl Run<SystemNodeConfig> for SystemNode {
     async fn run(&self, config: SystemNodeConfig) -> Result<(), Box<dyn std::error::Error>> {
         let connection_handler = Arc::new(self.clone());
 
-        let sender_data_channel = connection_handler.send_data_channel.clone();
-
         let device_handler_configs: Vec<DeviceHandlerConfig> = config.device_configs;
 
         for cfg in device_handler_configs {
@@ -277,13 +276,13 @@ impl Run<SystemNodeConfig> for SystemNode {
             let mut client = TcpClient::new();
             client.connect(registry_addr).await?;
             client.send_message(registry_addr, heartbeat_msg).await?;
-            client.disconnect(registry_addr);
+            client.disconnect(registry_addr).await.expect("TODO: panic message");
             info!("Heartbeat sent to registry at {}", config.registry.addr);
         }
 
         // Start TCP server to handle client connections
         info!("Starting TCP server on {}...", config.addr);
-        TcpServer::serve(config.addr, connection_handler).await;
+        TcpServer::serve(config.addr, connection_handler).await.expect("TODO: panic message");
         Ok(())
     }
 }
