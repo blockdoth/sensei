@@ -46,7 +46,7 @@ pub struct DeviceHandlerConfig {
 /// Types of configurations that a system node can do to a device handler
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub enum CfgType {
-    Create { cfg: DeviceHandlerConfig},
+    Create { cfg: DeviceHandlerConfig },
     Edit { cfg: DeviceHandlerConfig },
     Delete,
 }

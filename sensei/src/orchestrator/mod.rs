@@ -5,13 +5,13 @@ use std::ops::Index;
 use std::path::PathBuf;
 use std::str::SplitWhitespace;
 use std::sync::Arc;
-use std::vec;
+use std::{fs, vec};
 
 use futures::future::pending;
 use lib::network::rpc_message::CtrlMsg::*;
 use lib::network::rpc_message::DataMsg::RawFrame;
 use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
-use lib::network::rpc_message::SourceType::ESP32;
+use lib::network::rpc_message::SourceType::{ESP32, TCP};
 use lib::network::rpc_message::{AdapterMode, CtrlMsg, DataMsg, DeviceId, RpcMessage, SourceType};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::{ChannelMsg, client, send_message};
@@ -25,6 +25,8 @@ use tokio::sync::{Mutex, watch};
 use tokio::task::JoinHandle;
 use lib::handler::device_handler::{CfgType, DeviceHandlerConfig};
 use lib::handler::device_handler::CfgType::Delete;
+use lib::sources::DataSourceConfig;
+use lib::sources::tcp::TCPConfig;
 use crate::cli::{self, GlobalConfig, OrchestratorSubcommandArgs, SubCommandsArgs};
 use crate::config::{DEFAULT_ADDRESS, OrchestratorConfig};
 use crate::module::*;
@@ -60,11 +62,13 @@ impl Orchestrator {
 
     async fn subscribe(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: u64) {
         let msg = Ctrl(CtrlMsg::Subscribe { device_id });
+        info!("Subscribing to {target_addr} for device id {device_id}");
         client.lock().await.send_message(target_addr, msg).await;
     }
 
     async fn unsubscribe(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: u64) {
         let msg = Ctrl(CtrlMsg::Unsubscribe { device_id });
+        info!("Unsubscribing from {target_addr} for device id {device_id}");
         client.lock().await.send_message(target_addr, msg).await;
     }
 
@@ -202,9 +206,11 @@ impl Orchestrator {
                             }
                             _ => return info!("invalid config"),
                         };
-                        
+
                         let cfg_type = CfgType::Create { cfg };
                         let msg = Ctrl(Configure { device_id, cfg_type });
+
+                        info!("Telling {target_addr} to create a device handler");
                         
                         send_client.lock().await.send_message(target_addr, msg).await;
                     }
@@ -221,11 +227,16 @@ impl Orchestrator {
                         let cfg_type = CfgType::Edit { cfg };
                         let msg = Ctrl(Configure { device_id, cfg_type });
 
+                        info!("Telling {target_addr} to edit a device handler");
+
                         send_client.lock().await.send_message(target_addr, msg).await;
                     }
                     Some("delete") => {
                         let cfg_type = Delete;
                         let msg = Ctrl(Configure {device_id, cfg_type});
+
+                        info!("Telling {target_addr} to delete a device handler");
+
                         send_client.lock().await.send_message(target_addr, msg).await;
                     }
                     _ => {

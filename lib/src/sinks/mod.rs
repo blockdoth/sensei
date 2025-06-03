@@ -65,7 +65,6 @@ pub trait Sink: Send + ToConfig<SinkConfig> {
 /// a `type` field (e.g., `{ "type": "File", ... }`). Each variant corresponds to a different
 /// kind of sink implementation.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-#[serde(tag = "type")]
 pub enum SinkConfig {
     /// File sink configuration
     File(file::FileConfig),

@@ -22,7 +22,6 @@ pub struct TCPControllerParams {}
 ///
 /// # Returns
 /// Always returns `Ok(())` with no side effects.
-#[typetag::serde(name = "TCP")]
 #[async_trait::async_trait]
 impl Controller for TCPControllerParams {
     async fn apply(&self, source: &mut dyn DataSourceT) -> Result<(), ControllerError> {

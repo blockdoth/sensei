@@ -70,7 +70,7 @@ impl TcpServer {
                         break;
                     }
                     Err(e) => {
-                        warn!("Connection with {local_peer_addr:?} closed abruptly");
+                        warn!("Connection with {local_peer_addr:?} closed abruptly {e}");
                         break;
                     }
                 }
