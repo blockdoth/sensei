@@ -1,11 +1,8 @@
-use std::arch::global_asm;
 use std::io::BufRead;
 use std::net::SocketAddr;
-use std::ops::Index;
 use std::path::PathBuf;
-use std::str::SplitWhitespace;
 use std::sync::Arc;
-use std::{fs, vec};
+use std::vec;
 
 use futures::future::pending;
 use lib::handler::device_handler::CfgType::Delete;
@@ -13,22 +10,15 @@ use lib::handler::device_handler::{CfgType, DeviceHandlerConfig};
 use lib::network::rpc_message::CtrlMsg::*;
 use lib::network::rpc_message::DataMsg::RawFrame;
 use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
-use lib::network::rpc_message::SourceType::{ESP32, TCP};
-use lib::network::rpc_message::{AdapterMode, CtrlMsg, DataMsg, DeviceId, RpcMessage, SourceType};
+use lib::network::rpc_message::SourceType::ESP32;
+use lib::network::rpc_message::{CtrlMsg, DataMsg, DeviceId};
 use lib::network::tcp::client::TcpClient;
-use lib::network::tcp::{ChannelMsg, client, send_message};
-use lib::sources::DataSourceConfig;
-use lib::sources::tcp::TCPConfig;
+use lib::network::tcp::ChannelMsg;
 use log::*;
-use ratatui::backend::ClearType;
-use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader, Split};
-use tokio::net::{TcpStream, UdpSocket};
-use tokio::signal;
+use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::{Mutex, watch};
-use tokio::task::JoinHandle;
 
-use crate::cli::{self, GlobalConfig, OrchestratorSubcommandArgs, SubCommandsArgs};
 use crate::config::{DEFAULT_ADDRESS, OrchestratorConfig};
 use crate::module::*;
 
@@ -75,7 +65,7 @@ impl Orchestrator {
 
     // Temporary, refactor once TUI gets added
     async fn cli_interface(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let (send_commands_channel, mut recv_commands_channel) = watch::channel::<ChannelMsg>(ChannelMsg::Empty);
+        let (send_commands_channel, recv_commands_channel) = watch::channel::<ChannelMsg>(ChannelMsg::Empty);
 
         let send_client = self.client.clone();
         let recv_client = self.client.clone();
@@ -108,7 +98,7 @@ impl Orchestrator {
         Ok(())
     }
 
-    async fn parse_command(mut line: &str, send_client: Arc<Mutex<TcpClient>>, send_commands_channel: Sender<ChannelMsg>) {
+    async fn parse_command(line: &str, send_client: Arc<Mutex<TcpClient>>, send_commands_channel: Sender<ChannelMsg>) {
         let mut input = line.split_whitespace();
         match input.next() {
             Some("connect") => {
