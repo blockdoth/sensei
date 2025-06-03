@@ -1,18 +1,17 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use async_trait::async_trait;
-use log::{debug, error, info, warn};
+use log::{debug, info, warn};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::watch;
 
 use super::{ConnectionHandler, MAX_MESSAGE_LENGTH, SubscribeDataChannel, read_message};
 use crate::errors::NetworkError;
-use crate::network::rpc_message::RpcMessage;
 use crate::network::tcp::ChannelMsg;
 
 pub struct TcpServer {}
 
+// TODO: write docs
 impl TcpServer {
     pub async fn serve<H>(addr: SocketAddr, connection_handler: Arc<H>) -> Result<(), NetworkError>
     where
@@ -23,10 +22,10 @@ impl TcpServer {
 
         loop {
             match listener.accept().await {
-                Ok((mut stream, peer_addr)) => {
+                Ok((stream, _peer_addr)) => {
                     let local_handler = connection_handler.clone();
                     tokio::spawn(async move {
-                        Self::init_connection(stream, local_handler).await;
+                        let _ = Self::init_connection(stream, local_handler).await;
                     });
                 }
                 Err(e) => {
@@ -43,12 +42,12 @@ impl TcpServer {
     {
         let mut read_buffer = vec![0; MAX_MESSAGE_LENGTH];
 
-        let peer_addr = stream.peer_addr()?;
+        let _peer_addr = stream.peer_addr()?;
         let local_peer_addr = stream.peer_addr()?;
 
         let (mut read_stream, write_stream) = stream.into_split();
 
-        let (send_commands_channel, mut recv_commands_channel) = watch::channel::<ChannelMsg>(ChannelMsg::Empty);
+        let (send_commands_channel, recv_commands_channel) = watch::channel::<ChannelMsg>(ChannelMsg::Empty);
 
         let send_commands_channel_local = send_commands_channel.clone();
         let connection_handler_local = connection_handler.clone();
@@ -68,7 +67,7 @@ impl TcpServer {
                         info!("Connection with {local_peer_addr:?} closed gracefully");
                         break;
                     }
-                    Err(e) => {
+                    Err(_) => {
                         warn!("Connection with {local_peer_addr:?} closed abruptly");
                         break;
                     }
@@ -79,13 +78,13 @@ impl TcpServer {
 
         let write_task = tokio::spawn(async move {
             debug!("Started writing task");
-            connection_handler_local
+            let _ = connection_handler_local
                 .handle_send(recv_commands_channel, recv_data_channel_local, write_stream)
                 .await;
             debug!("Ended writing task");
         });
 
-        tokio::join!(read_task, write_task);
+        let _ = tokio::join!(read_task, write_task);
         info!("Gracefully closed connection with {local_peer_addr:?}");
         Ok(())
     }

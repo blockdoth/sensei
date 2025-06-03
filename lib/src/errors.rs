@@ -1,6 +1,7 @@
 use thiserror::Error;
 
-use crate::adapters::csv::{CSVAdapter, CSVAdapterError};
+use crate::adapters::csv::CSVAdapterError;
+use crate::network::rpc_message::{DataMsg, HostId};
 
 /// Errors that can occur during network communication with sources or clients.
 #[derive(Error, Debug)]
@@ -28,6 +29,14 @@ pub enum NetworkError {
     /// Communication operation timed out.
     #[error("Communication timed out")]
     Timeout(#[from] tokio::time::error::Elapsed),
+
+    /// The response could not be parsed.
+    #[error("Message could not be parsed")]
+    MessageError,
+
+    /// Tokio was unable to send the message
+    #[error("Message could not be sent")]
+    SendingError(#[from] tokio::sync::broadcast::error::SendError<(DataMsg, HostId)>),
 }
 
 /// Generic application-level error for unimplemented functionality.
@@ -102,6 +111,10 @@ pub enum AppError {
     /// Configuration is invalid or incomplete.
     #[error("Configuration error: {0}")]
     ConfigError(String),
+
+    /// No such host
+    #[error("No such host exists")]
+    NoSuchHost,
 }
 
 /// Common error enum for all CSI adapters (IWL, ESP32, CSV).

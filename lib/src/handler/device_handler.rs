@@ -4,14 +4,14 @@ use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::Arc;
 
+use log::info;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use crate::adapters::*;
-use crate::errors::{ControllerError, CsiAdapterError, DataSourceError, SinkError, TaskError};
-use crate::network::rpc_message::{DataMsg, SourceType};
+use crate::errors::TaskError;
+use crate::network::rpc_message::SourceType;
 use crate::sinks::tcp::*;
 use crate::sinks::*;
 use crate::sources::controllers::*;
@@ -132,7 +132,6 @@ impl DeviceHandler {
         mut sinks: Vec<Box<dyn Sink>>,
     ) -> Result<(), TaskError> {
         let device_id = self.config.device_id;
-        let stype = self.config.stype.clone();
 
         let (shutdown_tx, mut shutdown_rx) = watch::channel(());
 
@@ -140,6 +139,12 @@ impl DeviceHandler {
             if let Err(e) = source.start().await {
                 log::error!("Device {device_id} source start failed: {e:?}");
                 return;
+            }
+            for sink in sinks.iter_mut() {
+                if let Err(e) = sink.open().await {
+                    log::error!("Device {device_id} sink open failed: {e:?}");
+                    return;
+                }
             }
 
             loop {
@@ -154,11 +159,12 @@ impl DeviceHandler {
                         match read_res {
                             Ok(Some(raw)) => {
                                 // optional adapter
+                                info!("Device handler received {raw:?} for device {device_id}");
                                 let outgoing = if let Some(adapter) = adapter.as_mut() {
                                     match adapter.produce(raw).await {
                                         Ok(Some(csi_msg)) => vec![csi_msg],
                                         Ok(None) => continue,
-                                        Err(err) => {
+                                        Err(_) => {
                                             //log::error!("Adapter error on device {device_id}: {err:?}"); THIS WILL LOG ERRORS IF THERE IS SIMPLY NO DATA
                                             continue;
                                         }
@@ -167,8 +173,9 @@ impl DeviceHandler {
                                     vec![raw]
                                 };
                                 // send to all sinks
-                                for mut sink in sinks.iter_mut() {
+                                for sink in sinks.iter_mut() {
                                     for msg in outgoing.iter().cloned() {
+                                        info!("Device handler outputting {msg:?} to sink");
                                         if let Err(err) = sink.provide(msg).await {
                                             log::error!("Sink error on device {device_id}: {err:?}" );
                                         }
@@ -184,7 +191,12 @@ impl DeviceHandler {
                     }
                 }
             }
-            source.stop().await;
+            let _ = source.stop().await;
+            for sink in sinks.iter_mut() {
+                if let Err(e) = sink.close().await {
+                    log::error!("Device {device_id} sink close failed: {e:?}");
+                }
+            }
         });
 
         self.shutdown_tx = Some(shutdown_tx);
@@ -263,16 +275,24 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
         // instantiate source
         let mut source = <dyn DataSourceT>::from_config(cg.source.clone()).await?;
 
-        source.start().await?;
-
         // apply controller if configured
         if let Some(controller_cfg) = cg.controller.clone() {
             // check that controller is the correct one to apply to the source
             match (&controller_cfg, &cg.source) {
-                (ControllerParams::Esp32(_), DataSourceConfig::Esp32(_))
-                | (ControllerParams::Netlink(_), DataSourceConfig::Netlink(_))
-                | (ControllerParams::Tcp(_), DataSourceConfig::Tcp(_)) => {}
-                _ => return Err(TaskError::IncorrectController),
+                (ControllerParams::Esp32(_), DataSourceConfig::Esp32(_)) | (ControllerParams::Tcp(_), DataSourceConfig::Tcp(_)) => {
+                    // These combinations are allowed on any OS
+                }
+                // --- Conditional arm for Netlink on Linux ---
+                #[cfg(target_os = "linux")] // This arm is only compiled for Linux
+                (ControllerParams::Netlink(_), DataSourceConfig::Netlink(_)) => {
+                    // Netlink is allowed on Linux
+                }
+                _ => {
+                    // This will be hit if:
+                    // 1. It's a general mismatch (e.g., Esp32 controller with Tcp source).
+                    // 2. It's a Netlink controller/source on a non-Linux OS (because the above arm is compiled out).
+                    return Err(TaskError::IncorrectController);
+                }
             }
             let controller: Box<dyn Controller> = <dyn Controller>::from_config(controller_cfg).await?;
             controller.apply(source.as_mut()).await?;
@@ -282,11 +302,21 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
         let adapter = if let Some(adapt_cfg) = cg.adapter {
             // Make sure the adapter is the right one for the source
             match (&adapt_cfg, &cg.source) {
-                (DataAdapterConfig::Esp32 { scale_csi: _ }, DataSourceConfig::Esp32(_))
-                | (DataAdapterConfig::Iwl { scale_csi: _ }, DataSourceConfig::Netlink(_))
-                | (_, DataSourceConfig::Tcp(_)) => {}
+                // This combination is always valid
+                (DataAdapterConfig::Esp32 { scale_csi: _ }, DataSourceConfig::Esp32(_)) => {}
+
+                // This combination (Iwl adapter with Netlink source) is valid only on Linux
+                #[cfg(target_os = "linux")]
+                (DataAdapterConfig::Iwl { scale_csi: _ }, DataSourceConfig::Netlink(_)) => {}
+
+                // This combination (any adapter with Tcp source) is always valid
+                (_, DataSourceConfig::Tcp(_)) => {}
+
+                // If none of the above specific (and potentially conditional) arms match,
+                // it's an incorrect adapter for the source.
                 _ => return Err(TaskError::IncorrectAdapter),
             }
+            // If we reached here, the combination was valid, so proceed
             Some(<dyn CsiDataAdapter>::from_config(adapt_cfg).await?)
         } else {
             None

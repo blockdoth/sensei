@@ -8,10 +8,9 @@ mod system_node;
 mod visualiser;
 
 use std::fs::File;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::Arc;
 
 use cli::*;
+use config::{FromYaml, SystemNodeConfig};
 use log::*;
 use module::Run;
 use simplelog::{ColorChoice, CombinedLogger, LevelFilter, TermLogger, TerminalMode, WriteLogger};
@@ -55,7 +54,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     match &args.subcommand {
-        SubCommandsArgs::One(node_args) => SystemNode::new(node_args.parse()?).run(node_args.parse()?).await?,
+        SubCommandsArgs::One(node_args) => {
+            let yaml_cfg = SystemNodeConfig::from_yaml(node_args.config.clone())?;
+            let cfg = node_args.overlay_subcommand_args(yaml_cfg)?;
+            SystemNode::new(cfg.clone()).run(cfg.clone()).await?
+        }
         SubCommandsArgs::Two(registry_args) => Registry::new(registry_args.parse()?).run(registry_args.parse()?).await?,
         SubCommandsArgs::Three(orchestrator_args) => Orchestrator::new(orchestrator_args.parse()?).run(orchestrator_args.parse()?).await?,
         SubCommandsArgs::Four(visualiser_args) => Visualiser::new(visualiser_args.parse()?).run(visualiser_args.parse()?).await?,

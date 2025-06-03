@@ -14,7 +14,10 @@ use crate::sources::{DataSourceConfig, DataSourceT};
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct TCPConfig {
     /// source adress from which to read
-    target_addr: SocketAddr,
+    pub target_addr: SocketAddr,
+
+    /// device id to which this is relevant
+    pub device_id: u64,
 }
 
 /// TCP-based data source for receiving `DataMsg` payloads over a network.
@@ -25,7 +28,7 @@ pub struct TCPSource {
     /// Client from which to read
     client: TcpClient,
     /// Place to where to send
-    target_addr: SocketAddr,
+    config: TCPConfig,
 }
 
 impl TCPSource {
@@ -40,7 +43,7 @@ impl TCPSource {
         trace!("Creating new TCPSource for {}", config.target_addr);
         Ok(Self {
             client: TcpClient::new(),
-            target_addr: config.target_addr,
+            config,
         })
     }
 }
@@ -52,8 +55,8 @@ impl DataSourceT for TCPSource {
     /// # Errors
     /// Returns a [`DataSourceError`] if the connection fails.
     async fn start(&mut self) -> Result<(), DataSourceError> {
-        trace!("Connecting to TCP socket at {}", self.target_addr);
-        self.client.connect(self.target_addr).await.map_err(DataSourceError::from)?;
+        trace!("Connecting to TCP socket at {}", self.config.target_addr);
+        self.client.connect(self.config.target_addr).await.map_err(DataSourceError::from)?;
         Ok(())
     }
 
@@ -62,8 +65,8 @@ impl DataSourceT for TCPSource {
     /// # Errors
     /// Returns a [`DataSourceError`] if disconnection fails.
     async fn stop(&mut self) -> Result<(), DataSourceError> {
-        trace!("Disconnecting from TCP socket at {}", self.target_addr);
-        self.client.disconnect(self.target_addr).await.map_err(DataSourceError::from)?;
+        trace!("Disconnecting from TCP socket at {}", self.config.target_addr);
+        self.client.disconnect(self.config.target_addr).await.map_err(DataSourceError::from)?;
         Ok(())
     }
 
@@ -74,7 +77,7 @@ impl DataSourceT for TCPSource {
     ///
     /// # Errors
     /// Always returns [`DataSourceError::ReadBuf`] as this method is not supported.
-    async fn read_buf(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError> {
+    async fn read_buf(&mut self, _buf: &mut [u8]) -> Result<usize, DataSourceError> {
         // you can either proxy to the client or leave unimplemented
         Err(DataSourceError::ReadBuf)
     }
@@ -91,16 +94,20 @@ impl DataSourceT for TCPSource {
     /// # Errors
     /// Returns a [`DataSourceError`] if the TCP read or deserialization fails.
     async fn read(&mut self) -> Result<Option<DataMsg>, DataSourceError> {
-        let rpcmsg: RpcMessage = self.client.read_message(self.target_addr).await.map_err(DataSourceError::from)?;
+        let rpcmsg: RpcMessage = self.client.read_message(self.config.target_addr).await.map_err(DataSourceError::from)?;
 
         match rpcmsg.msg {
             RpcMessageKind::Ctrl(_ctrl_msg) => {
                 // control messages carry no data payload
                 Ok(None)
             }
-            RpcMessageKind::Data { data_msg, .. } => {
-                // return the actual data payload
-                Ok(Some(data_msg))
+            RpcMessageKind::Data { data_msg, device_id } => {
+                if device_id == self.config.device_id {
+                    // return the actual data payload
+                    Ok(Some(data_msg))
+                } else {
+                    Ok(None)
+                }
             }
         }
     }
@@ -120,7 +127,8 @@ impl ToConfig<DataSourceConfig> for TCPSource {
     /// * `Err(TaskError)` if conversion fails (not expected here as cloning should succeed).
     async fn to_config(&self) -> Result<DataSourceConfig, TaskError> {
         Ok(DataSourceConfig::Tcp(TCPConfig {
-            target_addr: self.target_addr,
+            target_addr: self.config.target_addr,
+            device_id: self.config.device_id,
         }))
     }
 }
