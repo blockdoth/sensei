@@ -1,9 +1,8 @@
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
-use std::vec;
 
 use lib::handler::device_handler::DeviceHandlerConfig;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 pub const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
 

@@ -9,7 +9,6 @@
 //! instantiation of controller implementations from serialized configuration.
 
 use async_trait::async_trait;
-use typetag;
 
 use crate::FromConfig;
 use crate::errors::{ControllerError, TaskError};

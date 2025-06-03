@@ -15,13 +15,10 @@
 //! sink.provide(data_msg).await?;
 //! ```
 
-use std::net::SocketAddr;
-
 use async_trait::async_trait;
 
 use crate::errors::{SinkError, TaskError};
-use crate::network::rpc_message::{DataMsg, RpcMessage, RpcMessageKind};
-use crate::network::tcp::client::TcpClient;
+use crate::network::rpc_message::DataMsg;
 use crate::{FromConfig, ToConfig};
 
 pub mod file;

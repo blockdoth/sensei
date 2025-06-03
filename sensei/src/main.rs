@@ -8,8 +8,6 @@ mod system_node;
 mod visualiser;
 
 use std::fs::File;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::Arc;
 
 use cli::*;
 use config::{FromYaml, SystemNodeConfig};

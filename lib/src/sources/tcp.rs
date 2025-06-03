@@ -77,7 +77,7 @@ impl DataSourceT for TCPSource {
     ///
     /// # Errors
     /// Always returns [`DataSourceError::ReadBuf`] as this method is not supported.
-    async fn read_buf(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError> {
+    async fn read_buf(&mut self, _buf: &mut [u8]) -> Result<usize, DataSourceError> {
         // you can either proxy to the client or leave unimplemented
         Err(DataSourceError::ReadBuf)
     }

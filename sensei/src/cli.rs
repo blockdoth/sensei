@@ -3,11 +3,9 @@ use std::path::PathBuf;
 
 use argh::FromArgs;
 use log::debug;
-use simplelog::{ColorChoice, CombinedLogger, LevelFilter, TermLogger, TerminalMode, WriteLogger};
-use warp::filters::path::full;
+use simplelog::LevelFilter;
 
-use crate::config::{FromYaml, OrchestratorConfig, RegistryConfig, SystemNodeConfig, SystemNodeRegistryConfig, VisualiserConfig};
-use crate::esp_tool;
+use crate::config::{OrchestratorConfig, RegistryConfig, SystemNodeConfig, VisualiserConfig};
 
 /// A trait for overlaying subcommand arguments onto an existing configuration.
 ///
@@ -176,6 +174,7 @@ pub struct EspToolSubcommandArgs {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::SystemNodeRegistryConfig;
 
     fn create_testing_config() -> SystemNodeConfig {
         SystemNodeConfig {
