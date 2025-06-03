@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::net::SocketAddr;
-use std::ops::{Deref};
+use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
 // use std::thread::sleep; // Not used
@@ -15,6 +15,7 @@ use lib::adapters::CsiDataAdapter; // Removed esp32 module import here, will use
 use lib::adapters::tcp::TCPAdapter;
 use lib::csi_types::{Complex, CsiData};
 use lib::errors::NetworkError;
+use lib::handler::device_handler::CfgType::{Create, Delete, Edit};
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
 use lib::network::rpc_message::CtrlMsg::*;
 use lib::network::rpc_message::DataMsg::*;
@@ -49,7 +50,7 @@ use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::{Mutex, broadcast, watch};
 use tokio::task::JoinHandle;
-use lib::handler::device_handler::CfgType::{Create, Delete, Edit};
+
 use crate::cli::*;
 // use crate::cli::{SubCommandsArgs, SystemNodeSubcommandArgs}; // SystemNodeSubcommandArgs not used here
 use crate::config::{OrchestratorConfig, SystemNodeConfig};
@@ -172,29 +173,27 @@ impl ConnectionHandler for SystemNode {
                         return Err(NetworkError::UnableToConnect);
                     }
                 }
-                Configure { device_id, cfg_type } => {
-                    match cfg_type {
-                        Create { cfg } => {
-                            info!("Creating a new device handler for device id {device_id}");
-                            let handler = DeviceHandler::from_config(cfg).await.unwrap();
-                            self.handlers.lock().await.insert(device_id, handler);
-                        }
-                        Edit { cfg } => {
-                            info!("Editing existing device handler for device id {device_id}");
-                            match self.handlers.lock().await.get_mut(&device_id) {
-                                Some(mut handler) => handler.reconfigure(cfg).await.expect("Whoopsy"),
-                                _ => info!("This handler does not exist."),
-                            }
-                        }
-                        Delete => {
-                            info!("Deleting device handler for device id {device_id}");
-                            match self.handlers.lock().await.remove(&device_id) {
-                                Some(mut handler) => handler.stop().await.expect("Whoopsy"),
-                                _ => info!("This handler does not exist."),
-                            }
+                Configure { device_id, cfg_type } => match cfg_type {
+                    Create { cfg } => {
+                        info!("Creating a new device handler for device id {device_id}");
+                        let handler = DeviceHandler::from_config(cfg).await.unwrap();
+                        self.handlers.lock().await.insert(device_id, handler);
+                    }
+                    Edit { cfg } => {
+                        info!("Editing existing device handler for device id {device_id}");
+                        match self.handlers.lock().await.get_mut(&device_id) {
+                            Some(mut handler) => handler.reconfigure(cfg).await.expect("Whoopsy"),
+                            _ => info!("This handler does not exist."),
                         }
                     }
-                }
+                    Delete => {
+                        info!("Deleting device handler for device id {device_id}");
+                        match self.handlers.lock().await.remove(&device_id) {
+                            Some(mut handler) => handler.stop().await.expect("Whoopsy"),
+                            _ => info!("This handler does not exist."),
+                        }
+                    }
+                },
                 m => {
                     warn!("Received unhandled CtrlMsg: {m:?}");
                 }

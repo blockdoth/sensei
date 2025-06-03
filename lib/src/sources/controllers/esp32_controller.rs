@@ -91,7 +91,6 @@ pub struct Esp32ControllerParams {
     pub transmit_custom_frame: Option<CustomFrameParams>,
 }
 
-
 #[async_trait]
 impl Controller for Esp32ControllerParams {
     async fn apply(&self, source: &mut dyn DataSourceT) -> Result<(), ControllerError> {

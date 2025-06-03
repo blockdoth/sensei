@@ -8,6 +8,8 @@ use std::sync::Arc;
 use std::{fs, vec};
 
 use futures::future::pending;
+use lib::handler::device_handler::CfgType::Delete;
+use lib::handler::device_handler::{CfgType, DeviceHandlerConfig};
 use lib::network::rpc_message::CtrlMsg::*;
 use lib::network::rpc_message::DataMsg::RawFrame;
 use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
@@ -15,6 +17,8 @@ use lib::network::rpc_message::SourceType::{ESP32, TCP};
 use lib::network::rpc_message::{AdapterMode, CtrlMsg, DataMsg, DeviceId, RpcMessage, SourceType};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::{ChannelMsg, client, send_message};
+use lib::sources::DataSourceConfig;
+use lib::sources::tcp::TCPConfig;
 use log::*;
 use ratatui::backend::ClearType;
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader, Split};
@@ -23,10 +27,7 @@ use tokio::signal;
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::{Mutex, watch};
 use tokio::task::JoinHandle;
-use lib::handler::device_handler::{CfgType, DeviceHandlerConfig};
-use lib::handler::device_handler::CfgType::Delete;
-use lib::sources::DataSourceConfig;
-use lib::sources::tcp::TCPConfig;
+
 use crate::cli::{self, GlobalConfig, OrchestratorSubcommandArgs, SubCommandsArgs};
 use crate::config::{DEFAULT_ADDRESS, OrchestratorConfig};
 use crate::module::*;
@@ -203,7 +204,7 @@ impl Orchestrator {
                             Ok(configs) => match configs.first().cloned() {
                                 Some(config) => config,
                                 _ => return info!("invalid config"),
-                            }
+                            },
                             _ => return info!("invalid config"),
                         };
 
@@ -211,7 +212,7 @@ impl Orchestrator {
                         let msg = Ctrl(Configure { device_id, cfg_type });
 
                         info!("Telling {target_addr} to create a device handler");
-                        
+
                         send_client.lock().await.send_message(target_addr, msg).await;
                     }
                     Some("edit") => {
@@ -220,7 +221,7 @@ impl Orchestrator {
                             Ok(configs) => match configs.first().cloned() {
                                 Some(config) => config,
                                 _ => return info!("invalid config"),
-                            }
+                            },
                             _ => return info!("invalid config"),
                         };
 
@@ -233,7 +234,7 @@ impl Orchestrator {
                     }
                     Some("delete") => {
                         let cfg_type = Delete;
-                        let msg = Ctrl(Configure {device_id, cfg_type});
+                        let msg = Ctrl(Configure { device_id, cfg_type });
 
                         info!("Telling {target_addr} to delete a device handler");
 
