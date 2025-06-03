@@ -1,36 +1,21 @@
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 // use std::thread::sleep; // Not used
 use async_trait::async_trait;
 use lib::FromConfig;
-use lib::adapters::CsiDataAdapter;
-use lib::csi_types::{Complex, CsiData};
 // use lib::FromConfig; // Not using FromConfig for adapter to keep changes minimal here
 use lib::errors::NetworkError;
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
-use lib::network::rpc_message::CtrlMsg::*;
+use lib::network::rpc_message::{CtrlMsg::*, RpcMessageKind};
 use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
 use lib::network::rpc_message::SourceType::*;
-use lib::network::rpc_message::{
-    AdapterMode, CtrlMsg, CtrlMsg, DataMsg, DataMsg, DeviceId, RpcMessage, RpcMessage, RpcMessageKind, SourceType, make_msg,
-};
+use lib::network::rpc_message::{CtrlMsg, DataMsg, DeviceId, RpcMessage};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
 use lib::network::*;
-use lib::sinks::file::{FileConfig, FileSink};
-use lib::sources::controllers::Controller;
-use lib::sources::controllers::esp32_controller::{
-    Bandwidth as EspBandwidth, CsiType as EspCsiType, Esp32ControllerParams, Esp32DeviceConfig, OperationMode as EspOperationMode,
-    SecondaryChannel as EspSecondaryChannel,
-};
-use lib::sources::esp32::{Esp32Source, Esp32SourceConfig};
-#[cfg(target_os = "linux")]
-use lib::sources::netlink::NetlinkConfig;
-// use lib::sources::csv::{CsvConfig, CsvSource}; // Removed CSV source
 #[cfg(target_os = "linux")]
 use lib::sources::tcp::TCPConfig;
 use lib::sources::{DataSourceConfig, DataSourceT};
@@ -38,10 +23,6 @@ use log::*;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::{Mutex, broadcast, watch};
 
-use crate::cli::*;
-// use crate::cli::{SubCommandsArgs, SystemNodeSubcommandArgs}; // SystemNodeSubcommandArgs not used here
-use crate::config::SystemNodeConfig;
-use crate::module::*;
 use crate::services::{GlobalConfig, Run, SystemNodeConfig};
 
 /// The System Node is a sender and a receiver in the network of Sensei.
@@ -59,7 +40,10 @@ pub struct SystemNode {
     send_data_channel: broadcast::Sender<(DataMsg, DeviceId)>, // Call .subscribe() on the sender in order to get a receiver
     handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
     addr: SocketAddr,
-    config: SystemNodeConfig,
+    host_id: u64,
+    registry_addr: Option<SocketAddr>,
+    device_configs: Vec<DeviceHandlerConfig>,
+
 }
 
 impl SubscribeDataChannel for SystemNode {
@@ -204,7 +188,7 @@ impl ConnectionHandler for SystemNode {
                     }
                     ChannelMsg::SendHostStatus { reg_addr: _ } => {
                         let host_status = CtrlMsg::HostStatus {
-                            host_id: self.config.host_id,
+                            host_id: self.host_id,
                             device_status: vec![],
                         };
                         let msg = Ctrl(host_status);
@@ -229,13 +213,16 @@ impl ConnectionHandler for SystemNode {
 }
 
 impl Run<SystemNodeConfig> for SystemNode {
-    fn new(config: SystemNodeConfig) -> Self {
+    fn new(global_config: GlobalConfig, config: SystemNodeConfig) -> Self {
         let (send_data_channel, _) = broadcast::channel::<(DataMsg, DeviceId)>(16);
+
         SystemNode {
             send_data_channel,
             handlers: Arc::new(Mutex::new(HashMap::new())),
             addr: config.addr,
-            config,
+            host_id: 0,
+            registry_addr: config.registry,
+            device_configs: config.device_configs,
         }
     }
 
@@ -246,48 +233,31 @@ impl Run<SystemNodeConfig> for SystemNode {
     /// # Arguments
     ///
     /// SystemNodeConfig: Specifies the target address
-    async fn run(&self, config: SystemNodeConfig) -> Result<(), Box<dyn std::error::Error>> {
+    async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let connection_handler = Arc::new(self.clone());
-        let device_handler_configs: Vec<DeviceHandlerConfig> = config.device_configs;
-
-        for cfg in device_handler_configs {
-            self.handlers
-                .lock()
-                .await
-                .insert(cfg.device_id, DeviceHandler::from_config(cfg.clone()).await.unwrap());
+        
+        let mut locked_handlers = self.handlers.lock().await;
+        for cfg in &self.device_configs {
+          locked_handlers.insert(cfg.device_id, DeviceHandler::from_config(cfg.clone()).await.unwrap());
         }
 
-        if config.registry.use_registry {
-            info!("Connecting to registry at {}", config.registry.addr);
-            let registry_addr: SocketAddr = config.registry.addr;
+        if let Some(registry) = &self.registry_addr {
+            info!("Connecting to registry at {}", registry);
+            let registry_addr: SocketAddr = *registry;
             let heartbeat_msg = Ctrl(CtrlMsg::AnnouncePresence {
-                host_id: config.host_id,
-                host_address: config.addr,
-            });
-            let mut client = TcpClient::new();
-            client.connect(registry_addr).await?;
-            client.send_message(registry_addr, heartbeat_msg).await?;
-            client.disconnect(registry_addr).await?;
-            info!("Heartbeat sent to registry at {}", config.registry.addr);
-        }
-
-        if let Some(registry) = &config.registry {
-            info!("Connecting to registry at {}", registry.addr);
-            let registry_addr: SocketAddr = registry.addr;
-            let heartbeat_msg = RpcMessageKindCtrl(CtrlMsg::AnnouncePresence {
-                host_id: config.host_id,
-                host_address: config.addr,
+                host_id: self.host_id,
+                host_address: self.addr,
             });
             let mut client = TcpClient::new();
             client.connect(registry_addr).await?;
             client.send_message(registry_addr, heartbeat_msg).await?;
             client.disconnect(registry_addr);
-            info!("Heartbeat sent to registry at {}", registry.addr);
+            info!("Heartbeat sent to registry at {}", registry_addr);
         }
 
         // Start TCP server to handle client connections
-        info!("Starting TCP server on {}...", config.addr);
-        TcpServer::serve(config.addr, connection_handler).await?;
+        info!("Starting TCP server on {}...", self.addr);
+        TcpServer::serve(self.addr, connection_handler).await?;
         Ok(())
     }
 }

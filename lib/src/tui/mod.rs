@@ -18,7 +18,6 @@ use ratatui::{Frame, Terminal};
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::task::JoinHandle;
 
-
 /// A configurable and generic runner that manages the entire lifecycle of a TUI application.
 /// It handles input events, log streaming, periodic ticks, and state updates.
 pub struct TuiRunner<T: Tui<Update, Command>, Update, Command> {

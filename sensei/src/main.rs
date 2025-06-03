@@ -9,7 +9,6 @@ mod visualiser;
 use std::fs::File;
 
 use cli::*;
-use config::{FromYaml, SystemNodeConfig};
 use esp_tool::EspTool;
 use log::*;
 use services::{FromYaml, Run, SystemNodeConfig};
@@ -58,17 +57,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => lib::tui::example::run_example().await,
         Some(subcommand) => match subcommand {
             SubCommandsArgs::One(args) => {
-                SystemNode::new()
-                    .run(
-                        global_args,
-                        args.overlay_subcommand_args(SystemNodeConfig::from_yaml(args.config_path.clone())?)?,
-                    )
-                    .await?
+                SystemNode::new(
+                    global_args,
+                    args.overlay_subcommand_args(SystemNodeConfig::from_yaml(args.config_path.clone())?)?,
+                )
+                .run()
+                .await?
             }
-            SubCommandsArgs::Two(args) => Registry::new().run(global_args, args.parse()?).await?,
-            SubCommandsArgs::Three(args) => Orchestrator::new().run(global_args, args.parse()?).await?,
-            SubCommandsArgs::Four(args) => Visualiser::new().run(global_args, args.parse()?).await?,
-            SubCommandsArgs::Five(args) => EspTool::new().run(global_args, args.parse()?).await?,
+            SubCommandsArgs::Two(args) => Registry::new(global_args, args.parse()?).run().await?,
+            SubCommandsArgs::Three(args) => Orchestrator::new(global_args, args.parse()?).run().await?,
+            SubCommandsArgs::Four(args) => Visualiser::new(global_args, args.parse()?).run().await?,
+            SubCommandsArgs::Five(args) => EspTool::new(global_args, args.parse()?).run().await?,
         },
     }
     Ok(())

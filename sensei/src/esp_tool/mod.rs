@@ -4,70 +4,24 @@ mod spam_settings;
 mod state;
 mod tui;
 
-use std::collections::VecDeque;
-use std::collections::VecDeque; // For log buffer
-use std::env; // Keep for RUST_LOG, though port comes from args
-use std::error::Error;
-use std::io::{self, stdout};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering, Ordering as AtomicOrdering};
-use std::sync::mpsc::RecvTimeoutError;
-use std::sync::{Arc, Mutex as StdMutex}; // Standard Mutex for AppState
-// May not be needed if all sleeps are tokio::time::sleep
+use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use std::time::Duration;
-use std::{env, io};
 
-use chrono::{DateTime, Local};
-use crossbeam_channel::{Receiver as CrossbeamReceiver, Sender as CrossbeamSender};
-use crossterm::event::{Event as CEvent, EventStream, KeyCode, KeyEvent, KeyModifiers};
-use crossterm::execute;
-use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
-use futures::StreamExt;
 use lib::adapters::CsiDataAdapter;
 use lib::adapters::esp32::ESP32Adapter;
-use lib::csi_types::CsiData;
-use lib::errors::{ControllerError, DataSourceError};
-use lib::network::rpc_message::{DataMsg, SourceType};
+use lib::errors::DataSourceError;
+use lib::network::rpc_message::DataMsg;
 use lib::sources::DataSourceT;
 use lib::sources::controllers::Controller;
-use lib::sources::controllers::esp32_controller::{
-    Bandwidth as EspBandwidth, CsiType as EspCsiType, Esp32Command, Esp32ControllerParams, Esp32DeviceConfig, EspMode,
-    OperationMode as EspOperationMode, SecondaryChannel as EspSecondaryChannel,
-};
+use lib::sources::controllers::esp32_controller::{Esp32ControllerParams, Esp32DeviceConfig, EspMode};
 use lib::sources::esp32::{Esp32Source, Esp32SourceConfig};
 use lib::tui::TuiRunner;
-use lib::tui::logs::{FromLog, LogEntry, TuiLogger, init_logger};
-use log::{
-    Level, Level, LevelFilter, LevelFilter, Metadata, Metadata, Record, Record, SetLoggerError, SetLoggerError, debug, error, error, info, info,
-    warn, warn,
-};
-use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Constraint, Direction, Layout};
-use ratatui::style::{Color, Modifier, Style, Stylize};
-use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table, Wrap};
-use ratatui::{Frame, Terminal};
-// Ratatui imports
-use ratatui::{
-    Frame, Terminal,
-    backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout},
-    style::{Color, Modifier, Style},
-    text::{Line, Span, Text},
-    widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table},
-};
-use serialport::SerialPort;
-use spam_settings::SpamSettings;
+use lib::tui::logs::{FromLog, LogEntry};
+use log::{debug, error, info, warn, LevelFilter};
 use state::{EspUpdate, TuiState};
-use tokio::sync::Mutex as TokioMutex; // Tokio Mutex for Esp32Source
+use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender};
-use tokio::sync::{Mutex, mpsc};
-// use tokio::sync::Notify; // Not used in the provided snippet, can be removed if not needed elsewhere
-use tokio::task::JoinHandle;
-use tokio::time::{sleep, timeout};
-use tui::ui;
 
-use crate::cli::EspToolSubcommandArgs;
 use crate::services::{EspToolConfig, GlobalConfig, Run};
 
 const LOG_BUFFER_CAPACITY: usize = 200;
@@ -98,11 +52,17 @@ impl FromLog for EspUpdate {
 ///
 /// This tool sets up a TUI to visualize CSI data, manages the ESP32 connection,
 /// and handles configuration commands for the ESP device.
-pub struct EspTool {}
+pub struct EspTool {
+  serial_port: String,
+  log_level: LevelFilter,
+}
 
 impl Run<EspToolConfig> for EspTool {
-    fn new() -> Self {
-        EspTool {}
+    fn new(global_config: GlobalConfig, esp_config: EspToolConfig) -> Self {
+        EspTool {
+          serial_port: esp_config.serial_port,
+          log_level: global_config.log_level,
+        }
     }
     /// Starts the ESP32 monitoring tool with the provided configuration.
     ///
@@ -114,14 +74,14 @@ impl Run<EspToolConfig> for EspTool {
     ///
     /// # Errors
     /// Returns a boxed `Error` if initialization or runtime encounters a failure.
-    async fn run(&mut self, global_config: GlobalConfig, esp_config: EspToolConfig) -> Result<(), Box<dyn std::error::Error>> {
+    async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let (command_send, mut command_recv) = mpsc::channel::<EspChannelCommand>(1000);
         let (update_send, mut update_recv) = mpsc::channel::<EspUpdate>(1000);
 
         let update_send_clone = update_send.clone();
 
         let mut esp_src_config = Esp32SourceConfig {
-            port_name: esp_config.serial_port,
+            port_name: self.serial_port.clone(),
             ..Default::default()
         };
 
@@ -130,7 +90,7 @@ impl Run<EspToolConfig> for EspTool {
         let esp_task = Self::esp_source_task(esp_src_config, esp_device_config, update_send_clone, command_recv);
         let tasks = vec![esp_task];
 
-        let tui_runner = TuiRunner::new(TuiState::new(), command_send, update_recv, update_send, global_config.log_level);
+        let tui_runner = TuiRunner::new(TuiState::new(), command_send, update_recv, update_send, self.log_level);
         tui_runner.run(tasks).await;
         Ok(())
     }
@@ -164,7 +124,7 @@ impl EspTool {
                 return;
             }
         };
-        let app_state_log_clone = Arc::clone(&app_state);
+        // let app_state_log_clone = Arc::clone(&app_state);
         // let log_listener_handle: JoinHandle<()> = tokio::spawn(async move {
         // Changed variable name to avoid conflict
         // loop {

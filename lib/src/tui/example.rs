@@ -10,10 +10,10 @@ use async_trait::async_trait;
 use crossterm::event::{KeyCode, KeyEvent};
 use futures::StreamExt;
 use log::{info, warn};
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Paragraph};
-use ratatui::Frame;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 
 use super::{FromLog, LogEntry, Tui, TuiRunner};

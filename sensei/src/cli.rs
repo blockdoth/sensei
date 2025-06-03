@@ -1,14 +1,11 @@
-use std::net::{AddrParseError, SocketAddr};
 use std::path::PathBuf;
 
 use anyhow::Error;
 use argh::FromArgs;
 use lib::handler::device_handler::DeviceHandlerConfig;
 use log::debug;
-use simplelog::{ColorChoice, CombinedLogger, LevelFilter, LevelFilter, TermLogger, TerminalMode, WriteLogger};
+use simplelog::LevelFilter;
 
-use crate::config::{OrchestratorConfig, RegistryConfig, SystemNodeConfig, VisualiserConfig};
-use crate::esp_tool;
 use crate::services::{EspToolConfig, GlobalConfig, OrchestratorConfig, RegistryConfig, SystemNodeConfig, VisualiserConfig};
 
 /// A trait for overlaying subcommand arguments onto an existing configuration.
@@ -193,78 +190,15 @@ impl ConfigFromCli<EspToolConfig> for EspToolSubcommandArgs {
 
 #[cfg(test)]
 mod tests {
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
     use super::*;
-    use crate::services::SystemNodeRegistryConfig;
 
     fn create_testing_config() -> SystemNodeConfig {
         SystemNodeConfig {
             addr: "127.0.0.1:8080".parse().unwrap(),
             host_id: 1,
-            registry: Some(SystemNodeRegistryConfig {
-                addr: "127.0.0.2:8888".parse().unwrap(),
-            }),
-            device_configs: vec![],
-        }
-    }
-
-    #[test]
-    fn test_overlay_subcommand_args_overwrites_addr_and_port() {
-        let args = SystemNodeSubcommandArgs {
-            addr: "10.0.0.1".to_string(),
-            port: 4321,
-            config_path: PathBuf::from("does_not_matter.yaml"), // This will not be used
-        };
-
-        let base_cfg = create_testing_config();
-        let config = args.overlay_subcommand_args(base_cfg).unwrap();
-        assert_eq!(config.addr, "10.0.0.1:4321".parse().unwrap());
-    }
-
-    #[test]
-    fn test_overlay_subcommand_args_uses_yaml_when_no_override() {
-        let args = SystemNodeSubcommandArgs {
-            addr: "".to_string(),
-            port: 0,
-            config_path: PathBuf::from("does_not_matter.yaml"), // This will not be used
-        };
-
-        // If addr is empty and port is 0, overlay will parse ":0" which is invalid,
-        // so we expect it to fallback to the YAML value.
-        let base_cfg = create_testing_config();
-        let config = args.overlay_subcommand_args(base_cfg.clone()).unwrap();
-        assert_eq!(config.addr, base_cfg.addr);
-    }
-
-    #[test]
-    fn test_overlay_subcommand_args_invalid_addr_falls_back_to_yaml() {
-        let args = SystemNodeSubcommandArgs {
-            addr: "invalid_addr".to_string(),
-            port: 1234,
-            config_path: PathBuf::from("does_not_matter.yaml"), // This will not be used
-        };
-
-        // "invalid_addr:1234" is not a valid SocketAddr, so should fallback to YAML
-        let base_cfg = create_testing_config();
-        let config = args.overlay_subcommand_args(base_cfg.clone()).unwrap();
-        assert_eq!(config.addr, base_cfg.addr);
-    }
-}
-
-// Tests
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::SystemNodeRegistryConfig;
-
-    fn create_testing_config() -> SystemNodeConfig {
-        SystemNodeConfig {
-            addr: "127.0.0.1:8080".parse().unwrap(),
-            host_id: 1,
-            registry: SystemNodeRegistryConfig {
-                use_registry: true,
-                addr: "127.0.0.2:8888".parse().unwrap(),
-            },
+            registry: Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080)),
             device_configs: vec![],
         }
     }

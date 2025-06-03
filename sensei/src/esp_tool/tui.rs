@@ -1,11 +1,6 @@
-use core::time;
-use std::fmt::format;
-
-use chrono::{DateTime, TimeZone, Utc};
-use crossterm::style;
-use lib::csi_types::CsiData;
+use chrono::{TimeZone, Utc};
 use lib::sources::controllers::esp32_controller::{
-    Bandwidth as EspBandwidth, CsiType as EspCsiType, EspMode, OperationMode as EspOperationMode, SecondaryChannel as EspSecondaryChannel,
+    Bandwidth as EspBandwidth, CsiType as EspCsiType, EspMode, SecondaryChannel as EspSecondaryChannel,
 };
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout};
