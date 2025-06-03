@@ -1,12 +1,33 @@
-mod controllers;
-pub mod csv;
-pub mod netlink;
+//! Data source definitions and configuration.
+//!
+//! This module provides the core [`DataSourceT`] trait for consuming packetized
+//! byte streams, as well as the [`DataSourceConfig`] enum for instantiating
+//! concrete source implementations from configuration.
+//!
+//! Supported sources (via `DataSourceConfig`):
+//! - [`netlink::NetlinkSource`]: Linux-specific netlink packet capture (requires `target_os = "linux"`).
+//! - [`esp32::Esp32Source`]: ESP32-based wireless or serial data source.
+//! - [`csv`]: Placeholder for CSV-based source (e.g., playback from file).
+//! - ['tcp::TCPSource']: Source to receive from other system nodes
+//!
+//! Each source implementation must be constructed with configuration via the
+//! [`FromConfig<DataSourceConfig>`] trait and then activated via the
+//! [`DataSourceT::start`] method before reading frames.
 
-use crate::FromConfig;
-use crate::errors::DataSourceError;
-use crate::errors::TaskError;
-use crate::sources::controllers::Controller;
-use std::net::SocketAddr;
+pub mod controllers;
+pub mod csv;
+pub mod esp32;
+#[cfg(target_os = "linux")]
+pub mod netlink;
+pub mod tcp;
+
+use std::any::Any;
+
+use crate::errors::{DataSourceError, TaskError};
+use crate::network::rpc_message::DataMsg;
+use crate::{FromConfig, ToConfig};
+
+pub const BUFSIZE: usize = 65535;
 
 /// Data Source Trait
 /// -----------------
@@ -15,7 +36,7 @@ use std::net::SocketAddr;
 /// interpreted by CSI adapters. It is up to the user to correct a source
 /// sensibly with an adapter.
 #[async_trait::async_trait]
-pub trait DataSourceT: Send {
+pub trait DataSourceT: Send + Any + ToConfig<DataSourceConfig> {
     /// Start collecting data
     /// ---------------------
     /// Must activate the source, such that we can read from it. For example, starting
@@ -35,28 +56,52 @@ pub trait DataSourceT: Send {
     /// ---------------------
     /// Copy one "packet" (meaning being source specific) into the buffer and report
     /// its size.
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError>;
+    /// Don't use this method use read instead
+    async fn read_buf(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError>;
+
+    /// Attempts to read a data message from the source.
+    ///
+    /// This method polls the underlying data source for new data and returns
+    /// an optional `DataMsg` if available.
+    ///
+    /// # Errors
+    /// Returns a [`DataSourceError`] if the underlying source encounters an error
+    /// during the read operation.
+    async fn read(&mut self) -> Result<Option<DataMsg>, DataSourceError>;
 }
 
-/// Unified controller parameters
-#[derive(serde::Serialize, serde::Deserialize, Debug, schemars::JsonSchema)]
-#[serde(tag = "type", content = "params")]
-pub enum ControllerParams {
-    Netlink(controllers::netlink_controller::NetlinkControllerParams),
-    // Extendable
-}
-
-#[derive(serde::Deserialize, Debug, Clone)]
+/// Configuration =for available data source types.
+///
+/// This enum is tagged using Serde’s `tag = "type"`  Each variant
+/// corresponds to a concrete source implementation:
+/// - `Netlink`: Linux-only netlink-based capture (requires `target_os = "linux"`)
+/// - `Esp32`: ESP32-based data source
+/// - 'Tcp': receiving from another node
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum DataSourceConfig {
+    /// Linux netlink source (packet capture via netlink sockets).
+    #[cfg(target_os = "linux")]
     Netlink(netlink::NetlinkConfig),
+    /// Data source backed by an ESP32 device.
+    Esp32(esp32::Esp32SourceConfig),
+    /// TCP receiving from another device.
+    Tcp(tcp::TCPConfig),
 }
 
 #[async_trait::async_trait]
 impl FromConfig<DataSourceConfig> for dyn DataSourceT {
+    /// Instantiate a concrete [`DataSourceT`] from its configuration.
+    ///
+    /// # Errors
+    /// Returns [`TaskError::DataSourceError`] if the underlying source
+    /// constructor fails.
     async fn from_config(config: DataSourceConfig) -> Result<Box<Self>, TaskError> {
         let source: Box<dyn DataSourceT> = match config {
-            DataSourceConfig::Netlink(cfg) => Box::new(netlink::NetlinkSource::new(cfg)?),
+            #[cfg(target_os = "linux")]
+            DataSourceConfig::Netlink(cfg) => Box::new(netlink::NetlinkSource::new(cfg).map_err(TaskError::DataSourceError)?),
+            DataSourceConfig::Esp32(cfg) => Box::new(esp32::Esp32Source::new(cfg).map_err(TaskError::DataSourceError)?),
+            DataSourceConfig::Tcp(cfg) => Box::new(tcp::TCPSource::new(cfg).map_err(TaskError::DataSourceError)?),
         };
         Ok(source)
     }
@@ -65,7 +110,7 @@ impl FromConfig<DataSourceConfig> for dyn DataSourceT {
 // Not sure if I need everything after this yet
 //
 //
-
+/* Fabian's stuff
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct RemoteSourceConfig {
     pub device_id: u64,
@@ -90,3 +135,4 @@ pub struct Configuration {
     pub device_id: u64,
     pub params: ControllerParams,
 }
+*/

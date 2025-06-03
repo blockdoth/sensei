@@ -1,0 +1,34 @@
+addr: "127.0.0.1:8000"
+host_id: 2
+registry:
+  use_registry: true
+  addr: "127.0.0.1:8080"
+device_configs:
+  - device_id: 42
+    stype: ESP32
+    source:
+      type: Esp32
+      port_name: "/dev/cu.usbmodem1101"
+      baud_rate: 300000
+    controller:
+      type: Esp32
+      params:
+        set_channel: 1
+        apply_device_config:
+          mode: Receive
+          channel: 1
+          bandwidth: Twenty
+          secondary_channel: None
+          csi_type: HighThroughputLTF
+          manual_scale: 1
+        clear_all_mac_filters: true
+        control_acquisition: true
+        control_wifi_transmit: false
+        synchronize_time: false
+    adapter:
+      type: Esp32
+      scale_csi: true
+    sinks:
+      - type: File
+        file: "/dev/stdout"
+

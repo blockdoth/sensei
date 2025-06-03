@@ -2,22 +2,21 @@
 //! Data Adapters
 //! -------------
 //!
-//! Brokernet deals with brokering binary data extracted from "Sources", such as files
+//! Sensei deals with binary data extracted from "Sources", such as files
 //! or sockets. Different sources provide different data formats, which must be handled
-//! accordingly. This is the dask of Data Adapters.
+//! accordingly. This is the task of Data Adapters.
 //!
 //! Module for adapters
 //! Mofidied based on: wisense/sensei/lib/src/adapters/mod.rs
 //! Originally authored by: Fabian Portner
 
-use crate::FromConfig;
-use crate::csi_types::CsiData;
-use crate::errors::CsiAdapterError;
-use crate::errors::TaskError;
+use crate::errors::{CsiAdapterError, TaskError};
 use crate::network::rpc_message::DataMsg;
-use crate::network::rpc_message::DataMsg::CsiFrame;
+use crate::{FromConfig, ToConfig};
 pub mod csv;
+pub mod esp32;
 pub mod iwl;
+pub mod tcp;
 
 /// Csi Data Adapter Trait
 /// ----------------------
@@ -31,7 +30,7 @@ pub mod iwl;
 /// the function only starts reutrning data once the CSIData frame has been collected
 /// otherwise returns None
 #[async_trait::async_trait]
-pub trait CsiDataAdapter: Send {
+pub trait CsiDataAdapter: Send + ToConfig<DataAdapterConfig> {
     /// Attempts to consume a DataMsg and produce a CsiFrame variant.
     ///
     /// # Arguments
@@ -48,10 +47,12 @@ pub trait CsiDataAdapter: Send {
 ///
 /// This enum allows adapters to be specified via configuration files and deserialized
 /// automatically. Each variant contains options specific to the corresponding adapter.
-#[derive(serde::Deserialize, Debug, Clone, Copy)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy)]
 #[serde(tag = "type")]
 pub enum DataAdapterConfig {
     Iwl { scale_csi: bool },
+    Esp32 { scale_csi: bool },
+    Tcp { scale_csi: bool },
     CSV {},
 }
 
@@ -66,6 +67,8 @@ impl FromConfig<DataAdapterConfig> for dyn CsiDataAdapter {
     async fn from_config(tag: DataAdapterConfig) -> Result<Box<Self>, TaskError> {
         let adapter: Box<dyn CsiDataAdapter> = match tag {
             DataAdapterConfig::Iwl { scale_csi } => Box::new(iwl::IwlAdapter::new(scale_csi)),
+            DataAdapterConfig::Esp32 { scale_csi } => Box::new(esp32::ESP32Adapter::new(scale_csi)),
+            DataAdapterConfig::Tcp { scale_csi } => Box::new(tcp::TCPAdapter::new(scale_csi)),
             DataAdapterConfig::CSV {} => Box::new(csv::CSVAdapter::default()),
         };
         Ok(adapter)

@@ -2,22 +2,50 @@
 
 Sensei can be run using:
 ```bash
-cargo run -- --addr [address] --port [port] [variant]
+cargo run --bin  -- [variant]
 ```
 
 An example of this would be:
 ```bash
-cargo run -- --addr 127.0.0.1 --port 8081 system_node
+cargo run --bin sensei system_node
 ```
 
 The variants of Sensei consist of:
 - system_node
 - registry
 - orchestrator
+- visualiser
 
+### System Node
 System nodes should run on any device that should be included in the network that should broadcast CSI data.
+Nodes are passive components of the system, meaning they can not act without outside commands from any of the other 3 variants.
+
+### Orchestrator
+The orchestrator can run on any machine, and is a way to interface with the network.
+It lets you send any command to any listener in the system.
+It has a number of commands, such as:
+```bash
+- connect [target_addr]
+- disconnect [target_addr]
+- subscribe [target_addr]
+- unsubscribe [target_addr]
+```
+
+### Registry
+
 The registry should run on a stronger machine (not a router) that will be on permanently.
-The orchestator can run on any machine, and is a way to interface with the network.
+
+### Visualiser
+The visualiser connects on startup to a target node, the "data aggregator."
+This node should be the last node in the system, where all the data ends up at.
+The visualiser has a number of commands to manipulate and graph the data, such as:
+```bash
+- add/remove [graph_type] [data_source_addr] [device_id] [core] [stream] [subcarrier]
+- interval [graph_index] [interval_length_ms]
+- clear
+```
+Use esc to end the visualiser
+
 
 # Building and development
 Sensei uses nix flakes for setting up a declarative development environment and achieving reproducible builds.   
@@ -62,7 +90,7 @@ The pipeline is based on the nix flake. Since the flake is fully reproducible yo
 
 However at the linting and formatting stage is not directly integrated into the flake. Therefore you need to run the following command to run all code checks.
 ```nix
-nix develop --command ./scripts/check.sh
+nix develop --command "./scripts/check.sh"
 ```
 IMPORTANT: Run this script before every push and fix any issues it brings up. Otherwise the CI will likely fail.
 

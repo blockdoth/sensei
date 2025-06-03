@@ -7,4 +7,5 @@ members = [
 resolver = "2"
 
 [workspace.lints.rust]
-unused = "allow"
+unused =  { level = "warn", priority = -1 }
+dead_code = "allow"

@@ -5,10 +5,8 @@
 //!
 //! - `adapter`: Logic for interfacing with the IWL hardware and processing CSI frames.
 //! - `header`: Structures and parsers for interpreting IWL-specific packet headers.
-mod adapter;
+pub mod adapter;
 mod header;
-
-use thiserror::Error;
 
 /// Re-export of the main adapter interface for IWL devices.
 ///
