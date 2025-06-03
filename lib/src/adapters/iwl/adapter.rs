@@ -221,7 +221,6 @@ mod tests {
     use crate::adapters::DataAdapterConfig;
     use crate::adapters::iwl::test_utils::build_test_packet;
     use crate::csi_types::CsiData;
-    use crate::errors::CsiAdapterError;
     use crate::network::rpc_message::{DataMsg, SourceType};
 
     #[tokio::test]
@@ -288,7 +287,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_to_config() {
-        let mut adapter = IwlAdapter::new(false);
+        let adapter = IwlAdapter::new(false);
         let ret = adapter.to_config().await;
         assert!(matches!(ret.unwrap(), DataAdapterConfig::Iwl { scale_csi: false }));
     }
