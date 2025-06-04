@@ -8,7 +8,6 @@ use std::vec;
 
 use async_trait::async_trait;
 use crossterm::event::{KeyCode, KeyEvent};
-use futures::StreamExt;
 use log::{info, warn};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout};

@@ -19,19 +19,18 @@ use crate::services::{DEFAULT_ADDRESS, GlobalConfig, OrchestratorConfig, Run};
 pub struct Orchestrator {
     client: Arc<Mutex<TcpClient>>,
     targets: Vec<SocketAddr>,
-
 }
 
 impl Run<OrchestratorConfig> for Orchestrator {
     fn new(global_config: GlobalConfig, config: OrchestratorConfig) -> Self {
         Orchestrator {
             client: Arc::new(Mutex::new(TcpClient::new())),
-            targets: config.targets
+            targets: config.targets,
         }
     }
 
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        for target_addr in self.targets.clone(){
+        for target_addr in self.targets.clone() {
             Self::connect(&self.client, target_addr).await?
         }
         self.cli_interface().await?;

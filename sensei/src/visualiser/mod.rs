@@ -41,7 +41,7 @@ pub struct Visualiser {
     data: Arc<Mutex<HashMap<SocketAddr, HashMap<u64, Vec<CsiData>>>>>, // Nodes x Devices x CsiData over time
     target: SocketAddr,
     ui_type: String,
-  }
+}
 
 impl Run<VisualiserConfig> for Visualiser {
     fn new(global_config: GlobalConfig, config: VisualiserConfig) -> Self {
@@ -62,7 +62,7 @@ impl Run<VisualiserConfig> for Visualiser {
 
         io::stdout().flush().await?;
 
-        if (self.ui_type == "tui") {
+        if self.ui_type == "tui" {
             self.plot_data_tui().await?;
         } else {
             self.plot_data_gui().await?;

@@ -8,7 +8,7 @@ use lib::FromConfig;
 // use lib::FromConfig; // Not using FromConfig for adapter to keep changes minimal here
 use lib::errors::NetworkError;
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
-use lib::network::rpc_message::{CtrlMsg::*, RpcMessageKind};
+use lib::network::rpc_message::CtrlMsg::*;
 use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
 use lib::network::rpc_message::SourceType::*;
 use lib::network::rpc_message::{CtrlMsg, DataMsg, DeviceId, RpcMessage};
@@ -16,9 +16,9 @@ use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
 use lib::network::*;
+use lib::sources::DataSourceConfig;
 #[cfg(target_os = "linux")]
 use lib::sources::tcp::TCPConfig;
-use lib::sources::{DataSourceConfig, DataSourceT};
 use log::*;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::{Mutex, broadcast, watch};
@@ -43,7 +43,6 @@ pub struct SystemNode {
     host_id: u64,
     registry_addr: Option<SocketAddr>,
     device_configs: Vec<DeviceHandlerConfig>,
-
 }
 
 impl SubscribeDataChannel for SystemNode {
@@ -235,14 +234,14 @@ impl Run<SystemNodeConfig> for SystemNode {
     /// SystemNodeConfig: Specifies the target address
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let connection_handler = Arc::new(self.clone());
-        
+
         let mut locked_handlers = self.handlers.lock().await;
         for cfg in &self.device_configs {
-          locked_handlers.insert(cfg.device_id, DeviceHandler::from_config(cfg.clone()).await.unwrap());
+            locked_handlers.insert(cfg.device_id, DeviceHandler::from_config(cfg.clone()).await.unwrap());
         }
 
         if let Some(registry) = &self.registry_addr {
-            info!("Connecting to registry at {}", registry);
+            info!("Connecting to registry at {registry}");
             let registry_addr: SocketAddr = *registry;
             let heartbeat_msg = Ctrl(CtrlMsg::AnnouncePresence {
                 host_id: self.host_id,
@@ -252,7 +251,7 @@ impl Run<SystemNodeConfig> for SystemNode {
             client.connect(registry_addr).await?;
             client.send_message(registry_addr, heartbeat_msg).await?;
             client.disconnect(registry_addr);
-            info!("Heartbeat sent to registry at {}", registry_addr);
+            info!("Heartbeat sent to registry at {registry_addr}");
         }
 
         // Start TCP server to handle client connections

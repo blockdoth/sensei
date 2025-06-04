@@ -77,7 +77,7 @@ impl Run<RegistryConfig> for Registry {
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let sender_data_channel = &self.send_data_channel;
 
-        let addr: SocketAddr = self.addr.clone();
+        let addr: SocketAddr = self.addr;
         let server_task = {
             let connection_handler = Arc::new(self.clone());
             task::spawn(async move {
@@ -86,7 +86,6 @@ impl Run<RegistryConfig> for Registry {
             })
         };
 
-        
         let client_task = {
             let connection_handler = Arc::new(self.clone());
             task::spawn(async move {
@@ -220,9 +219,9 @@ impl ConnectionHandler for Registry {
     /// Handle outgoing messages to a host or client.
     async fn handle_send(
         &self,
-        mut recv_commands_channel: watch::Receiver<ChannelMsg>,
-        mut recv_data_channel: tokio::sync::broadcast::Receiver<(DataMsg, u64)>,
-        mut send_stream: OwnedWriteHalf,
+        recv_commands_channel: watch::Receiver<ChannelMsg>,
+        recv_data_channel: tokio::sync::broadcast::Receiver<(DataMsg, u64)>,
+        send_stream: OwnedWriteHalf,
     ) -> Result<(), NetworkError> {
         Ok(())
     }
@@ -254,7 +253,7 @@ mod tests {
             hosts: Arc::new(Mutex::new(HashMap::new())),
             send_data_channel: broadcast::channel(10).0,
             addr: test_socket_addr(1234),
-            poll_interval: 0
+            poll_interval: 0,
         }
     }
 

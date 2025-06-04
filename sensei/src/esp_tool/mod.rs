@@ -17,7 +17,7 @@ use lib::sources::controllers::esp32_controller::{Esp32ControllerParams, Esp32De
 use lib::sources::esp32::{Esp32Source, Esp32SourceConfig};
 use lib::tui::TuiRunner;
 use lib::tui::logs::{FromLog, LogEntry};
-use log::{debug, error, info, warn, LevelFilter};
+use log::{LevelFilter, debug, error, info, warn};
 use state::{EspUpdate, TuiState};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -53,15 +53,15 @@ impl FromLog for EspUpdate {
 /// This tool sets up a TUI to visualize CSI data, manages the ESP32 connection,
 /// and handles configuration commands for the ESP device.
 pub struct EspTool {
-  serial_port: String,
-  log_level: LevelFilter,
+    serial_port: String,
+    log_level: LevelFilter,
 }
 
 impl Run<EspToolConfig> for EspTool {
     fn new(global_config: GlobalConfig, esp_config: EspToolConfig) -> Self {
         EspTool {
-          serial_port: esp_config.serial_port,
-          log_level: global_config.log_level,
+            serial_port: esp_config.serial_port,
+            log_level: global_config.log_level,
         }
     }
     /// Starts the ESP32 monitoring tool with the provided configuration.
@@ -75,12 +75,12 @@ impl Run<EspToolConfig> for EspTool {
     /// # Errors
     /// Returns a boxed `Error` if initialization or runtime encounters a failure.
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let (command_send, mut command_recv) = mpsc::channel::<EspChannelCommand>(1000);
-        let (update_send, mut update_recv) = mpsc::channel::<EspUpdate>(1000);
+        let (command_send, command_recv) = mpsc::channel::<EspChannelCommand>(1000);
+        let (update_send, update_recv) = mpsc::channel::<EspUpdate>(1000);
 
         let update_send_clone = update_send.clone();
 
-        let mut esp_src_config = Esp32SourceConfig {
+        let esp_src_config = Esp32SourceConfig {
             port_name: self.serial_port.clone(),
             ..Default::default()
         };
@@ -178,7 +178,7 @@ impl EspTool {
             .send(EspUpdate::Status("CONNECTED (Source Started)".to_string()))
             .await;
 
-        let mut read_buffer = vec![0u8; ESP_READ_BUFFER_SIZE];
+        let read_buffer = vec![0u8; ESP_READ_BUFFER_SIZE];
         let mut esp_adapter = ESP32Adapter::new(false);
 
         loop {

@@ -49,7 +49,6 @@ pub struct OrchestratorConfig {
     pub targets: Vec<SocketAddr>,
 }
 
-
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct SystemNodeConfig {
     pub addr: SocketAddr,

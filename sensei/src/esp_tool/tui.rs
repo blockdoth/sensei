@@ -103,7 +103,7 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
     };
 
     // Compose multi-line status block
-    let mut status_lines = vec![
+    let status_lines = vec![
         Line::from(vec![
             Span::raw("ESP32 Status: "),
             Span::styled(tui_state.connection_status.clone(), connection_style),
