@@ -50,7 +50,7 @@ pub struct SystemNode {
 
 impl SubscribeDataChannel for SystemNode {
     /// Creates a mew receiver for the System Nodes send data channel
-    fn subscribe_data_channel(&self) -> broadcast::Receiver<(DataMsg, u64)> {
+    fn subscribe_data_channel(&self) -> broadcast::Receiver<(DataMsg, DeviceId)> {
         self.send_data_channel.subscribe()
     }
 }

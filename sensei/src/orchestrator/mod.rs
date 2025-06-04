@@ -61,6 +61,86 @@ impl Orchestrator {
         info!("Unsubscribing from {target_addr} for device id {device_id}");
         client.lock().await.send_message(target_addr, msg).await.expect("TODO: panic message");
     }
+    
+    async fn subscribe_to(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, source_addr: SocketAddr, device_id: u64) {
+        let msg = Ctrl(SubscribeTo {
+            target: source_addr,
+            device_id,
+        });
+
+        info!("Telling {target_addr} to subscribe to {source_addr} on device id {device_id}");
+
+        client
+            .lock()
+            .await
+            .send_message(target_addr, msg)
+            .await
+            .expect("TODO: panic message");
+    }
+    
+    async fn unsubscribe_from(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, source_addr: SocketAddr, device_id: u64) {
+        let msg = Ctrl(UnsubscribeFrom {
+            target: source_addr,
+            device_id,
+        });
+
+        info!("Telling {target_addr} to unsubscribe from device id {device_id} from {source_addr}");
+
+        client
+            .lock()
+            .await
+            .send_message(target_addr, msg)
+            .await
+            .expect("TODO: panic message");
+    }
+    
+    async fn send_status(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr) {
+        let msg = Ctrl(PollHostStatus);
+
+        client.lock().await.send_message(target_addr, msg).await.expect("TODO: panic message");
+    }
+    
+    async fn configure_create(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: u64, cfg: DeviceHandlerConfig) {
+        let cfg_type = CfgType::Create { cfg };
+        let msg = Ctrl(Configure { device_id, cfg_type });
+
+        info!("Telling {target_addr} to create a device handler");
+
+        client
+            .lock()
+            .await
+            .send_message(target_addr, msg)
+            .await
+            .expect("TODO: panic message");
+    }
+    
+    async fn configure_edit(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: u64, cfg: DeviceHandlerConfig) {
+        let cfg_type = CfgType::Edit { cfg };
+        let msg = Ctrl(Configure { device_id, cfg_type });
+
+        info!("Telling {target_addr} to edit a device handler");
+
+        client
+            .lock()
+            .await
+            .send_message(target_addr, msg)
+            .await
+            .expect("TODO: panic message");
+    }
+    
+    async fn configure_delete(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: u64) {
+        let cfg_type = Delete;
+        let msg = Ctrl(Configure { device_id, cfg_type });
+
+        info!("Telling {target_addr} to delete a device handler");
+
+        client
+            .lock()
+            .await
+            .send_message(target_addr, msg)
+            .await
+            .expect("TODO: panic message");
+    }
 
     // Temporary, refactor once TUI gets added
     async fn cli_interface(&self) -> Result<(), Box<dyn std::error::Error>> {
@@ -143,19 +223,7 @@ impl Orchestrator {
                 let source_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
                 let device_id: DeviceId = input.next().unwrap_or("0").parse().unwrap();
 
-                let msg = Ctrl(SubscribeTo {
-                    target: source_addr,
-                    device_id,
-                });
-
-                info!("Telling {target_addr} to subscribe to {source_addr} on device id {device_id}");
-
-                send_client
-                    .lock()
-                    .await
-                    .send_message(target_addr, msg)
-                    .await
-                    .expect("TODO: panic message");
+                Self::subscribe_to(&send_client, target_addr, source_addr, device_id).await;
             }
             Some("unsubfrom") => {
                 // Tells a node to unsubscribe from another node
@@ -163,19 +231,7 @@ impl Orchestrator {
                 let source_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
                 let device_id: DeviceId = input.next().unwrap_or("0").parse().unwrap();
 
-                let msg = Ctrl(UnsubscribeFrom {
-                    target: source_addr,
-                    device_id,
-                });
-
-                info!("Telling {target_addr} to unsubscribe from device id {device_id} from {source_addr}");
-
-                send_client
-                    .lock()
-                    .await
-                    .send_message(target_addr, msg)
-                    .await
-                    .expect("TODO: panic message");
+                Self::unsubscribe_from(&send_client, target_addr, source_addr, device_id).await;
             }
             Some("dummydata") => {
                 // To test the subscription mechanic
@@ -200,14 +256,16 @@ impl Orchestrator {
             }
             Some("sendstatus") => {
                 let target_addr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
-                send_commands_channel
-                    .send(ChannelMsg::SendHostStatus { reg_addr: target_addr })
-                    .expect("TODO: panic message");
+
+                let msg = Ctrl(PollHostStatus);
+                
+                send_client.lock().await.send_message(target_addr, msg).await.expect("TODO: panic message");
             }
             Some("configure") => {
                 let target_addr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
                 let device_id: DeviceId = input.next().unwrap_or("0").parse().unwrap();
-                match input.next() {
+                let cfg_type = input.next();
+                match cfg_type {
                     Some("create") => {
                         let config_path: PathBuf = input.next().unwrap_or("sensei/src/orchestrator/example_config.yaml").into();
                         let cfg = match DeviceHandlerConfig::from_yaml(config_path).await {
@@ -218,17 +276,7 @@ impl Orchestrator {
                             _ => return info!("invalid config"),
                         };
 
-                        let cfg_type = CfgType::Create { cfg };
-                        let msg = Ctrl(Configure { device_id, cfg_type });
-
-                        info!("Telling {target_addr} to create a device handler");
-
-                        send_client
-                            .lock()
-                            .await
-                            .send_message(target_addr, msg)
-                            .await
-                            .expect("TODO: panic message");
+                        Self::configure_create(&send_client, target_addr, device_id, cfg).await;
                     }
                     Some("edit") => {
                         let config_path: PathBuf = input.next().unwrap_or("sensei/src/orchestrator/example_config.yaml").into();
@@ -240,30 +288,10 @@ impl Orchestrator {
                             _ => return info!("invalid config"),
                         };
 
-                        let cfg_type = CfgType::Edit { cfg };
-                        let msg = Ctrl(Configure { device_id, cfg_type });
-
-                        info!("Telling {target_addr} to edit a device handler");
-
-                        send_client
-                            .lock()
-                            .await
-                            .send_message(target_addr, msg)
-                            .await
-                            .expect("TODO: panic message");
+                        Self::configure_edit(&send_client, target_addr, device_id, cfg).await;
                     }
                     Some("delete") => {
-                        let cfg_type = Delete;
-                        let msg = Ctrl(Configure { device_id, cfg_type });
-
-                        info!("Telling {target_addr} to delete a device handler");
-
-                        send_client
-                            .lock()
-                            .await
-                            .send_message(target_addr, msg)
-                            .await
-                            .expect("TODO: panic message");
+                        Self::configure_delete(&send_client, target_addr, device_id).await;
                     }
                     _ => {
                         info!("Invalid configuration type");
