@@ -235,9 +235,8 @@ impl Run<SystemNodeConfig> for SystemNode {
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let connection_handler = Arc::new(self.clone());
 
-        let mut locked_handlers = self.handlers.lock().await;
         for cfg in &self.device_configs {
-            locked_handlers.insert(cfg.device_id, DeviceHandler::from_config(cfg.clone()).await.unwrap());
+            self.handlers.lock().await.insert(cfg.device_id, DeviceHandler::from_config(cfg.clone()).await.unwrap());
         }
 
         if let Some(registry) = &self.registry_addr {
