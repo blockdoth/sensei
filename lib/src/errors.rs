@@ -76,7 +76,7 @@ pub enum DataSourceError {
     ParsingError(String),
 
     #[error("Tcp source error: {0}")]
-    NetworkError(#[from] NetworkError),
+    NetworkError(#[from] Box<NetworkError>),
 
     /// Packet was incomplete, likely due to a bug in the source handler.
     #[error("Incomplete packet (Source handler bug)")]
@@ -315,7 +315,7 @@ pub enum SinkError {
 
     /// Error related to tcp sinks
     #[error("Error from tcp sink: {0}")]
-    NetworkError(#[from] NetworkError),
+    NetworkError(#[from] Box<NetworkError>),
 }
 
 /// Top-level task errors used across Sensei's runtime.
@@ -361,4 +361,11 @@ pub enum TaskError {
     /// Specifically for the tcp sink
     #[error("Incorrect device_id for sink, according to config")]
     WrongSinkDid,
+}
+
+// Allow conversion from Box<NetworkError> to NetworkError
+impl From<Box<NetworkError>> for NetworkError {
+    fn from(err: Box<NetworkError>) -> Self {
+        *err
+    }
 }

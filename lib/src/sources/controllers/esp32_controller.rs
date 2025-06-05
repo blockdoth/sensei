@@ -162,7 +162,6 @@ pub struct Esp32ControllerParams {
     pub transmit_custom_frame: Option<CustomFrameParams>,
 }
 
-#[typetag::serde(name = "ESP32Controller")]
 #[async_trait]
 impl Controller for Esp32ControllerParams {
     async fn apply(&self, source: &mut dyn DataSourceT) -> Result<(), ControllerError> {

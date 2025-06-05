@@ -2,11 +2,10 @@ use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-// use std::thread::sleep; // Not used
 use async_trait::async_trait;
 use lib::FromConfig;
-// use lib::FromConfig; // Not using FromConfig for adapter to keep changes minimal here
 use lib::errors::NetworkError;
+use lib::handler::device_handler::CfgType::{Create, Delete, Edit};
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
 use lib::network::rpc_message::CtrlMsg::*;
 use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
@@ -15,7 +14,6 @@ use lib::network::rpc_message::{CtrlMsg, DataMsg, DeviceId, RpcMessage};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
-use lib::network::*;
 use lib::sources::DataSourceConfig;
 #[cfg(target_os = "linux")]
 use lib::sources::tcp::TCPConfig;
@@ -127,7 +125,27 @@ impl ConnectionHandler for SystemNode {
                     info!("Received PollDevices from {reg_addr}");
                     send_channel_msg_channel.send(ChannelMsg::SendHostStatus { reg_addr, host_id })?
                 }
-                Configure { device_id: _, cfg: _ } => {}
+                Configure { device_id, cfg_type } => match cfg_type {
+                    Create { cfg } => {
+                        info!("Creating a new device handler for device id {device_id}");
+                        let handler = DeviceHandler::from_config(cfg).await.unwrap();
+                        self.handlers.lock().await.insert(device_id, handler);
+                    }
+                    Edit { cfg } => {
+                        info!("Editing existing device handler for device id {device_id}");
+                        match self.handlers.lock().await.get_mut(&device_id) {
+                            Some(handler) => handler.reconfigure(cfg).await.expect("Whoopsy"),
+                            _ => info!("This handler does not exist."),
+                        }
+                    }
+                    Delete => {
+                        info!("Deleting device handler for device id {device_id}");
+                        match self.handlers.lock().await.remove(&device_id) {
+                            Some(mut handler) => handler.stop().await.expect("Whoopsy"),
+                            _ => info!("This handler does not exist."),
+                        }
+                    }
+                },
                 m => {
                     warn!("Received unhandled CtrlMsg: {m:?}");
                 }
@@ -169,12 +187,12 @@ impl ConnectionHandler for SystemNode {
                         subscribed_ids.remove(&device_id);
                     }
                     ChannelMsg::SendHostStatus { reg_addr: _, host_id: _ } => {
-                        let host_status = CtrlMsg::HostStatus {
+                        let host_status = HostStatus {
                             host_id: self.host_id,
                             device_status: vec![],
                         };
                         let msg = Ctrl(host_status);
-                        tcp::send_message(&mut send_stream, msg).await?;
+                        send_message(&mut send_stream, msg).await?;
                     }
                     _ => (),
                 }

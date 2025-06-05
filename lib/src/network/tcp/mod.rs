@@ -10,6 +10,7 @@ use tokio::sync::watch::{self};
 
 use super::rpc_message::{DataMsg, DeviceId, RpcMessage, RpcMessageKind};
 use crate::errors::NetworkError;
+use crate::handler::device_handler::CfgType;
 use crate::network::rpc_message::{HostId, make_msg};
 
 pub mod client;
@@ -74,20 +75,12 @@ pub async fn send_message(stream: &mut OwnedWriteHalf, msg: RpcMessageKind) -> R
 }
 
 // TODO better error handling
-fn serialize_rpc_message(msg: RpcMessage) -> Result<Vec<u8>, NetworkError> {
-    if let Ok(buf) = bincode::serialize(&msg) {
-        Ok(buf)
-    } else {
-        Err(NetworkError::Serialization)
-    }
+fn serialize_rpc_message(msg: RpcMessage) -> Result<Vec<u8>, Box<NetworkError>> {
+    bincode::serialize(&msg).map_err(|_| Box::from(NetworkError::Serialization))
 }
 
-fn deserialize_rpc_message(buf: &[u8]) -> Result<RpcMessage, NetworkError> {
-    if let Ok(msg) = bincode::deserialize(buf) {
-        Ok(msg)
-    } else {
-        Err(NetworkError::Serialization)
-    }
+fn deserialize_rpc_message(buf: &[u8]) -> Result<RpcMessage, Box<NetworkError>> {
+    bincode::deserialize(buf).map_err(|_| Box::from(NetworkError::Serialization))
 }
 
 #[async_trait]
@@ -117,6 +110,7 @@ pub enum ChannelMsg {
     UnsubscribeFrom { target_addr: SocketAddr, device_id: DeviceId },
     ListenSubscribe { addr: SocketAddr },
     ListenUnsubscribe { addr: SocketAddr },
+    Configure { device_id: DeviceId, cfg_type: CfgType },
     SendHostStatus { reg_addr: SocketAddr, host_id: HostId },
     SendHostStatuses,
     Data { data: DataMsg },

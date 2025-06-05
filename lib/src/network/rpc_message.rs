@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
 use crate::csi_types::CsiData;
-use crate::handler::device_handler::DeviceHandlerConfig;
+use crate::handler::device_handler::CfgType;
 
 pub const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
 
@@ -31,7 +31,7 @@ pub type DeviceId = u64;
 pub enum CtrlMsg {
     Connect,
     Disconnect,
-    Configure { device_id: DeviceId, cfg: DeviceHandlerConfig },
+    Configure { device_id: DeviceId, cfg_type: CfgType },
     Subscribe { device_id: DeviceId },
     Unsubscribe { device_id: DeviceId },
     SubscribeTo { target: SocketAddr, device_id: DeviceId }, // Orchestrator to node, node subscribes to another node

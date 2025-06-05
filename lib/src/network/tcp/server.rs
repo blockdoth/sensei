@@ -67,8 +67,8 @@ impl TcpServer {
                         info!("Connection with {local_peer_addr:?} closed gracefully");
                         break;
                     }
-                    Err(_) => {
-                        warn!("Connection with {local_peer_addr:?} closed abruptly");
+                    Err(e) => {
+                        warn!("Connection with {local_peer_addr:?} closed abruptly {e}");
                         break;
                     }
                 }

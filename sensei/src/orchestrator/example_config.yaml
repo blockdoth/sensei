@@ -7,5 +7,5 @@
   adapter: null
   sinks:
     - !Tcp
-      target_addr: 127.0.0.1:6969
+      target_addr: 127.0.0.1:6969 
       device_id: 0
