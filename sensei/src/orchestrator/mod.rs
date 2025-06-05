@@ -186,7 +186,11 @@ impl Orchestrator {
             }
             Some("sendstatus") => {
                 let target_addr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
-                send_commands_channel.send(ChannelMsg::SendHostStatus { reg_addr: target_addr })?;
+                let host_id = input.next().unwrap_or("").parse().unwrap_or(0);
+                send_commands_channel.send(ChannelMsg::SendHostStatus {
+                    reg_addr: target_addr,
+                    host_id,
+                })?;
             }
             Some("configure") => {
                 let target_addr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
