@@ -24,9 +24,9 @@ pub struct TCPConfig {
 ///
 /// Establishes a TCP connection to a remote data provider and reads serialized
 /// `RpcMessage` values from the stream.
-pub struct TCPSource<C: TcpClientT>  {
+pub struct TCPSource  {
     /// Client from which to read
-    client: C,
+    client: Box<dyn TcpClientT>,
     /// Place to where to send
     config: TCPConfig,
 }
@@ -42,14 +42,14 @@ impl TCPSource {
     pub fn new(config: TCPConfig) -> Result<Self, DataSourceError> {
         trace!("Creating new TCPSource for {}", config.target_addr);
         Ok(Self {
-            client: TcpClient::new(),
+            client: Box::new(TcpClient::new()),
             config,
         })
     }
 }
 
 #[async_trait::async_trait]
-impl DataSourceT for TCPSource {
+impl ToConfig<DataSourceConfig> for TCPSource {
     /// Starts the data source by connecting to the TCP server.
     ///
     /// # Errors
@@ -130,5 +130,104 @@ impl ToConfig<DataSourceConfig> for TCPSource {
             target_addr: self.config.target_addr,
             device_id: self.config.device_id,
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::network::rpc_message::{RpcMessage, RpcMessageKind, DataMsg, SourceType};
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    use mockall::predicate::*;
+    use tokio;
+
+    fn dummy_addr() -> SocketAddr {
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 5555)
+    }
+
+    fn dummy_data_msg(device_id: u64) -> RpcMessage {
+        RpcMessage {
+            msg: RpcMessageKind::Data {
+                device_id,
+                data_msg: DataMsg::RawFrame {
+                    ts: 0.0,
+                    bytes: vec![1, 2, 3],
+                    source_type: SourceType::IWL5300,
+                },
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn test_read_valid_data_msg() {
+        let addr = dummy_addr();
+        let mut mock = MockTcpClientT::new();
+        let expected_msg = dummy_data_msg(42);
+
+        mock.expect_connect()
+            .with(eq(addr))
+            .returning(|_| Ok(()));
+
+        mock.expect_read_message()
+            .with(eq(addr))
+            .return_once(move |_| Ok(expected_msg.clone()));
+
+        let config = TCPConfig { target_addr: addr, device_id: 42 };
+        let mut source = TCPSource {
+            client: mock,
+            config,
+        };
+
+        let result = source.read().await.unwrap();
+        assert!(matches!(result, Some(DataMsg::RawFrame { .. })));
+    }
+
+    #[tokio::test]
+    async fn test_control_msg_returns_none() {
+        let addr = dummy_addr();
+        let mut mock = MockTcpClientT::new();
+        let msg = RpcMessage {
+            msg: RpcMessageKind::Ctrl("noop".into()),
+        };
+
+        mock.expect_read_message()
+            .with(eq(addr))
+            .return_once(move |_| Ok(msg));
+
+        let config = TCPConfig { target_addr: addr, device_id: 1 };
+        let mut source = TCPSource { client: mock, config };
+
+        let result = source.read().await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_read_buf_returns_error() {
+        let addr = dummy_addr();
+        let mock = MockTcpClientT::new();
+        let mut source = TCPSource {
+            client: mock,
+            config: TCPConfig { target_addr: addr, device_id: 1 },
+        };
+
+        let mut buf = vec![0; 16];
+        let result = source.read_buf(&mut buf).await;
+        assert!(matches!(result, Err(DataSourceError::ReadBuf)));
+    }
+
+    #[tokio::test]
+    async fn test_to_config_roundtrip() {
+        let addr = dummy_addr();
+        let config = TCPConfig { target_addr: addr, device_id: 999 };
+        let client = MockTcpClientT::new();
+
+        let source = TCPSource { client, config: config.clone() };
+        let roundtrip = source.to_config().await.unwrap();
+        if let DataSourceConfig::Tcp(cfg) = roundtrip {
+            assert_eq!(cfg.target_addr, config.target_addr);
+            assert_eq!(cfg.device_id, config.device_id);
+        } else {
+            panic!("Expected DataSourceConfig::Tcp");
+        }
     }
 }

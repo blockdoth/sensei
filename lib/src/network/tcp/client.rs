@@ -31,12 +31,12 @@ use mockall::automock;
 // This is for mocking
 #[cfg_attr(test, automock)]
 pub trait TcpClientT: Send + Sync {
-    pub async fn get_src_addr(&self, src_addr: SocketAddr) -> SocketAddr;
-    pub async fn get_connections(&self) -> Vec<SocketAddr>;
-    pub async fn connect(&mut self, addr: SocketAddr) -> std::io::Result<()>;
-    pub async fn disconnect(&mut self, addr: SocketAddr) -> std::io::Result<()>;
-    pub async fn read_message(&mut self, addr: SocketAddr) -> std::io::Result<RpcMessage>;
-    pub async fn send_message(&mut self, target_addr: SocketAddr, msg: RpcMessageKind) -> Result<(), NetworkError>
+    async fn get_src_addr(&self, src_addr: SocketAddr) -> SocketAddr;
+    async fn get_connections(&self) -> Vec<SocketAddr>;
+    async fn connect(&mut self, addr: SocketAddr) -> std::io::Result<()>;
+    async fn disconnect(&mut self, addr: SocketAddr) -> std::io::Result<()>;
+    async fn read_message(&mut self, addr: SocketAddr) -> std::io::Result<RpcMessage>;
+    async fn send_message(&mut self, target_addr: SocketAddr, msg: RpcMessageKind) -> Result<(), NetworkError>;
 }
 
 /// Tcp Client
