@@ -79,7 +79,7 @@ impl CsiDataAdapter for IwlAdapter {
                             // Calculate real and imag directly as i8 values
                             let real = (((p1 >> remainder) | (p2 << (8 - remainder))) as i8) as f64;
                             let imag = (((p2 >> remainder) | (p3 << (8 - remainder))) as i8) as f64;
-
+                            println!("tx: {tx}, permuted_rx{permuted_rx}, i: {i}");
                             csi[tx][permuted_rx][i] = Complex::new(real, imag);
                             index += 16;
                         });
@@ -212,5 +212,83 @@ impl ToConfig<DataAdapterConfig> for IwlAdapter {
     /// - `Err(TaskError)` if an error occurs during conversion (not applicable in this implementation).
     async fn to_config(&self) -> Result<DataAdapterConfig, TaskError> {
         Ok(DataAdapterConfig::Iwl { scale_csi: self.scale_csi })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::adapters::DataAdapterConfig;
+    use crate::adapters::iwl::test_utils::build_test_packet;
+    use crate::csi_types::CsiData;
+    use crate::network::rpc_message::{DataMsg, SourceType};
+
+    #[tokio::test]
+    async fn test_produce_raw() {
+        let temp_buf = build_test_packet(187, 100, [1, 1], [40, 41, 42], -92, [7, 0b00000000], None);
+        let msg = DataMsg::RawFrame {
+            ts: chrono::Utc::now().timestamp_millis() as f64 / 1e3,
+            bytes: temp_buf[..].to_vec(),
+            source_type: SourceType::IWL5300,
+        };
+        let mut adapter = IwlAdapter::new(false);
+        let ret = adapter.produce(msg).await;
+        assert!(matches!(ret.unwrap().unwrap(), DataMsg::CsiFrame { csi: _ }));
+    }
+
+    #[tokio::test]
+    async fn test_produce_raw_scale() {
+        let temp_buf = build_test_packet(187, 100, [1, 1], [40, 41, 42], -92, [7, 0b00000000], None);
+        let msg = DataMsg::RawFrame {
+            ts: chrono::Utc::now().timestamp_millis() as f64 / 1e3,
+            bytes: temp_buf[..].to_vec(),
+            source_type: SourceType::IWL5300,
+        };
+        let mut adapter = IwlAdapter::new(true);
+        let ret = adapter.produce(msg).await;
+        assert!(matches!(ret.unwrap().unwrap(), DataMsg::CsiFrame { csi: _ }));
+    }
+
+    #[tokio::test]
+    async fn test_produce_csi() {
+        let msg = DataMsg::CsiFrame {
+            csi: CsiData {
+                timestamp: 123.456,
+                sequence_number: 99,
+                rssi: vec![1, 2],
+                csi: vec![vec![vec![Complex::new(1.0, -1.0); NUM_SUBCARRIER]; 2]; 1],
+            },
+        };
+        let mut adapter = IwlAdapter::new(true);
+        let ret = adapter.produce(msg.clone()).await;
+        assert_eq!(ret.unwrap().unwrap(), msg);
+    }
+
+    #[test]
+    fn test_dbinv_get_total_rss() {
+        let ln = dbinv(5.3);
+        assert!((ln - 3.388).abs() < 0.01);
+
+        let rssi = [20u16, 20, 0];
+        let rss = get_total_rss(&rssi, 0);
+        // log10(10+10)*10 -44 = log10(20)*10 -44 ≈ 23.01 -44 ≈ -20.99
+        assert!((rss + 21.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_scale_csi() {
+        let mut matrix = vec![vec![vec![Complex::new(1.0, 0.0); NUM_SUBCARRIER]; 1]; 1];
+        let before = matrix[0][0][0];
+        scale_csi(&mut matrix, &[10, 0, 0], -127, 0, 1, 1);
+        let after = matrix[0][0][0];
+        assert!((after.re - before.re).abs() < 1e-3);
+        assert!(after.im.abs() < 1e-12);
+    }
+
+    #[tokio::test]
+    async fn test_to_config() {
+        let adapter = IwlAdapter::new(false);
+        let ret = adapter.to_config().await;
+        assert!(matches!(ret.unwrap(), DataAdapterConfig::Iwl { scale_csi: false }));
     }
 }

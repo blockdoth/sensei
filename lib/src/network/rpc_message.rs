@@ -47,7 +47,7 @@ pub struct DeviceStatus {
     pub dev_type: SourceType,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum DataMsg {
     RawFrame { ts: f64, bytes: Vec<u8>, source_type: SourceType }, // raw bytestream, requires decoding adapter
     CsiFrame { csi: CsiData },                                     // This would contain a proper deserialized CSI
@@ -118,6 +118,7 @@ impl FromStr for CtrlMsg {
                 host_address: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 8080)),
             }), // TODO better id assignment
             s => Err(s.to_owned()),
+            _ => Err(format!("An unsuppored case was reached! {kind}")),
         }
     }
 }

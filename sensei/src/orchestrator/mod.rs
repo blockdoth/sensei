@@ -18,23 +18,24 @@ use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::{Mutex, watch};
 
-use crate::config::{DEFAULT_ADDRESS, OrchestratorConfig};
-use crate::module::*;
+use crate::services::{DEFAULT_ADDRESS, GlobalConfig, OrchestratorConfig, Run};
 
 pub struct Orchestrator {
     client: Arc<Mutex<TcpClient>>,
+    targets: Vec<SocketAddr>,
 }
 
 impl Run<OrchestratorConfig> for Orchestrator {
-    fn new(_config: OrchestratorConfig) -> Self {
+    fn new(global_config: GlobalConfig, config: OrchestratorConfig) -> Self {
         Orchestrator {
             client: Arc::new(Mutex::new(TcpClient::new())),
+            targets: config.targets,
         }
     }
 
-    async fn run(&self, config: OrchestratorConfig) -> Result<(), Box<dyn std::error::Error>> {
-        for target_addr in config.targets.into_iter() {
-            Self::connect(&self.client, target_addr).await
+    async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        for target_addr in self.targets.clone() {
+            Self::connect(&self.client, target_addr).await;
         }
         self.cli_interface().await.expect("TODO: panic message");
         Ok(())
@@ -210,7 +211,7 @@ impl Orchestrator {
                 match input.next() {
                     Some("create") => {
                         let config_path: PathBuf = input.next().unwrap_or("sensei/src/orchestrator/example_config.yaml").into();
-                        let cfg = match DeviceHandlerConfig::from_yaml(config_path).await {
+                        let cfg = match DeviceHandlerConfig::from_yaml(config_path) {
                             Ok(configs) => match configs.first().cloned() {
                                 Some(config) => config,
                                 _ => return info!("invalid config"),
@@ -232,7 +233,7 @@ impl Orchestrator {
                     }
                     Some("edit") => {
                         let config_path: PathBuf = input.next().unwrap_or("sensei/src/orchestrator/example_config.yaml").into();
-                        let cfg = match DeviceHandlerConfig::from_yaml(config_path).await {
+                        let cfg = match DeviceHandlerConfig::from_yaml(config_path) {
                             Ok(configs) => match configs.first().cloned() {
                                 Some(config) => config,
                                 _ => return info!("invalid config"),

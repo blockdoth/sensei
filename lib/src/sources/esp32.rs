@@ -7,7 +7,7 @@ use std::time::Duration;
 
 // Use _ to import extension methods
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, bounded};
-use log::{debug, error, info, warn};
+use log::{debug, error, info, trace, warn};
 use serialport::{ClearBuffer, SerialPort};
 
 use crate::ToConfig;
@@ -25,6 +25,7 @@ const DEFAULT_ACK_TIMEOUT_MS: u64 = 2000; // Increased slightly
 const DEFAULT_CSI_BUFFER_SIZE: usize = 100; // Reduced from 1000 to be more conservative
 const SERIAL_READ_TIMEOUT_MS: u64 = 100;
 const SERIAL_READ_BUFFER_SIZE: usize = 4096; // Increased for potentially larger bursts
+const BAUDRATE: u32 = 3_000_000;
 
 // --- Type Aliases for `ack_waiters` ---
 type AckPayload = Result<Vec<u8>, ControllerError>;
@@ -37,13 +38,24 @@ type SharedAckWaiters = Arc<Mutex<AckWaiterMap>>;
 pub struct Esp32SourceConfig {
     pub port_name: String,
     pub baud_rate: u32,
-    pub csi_buffer_size: Option<usize>,
-    pub ack_timeout_ms: Option<u64>,
+    pub csi_buffer_size: usize,
+    pub ack_timeout_ms: u64,
+}
+
+impl Default for Esp32SourceConfig {
+    fn default() -> Self {
+        Self {
+            port_name: "/dev/port".to_string(),
+            baud_rate: BAUDRATE,
+            csi_buffer_size: DEFAULT_CSI_BUFFER_SIZE,
+            ack_timeout_ms: DEFAULT_ACK_TIMEOUT_MS,
+        }
+    }
 }
 
 pub struct Esp32Source {
     config: Esp32SourceConfig,
-    port: Arc<Mutex<Option<Box<dyn SerialPort>>>>,
+    pub port: Arc<Mutex<Option<Box<dyn SerialPort>>>>,
     pub is_running: Arc<AtomicBool>,
     reader_handle: Option<JoinHandle<()>>,
     csi_data_rx: Receiver<Vec<u8>>,
@@ -53,7 +65,7 @@ pub struct Esp32Source {
 
 impl Esp32Source {
     pub fn new(config: Esp32SourceConfig) -> Result<Self, DataSourceError> {
-        let buffer_size = config.csi_buffer_size.unwrap_or(DEFAULT_CSI_BUFFER_SIZE);
+        let buffer_size = config.csi_buffer_size;
         if buffer_size == 0 {
             return Err(DataSourceError::Controller("CSI buffer size cannot be zero.".to_string()));
         }
@@ -133,7 +145,7 @@ impl Esp32Source {
         .map_err(|e| ControllerError::Execution(format!("Task for serial write panicked: {e}")))??;
         // First ? for JoinError, second ? for std::io::Error
 
-        let ack_timeout = Duration::from_millis(self.config.ack_timeout_ms.unwrap_or(DEFAULT_ACK_TIMEOUT_MS));
+        let ack_timeout = Duration::from_millis(self.config.ack_timeout_ms);
 
         let ack_result = tokio::task::spawn_blocking(move || ack_rx_local.recv_timeout(ack_timeout))
             .await
@@ -150,7 +162,7 @@ impl Esp32Source {
                 // ack_payload_result is Result<Vec<u8>, ControllerError>
                 match ack_payload_result {
                     Ok(ack_data) => {
-                        info!("ACK received for command: {cmd:?}");
+                        debug!("ACK received for command: {cmd:?}");
                         Ok(ack_data)
                     }
                     Err(e) => {
@@ -354,7 +366,7 @@ impl Esp32Source {
                     // No preamble found
                     if partial_buffer.len() >= ESP_PACKET_PREAMBLE_ESP_TO_HOST.len() {
                         let discard_len = partial_buffer.len() - (ESP_PACKET_PREAMBLE_ESP_TO_HOST.len() - 1);
-                        debug!(
+                        trace!(
                             "No preamble found, buffer len {}. Discarding {} bytes.",
                             partial_buffer.len(),
                             discard_len
@@ -383,7 +395,7 @@ impl Esp32Source {
 impl DataSourceT for Esp32Source {
     async fn start(&mut self) -> Result<(), DataSourceError> {
         if self.is_running.load(AtomicOrdering::SeqCst) {
-            info!("ESP32Source already running.");
+            warn!("ESP32Source already running.");
             return Ok(());
         }
         info!(
