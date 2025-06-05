@@ -85,6 +85,9 @@ pub enum DataSourceError {
     #[error("Tried to use unimplemented feature: {0}")]
     NotImplemented(String),
 
+    #[error("Not connected: {0}")]
+    NotConnected(String),
+
     /// Insufficient privileges to access the source.
     #[error("Permission denied: application lacks sufficient privileges. See `README.md` for details on permissions.")]
     PermissionDenied,
@@ -268,6 +271,11 @@ pub enum ControllerError {
     #[error("Missing parameter: {0}")]
     MissingParameter(String),
 
+    #[error("Command failed to execute")]
+    CommandFailed { command_name: String, details: String },
+
+    #[error("Invalid datasource")]
+    InvalidDataSource(String),
     /// Could not determine the wireless PHY name.
     #[error("Failed to extract PhyName due to string conversions")]
     PhyName,

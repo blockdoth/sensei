@@ -23,13 +23,14 @@ use tokio::sync::{Mutex, broadcast};
 use tokio::task;
 use tokio::time::{Duration, interval};
 
-use crate::config::RegistryConfig;
-use crate::module::Run;
+use crate::services::{GlobalConfig, RegistryConfig, Run};
 
 #[derive(Clone)]
 pub struct Registry {
     hosts: Arc<Mutex<HashMap<HostId, HostInfo>>>,
     send_data_channel: broadcast::Sender<(DataMsg, DeviceId)>,
+    addr: SocketAddr,
+    poll_interval: u64,
 }
 
 /// Information about a registered host.
@@ -63,22 +64,25 @@ impl From<CtrlMsg> for RegHostStatus {
 /// The registry spawns two threads: a TCP server for host registration and a separate task for polling hosts.
 impl Run<RegistryConfig> for Registry {
     /// Create a new registry with the given configuration.
-    fn new(_config: RegistryConfig) -> Self {
+    fn new(global_config: GlobalConfig, config: RegistryConfig) -> Self {
         Registry {
             hosts: Arc::from(Mutex::from(HashMap::new())),
             send_data_channel: broadcast::channel(100).0, // magic buffer for now
+            addr: config.addr,
+            poll_interval: config.poll_interval,
         }
     }
 
     /// Run the registry, spawning the TCP server and polling background task.
-    async fn run(&self, config: RegistryConfig) -> Result<(), Box<dyn std::error::Error>> {
-        let _sender_data_channel = &self.send_data_channel;
+    async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let sender_data_channel = &self.send_data_channel;
 
+        let addr: SocketAddr = self.addr;
         let server_task = {
             let connection_handler = Arc::new(self.clone());
             task::spawn(async move {
-                info!("Starting TCP server on {}...", config.addr);
-                TcpServer::serve(config.addr, connection_handler).await.unwrap();
+                info!("Starting TCP server on {addr}...");
+                TcpServer::serve(addr, connection_handler).await;
             })
         };
 
@@ -88,7 +92,7 @@ impl Run<RegistryConfig> for Registry {
                 info!("Starting TCP client to poll hosts...");
                 let client = TcpClient::new();
                 connection_handler
-                    .poll_hosts(client, Duration::from_secs(config.poll_interval))
+                    .poll_hosts(client, Duration::from_secs(connection_handler.poll_interval))
                     .await
                     .unwrap();
             })
@@ -103,33 +107,6 @@ impl Run<RegistryConfig> for Registry {
 impl SubscribeDataChannel for Registry {
     fn subscribe_data_channel(&self) -> broadcast::Receiver<(DataMsg, DeviceId)> {
         self.send_data_channel.subscribe()
-    }
-}
-
-#[async_trait]
-/// Handles incoming and outgoing network connections for the registry.
-impl ConnectionHandler for Registry {
-    /// Handle an incoming message from a host or client.
-    async fn handle_recv(&self, request: RpcMessage, _send_commands_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
-        debug!("Received request: {:?}", request);
-
-        match request.msg {
-            Ctrl(CtrlMsg::AnnouncePresence { host_id, host_address }) => {
-                self.register_host(host_id, host_address).await.unwrap();
-                Ok(())
-            }
-            _ => Err(NetworkError::MessageError),
-        }
-    }
-
-    /// Handle outgoing messages to a host or client.
-    async fn handle_send(
-        &self,
-        _recv_commands_channel: watch::Receiver<ChannelMsg>,
-        _recv_data_channel: tokio::sync::broadcast::Receiver<(DataMsg, HostId)>,
-        _send_stream: OwnedWriteHalf,
-    ) -> Result<(), NetworkError> {
-        Ok(())
     }
 }
 
@@ -222,13 +199,45 @@ impl Registry {
         }
     }
 }
+
+#[async_trait]
+/// Handles incoming and outgoing network connections for the registry.
+impl ConnectionHandler for Registry {
+    /// Handle an incoming message from a host or client.
+    async fn handle_recv(&self, request: RpcMessage, send_commands_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
+        debug!("Received request: {:?}", request);
+
+        match request.msg {
+            Ctrl(CtrlMsg::AnnouncePresence { host_id, host_address }) => {
+                self.register_host(host_id, host_address).await.unwrap();
+                Ok(())
+            }
+            _ => Err(NetworkError::MessageError),
+        }
+    }
+
+    /// Handle outgoing messages to a host or client.
+    async fn handle_send(
+        &self,
+        recv_commands_channel: watch::Receiver<ChannelMsg>,
+        recv_data_channel: tokio::sync::broadcast::Receiver<(DataMsg, u64)>,
+        send_stream: OwnedWriteHalf,
+    ) -> Result<(), NetworkError> {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr};
+    use std::collections::HashMap;
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    use std::sync::Arc;
 
-    use lib::network::rpc_message::SourceType;
+    use lib::errors::AppError;
+    use lib::network::rpc_message::{CtrlMsg, DeviceStatus, HostId, RpcMessageKind, SourceType};
+    use tokio::sync::{Mutex, broadcast};
 
-    use super::*;
+    use super::Registry;
 
     fn test_host_id(n: u64) -> HostId {
         // placeholder in case the IDs get more complex
@@ -243,6 +252,8 @@ mod tests {
         Registry {
             hosts: Arc::new(Mutex::new(HashMap::new())),
             send_data_channel: broadcast::channel(10).0,
+            addr: test_socket_addr(1234),
+            poll_interval: 0,
         }
     }
 

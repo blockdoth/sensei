@@ -118,6 +118,7 @@ impl FromStr for CtrlMsg {
                 host_address: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 8080)),
             }), // TODO better id assignment
             s => Err(s.to_owned()),
+            _ => Err(format!("An unsuppored case was reached! {kind}")),
         }
     }
 }
