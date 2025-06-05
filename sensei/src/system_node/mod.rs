@@ -172,7 +172,7 @@ impl ConnectionHandler for SystemNode {
             },
             Data { data_msg, device_id } => {
                 // TODO: Pass it through relevant TCP sources
-                self.send_data_channel.send((data_msg, device_id)).expect("TODO: panic message");
+                self.send_data_channel.send((data_msg, device_id))?;
             }
         }
         Ok(())
@@ -194,9 +194,7 @@ impl ConnectionHandler for SystemNode {
                 debug!("Received message {msg_opt:?} over channel");
                 match msg_opt {
                     ChannelMsg::Disconnect => {
-                        send_message(&mut send_stream, Ctrl(CtrlMsg::Disconnect))
-                            .await
-                            .expect("TODO: panic message");
+                        send_message(&mut send_stream, Ctrl(CtrlMsg::Disconnect)).await?;
                         debug!("Send close confirmation");
                         break;
                     }
@@ -214,7 +212,7 @@ impl ConnectionHandler for SystemNode {
                             device_status: vec![],
                         };
                         let msg = Ctrl(host_status);
-                        send_message(&mut send_stream, msg).await.expect("TODO: panic message");
+                        send_message(&mut send_stream, msg).await?;
                     }
                     _ => (),
                 }
@@ -226,7 +224,7 @@ impl ConnectionHandler for SystemNode {
                 info!("Sending data {data_msg:?} for {device_id} to {send_stream:?}");
                 let msg = Data { data_msg, device_id };
 
-                send_message(&mut send_stream, msg).await.expect("TODO: panic message");
+                send_message(&mut send_stream, msg).await?;
             }
         }
         // Loop is infinite unless broken by Disconnect or error
