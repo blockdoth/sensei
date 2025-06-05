@@ -72,24 +72,15 @@ impl ConnectionHandler for SystemNode {
                 }
                 Disconnect => {
                     // Correct way to signal disconnect to the sending task for this connection
-                    if send_channel_msg_channel.send(ChannelMsg::Disconnect).is_err() {
-                        warn!("Failed to send Disconnect to own handle_send task; already closed?");
-                    }
+                    send_channel_msg_channel.send(ChannelMsg::Disconnect)?;
                     return Err(NetworkError::Closed); // Indicate connection should close
                 }
                 Subscribe { device_id } => {
-                    if send_channel_msg_channel.send(ChannelMsg::Subscribe { device_id }).is_err() {
-                        warn!("Failed to send Subscribe to own handle_send task; already closed?");
-                        return Err(NetworkError::UnableToConnect);
-                    }
-
+                    send_channel_msg_channel.send(ChannelMsg::Subscribe { device_id })?;
                     info!("Client {} subscribed to data stream for device_id: {}", request.src_addr, device_id);
                 }
                 Unsubscribe { device_id } => {
-                    if send_channel_msg_channel.send(ChannelMsg::Unsubscribe { device_id }).is_err() {
-                        warn!("Failed to send Unsubscribe to own handle_send task; already closed?");
-                        return Err(NetworkError::UnableToConnect);
-                    }
+                    send_channel_msg_channel.send(ChannelMsg::Unsubscribe { device_id })?;
                     info!("Client {} unsubscribed from data stream for device_id: {}", request.src_addr, device_id);
                 }
                 SubscribeTo { target, device_id } => {
@@ -100,18 +91,13 @@ impl ConnectionHandler for SystemNode {
                         target_addr: target,
                         device_id,
                     });
-
                     let controller = None;
-
                     let adapter = None;
-
                     let tcp_sink_config = lib::sinks::tcp::TCPConfig {
                         target_addr: self.addr,
                         device_id,
                     };
-
                     let sinks = vec![lib::sinks::SinkConfig::Tcp(tcp_sink_config)];
-
                     let new_handler_config = DeviceHandlerConfig {
                         device_id,
                         stype: TCP,
@@ -136,13 +122,10 @@ impl ConnectionHandler for SystemNode {
                         _ => info!("This handler does not exist."),
                     }
                 }
-                PollHostStatus => {
+                PollHostStatus { host_id } => {
                     let reg_addr = request.src_addr;
                     info!("Received PollDevices from {reg_addr}");
-                    if send_channel_msg_channel.send(ChannelMsg::SendHostStatus { reg_addr }).is_err() {
-                        warn!("Could not send HostStatus message");
-                        return Err(NetworkError::UnableToConnect);
-                    }
+                    send_channel_msg_channel.send(ChannelMsg::SendHostStatus { reg_addr, host_id })?
                 }
                 Configure { device_id: _, cfg: _ } => {}
                 m => {
@@ -185,7 +168,7 @@ impl ConnectionHandler for SystemNode {
                         info!("Unsubscribed");
                         subscribed_ids.remove(&device_id);
                     }
-                    ChannelMsg::SendHostStatus { reg_addr: _ } => {
+                    ChannelMsg::SendHostStatus { reg_addr: _, host_id: _ } => {
                         let host_status = CtrlMsg::HostStatus {
                             host_id: self.host_id,
                             device_status: vec![],
@@ -236,7 +219,10 @@ impl Run<SystemNodeConfig> for SystemNode {
         let connection_handler = Arc::new(self.clone());
 
         for cfg in &self.device_configs {
-            self.handlers.lock().await.insert(cfg.device_id, DeviceHandler::from_config(cfg.clone()).await.unwrap());
+            self.handlers
+                .lock()
+                .await
+                .insert(cfg.device_id, DeviceHandler::from_config(cfg.clone()).await.unwrap());
         }
 
         if let Some(registry) = &self.registry_addr {

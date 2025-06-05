@@ -36,9 +36,11 @@ pub enum CtrlMsg {
     Unsubscribe { device_id: DeviceId },
     SubscribeTo { target: SocketAddr, device_id: DeviceId }, // Orchestrator to node, node subscribes to another node
     UnsubscribeFrom { target: SocketAddr, device_id: DeviceId }, // Orchestrator to node
-    PollHostStatus,
+    PollHostStatus { host_id: HostId },
+    PollHostStatuses,
     AnnouncePresence { host_id: HostId, host_address: SocketAddr },
     HostStatus { host_id: HostId, device_status: Vec<DeviceStatus> },
+    HostStatuses { host_statuses: Vec<CtrlMsg> },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -108,7 +110,11 @@ impl FromStr for CtrlMsg {
 
                 Ok(CtrlMsg::Unsubscribe { device_id })
             }
-            "pollhoststatus" => Ok(CtrlMsg::PollHostStatus),
+            "pollhoststatus" => {
+                let host_id = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+                Ok(CtrlMsg::PollHostStatus { host_id })
+            }
+            "pollhoststatuses" => Ok(CtrlMsg::PollHostStatuses),
             "hoststatus" => Ok(CtrlMsg::HostStatus {
                 host_id: 0,
                 device_status: vec![],
