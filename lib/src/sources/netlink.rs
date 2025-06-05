@@ -284,3 +284,70 @@ impl NetlinkSource {
         }
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sources::DataSourceConfig;
+
+    #[test]
+    fn test_parse_valid() {
+        let buf = [0u8; 16]; 
+        let result = NetlinkHeader::parse(&buf).unwrap();
+        assert_eq!(result.length, 0);
+        assert_eq!(result.message_type, 0);
+        assert_eq!(result.flags, 0);
+        assert_eq!(result.sequence_number, 0);
+        assert_eq!(result.port_id, 0);
+    }
+
+    #[test]
+    fn test_parse_incomplete() {
+        let buf = [0u8; 3];
+        assert!(matches!(NetlinkHeader::parse(&buf).unwrap_err(), DataSourceError::IncompletePacket));
+    }
+
+    #[test]
+    fn test_connector_parse_valid() {
+        let buf = [0u8; 20]; 
+        let result = ConnectorMessageHeader::parse(&buf).unwrap();
+        assert_eq!(result.idx, 0);
+        assert_eq!(result.val, 0);
+        assert_eq!(result.seq, 0);
+        assert_eq!(result.ack, 0);
+        assert_eq!(result.len, 0);
+    }
+
+    #[test]
+    fn test_connector_parse_invalid() {
+        let buf = [0u8; 3];
+        assert!(matches!(ConnectorMessageHeader::parse(&buf).unwrap_err(), DataSourceError::IncompletePacket));
+    }
+
+    #[test]
+    fn test_get_connector_payload_invalid_type() {
+        let mut buf = vec![0u8; 16];
+        buf[4..6].copy_from_slice(&0xFFFFu16.to_ne_bytes()); 
+        assert!(matches!(get_connector_payload(&buf).unwrap_err(), DataSourceError::NotImplemented(_)));
+    }
+
+    #[tokio::test]
+    async fn test_to_config() {
+        let test_config = NetlinkConfig { group: 0 };
+        let test_netlink = NetlinkSource::new(test_config.clone()).unwrap();
+        let config = test_netlink.to_config().await.unwrap();
+        assert!(matches!(config, DataSourceConfig::Netlink(cfg) if cfg.group == test_config.group));
+    }
+
+    #[test]
+    fn test_new() {
+        let config = NetlinkConfig { group: 0 };
+        let source = NetlinkSource::new(config.clone()).unwrap();
+        assert_eq!(source.config.group, config.group);
+        assert!(source.socket.is_none());
+        assert_eq!(source.buffer.len(), 8192);
+    }
+}
+
+
