@@ -10,7 +10,7 @@ use tokio::sync::watch::{self};
 
 use super::rpc_message::{DataMsg, DeviceId, RpcMessage, RpcMessageKind};
 use crate::errors::NetworkError;
-use crate::network::rpc_message::make_msg;
+use crate::network::rpc_message::{HostId, make_msg};
 
 pub mod client;
 pub mod server;
@@ -117,7 +117,7 @@ pub enum ChannelMsg {
     UnsubscribeFrom { target_addr: SocketAddr, device_id: DeviceId },
     ListenSubscribe { addr: SocketAddr },
     ListenUnsubscribe { addr: SocketAddr },
-    Poll,
-    SendHostStatus { reg_addr: SocketAddr },
+    SendHostStatus { reg_addr: SocketAddr, host_id: HostId },
+    SendHostStatuses,
     Data { data: DataMsg },
 }

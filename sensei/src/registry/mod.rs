@@ -15,7 +15,7 @@ use lib::network::rpc_message::RpcMessageKind::Ctrl;
 use lib::network::rpc_message::{CtrlMsg, DataMsg, DeviceId, DeviceStatus, HostId, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
-use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel};
+use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
 use log::*;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::watch::{self};
@@ -57,6 +57,15 @@ impl From<CtrlMsg> for RegHostStatus {
             _ => {
                 panic!("Could not convert from this type of CtrlMsg: {item:?}");
             }
+        }
+    }
+}
+/// Conversion from an internal RegistryHostStatus type to a CtrlMsg
+impl From<RegHostStatus> for CtrlMsg {
+    fn from(value: RegHostStatus) -> Self {
+        CtrlMsg::HostStatus {
+            host_id: value.host_id,
+            device_status: value.device_status,
         }
     }
 }
@@ -125,25 +134,34 @@ impl Registry {
         let mut interval = interval(poll_interval);
         loop {
             interval.tick().await;
-            for (host, addr) in self.list_hosts().await {
+            for (host_id, target_addr) in self.list_hosts().await {
                 let res: Result<(), Error> = async {
-                    info!("Polling host: {host:#?} at address: {addr}");
-                    client.connect(addr).await?;
-                    client.send_message(addr, RpcMessageKind::Ctrl(CtrlMsg::PollHostStatus)).await?;
-                    let msg = client.read_message(addr).await?;
+                    info!("Polling host: {host_id:#?} at address: {target_addr}");
+                    client.connect(target_addr).await?;
+                    client
+                        .send_message(target_addr, RpcMessageKind::Ctrl(CtrlMsg::PollHostStatus { host_id }))
+                        .await?;
+                    let msg = client.read_message(target_addr).await?;
                     info!("msg: {msg:?}");
-                    self.store_host_update(host, addr, msg.msg).await?;
-                    client.disconnect(addr).await?;
+                    self.store_host_update(host_id, target_addr, msg.msg).await?;
+                    client.disconnect(target_addr).await?;
                     Ok(())
                 }
                 .await;
                 if res.is_err() {
                     // if a host throws errors, handle them here
                     // Might have to be split out into error types later
-                    self.handle_unresponsive_host(host).await?;
+                    self.handle_unresponsive_host(host_id).await?;
                 }
             }
         }
+    }
+
+    /// Retrieve a host from the table by its HostId, or throw an AppError::NoSuchHost
+    async fn get_host_by_id(&self, host_id: HostId) -> Result<RegHostStatus, AppError> {
+        let host_info_table = self.hosts.lock().await;
+        let host_info = host_info_table.get(&host_id).ok_or(AppError::NoSuchHost)?;
+        Ok(host_info.status.clone())
     }
 
     /// Remove a host from the registry if it did not respond to the last two heartbeats.
@@ -164,6 +182,10 @@ impl Registry {
     /// List all registered hosts in the registry.
     async fn list_hosts(&self) -> Vec<(HostId, SocketAddr)> {
         self.hosts.lock().await.iter().map(|(id, info)| (*id, info.addr)).collect()
+    }
+    /// List the status of every host in teh registry
+    async fn list_host_statuses(&self) -> Vec<(HostId, RegHostStatus)> {
+        self.hosts.lock().await.iter().map(|(id, info)| (*id, info.status.clone())).collect()
     }
     /// Register a new host with the registry.
     async fn register_host(&self, host_id: HostId, host_address: SocketAddr) -> Result<(), Error> {
@@ -212,6 +234,16 @@ impl ConnectionHandler for Registry {
                 self.register_host(host_id, host_address).await.unwrap();
                 Ok(())
             }
+            Ctrl(CtrlMsg::PollHostStatus { host_id }) => {
+                let reg_addr = request.src_addr;
+                info!("Received PollDevices from {reg_addr}");
+                send_commands_channel.send(ChannelMsg::SendHostStatus { reg_addr, host_id })?;
+                Ok(())
+            }
+            Ctrl(CtrlMsg::PollHostStatuses) => {
+                send_commands_channel.send(ChannelMsg::SendHostStatuses)?;
+                Ok(())
+            }
             _ => Err(NetworkError::MessageError),
         }
     }
@@ -219,10 +251,36 @@ impl ConnectionHandler for Registry {
     /// Handle outgoing messages to a host or client.
     async fn handle_send(
         &self,
-        recv_commands_channel: watch::Receiver<ChannelMsg>,
-        recv_data_channel: tokio::sync::broadcast::Receiver<(DataMsg, u64)>,
-        send_stream: OwnedWriteHalf,
+        mut recv_command_channel: watch::Receiver<ChannelMsg>,
+        mut recv_data_channel: broadcast::Receiver<(DataMsg, DeviceId)>,
+        mut send_stream: OwnedWriteHalf,
     ) -> Result<(), NetworkError> {
+        loop {
+            if recv_command_channel.has_changed().unwrap_or(false) {
+                let msg_opt = recv_command_channel.borrow_and_update().clone();
+                debug!("Received message {msg_opt:?} over channel");
+                match msg_opt {
+                    ChannelMsg::SendHostStatus { reg_addr: _, host_id } => {
+                        let host_status = self.get_host_by_id(host_id).await?;
+                        let msg = Ctrl(CtrlMsg::from(host_status));
+                        send_message(&mut send_stream, msg).await?;
+                    }
+                    ChannelMsg::SendHostStatuses => {
+                        let msg = Ctrl(CtrlMsg::HostStatuses {
+                            host_statuses: self
+                                .list_host_statuses()
+                                .await
+                                .iter()
+                                .map(|(id, info)| CtrlMsg::from(info.clone()))
+                                .collect(),
+                        });
+                        send_message(&mut send_stream, msg).await?;
+                    }
+                    _ => (), // Ignore the message
+                }
+            }
+        }
+        // Loop is infinite unless broken by Disconnect or error
         Ok(())
     }
 }
@@ -338,8 +396,40 @@ mod tests {
         let addr = test_socket_addr(5678);
 
         let result = registry
-            .store_host_update(host_id, addr, RpcMessageKind::Ctrl(CtrlMsg::PollHostStatus))
+            .store_host_update(host_id, addr, RpcMessageKind::Ctrl(CtrlMsg::PollHostStatus { host_id }))
             .await;
         assert!(matches!(result, Err(AppError::NoSuchHost)));
+    }
+
+    #[tokio::test]
+    async fn end_to_end_test() {
+        // Setup registry
+        let registry = make_registry();
+        let host_id = test_host_id(10);
+        let addr = test_socket_addr(10101);
+
+        // Simulate host announcing presence
+        registry.register_host(host_id, addr).await.unwrap();
+
+        // Simulate host sending status update
+        let device_status = vec![DeviceStatus {
+            id: 42,
+            dev_type: SourceType::ESP32,
+        }];
+        let msg_kind = RpcMessageKind::Ctrl(CtrlMsg::HostStatus {
+            host_id,
+            device_status: device_status.clone(),
+        });
+        registry.store_host_update(host_id, addr, msg_kind).await.unwrap();
+
+        // Simulate registry receiving PollHostStatus and responding
+        let status = registry.get_host_by_id(host_id).await.unwrap();
+        assert_eq!(status.host_id, host_id);
+        assert_eq!(status.device_status, device_status);
+
+        // Simulate listing all hosts
+        let hosts = registry.list_hosts().await;
+        assert_eq!(hosts.len(), 1);
+        assert_eq!(hosts[0], (host_id, addr));
     }
 }

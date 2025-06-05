@@ -2,6 +2,7 @@ use thiserror::Error;
 
 use crate::adapters::csv::CSVAdapterError;
 use crate::network::rpc_message::{DataMsg, HostId};
+use crate::network::tcp::ChannelMsg;
 
 /// Errors that can occur during network communication with sources or clients.
 #[derive(Error, Debug)]
@@ -9,6 +10,22 @@ pub enum NetworkError {
     /// I/O-related errors
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+
+    /// Tokio was unable to send the message
+    #[error("Message could not be sent due to a broadcast error")]
+    TokioBroadcastSendingError(#[from] tokio::sync::broadcast::error::SendError<(DataMsg, HostId)>),
+
+    /// Tokio was unable to send the message
+    #[error("Message could not be sent due to a Watch error")]
+    TokioWatchSendingError(#[from] tokio::sync::watch::error::SendError<ChannelMsg>),
+
+    /// Communication operation timed out.
+    #[error("Communication timed out")]
+    Timeout(#[from] tokio::time::error::Elapsed),
+
+    /// There's a problem that originated from the App
+    #[error("There's an error in the App")]
+    App(#[from] AppError),
 
     /// Failed during serialization or deserialization.
     #[error("Error during (De)Serialization")]
@@ -26,17 +43,9 @@ pub enum NetworkError {
     #[error("This client is already connected")]
     AlreadyConnected,
 
-    /// Communication operation timed out.
-    #[error("Communication timed out")]
-    Timeout(#[from] tokio::time::error::Elapsed),
-
     /// The response could not be parsed.
     #[error("Message could not be parsed")]
     MessageError,
-
-    /// Tokio was unable to send the message
-    #[error("Message could not be sent")]
-    SendingError(#[from] tokio::sync::broadcast::error::SendError<(DataMsg, HostId)>),
 }
 
 /// Generic application-level error for unimplemented functionality.
