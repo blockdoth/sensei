@@ -1,8 +1,6 @@
 addr: "127.0.0.1:8000"
 host_id: 2
-registry:
-  use_registry: true
-  addr: "127.0.0.1:8080"
+registry: "127.0.0.1:8080"
 device_configs:
   - device_id: 42
     stype: ESP32
