@@ -47,7 +47,7 @@ pub struct DeviceStatus {
     pub dev_type: SourceType,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum DataMsg {
     RawFrame { ts: f64, bytes: Vec<u8>, source_type: SourceType }, // raw bytestream, requires decoding adapter
     CsiFrame { csi: CsiData },                                     // This would contain a proper deserialized CSI
