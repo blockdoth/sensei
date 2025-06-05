@@ -8,7 +8,6 @@ use lib::FromConfig;
 // use lib::FromConfig; // Not using FromConfig for adapter to keep changes minimal here
 // Removed esp32 module import here, will use full path
 use lib::errors::NetworkError;
-use lib::handler::device_handler::CfgType::{Create, Delete, Edit};
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
 use lib::network::rpc_message::CtrlMsg::*;
 use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
@@ -25,7 +24,7 @@ use lib::sources::tcp::TCPConfig;
 use log::*;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::{Mutex, broadcast, watch};
-
+use lib::network::rpc_message::CfgType::{Create, Edit, Delete};
 // use crate::cli::{SubCommandsArgs, SystemNodeSubcommandArgs}; // SystemNodeSubcommandArgs not used here
 use crate::config::SystemNodeConfig;
 use crate::module::*;

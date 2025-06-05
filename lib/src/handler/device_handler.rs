@@ -4,7 +4,7 @@ use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
-
+use std::str::FromStr;
 use log::info;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -42,13 +42,6 @@ pub struct DeviceHandlerConfig {
     pub sinks: Vec<SinkConfig>,
 }
 
-/// Types of configurations that a system node can do to a device handler
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-pub enum CfgType {
-    Create { cfg: DeviceHandlerConfig },
-    Edit { cfg: DeviceHandlerConfig },
-    Delete,
-}
 
 impl DeviceHandlerConfig {
     /// Asynchronously loads a list of `DeviceHandlerConfig` instances from a YAML file.

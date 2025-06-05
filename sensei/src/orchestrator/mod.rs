@@ -4,25 +4,45 @@ use std::sync::Arc;
 use std::vec;
 
 use futures::future::pending;
-use lib::handler::device_handler::CfgType::Delete;
-use lib::handler::device_handler::{CfgType, DeviceHandlerConfig};
+use lib::handler::device_handler::{DeviceHandlerConfig};
 use lib::network::rpc_message::CtrlMsg::*;
 use lib::network::rpc_message::DataMsg::RawFrame;
 use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
 use lib::network::rpc_message::SourceType::ESP32;
-use lib::network::rpc_message::{CtrlMsg, DataMsg, DeviceId};
+use lib::network::rpc_message::{CfgType, CtrlMsg, DataMsg, DeviceId};
 use lib::network::tcp::ChannelMsg;
 use lib::network::tcp::client::TcpClient;
 use log::*;
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::{Mutex, watch};
-
+use lib::network::rpc_message::CfgType::{Create, Delete, Edit};
 use crate::config::{DEFAULT_ADDRESS, OrchestratorConfig};
 use crate::module::*;
 
 pub struct Orchestrator {
     client: Arc<Mutex<TcpClient>>,
+}
+
+pub struct Command {
+    command_type: CommandType,
+    is_recurring: IsRecurring,
+}
+
+pub enum IsRecurring {
+    Recurring {delay: u64},
+    NotRecurring,
+}
+
+pub enum CommandType {
+    Connect(SocketAddr), // Target address
+    Disconnect(SocketAddr),
+    Subscribe(SocketAddr, DeviceId),
+    Unsubscribe(SocketAddr, DeviceId),
+    SubscribeTo(SocketAddr, SocketAddr, DeviceId), // Target Address, Source Address
+    UnsubscribeFrom(SocketAddr, SocketAddr, DeviceId),
+    SendStatus(SocketAddr),
+    Configure(CfgType),
 }
 
 impl Run<OrchestratorConfig> for Orchestrator {
@@ -100,46 +120,12 @@ impl Orchestrator {
         client.lock().await.send_message(target_addr, msg).await.expect("TODO: panic message");
     }
     
-    async fn configure_create(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: u64, cfg: DeviceHandlerConfig) {
-        let cfg_type = CfgType::Create { cfg };
-        let msg = Ctrl(Configure { device_id, cfg_type });
-
-        info!("Telling {target_addr} to create a device handler");
-
-        client
-            .lock()
-            .await
-            .send_message(target_addr, msg)
-            .await
-            .expect("TODO: panic message");
-    }
-    
-    async fn configure_edit(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: u64, cfg: DeviceHandlerConfig) {
-        let cfg_type = CfgType::Edit { cfg };
-        let msg = Ctrl(Configure { device_id, cfg_type });
-
-        info!("Telling {target_addr} to edit a device handler");
-
-        client
-            .lock()
-            .await
-            .send_message(target_addr, msg)
-            .await
-            .expect("TODO: panic message");
-    }
-    
-    async fn configure_delete(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: u64) {
-        let cfg_type = Delete;
-        let msg = Ctrl(Configure { device_id, cfg_type });
-
-        info!("Telling {target_addr} to delete a device handler");
-
-        client
-            .lock()
-            .await
-            .send_message(target_addr, msg)
-            .await
-            .expect("TODO: panic message");
+    async fn configure(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: DeviceId, cfg_type: CfgType) {
+        let msg = Ctrl(Configure {device_id, cfg_type});
+        
+        info!("Telling {target_addr} to configure the device handler");
+        
+        client.lock().await.send_message(target_addr, msg).await.expect("TODO: panic message");
     }
 
     // Temporary, refactor once TUI gets added
@@ -264,39 +250,31 @@ impl Orchestrator {
             Some("configure") => {
                 let target_addr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
                 let device_id: DeviceId = input.next().unwrap_or("0").parse().unwrap();
-                let cfg_type = input.next();
-                match cfg_type {
-                    Some("create") => {
-                        let config_path: PathBuf = input.next().unwrap_or("sensei/src/orchestrator/example_config.yaml").into();
-                        let cfg = match DeviceHandlerConfig::from_yaml(config_path).await {
-                            Ok(configs) => match configs.first().cloned() {
-                                Some(config) => config,
-                                _ => return info!("invalid config"),
-                            },
-                            _ => return info!("invalid config"),
-                        };
-
-                        Self::configure_create(&send_client, target_addr, device_id, cfg).await;
-                    }
-                    Some("edit") => {
-                        let config_path: PathBuf = input.next().unwrap_or("sensei/src/orchestrator/example_config.yaml").into();
-                        let cfg = match DeviceHandlerConfig::from_yaml(config_path).await {
-                            Ok(configs) => match configs.first().cloned() {
-                                Some(config) => config,
-                                _ => return info!("invalid config"),
-                            },
-                            _ => return info!("invalid config"),
-                        };
-
-                        Self::configure_edit(&send_client, target_addr, device_id, cfg).await;
-                    }
-                    Some("delete") => {
-                        Self::configure_delete(&send_client, target_addr, device_id).await;
-                    }
+                let configure_type = input.next();
+                let config_path: PathBuf = input.next().unwrap_or("sensei/src/orchestrator/example_config.yaml").into();
+                let cfg = match DeviceHandlerConfig::from_yaml(config_path.clone()).await {
+                    Ok(cfgs) => match cfgs.first() {
+                        Some(cfg) => cfg.clone(),
+                        _ => {
+                            info!("There needs to be at least one config in {cfgs:?}");
+                            return
+                        },
+                    },
                     _ => {
-                        info!("Invalid configuration type");
+                        info!("Invalid config path to read {config_path:?} to a device handler config");
+                        return
+                    },
+                };
+                
+                let cfg_type = match CfgType::from_string(configure_type, cfg) {
+                    Ok(cfg_type) => cfg_type,
+                    _ => {
+                        info!("{configure_type:?} is not a valid config type, needs to be create, edit or delete");
+                        return
                     }
-                }
+                };
+                
+                Self::configure(&send_client, target_addr, device_id, cfg_type).await;
             }
             _ => {
                 info!("Failed to parse command")

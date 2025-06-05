@@ -1,11 +1,13 @@
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
-
+use log::info;
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
 use crate::csi_types::CsiData;
-use crate::handler::device_handler::CfgType;
+use crate::handler::device_handler::{DeviceHandlerConfig};
+use crate::network::rpc_message::CfgType::{Create, Delete, Edit};
 
 pub const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
 
@@ -69,6 +71,27 @@ pub enum AdapterMode {
     RAW,
     SOURCE,
     TARGET,
+}
+
+/// Types of configurations that a system node can do to a device handler
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub enum CfgType {
+    Create { cfg: DeviceHandlerConfig },
+    Edit { cfg: DeviceHandlerConfig },
+    Delete,
+}
+
+impl CfgType {
+    /// It is sadly necessary to make my own function, as FromStr can not have two fields nor be async
+    /// This requires preprocessing the cfg
+    pub fn from_string(config_type: Option<&str>, cfg: DeviceHandlerConfig) -> Result<Self, String> {
+        match config_type {
+            Some("create") => { Ok(Create { cfg }) }
+            Some("edit") => { Ok(Edit { cfg }) }
+            Some("delete") => { Ok(Delete) }
+            _ => { Err(format!("Unrecognized config type {config_type:?}")) }
+        }
+    }
 }
 
 impl FromStr for AdapterMode {

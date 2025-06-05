@@ -8,9 +8,8 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::sync::broadcast;
 use tokio::sync::watch::{self};
 
-use super::rpc_message::{DataMsg, DeviceId, RpcMessage, RpcMessageKind};
+use super::rpc_message::{CfgType, DataMsg, DeviceId, RpcMessage, RpcMessageKind};
 use crate::errors::NetworkError;
-use crate::handler::device_handler::CfgType;
 use crate::network::rpc_message::make_msg;
 
 pub mod client;
