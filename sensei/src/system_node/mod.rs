@@ -7,10 +7,11 @@ use lib::FromConfig;
 use lib::errors::NetworkError;
 use lib::handler::device_handler::CfgType::{Create, Delete, Edit};
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
-use lib::network::rpc_message::CtrlMsg::*;
-use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
+use lib::network::rpc_message::{self, HostCtrl::*, RpcMessageKind};
+use lib::network::rpc_message::RegCtrl::*;
+use lib::network::rpc_message::RpcMessageKind::{Data, HostCtrl, RegCtrl};
 use lib::network::rpc_message::SourceType::*;
-use lib::network::rpc_message::{CtrlMsg, DataMsg, DeviceId, RpcMessage};
+use lib::network::rpc_message::{DataMsg, DeviceId, RpcMessage};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
@@ -21,7 +22,8 @@ use log::*;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::{Mutex, broadcast, watch};
 
-use crate::services::{GlobalConfig, Run, SystemNodeConfig};
+use crate::registry::Registry;
+use crate::services::{GlobalConfig, RegistryConfig, Run, SystemNodeConfig};
 
 /// The System Node is a sender and a receiver in the network of Sensei.
 /// It hosts the devices that send and receive CSI data, and is responsible for sending this data further to other receivers in the system.
@@ -39,8 +41,9 @@ pub struct SystemNode {
     handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
     addr: SocketAddr,
     host_id: u64,
-    registry_addr: Option<SocketAddr>,
+    registry_addrs: Option<Vec<SocketAddr>>,
     device_configs: Vec<DeviceHandlerConfig>,
+    registry: Registry,
 }
 
 impl SubscribeDataChannel for SystemNode {
@@ -63,7 +66,8 @@ impl ConnectionHandler for SystemNode {
     async fn handle_recv(&self, request: RpcMessage, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
         info!("Received message {:?} from {}", request.msg, request.src_addr);
         match request.msg {
-            Ctrl(command) => match command {
+            HostCtrl(command) => match command {
+                // regular Host commands
                 Connect => {
                     let src = request.src_addr;
                     info!("Started connection with {src}");
@@ -120,11 +124,6 @@ impl ConnectionHandler for SystemNode {
                         _ => info!("This handler does not exist."),
                     }
                 }
-                PollHostStatus { host_id } => {
-                    let reg_addr = request.src_addr;
-                    info!("Received PollDevices from {reg_addr}");
-                    send_channel_msg_channel.send(ChannelMsg::SendHostStatus { reg_addr, host_id })?
-                }
                 Configure { device_id, cfg_type } => match cfg_type {
                     Create { cfg } => {
                         info!("Creating a new device handler for device id {device_id}");
@@ -147,9 +146,29 @@ impl ConnectionHandler for SystemNode {
                     }
                 },
                 m => {
+                    warn!("Received unhandled HostCtrl: {m:?}");
+                }
+            }
+            RegCtrl(command) => match command {
+                PollHostStatus { host_id } => {
+                    let reg_addr = request.src_addr;
+                    info!("Received PollDevices from {reg_addr}");
+                    send_channel_msg_channel.send(ChannelMsg::SendHostStatus { reg_addr, host_id })?
+                }
+                AnnouncePresence { host_id, host_address } => {
+                    self.registry.register_host(host_id, host_address).await.unwrap();
+                    return Ok(())
+                }
+                PollHostStatuses => {
+                    send_channel_msg_channel.send(ChannelMsg::SendHostStatuses)?;
+                    return Ok(())
+                }
+                HostStatus { host_id, device_status } => return Ok(()),
+                HostStatuses { host_statuses } => return Ok(()),
+                m => {
                     warn!("Received unhandled CtrlMsg: {m:?}");
                 }
-            },
+            }
             Data { data_msg, device_id } => {
                 // TODO: Pass it through relevant TCP sources
                 self.send_data_channel.send((data_msg, device_id))?;
@@ -174,7 +193,7 @@ impl ConnectionHandler for SystemNode {
                 debug!("Received message {msg_opt:?} over channel");
                 match msg_opt {
                     ChannelMsg::Disconnect => {
-                        send_message(&mut send_stream, Ctrl(CtrlMsg::Disconnect)).await?;
+                        send_message(&mut send_stream, HostCtrl(Disconnect)).await?;
                         debug!("Send close confirmation");
                         break;
                     }
@@ -187,12 +206,25 @@ impl ConnectionHandler for SystemNode {
                         subscribed_ids.remove(&device_id);
                     }
                     ChannelMsg::SendHostStatus { reg_addr: _, host_id: _ } => {
+                        // if host_id is current host
                         let host_status = HostStatus {
                             host_id: self.host_id,
                             device_status: vec![],
                         };
-                        let msg = Ctrl(host_status);
+                        let msg = RegCtrl(host_status);
                         send_message(&mut send_stream, msg).await?;
+                    }
+                    ChannelMsg::SendHostStatuses => {
+                        let msg = HostStatuses {
+                            host_statuses: self
+                                .registry
+                                .list_host_statuses()
+                                .await
+                                .iter()
+                                .map(|(id, info)| rpc_message::RegCtrl::from(info.clone()))
+                                .collect(),
+                        };
+                        send_message(&mut send_stream, RpcMessageKind::RegCtrl(msg)).await?;
                     }
                     _ => (),
                 }
@@ -221,8 +253,15 @@ impl Run<SystemNodeConfig> for SystemNode {
             handlers: Arc::new(Mutex::new(HashMap::new())),
             addr: config.addr,
             host_id: 0,
-            registry_addr: config.registry,
+            registry_addrs: config.registries,
             device_configs: config.device_configs,
+            registry: Registry::new(
+                global_config,
+                RegistryConfig {
+                    addr: "127.0.0.1:8080".parse().unwrap(),
+                    poll_interval: 10000,
+                },
+            ),
         }
     }
 
@@ -242,21 +281,22 @@ impl Run<SystemNodeConfig> for SystemNode {
                 .await
                 .insert(cfg.device_id, DeviceHandler::from_config(cfg.clone()).await.unwrap());
         }
-
-        if let Some(registry) = &self.registry_addr {
-            info!("Connecting to registry at {registry}");
-            let registry_addr: SocketAddr = *registry;
-            let heartbeat_msg = Ctrl(CtrlMsg::AnnouncePresence {
-                host_id: self.host_id,
-                host_address: self.addr,
-            });
+        // Register at provided registries
+        if let Some(registries) = &self.registry_addrs {
             let mut client = TcpClient::new();
-            client.connect(registry_addr).await?;
-            client.send_message(registry_addr, heartbeat_msg).await?;
-            client.disconnect(registry_addr);
-            info!("Heartbeat sent to registry at {registry_addr}");
+            for registry in registries {
+                info!("Connecting to registry at {registry}");
+                let registry_addr: SocketAddr = *registry;
+                let heartbeat_msg = RegCtrl(AnnouncePresence {
+                    host_id: self.host_id,
+                    host_address: self.addr,
+                });
+                client.connect(registry_addr).await?;
+                client.send_message(registry_addr, heartbeat_msg).await?;
+                client.disconnect(registry_addr);
+                info!("Presence announced to registry at {registry_addr}");
+            }
         }
-
         // Start TCP server to handle client connections
         info!("Starting TCP server on {}...", self.addr);
         TcpServer::serve(self.addr, connection_handler).await?;
