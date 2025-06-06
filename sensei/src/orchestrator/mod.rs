@@ -106,21 +106,19 @@ impl Run<OrchestratorConfig> for Orchestrator {
         for command in commands {
             Orchestrator::execute_command(self.client.clone(), command).await;
         }
-        // for target_addr in self.targets.clone() {
-        //     Self::connect(&self.client, target_addr).await;
-        // }
+
         self.cli_interface().await?;
         Ok(())
     }
 }
 
 impl Orchestrator {
-    pub async fn execute_command(client: Arc<Mutex<TcpClient>>, commands: Command) -> Result<(), Box<dyn std::error::Error>> {
-        tokio::time::sleep(std::time::Duration::from_millis(commands.delays.init_delay.unwrap_or(0u64))).await;
-        let command_delay = commands.delays.command_delay.unwrap_or(0u64);
-        let command_types = commands.command_types;
+    pub async fn execute_command(client: Arc<Mutex<TcpClient>>, command: Command) -> Result<(), Box<dyn std::error::Error>> {
+        tokio::time::sleep(std::time::Duration::from_millis(command.delays.init_delay.unwrap_or(0u64))).await;
+        let command_delay = command.delays.command_delay.unwrap_or(0u64);
+        let command_types = command.command_types;
 
-        match commands.delays.is_recurring.clone() {
+        match command.delays.is_recurring.clone() {
             Recurring {
                 recurrence_delay,
                 iterations,
