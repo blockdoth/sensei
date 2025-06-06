@@ -5,7 +5,6 @@ use lib::handler::device_handler::DeviceHandlerConfig;
 use log::LevelFilter;
 use serde::Deserialize;
 
-
 pub const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
 
 /// A trait for parsing a YAML file into a struct using Serde.

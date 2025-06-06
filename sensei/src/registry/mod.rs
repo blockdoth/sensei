@@ -13,7 +13,7 @@ use lib::errors::{NetworkError, RegistryError};
 use lib::network::rpc_message::{DataMsg, DeviceId, DeviceStatus, HostId, RegCtrl, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
-use lib::network::tcp::{send_message, ChannelMsg, ConnectionHandler, RegChannel, SubscribeDataChannel};
+use lib::network::tcp::{ChannelMsg, ConnectionHandler, RegChannel, SubscribeDataChannel, send_message};
 use log::*;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::watch::{self};
@@ -107,8 +107,13 @@ impl SubscribeDataChannel for Registry {
 /// - `register_host`: Registers a new host with the registry.
 /// - `store_host_update`: Stores an update to a host's status in the registry.
 impl Registry {
-    pub async fn handle_reg_ctrl(&self, request: RpcMessage, message: RegCtrl, send_commands_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
-        Ok(match message {
+    pub async fn handle_reg_ctrl(
+        &self,
+        request: RpcMessage,
+        message: RegCtrl,
+        send_commands_channel: watch::Sender<ChannelMsg>,
+    ) -> Result<(), NetworkError> {
+        match message {
             RegCtrl::AnnouncePresence { host_id, host_address } => {
                 self.register_host(host_id, host_address).await.unwrap();
             }
@@ -119,10 +124,11 @@ impl Registry {
             RegCtrl::PollHostStatuses => {
                 send_commands_channel.send(ChannelMsg::from(RegChannel::SendHostStatuses))?;
             }
-            RegCtrl::HostStatus { host_id, device_status } => {},
-            RegCtrl::HostStatuses { host_statuses } => {},
+            RegCtrl::HostStatus { host_id, device_status } => {}
+            RegCtrl::HostStatuses { host_statuses } => {}
             _ => {}
-        })
+        };
+        Ok(())
     }
     pub fn create_polling_client_task(&self) -> tokio::task::JoinHandle<()> {
         let connection_handler = Arc::new(self.clone());
@@ -259,8 +265,8 @@ impl ConnectionHandler for Registry {
             if recv_command_channel.has_changed().unwrap_or(false) {
                 let msg_opt = recv_command_channel.borrow_and_update().clone();
                 debug!("Received message {msg_opt:?} over channel");
-                match msg_opt {
-                    ChannelMsg::RegChannel(reg_msg) => match reg_msg {
+                if let ChannelMsg::RegChannel(reg_msg) = msg_opt {
+                    match reg_msg {
                         RegChannel::SendHostStatus { reg_addr: _, host_id } => {
                             let host_status = self.get_host_by_id(host_id).await?;
                             let msg = RpcMessageKind::RegCtrl(RegCtrl::from(host_status));
@@ -277,8 +283,7 @@ impl ConnectionHandler for Registry {
                             };
                             send_message(&mut send_stream, RpcMessageKind::RegCtrl(msg)).await?;
                         }
-                    },
-                    _ => (), // Ignore the message
+                    }
                 }
             }
         }
