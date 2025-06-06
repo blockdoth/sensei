@@ -28,7 +28,7 @@ pub struct Orchestrator {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Command {
-    command_type: CommandType,
+    commands: Vec<CommandType>,
     is_recurring: IsRecurring,
 }
 
@@ -41,8 +41,8 @@ impl Command {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum IsRecurring {
-    Recurring { delay: u64, iterations: u64 /* 0 is infinite */ },
-    NotRecurring,
+    Recurring { init_delay: Option<u64>, between_delay: Option<u64>, end_delay: Option<u64>, iterations: Option<u64> /* 0 is infinite */ },
+    NotRecurring { init_delay: Option<u64>, between_delay: Option<u64> },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -105,30 +105,44 @@ impl Run<OrchestratorConfig> for Orchestrator {
 }
 
 impl Orchestrator {
-    pub async fn execute_command(client: Arc<Mutex<TcpClient>>, command: Command) -> Result<(), Box<dyn std::error::Error>> {
-        match command.is_recurring {
-            Recurring { delay, iterations } => {
+    pub async fn execute_command(client: Arc<Mutex<TcpClient>>, commands: Command) -> Result<(), Box<dyn std::error::Error>> {
+        match commands.is_recurring {
+            Recurring { init_delay, between_delay, end_delay, iterations } => {
                 tokio::spawn(async move {
-                    if iterations == 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(init_delay.unwrap_or(0u64))).await;
+                    let n = iterations.unwrap_or(0u64);
+                    if n == 0 {
                         loop {
-                            Self::match_command_type(client.clone(), command.clone()).await;
-                            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                            for command_type in commands.commands.clone(){
+                                Self::match_command_type(client.clone(), command_type.clone()).await;
+                                tokio::time::sleep(std::time::Duration::from_millis(between_delay.unwrap_or(0u64))).await;
+                            }
+                            tokio::time::sleep(std::time::Duration::from_millis(end_delay.unwrap_or(0u64))).await;
                         }
                     } else {
-                        for _ in 0..iterations {
-                            Self::match_command_type(client.clone(), command.clone()).await;
-                            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                        for _ in 0..n {
+                            for command_type in commands.commands.clone(){
+                                Self::match_command_type(client.clone(), command_type.clone()).await;
+                                tokio::time::sleep(std::time::Duration::from_millis(between_delay.unwrap_or(0u64))).await;
+                            }
+                            tokio::time::sleep(std::time::Duration::from_millis(end_delay.unwrap_or(0u64))).await;
                         }
                     }
                 });
                 Ok(())
             }
-            NotRecurring => Ok(Self::match_command_type(client, command.clone()).await?),
+            NotRecurring {init_delay, between_delay} => {
+                tokio::time::sleep(std::time::Duration::from_millis(init_delay.unwrap_or(0u64))).await;
+                Ok(for command_type in commands.commands.clone() {
+                    Self::match_command_type(client.clone(), command_type.clone()).await;
+                    tokio::time::sleep(std::time::Duration::from_millis(between_delay.unwrap_or(0u64))).await;
+                })
+            }
         }
     }
 
-    pub async fn match_command_type(client: Arc<Mutex<TcpClient>>, command: Command) -> Result<(), Box<dyn std::error::Error>> {
-        match command.command_type {
+    pub async fn match_command_type(client: Arc<Mutex<TcpClient>>, command_type: CommandType) -> Result<(), Box<dyn std::error::Error>> {
+        match command_type {
             CommandType::Connect { target_addr } => Ok(Self::connect(&client, target_addr).await?),
             CommandType::Disconnect { target_addr } => Ok(Self::disconnect(&client, target_addr).await?),
             CommandType::Subscribe { target_addr, device_id } => Ok(Self::subscribe(&client, target_addr, device_id).await?),
