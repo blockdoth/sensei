@@ -11,7 +11,7 @@ use lib::network::rpc_message::HostCtrl::*;
 use lib::network::rpc_message::RpcMessageKind::Data;
 use lib::network::rpc_message::SourceType::ESP32;
 use lib::network::rpc_message::{DataMsg, DeviceId, HostCtrl, RpcMessageKind};
-use lib::network::tcp::ChannelMsg;
+use lib::network::tcp::{ChannelMsg, HostChannel, RegChannel};
 use lib::network::tcp::client::TcpClient;
 use log::*;
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -65,7 +65,7 @@ impl Orchestrator {
 
     // Temporary, refactor once TUI gets added
     async fn cli_interface(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let (send_commands_channel, recv_commands_channel) = watch::channel::<ChannelMsg>(ChannelMsg::Empty);
+        let (send_commands_channel, recv_commands_channel) = watch::channel::<ChannelMsg>(ChannelMsg::from(HostChannel::Empty));
 
         let send_client = self.client.clone();
         let recv_client = self.client.clone();
@@ -125,7 +125,7 @@ impl Orchestrator {
                 let device_id: DeviceId = input.next().unwrap_or("0").parse().unwrap();
 
                 Self::subscribe(&send_client, target_addr, device_id).await?;
-                send_commands_channel.send(ChannelMsg::ListenSubscribe { addr: target_addr })?;
+                send_commands_channel.send(ChannelMsg::from(HostChannel::ListenSubscribe { addr: target_addr }))?;
             }
             Some("unsub") => {
                 // Unsubscribe the orchestrator from the data output of another node
@@ -136,7 +136,7 @@ impl Orchestrator {
                     .unwrap_or(DEFAULT_ADDRESS);
                 let device_id: DeviceId = input.next().unwrap_or("0").parse().unwrap();
                 Self::unsubscribe(&send_client, target_addr, device_id).await?;
-                send_commands_channel.send(ChannelMsg::ListenUnsubscribe { addr: target_addr })?;
+                send_commands_channel.send(ChannelMsg::from(HostChannel::ListenUnsubscribe { addr: target_addr }))?;
             }
             Some("subto") => {
                 // Tells a node to subscribe to another node
@@ -187,10 +187,10 @@ impl Orchestrator {
             Some("sendstatus") => {
                 let target_addr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
                 let host_id = input.next().unwrap_or("").parse().unwrap_or(0);
-                send_commands_channel.send(ChannelMsg::SendHostStatus {
+                send_commands_channel.send(ChannelMsg::from(RegChannel::SendHostStatus {
                     reg_addr: target_addr,
                     host_id,
-                })?;
+                }))?;
             }
             Some("configure") => {
                 let target_addr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
@@ -272,13 +272,13 @@ impl Orchestrator {
             if recv_commands_channel.has_changed().unwrap_or(false) {
                 let msg_opt = recv_commands_channel.borrow_and_update().clone();
                 match msg_opt {
-                    ChannelMsg::ListenSubscribe { addr } => {
+                    ChannelMsg::HostChannel(HostChannel::ListenSubscribe { addr }) => {
                         if !targets.contains(&addr) {
                             targets.push(addr);
                         }
                         receiving = true;
                     }
-                    ChannelMsg::ListenUnsubscribe { addr } => {
+                    ChannelMsg::HostChannel(HostChannel::ListenUnsubscribe { addr }) => {
                         if let Some(pos) = targets.iter().position(|x| *x == addr) {
                             targets.remove(pos);
                         }

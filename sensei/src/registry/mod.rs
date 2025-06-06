@@ -13,7 +13,7 @@ use lib::errors::{NetworkError, RegistryError};
 use lib::network::rpc_message::{DataMsg, DeviceId, DeviceStatus, HostId, RegCtrl, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
-use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
+use lib::network::tcp::{send_message, ChannelMsg, ConnectionHandler, RegChannel, SubscribeDataChannel};
 use log::*;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::watch::{self};
@@ -114,10 +114,10 @@ impl Registry {
             }
             RegCtrl::PollHostStatus { host_id } => {
                 let reg_addr = request.src_addr;
-                send_commands_channel.send(ChannelMsg::SendHostStatus { reg_addr, host_id })?;
+                send_commands_channel.send(ChannelMsg::from(RegChannel::SendHostStatus { reg_addr, host_id }))?;
             }
             RegCtrl::PollHostStatuses => {
-                send_commands_channel.send(ChannelMsg::SendHostStatuses)?;
+                send_commands_channel.send(ChannelMsg::from(RegChannel::SendHostStatuses))?;
             }
             RegCtrl::HostStatus { host_id, device_status } => {},
             RegCtrl::HostStatuses { host_statuses } => {},
@@ -260,22 +260,24 @@ impl ConnectionHandler for Registry {
                 let msg_opt = recv_command_channel.borrow_and_update().clone();
                 debug!("Received message {msg_opt:?} over channel");
                 match msg_opt {
-                    ChannelMsg::SendHostStatus { reg_addr: _, host_id } => {
-                        let host_status = self.get_host_by_id(host_id).await?;
-                        let msg = RpcMessageKind::RegCtrl(RegCtrl::from(host_status));
-                        send_message(&mut send_stream, msg).await?;
-                    }
-                    ChannelMsg::SendHostStatuses => {
-                        let msg = RegCtrl::HostStatuses {
-                            host_statuses: self
-                                .list_host_statuses()
-                                .await
-                                .iter()
-                                .map(|(id, info)| RegCtrl::from(info.clone()))
-                                .collect(),
-                        };
-                        send_message(&mut send_stream, RpcMessageKind::RegCtrl(msg)).await?;
-                    }
+                    ChannelMsg::RegChannel(reg_msg) => match reg_msg {
+                        RegChannel::SendHostStatus { reg_addr: _, host_id } => {
+                            let host_status = self.get_host_by_id(host_id).await?;
+                            let msg = RpcMessageKind::RegCtrl(RegCtrl::from(host_status));
+                            send_message(&mut send_stream, msg).await?;
+                        }
+                        RegChannel::SendHostStatuses => {
+                            let msg = RegCtrl::HostStatuses {
+                                host_statuses: self
+                                    .list_host_statuses()
+                                    .await
+                                    .iter()
+                                    .map(|(id, info)| RegCtrl::from(info.clone()))
+                                    .collect(),
+                            };
+                            send_message(&mut send_stream, RpcMessageKind::RegCtrl(msg)).await?;
+                        }
+                    },
                     _ => (), // Ignore the message
                 }
             }

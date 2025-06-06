@@ -7,13 +7,13 @@ use lib::FromConfig;
 use lib::errors::NetworkError;
 use lib::handler::device_handler::CfgType::{Create, Delete, Edit};
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
-use lib::network::rpc_message::{self, HostCtrl, RegCtrl, RpcMessageKind};
+use lib::network::rpc_message::{self, HostCtrl, RpcMessageKind};
 use lib::network::rpc_message::RegCtrl::*;
 use lib::network::rpc_message::SourceType::*;
 use lib::network::rpc_message::{DataMsg, DeviceId, RpcMessage};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
-use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
+use lib::network::tcp::{send_message, ChannelMsg, ConnectionHandler, RegChannel, HostChannel, SubscribeDataChannel};
 use lib::sources::DataSourceConfig;
 #[cfg(target_os = "linux")]
 use lib::sources::tcp::TCPConfig;
@@ -62,15 +62,15 @@ impl SystemNode {
             }
             HostCtrl::Disconnect => {
                 // Correct way to signal disconnect to the sending task for this connection
-                send_channel_msg_channel.send(ChannelMsg::Disconnect)?;
+                send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Disconnect))?;
                 return Err(NetworkError::Closed); // Indicate connection should close
             }
             HostCtrl::Subscribe { device_id } => {
-                send_channel_msg_channel.send(ChannelMsg::Subscribe { device_id: device_id })?;
+                send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Subscribe { device_id: device_id }))?;
                 info!("Client {} subscribed to data stream for device_id: {}", request.src_addr, device_id);
             }
             HostCtrl::Unsubscribe { device_id } => {
-                send_channel_msg_channel.send(ChannelMsg::Unsubscribe { device_id: device_id })?;
+                send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Unsubscribe { device_id: device_id }))?;
                 info!("Client {} unsubscribed from data stream for device_id: {}", request.src_addr, device_id);
             }
             HostCtrl::SubscribeTo { target, device_id } => {
@@ -178,40 +178,45 @@ impl ConnectionHandler for SystemNode {
                 let msg_opt = recv_command_channel.borrow_and_update().clone();
                 debug!("Received message {msg_opt:?} over channel");
                 match msg_opt {
-                    ChannelMsg::Disconnect => {
-                        send_message(&mut send_stream, RpcMessageKind::HostCtrl(HostCtrl::Disconnect)).await?;
-                        debug!("Send close confirmation");
-                        break;
-                    }
-                    ChannelMsg::Subscribe { device_id } => {
-                        info!("Subscribed");
-                        subscribed_ids.insert(device_id);
-                    }
-                    ChannelMsg::Unsubscribe { device_id } => {
-                        info!("Unsubscribed");
-                        subscribed_ids.remove(&device_id);
-                    }
-                    ChannelMsg::SendHostStatus { reg_addr: _, host_id: _ } => {
-                        // if host_id is current host
-                        let host_status = HostStatus {
-                            host_id: self.host_id,
-                            device_status: vec![],
-                        };
-                        let msg = RpcMessageKind::RegCtrl(host_status);
-                        send_message(&mut send_stream, msg).await?;
-                    }
-                    ChannelMsg::SendHostStatuses => {
-                        let msg = HostStatuses {
-                            host_statuses: self
-                                .registry
-                                .list_host_statuses()
-                                .await
-                                .iter()
-                                .map(|(id, info)| rpc_message::RegCtrl::from(info.clone()))
-                                .collect(),
-                        };
-                        send_message(&mut send_stream, RpcMessageKind::RegCtrl(msg)).await?;
-                    }
+                    ChannelMsg::HostChannel(host_msg) => match host_msg {
+                        HostChannel::Disconnect => {
+                            send_message(&mut send_stream, RpcMessageKind::HostCtrl(HostCtrl::Disconnect)).await?;
+                            debug!("Send close confirmation");
+                            break;
+                        },
+                        HostChannel::Subscribe { device_id } => {
+                            info!("Subscribed");
+                            subscribed_ids.insert(device_id);
+                        },
+                        HostChannel::Unsubscribe { device_id } => {
+                            info!("Unsubscribed");
+                            subscribed_ids.remove(&device_id);
+                        },
+                        _ => {}
+                    },
+                    ChannelMsg::RegChannel(reg_msg) => match reg_msg {
+                        RegChannel::SendHostStatus { reg_addr: _, host_id: _ } => {
+                            // if host_id is current host
+                            let host_status = HostStatus {
+                                host_id: self.host_id,
+                                device_status: vec![],
+                            };
+                            let msg = RpcMessageKind::RegCtrl(host_status);
+                            send_message(&mut send_stream, msg).await?;
+                        },
+                        RegChannel::SendHostStatuses => {
+                            let msg = HostStatuses {
+                                host_statuses: self
+                                    .registry
+                                    .list_host_statuses()
+                                    .await
+                                    .iter()
+                                    .map(|(id, info)| rpc_message::RegCtrl::from(info.clone()))
+                                    .collect(),
+                            };
+                            send_message(&mut send_stream, RpcMessageKind::RegCtrl(msg)).await?;
+                        }
+                    },
                     _ => (),
                 }
             }
