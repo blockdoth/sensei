@@ -386,6 +386,10 @@ pub enum RegistryError {
     /// Netowrk Error
     #[error("Network Error")]
     NetworkError(#[from] Box<NetworkError>),
+
+    /// No Standalone
+    #[error("The registry cannot be ran as a standalone process.")]
+    NoStandalone
 }
 
 // Allow conversion from Box<NetworkError> to NetworkError

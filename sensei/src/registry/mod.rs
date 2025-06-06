@@ -5,7 +5,7 @@
 //! which is important for low-compute devices. The registry spawns two threads: a TCP server for host registration and a background thread for polling hosts.
 use std::collections::HashMap;
 use std::convert::From;
-use std::net::{SocketAddr};
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -13,7 +13,7 @@ use lib::errors::{NetworkError, RegistryError};
 use lib::network::rpc_message::{DataMsg, DeviceId, DeviceStatus, HostId, RegCtrl, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
-use lib::network::tcp::{send_message, ChannelMsg, ConnectionHandler, RegChannel, SubscribeDataChannel};
+use lib::network::tcp::{ChannelMsg, ConnectionHandler, RegChannel, SubscribeDataChannel, send_message};
 use log::*;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::watch::{self};
@@ -78,12 +78,9 @@ impl Run<RegistryConfig> for Registry {
         }
     }
 
-    /// Run the registry, spawning the TCP server and polling background task.
+    /// The registry cannot be ran as a standalone task.
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let server_task = self.create_registry_server_task();
-        let client_task = self.create_polling_client_task(DEFAULT_POLLING_INTERVAL);
-        let _ = tokio::try_join!(server_task, client_task);
-        Ok(())
+        Err(Box::new(RegistryError::NoStandalone))
     }
 }
 
@@ -155,18 +152,7 @@ impl Registry {
         task::spawn(async move {
             info!("Starting TCP client to poll hosts...");
             let client = TcpClient::new();
-            connection_handler
-                .poll_hosts(client, Duration::from_secs(poll_interval))
-                .await
-                .unwrap();
-        })
-    }
-    pub fn create_registry_server_task(&self) -> tokio::task::JoinHandle<()> {
-        let connection_handler = Arc::new(self.clone());
-        let addr: SocketAddr = "127.0.0.1:8000".parse().unwrap();
-        task::spawn(async move {
-            info!("Starting TCP server on {addr}...");
-            TcpServer::serve(addr, connection_handler).await;
+            connection_handler.poll_hosts(client, Duration::from_secs(poll_interval)).await.unwrap();
         })
     }
     /// Go though the list of hosts and poll their status
@@ -257,58 +243,6 @@ impl Registry {
             }
             _ => Err(RegistryError::NoSuchHost),
         }
-    }
-}
-
-#[async_trait]
-/// Handles incoming and outgoing network connections for the registry.
-impl ConnectionHandler for Registry {
-    /// Handle an incoming message from a host or client.
-    async fn handle_recv(&self, request: RpcMessage, send_commands_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
-        debug!("Received request: {:?}", request);
-
-        let res = match &request.msg {
-            RpcMessageKind::RegCtrl(command) => self.handle_reg_ctrl(request.clone(), command.clone(), send_commands_channel).await,
-            _ => Err(NetworkError::MessageError),
-        };
-        return res;
-    }
-
-    /// Handle outgoing messages to a host or client.
-    async fn handle_send(
-        &self,
-        mut recv_command_channel: watch::Receiver<ChannelMsg>,
-        mut recv_data_channel: broadcast::Receiver<(DataMsg, DeviceId)>,
-        mut send_stream: OwnedWriteHalf,
-    ) -> Result<(), NetworkError> {
-        loop {
-            if recv_command_channel.has_changed().unwrap_or(false) {
-                let msg_opt = recv_command_channel.borrow_and_update().clone();
-                debug!("Received message {msg_opt:?} over channel");
-                if let ChannelMsg::RegChannel(reg_msg) = msg_opt {
-                    match reg_msg {
-                        RegChannel::SendHostStatus { reg_addr: _, host_id } => {
-                            let host_status = self.get_host_by_id(host_id).await?;
-                            let msg = RpcMessageKind::RegCtrl(RegCtrl::from(host_status));
-                            send_message(&mut send_stream, msg).await?;
-                        }
-                        RegChannel::SendHostStatuses => {
-                            let msg = RegCtrl::HostStatuses {
-                                host_statuses: self
-                                    .list_host_statuses()
-                                    .await
-                                    .iter()
-                                    .map(|(id, info)| RegCtrl::from(info.clone()))
-                                    .collect(),
-                            };
-                            send_message(&mut send_stream, RpcMessageKind::RegCtrl(msg)).await?;
-                        }
-                    }
-                }
-            }
-        }
-        // Loop is infinite unless broken by Disconnect or error
-        Ok(())
     }
 }
 

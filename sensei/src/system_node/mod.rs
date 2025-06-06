@@ -171,6 +171,7 @@ impl SystemNode {
             HostChannel::Disconnect => {
                 send_message(send_stream, RpcMessageKind::HostCtrl(HostCtrl::Disconnect)).await?;
                 debug!("Send close confirmation");
+                return Err(NetworkError::Closed); // Throwing an error here feels weird, but it's also done in the recv_handler
             }
             HostChannel::Subscribe { device_id } => {
                 info!("Subscribed");
@@ -256,7 +257,6 @@ impl ConnectionHandler for SystemNode {
                 let msg_opt = recv_command_channel.borrow_and_update().clone();
                 debug!("Received message {msg_opt:?} over channel");
                 match msg_opt {
-                    // TODO: figue out if the exit message requires an explicit exit from the program
                     ChannelMsg::HostChannel(host_msg) => self.handle_host_channel(host_msg, &mut send_stream, &mut subscribed_ids).await?,
                     ChannelMsg::RegChannel(reg_msg) => self.handle_reg_channel(reg_msg, &mut send_stream).await?,
                     _ => (),
@@ -338,7 +338,7 @@ impl Run<SystemNodeConfig> for SystemNode {
             TcpServer::serve(connection_handler.addr, connection_handler).await.unwrap();
         });
         // create registry polling task, if configured
-        let polling_task = if let Some(interval) =  self.registry_polling_rate_s {
+        let polling_task = if let Some(interval) = self.registry_polling_rate_s {
             info!("Started registry polling task");
             self.registry.create_polling_client_task(interval)
         } else {
