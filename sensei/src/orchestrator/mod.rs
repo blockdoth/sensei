@@ -117,16 +117,16 @@ impl Run<OrchestratorConfig> for Orchestrator {
 impl Orchestrator {
     pub async fn execute_command(client: Arc<Mutex<TcpClient>>, commands: Command) -> Result<(), Box<dyn std::error::Error>> {
         tokio::time::sleep(std::time::Duration::from_millis(commands.delays.init_delay.unwrap_or(0u64))).await;
-        let command_delay =  commands.delays.command_delay.unwrap_or(0u64);
+        let command_delay = commands.delays.command_delay.unwrap_or(0u64);
         let command_types = commands.command_types;
-        
+
         match commands.delays.is_recurring.clone() {
             Recurring {
                 recurrence_delay,
                 iterations,
             } => {
                 tokio::spawn(async move {
-                    let r_delay= recurrence_delay.unwrap_or(0u64);
+                    let r_delay = recurrence_delay.unwrap_or(0u64);
                     let n = iterations.unwrap_or(0u64);
                     if n == 0 {
                         loop {
@@ -148,8 +148,12 @@ impl Orchestrator {
             }
         }
     }
-    
-    pub async fn match_command_types(client: Arc<Mutex<TcpClient>>, command_types: Vec<CommandType>, command_delay: u64) -> Result<(), Box<dyn std::error::Error>> {
+
+    pub async fn match_command_types(
+        client: Arc<Mutex<TcpClient>>,
+        command_types: Vec<CommandType>,
+        command_delay: u64,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         for command_type in command_types {
             Self::match_command_type(client.clone(), command_type.clone()).await;
             tokio::time::sleep(std::time::Duration::from_millis(command_delay)).await;
