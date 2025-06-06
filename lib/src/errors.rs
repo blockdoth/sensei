@@ -378,10 +378,14 @@ pub enum RegistryError {
     /// A poisonerror`
     #[error("Poisonerror")]
     PosonError(#[from] PoisonError<()>),
-    
+
     /// No such host
     #[error("No such host")]
     NoSuchHost,
+
+    /// Netowrk Error
+    #[error("Network Error")]
+    NetworkError(#[from] Box<NetworkError>),
 }
 
 // Allow conversion from Box<NetworkError> to NetworkError
