@@ -41,8 +41,16 @@ impl Command {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum IsRecurring {
-    Recurring { init_delay: Option<u64>, between_delay: Option<u64>, end_delay: Option<u64>, iterations: Option<u64> /* 0 is infinite */ },
-    NotRecurring { init_delay: Option<u64>, between_delay: Option<u64> },
+    Recurring {
+        init_delay: Option<u64>,
+        between_delay: Option<u64>,
+        end_delay: Option<u64>,
+        iterations: Option<u64>, /* 0 is infinite */
+    },
+    NotRecurring {
+        init_delay: Option<u64>,
+        between_delay: Option<u64>,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -107,13 +115,18 @@ impl Run<OrchestratorConfig> for Orchestrator {
 impl Orchestrator {
     pub async fn execute_command(client: Arc<Mutex<TcpClient>>, commands: Command) -> Result<(), Box<dyn std::error::Error>> {
         match commands.is_recurring {
-            Recurring { init_delay, between_delay, end_delay, iterations } => {
+            Recurring {
+                init_delay,
+                between_delay,
+                end_delay,
+                iterations,
+            } => {
                 tokio::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_millis(init_delay.unwrap_or(0u64))).await;
                     let n = iterations.unwrap_or(0u64);
                     if n == 0 {
                         loop {
-                            for command_type in commands.commands.clone(){
+                            for command_type in commands.commands.clone() {
                                 Self::match_command_type(client.clone(), command_type.clone()).await;
                                 tokio::time::sleep(std::time::Duration::from_millis(between_delay.unwrap_or(0u64))).await;
                             }
@@ -121,7 +134,7 @@ impl Orchestrator {
                         }
                     } else {
                         for _ in 0..n {
-                            for command_type in commands.commands.clone(){
+                            for command_type in commands.commands.clone() {
                                 Self::match_command_type(client.clone(), command_type.clone()).await;
                                 tokio::time::sleep(std::time::Duration::from_millis(between_delay.unwrap_or(0u64))).await;
                             }
@@ -131,12 +144,13 @@ impl Orchestrator {
                 });
                 Ok(())
             }
-            NotRecurring {init_delay, between_delay} => {
+            NotRecurring { init_delay, between_delay } => {
                 tokio::time::sleep(std::time::Duration::from_millis(init_delay.unwrap_or(0u64))).await;
-                Ok(for command_type in commands.commands.clone() {
+                for command_type in commands.commands.clone() {
                     Self::match_command_type(client.clone(), command_type.clone()).await;
                     tokio::time::sleep(std::time::Duration::from_millis(between_delay.unwrap_or(0u64))).await;
-                })
+                }
+                Ok(())
             }
         }
     }
