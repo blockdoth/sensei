@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use std::convert::From;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::thread::JoinHandle;
 
 use async_trait::async_trait;
 use lib::errors::{NetworkError, RegistryError};
