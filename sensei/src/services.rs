@@ -1,15 +1,10 @@
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
-use std::time::Duration;
 
-use lib::errors::RegistryError;
 use lib::handler::device_handler::DeviceHandlerConfig;
-use lib::network::rpc_message::{HostId, RpcMessageKind};
-use lib::network::tcp::client::TcpClient;
 use log::LevelFilter;
 use serde::Deserialize;
 
-use crate::registry::RegHostStatus;
 
 pub const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
 
@@ -51,32 +46,6 @@ pub trait FromYaml: Sized + for<'de> Deserialize<'de> {
     }
 }
 
-/// The `Registry` trait defines the interface for a host registry service in a distributed system.
-/// It provides asynchronous methods for polling hosts, retrieving and updating host information,
-/// handling unresponsive hosts, and listing registered hosts and their statuses.
-///
-/// # Methods
-/// - `poll_hosts`: Polls all registered hosts using the provided TCP client and interval. It is intended to be called periodically.
-/// - `get_host_by_id`: Retrieves the status of a host by its unique identifier.
-/// - `handle_unresponsive_host`: Handles a host that has become unresponsive.
-/// - `list_hosts`: Returns a list of all registered hosts and their socket addresses.
-/// - `list_host_statuses`: Returns a list of all registered hosts and their current statuses.
-/// - `register_host`: Registers a new host with its identifier and address.
-/// - `store_host_update`: Stores updates to a host's address or status.
-///
-/// # Errors
-/// Methods may return errors if network communication fails, if a host cannot be found,
-/// or if updates cannot be stored.
-pub trait Registry {
-    async fn poll_hosts(&self, client: TcpClient, poll_interval: Duration) -> Result<(), RegistryError>;
-    async fn get_host_by_id(&self, host_id: HostId) -> Result<RegHostStatus, RegistryError>;
-    async fn handle_unresponsive_host(&self, host_id: HostId) -> Result<(), RegistryError>;
-    async fn list_hosts(&self) -> Vec<(HostId, SocketAddr)>;
-    async fn list_host_statuses(&self) -> Vec<(HostId, RegHostStatus)>;
-    async fn register_host(&self, host_id: HostId, host_address: SocketAddr) -> Result<(), RegistryError>;
-    async fn store_host_update(&self, _host_id: HostId, host_address: SocketAddr, status: RpcMessageKind) -> Result<(), RegistryError>;
-}
-
 pub struct OrchestratorConfig {
     pub targets: Vec<SocketAddr>,
 }
@@ -85,7 +54,8 @@ pub struct OrchestratorConfig {
 pub struct SystemNodeConfig {
     pub addr: SocketAddr,
     pub host_id: u64,
-    pub registry: Option<SocketAddr>,
+    pub registries: Option<Vec<SocketAddr>>,
+    pub registry_server: Option<SocketAddr>,
     pub device_configs: Vec<DeviceHandlerConfig>,
 }
 

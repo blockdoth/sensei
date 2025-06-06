@@ -9,16 +9,17 @@ use crate::handler::device_handler::CfgType;
 
 pub const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RpcMessage {
     pub msg: RpcMessageKind,
     pub src_addr: SocketAddr,
     pub target_addr: SocketAddr,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum RpcMessageKind {
-    Ctrl(CtrlMsg),
+    HostCtrl(HostCtrl),
+    RegCtrl(RegCtrl),
     Data { data_msg: DataMsg, device_id: u64 },
 }
 
@@ -28,7 +29,7 @@ pub type HostId = u64;
 pub type DeviceId = u64;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum CtrlMsg {
+pub enum HostCtrl {
     Connect,
     Disconnect,
     Configure { device_id: DeviceId, cfg_type: CfgType },
@@ -36,11 +37,15 @@ pub enum CtrlMsg {
     Unsubscribe { device_id: DeviceId },
     SubscribeTo { target: SocketAddr, device_id: DeviceId }, // Orchestrator to node, node subscribes to another node
     UnsubscribeFrom { target: SocketAddr, device_id: DeviceId }, // Orchestrator to node
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum RegCtrl {
     PollHostStatus { host_id: HostId },
     PollHostStatuses,
     AnnouncePresence { host_id: HostId, host_address: SocketAddr },
     HostStatus { host_id: HostId, device_status: Vec<DeviceStatus> },
-    HostStatuses { host_statuses: Vec<CtrlMsg> },
+    HostStatuses { host_statuses: Vec<RegCtrl> },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -86,7 +91,7 @@ impl FromStr for AdapterMode {
 }
 
 // FromStr implementations for easy cli usage
-impl FromStr for CtrlMsg {
+impl FromStr for HostCtrl {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -95,36 +100,51 @@ impl FromStr for CtrlMsg {
         let kind = parts.next().unwrap_or("not a valid command");
 
         match kind {
-            "connect" => Ok(CtrlMsg::Connect),
-            "disconnect" => Ok(CtrlMsg::Disconnect),
+            "connect" => Ok(HostCtrl::Connect),
+            "disconnect" => Ok(HostCtrl::Disconnect),
             "configure" => {
                 todo!("support this")
             }
             "subscribe" => {
                 let device_id = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0); // TODO better id assignment
 
-                Ok(CtrlMsg::Subscribe { device_id })
+                Ok(HostCtrl::Subscribe { device_id })
             }
             "unsubscribe" => {
                 let device_id = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
 
-                Ok(CtrlMsg::Unsubscribe { device_id })
+                Ok(HostCtrl::Unsubscribe { device_id })
             }
+            s => Err(s.to_owned()),
+            _ => Err(format!("An unsuppored case was reached! {kind}")),
+        }
+    }
+}
+
+// FromStr implementations for easy cli usage
+impl FromStr for RegCtrl {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let lowercase = s.to_lowercase();
+        let mut parts = lowercase.split_whitespace();
+        let kind = parts.next().unwrap_or("not a valid command");
+
+        match kind {
             "pollhoststatus" => {
                 let host_id = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
-                Ok(CtrlMsg::PollHostStatus { host_id })
+                Ok(RegCtrl::PollHostStatus { host_id })
             }
-            "pollhoststatuses" => Ok(CtrlMsg::PollHostStatuses),
-            "hoststatus" => Ok(CtrlMsg::HostStatus {
+            "pollhoststatuses" => Ok(RegCtrl::PollHostStatuses),
+            "hoststatus" => Ok(RegCtrl::HostStatus {
                 host_id: 0,
                 device_status: vec![],
             }),
-            "heartbeat" => Ok(CtrlMsg::AnnouncePresence {
+            "heartbeat" => Ok(RegCtrl::AnnouncePresence {
                 host_id: 0,
                 host_address: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 8080)),
             }), // TODO better id assignment
             s => Err(s.to_owned()),
-            _ => Err(format!("An unsuppored case was reached! {kind}")),
         }
     }
 }

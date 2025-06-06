@@ -6,11 +6,11 @@ use std::vec;
 use futures::future::pending;
 use lib::handler::device_handler::CfgType::Delete;
 use lib::handler::device_handler::{CfgType, DeviceHandlerConfig};
-use lib::network::rpc_message::CtrlMsg::*;
 use lib::network::rpc_message::DataMsg::RawFrame;
-use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
+use lib::network::rpc_message::HostCtrl::*;
+use lib::network::rpc_message::RpcMessageKind::Data;
 use lib::network::rpc_message::SourceType::ESP32;
-use lib::network::rpc_message::{CtrlMsg, DataMsg, DeviceId};
+use lib::network::rpc_message::{DataMsg, DeviceId, HostCtrl, RpcMessageKind};
 use lib::network::tcp::ChannelMsg;
 use lib::network::tcp::client::TcpClient;
 use log::*;
@@ -52,15 +52,15 @@ impl Orchestrator {
     }
 
     async fn subscribe(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: u64) -> Result<(), Box<dyn std::error::Error>> {
-        let msg = Ctrl(CtrlMsg::Subscribe { device_id });
+        let msg = HostCtrl::Subscribe { device_id };
         info!("Subscribing to {target_addr} for device id {device_id}");
-        Ok(client.lock().await.send_message(target_addr, msg).await?)
+        Ok(client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?)
     }
 
     async fn unsubscribe(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: u64) -> Result<(), Box<dyn std::error::Error>> {
-        let msg = Ctrl(CtrlMsg::Unsubscribe { device_id });
+        let msg = HostCtrl::Unsubscribe { device_id };
         info!("Unsubscribing from {target_addr} for device id {device_id}");
-        Ok(client.lock().await.send_message(target_addr, msg).await?)
+        Ok(client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?)
     }
 
     // Temporary, refactor once TUI gets added
@@ -144,14 +144,14 @@ impl Orchestrator {
                 let source_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
                 let device_id: DeviceId = input.next().unwrap_or("0").parse().unwrap();
 
-                let msg = Ctrl(SubscribeTo {
+                let msg = SubscribeTo {
                     target: source_addr,
                     device_id,
-                });
+                };
 
                 info!("Telling {target_addr} to subscribe to {source_addr} on device id {device_id}");
 
-                send_client.lock().await.send_message(target_addr, msg).await?;
+                send_client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?;
             }
             Some("unsubfrom") => {
                 // Tells a node to unsubscribe from another node
@@ -159,14 +159,14 @@ impl Orchestrator {
                 let source_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
                 let device_id: DeviceId = input.next().unwrap_or("0").parse().unwrap();
 
-                let msg = Ctrl(UnsubscribeFrom {
+                let msg = UnsubscribeFrom {
                     target: source_addr,
                     device_id,
-                });
+                };
 
                 info!("Telling {target_addr} to unsubscribe from device id {device_id} from {source_addr}");
 
-                send_client.lock().await.send_message(target_addr, msg).await?;
+                send_client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?;
             }
             Some("dummydata") => {
                 // To test the subscription mechanic
@@ -207,14 +207,14 @@ impl Orchestrator {
                         };
 
                         let cfg_type = CfgType::Create { cfg };
-                        let msg = Ctrl(Configure { device_id, cfg_type });
+                        let msg = Configure { device_id, cfg_type };
 
                         info!("Telling {target_addr} to create a device handler");
 
                         send_client
                             .lock()
                             .await
-                            .send_message(target_addr, msg)
+                            .send_message(target_addr, RpcMessageKind::HostCtrl(msg))
                             .await
                             .expect("TODO: panic message");
                     }
@@ -229,27 +229,27 @@ impl Orchestrator {
                         };
 
                         let cfg_type = CfgType::Edit { cfg };
-                        let msg = Ctrl(Configure { device_id, cfg_type });
+                        let msg = Configure { device_id, cfg_type };
 
                         info!("Telling {target_addr} to edit a device handler");
 
                         send_client
                             .lock()
                             .await
-                            .send_message(target_addr, msg)
+                            .send_message(target_addr, RpcMessageKind::HostCtrl(msg))
                             .await
                             .expect("TODO: panic message");
                     }
                     Some("delete") => {
                         let cfg_type = Delete;
-                        let msg = Ctrl(Configure { device_id, cfg_type });
+                        let msg = Configure { device_id, cfg_type };
 
                         info!("Telling {target_addr} to delete a device handler");
 
                         send_client
                             .lock()
                             .await
-                            .send_message(target_addr, msg)
+                            .send_message(target_addr, RpcMessageKind::HostCtrl(msg))
                             .await
                             .expect("TODO: panic message");
                     }

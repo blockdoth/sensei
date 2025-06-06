@@ -64,7 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .run()
                 .await?
             }
-            SubCommandsArgs::Two(args) => HostRegistry::new(global_args, args.parse()?).run().await?,
+            SubCommandsArgs::Two(args) => Registry::new(global_args, args.parse()?).run().await?,
             SubCommandsArgs::Three(args) => Orchestrator::new(global_args, args.parse()?).run().await?,
             SubCommandsArgs::Four(args) => Visualiser::new(global_args, args.parse()?).run().await?,
             SubCommandsArgs::Five(args) => EspTool::new(global_args, args.parse()?).run().await?,

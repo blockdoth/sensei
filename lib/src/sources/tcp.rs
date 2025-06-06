@@ -106,14 +106,10 @@ impl DataSourceT for TCPSource {
             .await
             .map_err(|e| DataSourceError::from(Box::new(e)))?;
         match rpcmsg.msg {
-            RpcMessageKind::Ctrl(_ctrl_msg) => {
-                // control messages carry no data payload
-                Ok(None)
-            }
+            RpcMessageKind::HostCtrl(_) | RpcMessageKind::RegCtrl(_) => Ok(None), // control messages carry no data payload
             RpcMessageKind::Data { data_msg, device_id } => {
                 if device_id == self.config.device_id {
-                    // return the actual data payload
-                    Ok(Some(data_msg))
+                    Ok(Some(data_msg)) // return the actual data payload
                 } else {
                     Ok(None)
                 }

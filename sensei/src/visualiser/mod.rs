@@ -14,8 +14,8 @@ use charming::series::Line;
 use charming::theme::Theme;
 use lib::csi_types::CsiData;
 use lib::network::rpc_message::DataMsg::*;
-use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
-use lib::network::rpc_message::{CtrlMsg, RpcMessage};
+use lib::network::rpc_message::RpcMessageKind::Data;
+use lib::network::rpc_message::{HostCtrl, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
 use log::{debug, info};
 use ratatui::Terminal;
@@ -432,8 +432,8 @@ impl Visualiser {
             let mut client = client.lock().await;
             client.connect(target_addr).await?;
 
-            let msg = Ctrl(CtrlMsg::Subscribe { device_id: 0 });
-            client.send_message(target_addr, msg).await?;
+            let msg = HostCtrl::Subscribe { device_id: 0 };
+            client.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?;
             info!("Subscribed to node {target_addr}");
             Ok(())
         }

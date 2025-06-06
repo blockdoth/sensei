@@ -81,7 +81,8 @@ impl ConfigFromCli<SystemNodeConfig> for SystemNodeSubcommandArgs {
             addr: format!("{}:{}", self.addr, self.port).parse()?,
             device_configs: DeviceHandlerConfig::from_yaml(self.config_path.clone())?,
             host_id: 0,
-            registry: todo!(),
+            registries: todo!(),
+            registry_server: todo!(),
         })
     }
 }
@@ -190,15 +191,14 @@ impl ConfigFromCli<EspToolConfig> for EspToolSubcommandArgs {
 
 #[cfg(test)]
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-
     use super::*;
 
     fn create_testing_config() -> SystemNodeConfig {
         SystemNodeConfig {
             addr: "127.0.0.1:8080".parse().unwrap(),
             host_id: 1,
-            registry: Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080)),
+            registries: Option::None,
+            registry_server: Option::None,
             device_configs: vec![],
         }
     }
