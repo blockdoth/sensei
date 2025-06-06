@@ -4,7 +4,7 @@ use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
-use std::str::FromStr;
+
 use log::info;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -41,7 +41,6 @@ pub struct DeviceHandlerConfig {
     /// One or more sinks that will consume the (adapted) data messages.
     pub sinks: Vec<SinkConfig>,
 }
-
 
 impl DeviceHandlerConfig {
     /// Asynchronously loads a list of `DeviceHandlerConfig` instances from a YAML file.

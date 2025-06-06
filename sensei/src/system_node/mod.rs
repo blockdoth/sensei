@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use lib::FromConfig;
 use lib::errors::NetworkError;
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
+use lib::network::rpc_message::CfgType::{Create, Delete, Edit};
 use lib::network::rpc_message::CtrlMsg::*;
 use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
 use lib::network::rpc_message::SourceType::*;
@@ -20,7 +21,6 @@ use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::{Mutex, broadcast, watch};
 
 use crate::services::{GlobalConfig, Run, SystemNodeConfig};
-use lib::network::rpc_message::CfgType::{Create, Edit, Delete};
 
 /// The System Node is a sender and a receiver in the network of Sensei.
 /// It hosts the devices that send and receive CSI data, and is responsible for sending this data further to other receivers in the system.

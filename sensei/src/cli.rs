@@ -123,7 +123,7 @@ pub struct OrchestratorSubcommandArgs {
     /// whether to enable tui input
     #[argh(option, default = "true")]
     pub tui: bool,
-    
+
     /// file path of the experiment config
     #[argh(option, default = "PathBuf::from(\"sensei/src/orchestrator/experiment_config.yaml\")")]
     pub experiment_config: PathBuf,

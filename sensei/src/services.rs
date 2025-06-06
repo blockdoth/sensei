@@ -1,5 +1,5 @@
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use lib::handler::device_handler::DeviceHandlerConfig;
 use log::LevelFilter;

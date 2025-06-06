@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::vec;
 
 use futures::future::pending;
-use lib::handler::device_handler::{DeviceHandlerConfig};
+use lib::handler::device_handler::DeviceHandlerConfig;
 use lib::network::rpc_message::CtrlMsg::*;
 use lib::network::rpc_message::DataMsg::RawFrame;
 use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::{Mutex, watch};
-use lib::network::rpc_message::CfgType::{Create, Delete, Edit};
+
 use crate::orchestrator::IsRecurring::{NotRecurring, Recurring};
 use crate::services::{DEFAULT_ADDRESS, GlobalConfig, OrchestratorConfig, Run};
 
@@ -41,20 +41,45 @@ impl Command {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum IsRecurring {
-    Recurring { delay: u64, iterations: u64, /* 0 is infinite */ },
+    Recurring { delay: u64, iterations: u64 /* 0 is infinite */ },
     NotRecurring,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum CommandType {
-    Connect { target_addr: SocketAddr },
-    Disconnect { target_addr: SocketAddr },
-    Subscribe { target_addr: SocketAddr, device_id: DeviceId},
-    Unsubscribe { target_addr: SocketAddr, device_id: DeviceId},
-    SubscribeTo { target_addr: SocketAddr, source_addr: SocketAddr, device_id: DeviceId},
-    UnsubscribeFrom { target_addr: SocketAddr, source_addr: SocketAddr, device_id: DeviceId},
-    SendStatus { target_addr: SocketAddr, host_id: HostId},
-    Configure { target_addr: SocketAddr, device_id: DeviceId, cfg_type: CfgType },
+    Connect {
+        target_addr: SocketAddr,
+    },
+    Disconnect {
+        target_addr: SocketAddr,
+    },
+    Subscribe {
+        target_addr: SocketAddr,
+        device_id: DeviceId,
+    },
+    Unsubscribe {
+        target_addr: SocketAddr,
+        device_id: DeviceId,
+    },
+    SubscribeTo {
+        target_addr: SocketAddr,
+        source_addr: SocketAddr,
+        device_id: DeviceId,
+    },
+    UnsubscribeFrom {
+        target_addr: SocketAddr,
+        source_addr: SocketAddr,
+        device_id: DeviceId,
+    },
+    SendStatus {
+        target_addr: SocketAddr,
+        host_id: HostId,
+    },
+    Configure {
+        target_addr: SocketAddr,
+        device_id: DeviceId,
+        cfg_type: CfgType,
+    },
 }
 
 impl Run<OrchestratorConfig> for Orchestrator {
@@ -67,7 +92,7 @@ impl Run<OrchestratorConfig> for Orchestrator {
 
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let commands = Command::from_yaml(self.experiment_config.clone())?;
-        
+
         for command in commands {
             Orchestrator::execute_command(self.client.clone(), command).await;
         }
@@ -83,7 +108,7 @@ impl Orchestrator {
     pub async fn execute_command(client: Arc<Mutex<TcpClient>>, command: Command) -> Result<(), Box<dyn std::error::Error>> {
         match command.is_recurring {
             Recurring { delay, iterations } => {
-                tokio::spawn( async move {
+                tokio::spawn(async move {
                     if iterations == 0 {
                         loop {
                             Self::match_command_type(client.clone(), command.clone()).await;
@@ -98,20 +123,32 @@ impl Orchestrator {
                 });
                 Ok(())
             }
-            NotRecurring {} => { Ok(Self::match_command_type(client, command.clone()).await?) }
+            NotRecurring => Ok(Self::match_command_type(client, command.clone()).await?),
         }
     }
 
     pub async fn match_command_type(client: Arc<Mutex<TcpClient>>, command: Command) -> Result<(), Box<dyn std::error::Error>> {
         match command.command_type {
-            CommandType::Connect { target_addr } => { Ok(Self::connect(&client, target_addr).await?) }
-            CommandType::Disconnect { target_addr } => { Ok(Self::disconnect(&client, target_addr).await?) }
-            CommandType::Subscribe { target_addr, device_id } => { Ok(Self::subscribe(&client, target_addr, device_id).await?) }
-            CommandType::Unsubscribe { target_addr, device_id } => { Ok(Self::unsubscribe(&client, target_addr, device_id).await?) }
-            CommandType::SubscribeTo { target_addr, source_addr, device_id } => { Ok(Self::subscribe_to(&client, target_addr, source_addr, device_id).await?) }
-            CommandType::UnsubscribeFrom { target_addr, source_addr, device_id } => { Ok(Self::unsubscribe_from(&client, target_addr, source_addr, device_id).await?) }
-            CommandType::SendStatus { target_addr, host_id } => { Ok(Self::send_status(&client, target_addr, host_id).await?) }
-            CommandType::Configure { target_addr, device_id, cfg_type } => { Ok(Self::configure(&client, target_addr, device_id, cfg_type).await?) }
+            CommandType::Connect { target_addr } => Ok(Self::connect(&client, target_addr).await?),
+            CommandType::Disconnect { target_addr } => Ok(Self::disconnect(&client, target_addr).await?),
+            CommandType::Subscribe { target_addr, device_id } => Ok(Self::subscribe(&client, target_addr, device_id).await?),
+            CommandType::Unsubscribe { target_addr, device_id } => Ok(Self::unsubscribe(&client, target_addr, device_id).await?),
+            CommandType::SubscribeTo {
+                target_addr,
+                source_addr,
+                device_id,
+            } => Ok(Self::subscribe_to(&client, target_addr, source_addr, device_id).await?),
+            CommandType::UnsubscribeFrom {
+                target_addr,
+                source_addr,
+                device_id,
+            } => Ok(Self::unsubscribe_from(&client, target_addr, source_addr, device_id).await?),
+            CommandType::SendStatus { target_addr, host_id } => Ok(Self::send_status(&client, target_addr, host_id).await?),
+            CommandType::Configure {
+                target_addr,
+                device_id,
+                cfg_type,
+            } => Ok(Self::configure(&client, target_addr, device_id, cfg_type).await?),
         }
     }
 
@@ -135,7 +172,12 @@ impl Orchestrator {
         Ok(client.lock().await.send_message(target_addr, msg).await?)
     }
 
-    async fn subscribe_to(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, source_addr: SocketAddr, device_id: u64) -> Result<(), Box<dyn std::error::Error>> {
+    async fn subscribe_to(
+        client: &Arc<Mutex<TcpClient>>,
+        target_addr: SocketAddr,
+        source_addr: SocketAddr,
+        device_id: u64,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let msg = Ctrl(SubscribeTo {
             target: source_addr,
             device_id,
@@ -146,7 +188,12 @@ impl Orchestrator {
         Ok(client.lock().await.send_message(target_addr, msg).await?)
     }
 
-    async fn unsubscribe_from(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, source_addr: SocketAddr, device_id: u64) -> Result<(), Box<dyn std::error::Error>> {
+    async fn unsubscribe_from(
+        client: &Arc<Mutex<TcpClient>>,
+        target_addr: SocketAddr,
+        source_addr: SocketAddr,
+        device_id: u64,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let msg = Ctrl(UnsubscribeFrom {
             target: source_addr,
             device_id,
@@ -163,8 +210,13 @@ impl Orchestrator {
         Ok(client.lock().await.send_message(target_addr, msg).await?)
     }
 
-    async fn configure(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: DeviceId, cfg_type: CfgType) -> Result<(), Box<dyn std::error::Error>> {
-        let msg = Ctrl(Configure {device_id, cfg_type});
+    async fn configure(
+        client: &Arc<Mutex<TcpClient>>,
+        target_addr: SocketAddr,
+        device_id: DeviceId,
+        cfg_type: CfgType,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let msg = Ctrl(Configure { device_id, cfg_type });
 
         info!("Telling {target_addr} to configure the device handler");
 
@@ -301,20 +353,20 @@ impl Orchestrator {
                         Some(cfg) => cfg.clone(),
                         None => {
                             info!("There needs to be at least one config in {cfgs:?}");
-                            return Ok(())
-                        },
+                            return Ok(());
+                        }
                     },
                     _ => {
                         info!("Invalid config path to read {config_path:?} to a device handler config");
-                        return Ok(())
-                    },
+                        return Ok(());
+                    }
                 };
 
                 let cfg_type = match CfgType::from_string(configure_type, cfg) {
                     Ok(cfg_type) => cfg_type,
                     _ => {
                         info!("{configure_type:?} is not a valid config type, needs to be create, edit or delete");
-                        return Ok(())
+                        return Ok(());
                     }
                 };
 
