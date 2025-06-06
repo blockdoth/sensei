@@ -1,0 +1,10 @@
+- command_type: !Connect
+    target_addr: "127.0.0.1:8000"
+  is_recurring: !NotRecurring
+
+- command_type: !Subscribe
+    target_addr: "127.0.0.1:8000"
+    device_id: 0
+  is_recurring: !Recurring
+    delay: 1000
+    iterations: 5

@@ -1,5 +1,5 @@
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use lib::handler::device_handler::DeviceHandlerConfig;
 use log::LevelFilter;
@@ -46,7 +46,7 @@ pub trait FromYaml: Sized + for<'de> Deserialize<'de> {
 }
 
 pub struct OrchestratorConfig {
-    pub targets: Vec<SocketAddr>,
+    pub experiment_config: PathBuf,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
