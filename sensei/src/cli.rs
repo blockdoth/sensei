@@ -82,7 +82,7 @@ impl ConfigFromCli<SystemNodeConfig> for SystemNodeSubcommandArgs {
             device_configs: DeviceHandlerConfig::from_yaml(self.config_path.clone())?,
             host_id: 0,
             registries: todo!(),
-            registry_server: todo!(),
+            registry_polling_rate_s: Option::None,
         })
     }
 }
@@ -198,8 +198,8 @@ mod tests {
             addr: "127.0.0.1:8080".parse().unwrap(),
             host_id: 1,
             registries: Option::None,
-            registry_server: Option::None,
             device_configs: vec![],
+            registry_polling_rate_s: Option::None,
         }
     }
 

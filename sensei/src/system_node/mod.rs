@@ -19,6 +19,7 @@ use lib::sources::tcp::TCPConfig;
 use log::*;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::{Mutex, broadcast, watch};
+use tokio::task;
 
 use crate::registry::Registry;
 use crate::services::{GlobalConfig, RegistryConfig, Run, SystemNodeConfig};
@@ -42,6 +43,7 @@ pub struct SystemNode {
     registry_addrs: Option<Vec<SocketAddr>>,
     device_configs: Vec<DeviceHandlerConfig>,
     registry: Registry,
+    registry_polling_rate_s: Option<u64>,
 }
 
 impl SubscribeDataChannel for SystemNode {
@@ -286,6 +288,7 @@ impl Run<SystemNodeConfig> for SystemNode {
             host_id: 0,
             registry_addrs: config.registries,
             device_configs: config.device_configs,
+            registry_polling_rate_s: config.registry_polling_rate_s,
             registry: Registry::new(
                 global_config,
                 RegistryConfig {
@@ -328,9 +331,22 @@ impl Run<SystemNodeConfig> for SystemNode {
                 info!("Presence announced to registry at {registry_addr}");
             }
         }
-        // Start TCP server to handle client connections
+        // Create a TCP host server task
         info!("Starting TCP server on {}...", self.addr);
-        TcpServer::serve(self.addr, connection_handler).await?;
+        let connection_handler = Arc::new(self.clone());
+        let tcp_server: tokio::task::JoinHandle<()> = task::spawn(async {
+            TcpServer::serve(connection_handler.addr, connection_handler).await.unwrap();
+        });
+        // create registry polling task, if configured
+        let polling_task = if let Some(interval) =  self.registry_polling_rate_s {
+            info!("Started registry polling task");
+            self.registry.create_polling_client_task(interval)
+        } else {
+            task::spawn(async {})
+        };
+
+        // Run both tasks concurrently, utill either errors, or both exit
+        tokio::try_join!(tcp_server, polling_task)?;
         Ok(())
     }
 }

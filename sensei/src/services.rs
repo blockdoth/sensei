@@ -54,7 +54,7 @@ pub struct SystemNodeConfig {
     pub addr: SocketAddr,
     pub host_id: u64,
     pub registries: Option<Vec<SocketAddr>>,
-    pub registry_server: Option<SocketAddr>,
+    pub registry_polling_rate_s: Option<u64>,
     pub device_configs: Vec<DeviceHandlerConfig>,
 }
 

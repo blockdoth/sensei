@@ -5,7 +5,7 @@
 //! which is important for low-compute devices. The registry spawns two threads: a TCP server for host registration and a background thread for polling hosts.
 use std::collections::HashMap;
 use std::convert::From;
-use std::net::SocketAddr;
+use std::net::{SocketAddr};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -13,7 +13,7 @@ use lib::errors::{NetworkError, RegistryError};
 use lib::network::rpc_message::{DataMsg, DeviceId, DeviceStatus, HostId, RegCtrl, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
-use lib::network::tcp::{ChannelMsg, ConnectionHandler, RegChannel, SubscribeDataChannel, send_message};
+use lib::network::tcp::{send_message, ChannelMsg, ConnectionHandler, RegChannel, SubscribeDataChannel};
 use log::*;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::watch::{self};
@@ -23,12 +23,12 @@ use tokio::time::{Duration, interval};
 
 use crate::services::{GlobalConfig, RegistryConfig, Run};
 
+static DEFAULT_POLLING_INTERVAL: u64 = 4;
+
 #[derive(Clone)]
 pub struct Registry {
     hosts: Arc<Mutex<HashMap<HostId, HostInfo>>>,
     send_data_channel: broadcast::Sender<(DataMsg, DeviceId)>,
-    addr: SocketAddr,
-    poll_interval: u64,
 }
 
 /// Information about a registered host.
@@ -75,16 +75,13 @@ impl Run<RegistryConfig> for Registry {
         Registry {
             hosts: Arc::from(Mutex::from(HashMap::new())),
             send_data_channel: broadcast::channel(100).0, // magic buffer for now
-            addr: config.addr,
-            poll_interval: config.poll_interval,
         }
     }
 
     /// Run the registry, spawning the TCP server and polling background task.
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let addr: SocketAddr = self.addr;
         let server_task = self.create_registry_server_task();
-        let client_task = self.create_polling_client_task();
+        let client_task = self.create_polling_client_task(DEFAULT_POLLING_INTERVAL);
         let _ = tokio::try_join!(server_task, client_task);
         Ok(())
     }
@@ -130,20 +127,43 @@ impl Registry {
         };
         Ok(())
     }
-    pub fn create_polling_client_task(&self) -> tokio::task::JoinHandle<()> {
+
+    /// Spawns a new asynchronous task that periodically polls all registered hosts for their status.
+    ///
+    /// This function creates a background task using Tokio's task spawning mechanism. The task will
+    /// instantiate a `TcpClient` and repeatedly invoke [`poll_hosts`] at the specified interval (in seconds),
+    /// polling each registered host for its current status. Any errors encountered during polling are
+    /// unwrapped and will cause the task to panic.
+    ///
+    /// # Arguments
+    ///
+    /// * `poll_interval` - The interval, in seconds, between each polling cycle.
+    ///
+    /// # Returns
+    ///
+    /// Returns a [`tokio::task::JoinHandle`] to the spawned task, which can be used to await or manage the task.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// let registry = Registry::new();
+    /// let handle = registry.create_polling_client_task(10);
+    /// // The polling task is now running in the background.
+    /// ```
+    pub fn create_polling_client_task(&self, poll_interval: u64) -> tokio::task::JoinHandle<()> {
         let connection_handler = Arc::new(self.clone());
         task::spawn(async move {
             info!("Starting TCP client to poll hosts...");
             let client = TcpClient::new();
             connection_handler
-                .poll_hosts(client, Duration::from_secs(connection_handler.poll_interval))
+                .poll_hosts(client, Duration::from_secs(poll_interval))
                 .await
                 .unwrap();
         })
     }
     pub fn create_registry_server_task(&self) -> tokio::task::JoinHandle<()> {
         let connection_handler = Arc::new(self.clone());
-        let addr: SocketAddr = self.addr;
+        let addr: SocketAddr = "127.0.0.1:8000".parse().unwrap();
         task::spawn(async move {
             info!("Starting TCP server on {addr}...");
             TcpServer::serve(addr, connection_handler).await;
@@ -317,8 +337,6 @@ mod tests {
         Registry {
             hosts: Arc::new(Mutex::new(HashMap::new())),
             send_data_channel: broadcast::channel(10).0,
-            addr: test_socket_addr(1234),
-            poll_interval: 0,
         }
     }
 
