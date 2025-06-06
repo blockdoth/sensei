@@ -56,7 +56,10 @@ impl DataSourceT for TCPSource {
     /// Returns a [`DataSourceError`] if the connection fails.
     async fn start(&mut self) -> Result<(), DataSourceError> {
         trace!("Connecting to TCP socket at {}", self.config.target_addr);
-        self.client.connect(self.config.target_addr).await.map_err(DataSourceError::from)?;
+        self.client
+            .connect(self.config.target_addr)
+            .await
+            .map_err(|e| DataSourceError::from(Box::new(e)))?;
         Ok(())
     }
 
@@ -66,7 +69,10 @@ impl DataSourceT for TCPSource {
     /// Returns a [`DataSourceError`] if disconnection fails.
     async fn stop(&mut self) -> Result<(), DataSourceError> {
         trace!("Disconnecting from TCP socket at {}", self.config.target_addr);
-        self.client.disconnect(self.config.target_addr).await.map_err(DataSourceError::from)?;
+        self.client
+            .disconnect(self.config.target_addr)
+            .await
+            .map_err(|e| DataSourceError::from(Box::new(e)))?;
         Ok(())
     }
 
@@ -94,8 +100,11 @@ impl DataSourceT for TCPSource {
     /// # Errors
     /// Returns a [`DataSourceError`] if the TCP read or deserialization fails.
     async fn read(&mut self) -> Result<Option<DataMsg>, DataSourceError> {
-        let rpcmsg: RpcMessage = self.client.read_message(self.config.target_addr).await.map_err(DataSourceError::from)?;
-
+        let rpcmsg: RpcMessage = self
+            .client
+            .read_message(self.config.target_addr)
+            .await
+            .map_err(|e| DataSourceError::from(Box::new(e)))?;
         match rpcmsg.msg {
             RpcMessageKind::Ctrl(_ctrl_msg) => {
                 // control messages carry no data payload

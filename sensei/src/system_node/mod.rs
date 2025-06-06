@@ -2,11 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-// use std::thread::sleep; // Not used
 use async_trait::async_trait;
 use lib::FromConfig;
-// use lib::FromConfig; // Not using FromConfig for adapter to keep changes minimal here
-// Removed esp32 module import here, will use full path
 use lib::errors::NetworkError;
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
 use lib::network::rpc_message::CtrlMsg::*;
@@ -17,17 +14,13 @@ use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
 use lib::sources::DataSourceConfig;
-// For the .apply() method
-// use lib::sources::csv::{CsvConfig, CsvSource}; // Removed CSV source
-// Keep for conditional compilation
 use lib::sources::tcp::TCPConfig;
 use log::*;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::{Mutex, broadcast, watch};
+
+use crate::services::{GlobalConfig, Run, SystemNodeConfig};
 use lib::network::rpc_message::CfgType::{Create, Edit, Delete};
-// use crate::cli::{SubCommandsArgs, SystemNodeSubcommandArgs}; // SystemNodeSubcommandArgs not used here
-use crate::config::SystemNodeConfig;
-use crate::module::*;
 
 /// The System Node is a sender and a receiver in the network of Sensei.
 /// It hosts the devices that send and receive CSI data, and is responsible for sending this data further to other receivers in the system.
@@ -44,7 +37,9 @@ pub struct SystemNode {
     send_data_channel: broadcast::Sender<(DataMsg, DeviceId)>, // Call .subscribe() on the sender in order to get a receiver
     handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
     addr: SocketAddr,
-    config: SystemNodeConfig,
+    host_id: u64,
+    registry_addr: Option<SocketAddr>,
+    device_configs: Vec<DeviceHandlerConfig>,
 }
 
 impl SubscribeDataChannel for SystemNode {
@@ -74,24 +69,15 @@ impl ConnectionHandler for SystemNode {
                 }
                 Disconnect => {
                     // Correct way to signal disconnect to the sending task for this connection
-                    if send_channel_msg_channel.send(ChannelMsg::Disconnect).is_err() {
-                        warn!("Failed to send Disconnect to own handle_send task; already closed?");
-                    }
+                    send_channel_msg_channel.send(ChannelMsg::Disconnect)?;
                     return Err(NetworkError::Closed); // Indicate connection should close
                 }
                 Subscribe { device_id } => {
-                    if send_channel_msg_channel.send(ChannelMsg::Subscribe { device_id }).is_err() {
-                        warn!("Failed to send Subscribe to own handle_send task; already closed?");
-                        return Err(NetworkError::UnableToConnect);
-                    }
-
+                    send_channel_msg_channel.send(ChannelMsg::Subscribe { device_id })?;
                     info!("Client {} subscribed to data stream for device_id: {}", request.src_addr, device_id);
                 }
                 Unsubscribe { device_id } => {
-                    if send_channel_msg_channel.send(ChannelMsg::Unsubscribe { device_id }).is_err() {
-                        warn!("Failed to send Unsubscribe to own handle_send task; already closed?");
-                        return Err(NetworkError::UnableToConnect);
-                    }
+                    send_channel_msg_channel.send(ChannelMsg::Unsubscribe { device_id })?;
                     info!("Client {} unsubscribed from data stream for device_id: {}", request.src_addr, device_id);
                 }
                 SubscribeTo { target, device_id } => {
@@ -102,18 +88,13 @@ impl ConnectionHandler for SystemNode {
                         target_addr: target,
                         device_id,
                     });
-
                     let controller = None;
-
                     let adapter = None;
-
                     let tcp_sink_config = lib::sinks::tcp::TCPConfig {
                         target_addr: self.addr,
                         device_id,
                     };
-
                     let sinks = vec![lib::sinks::SinkConfig::Tcp(tcp_sink_config)];
-
                     let new_handler_config = DeviceHandlerConfig {
                         device_id,
                         stype: TCP,
@@ -138,13 +119,10 @@ impl ConnectionHandler for SystemNode {
                         _ => info!("This handler does not exist."),
                     }
                 }
-                PollHostStatus => {
+                PollHostStatus { host_id } => {
                     let reg_addr = request.src_addr;
                     info!("Received PollDevices from {reg_addr}");
-                    if send_channel_msg_channel.send(ChannelMsg::SendHostStatus { reg_addr }).is_err() {
-                        warn!("Could not send HostStatus message");
-                        return Err(NetworkError::UnableToConnect);
-                    }
+                    send_channel_msg_channel.send(ChannelMsg::SendHostStatus { reg_addr, host_id })?
                 }
                 Configure { device_id, cfg_type } => match cfg_type {
                     Create { cfg } => {
@@ -173,7 +151,7 @@ impl ConnectionHandler for SystemNode {
             },
             Data { data_msg, device_id } => {
                 // TODO: Pass it through relevant TCP sources
-                self.send_data_channel.send((data_msg, device_id)).expect("TODO: panic message");
+                self.send_data_channel.send((data_msg, device_id))?;
             }
         }
         Ok(())
@@ -195,9 +173,7 @@ impl ConnectionHandler for SystemNode {
                 debug!("Received message {msg_opt:?} over channel");
                 match msg_opt {
                     ChannelMsg::Disconnect => {
-                        send_message(&mut send_stream, Ctrl(CtrlMsg::Disconnect))
-                            .await
-                            .expect("TODO: panic message");
+                        send_message(&mut send_stream, Ctrl(CtrlMsg::Disconnect)).await?;
                         debug!("Send close confirmation");
                         break;
                     }
@@ -209,13 +185,13 @@ impl ConnectionHandler for SystemNode {
                         info!("Unsubscribed");
                         subscribed_ids.remove(&device_id);
                     }
-                    ChannelMsg::SendHostStatus { reg_addr: _ } => {
+                    ChannelMsg::SendHostStatus { reg_addr: _, host_id: _ } => {
                         let host_status = HostStatus {
-                            host_id: self.config.host_id,
+                            host_id: self.host_id,
                             device_status: vec![],
                         };
                         let msg = Ctrl(host_status);
-                        send_message(&mut send_stream, msg).await.expect("TODO: panic message");
+                        send_message(&mut send_stream, msg).await?;
                     }
                     _ => (),
                 }
@@ -227,7 +203,7 @@ impl ConnectionHandler for SystemNode {
                 info!("Sending data {data_msg:?} for {device_id} to {send_stream:?}");
                 let msg = Data { data_msg, device_id };
 
-                send_message(&mut send_stream, msg).await.expect("TODO: panic message");
+                send_message(&mut send_stream, msg).await?;
             }
         }
         // Loop is infinite unless broken by Disconnect or error
@@ -236,13 +212,16 @@ impl ConnectionHandler for SystemNode {
 }
 
 impl Run<SystemNodeConfig> for SystemNode {
-    fn new(config: SystemNodeConfig) -> Self {
+    fn new(global_config: GlobalConfig, config: SystemNodeConfig) -> Self {
         let (send_data_channel, _) = broadcast::channel::<(DataMsg, DeviceId)>(16);
+
         SystemNode {
             send_data_channel,
             handlers: Arc::new(Mutex::new(HashMap::new())),
             addr: config.addr,
-            config,
+            host_id: 0,
+            registry_addr: config.registry,
+            device_configs: config.device_configs,
         }
     }
 
@@ -253,35 +232,33 @@ impl Run<SystemNodeConfig> for SystemNode {
     /// # Arguments
     ///
     /// SystemNodeConfig: Specifies the target address
-    async fn run(&self, config: SystemNodeConfig) -> Result<(), Box<dyn std::error::Error>> {
+    async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let connection_handler = Arc::new(self.clone());
 
-        let device_handler_configs: Vec<DeviceHandlerConfig> = config.device_configs;
-
-        for cfg in device_handler_configs {
+        for cfg in &self.device_configs {
             self.handlers
                 .lock()
                 .await
                 .insert(cfg.device_id, DeviceHandler::from_config(cfg.clone()).await.unwrap());
         }
 
-        if config.registry.use_registry {
-            info!("Connecting to registry at {}", config.registry.addr);
-            let registry_addr: SocketAddr = config.registry.addr;
+        if let Some(registry) = &self.registry_addr {
+            info!("Connecting to registry at {registry}");
+            let registry_addr: SocketAddr = *registry;
             let heartbeat_msg = Ctrl(CtrlMsg::AnnouncePresence {
-                host_id: config.host_id,
-                host_address: config.addr,
+                host_id: self.host_id,
+                host_address: self.addr,
             });
             let mut client = TcpClient::new();
             client.connect(registry_addr).await?;
             client.send_message(registry_addr, heartbeat_msg).await?;
-            client.disconnect(registry_addr).await.expect("TODO: panic message");
-            info!("Heartbeat sent to registry at {}", config.registry.addr);
+            client.disconnect(registry_addr);
+            info!("Heartbeat sent to registry at {registry_addr}");
         }
 
         // Start TCP server to handle client connections
-        info!("Starting TCP server on {}...", config.addr);
-        TcpServer::serve(config.addr, connection_handler).await.expect("TODO: panic message");
+        info!("Starting TCP server on {}...", self.addr);
+        TcpServer::serve(self.addr, connection_handler).await?;
         Ok(())
     }
 }

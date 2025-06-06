@@ -13,8 +13,8 @@ use crate::adapters::*;
 use crate::errors::TaskError;
 use crate::network::rpc_message::SourceType;
 use crate::sinks::tcp::*;
-use crate::sinks::*;
-use crate::sources::controllers::*;
+use crate::sinks::{Sink, SinkConfig};
+use crate::sources::controllers::{Controller, ControllerParams};
 use crate::sources::{DataSourceConfig, DataSourceT};
 use crate::{FromConfig, ToConfig};
 
@@ -61,7 +61,7 @@ impl DeviceHandlerConfig {
     /// This function may return:
     /// - `TaskError::Io` for file reading issues.
     /// - `TaskError::Parse` for YAML deserialization errors.
-    pub async fn from_yaml(file: PathBuf) -> Result<Vec<DeviceHandlerConfig>, TaskError> {
+    pub fn from_yaml(file: PathBuf) -> Result<Vec<DeviceHandlerConfig>, TaskError> {
         let yaml = fs::read_to_string(file)?;
         let configs = serde_yaml::from_str(&yaml)?;
         Ok(configs)

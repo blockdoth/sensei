@@ -18,7 +18,7 @@ type Csi = Vec<Vec<Vec<Complex>>>;
 
 /// Definition of a single CSI data point
 #[rustfmt::skip]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CsiData {
 	pub timestamp       : f64,       // Timestamp (from receival of first packet fragment)
 	pub sequence_number : u16,       // Extracted sequence number
