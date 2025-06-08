@@ -12,7 +12,7 @@ use anyhow::Error;
 use async_trait::async_trait;
 use lib::errors::{AppError, NetworkError};
 use lib::network::rpc_message::RpcMessageKind::Ctrl;
-use lib::network::rpc_message::{CtrlMsg, DataMsg, DeviceId, DeviceStatus, HostId, RpcMessage, RpcMessageKind};
+use lib::network::rpc_message::{CtrlMsg, DataMsg, DeviceId, DeviceInfo, HostId, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
@@ -46,7 +46,7 @@ struct HostInfo {
 #[derive(Clone)]
 struct RegHostStatus {
     host_id: HostId,
-    device_status: Vec<DeviceStatus>, // (device_id, status)
+    device_status: Vec<DeviceInfo>, // (device_id, status)
 }
 
 /// Conversion from a control message to a registry host status.
@@ -292,7 +292,7 @@ mod tests {
     use std::sync::Arc;
 
     use lib::errors::AppError;
-    use lib::network::rpc_message::{CtrlMsg, DeviceStatus, HostId, RpcMessageKind, SourceType};
+    use lib::network::rpc_message::{CtrlMsg, DeviceInfo, HostId, RpcMessageKind, SourceType};
     use tokio::sync::{Mutex, broadcast};
 
     use super::Registry;
@@ -370,7 +370,7 @@ mod tests {
         let registry = make_registry();
         let host_id = test_host_id(4);
         let addr = test_socket_addr(4567);
-        let device_status = vec![DeviceStatus {
+        let device_status = vec![DeviceInfo {
             id: 1,
             dev_type: SourceType::ESP32,
         }];
@@ -412,7 +412,7 @@ mod tests {
         registry.register_host(host_id, addr).await.unwrap();
 
         // Simulate host sending status update
-        let device_status = vec![DeviceStatus {
+        let device_status = vec![DeviceInfo {
             id: 42,
             dev_type: SourceType::ESP32,
         }];

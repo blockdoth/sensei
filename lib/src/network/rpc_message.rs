@@ -39,12 +39,12 @@ pub enum CtrlMsg {
     PollHostStatus { host_id: HostId },
     PollHostStatuses,
     AnnouncePresence { host_id: HostId, host_address: SocketAddr },
-    HostStatus { host_id: HostId, device_status: Vec<DeviceStatus> },
+    HostStatus { host_id: HostId, device_status: Vec<DeviceInfo> },
     HostStatuses { host_statuses: Vec<CtrlMsg> },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct DeviceStatus {
+pub struct DeviceInfo {
     pub id: DeviceId,
     pub dev_type: SourceType,
 }

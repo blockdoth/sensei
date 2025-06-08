@@ -23,7 +23,10 @@ use crate::visualiser::*;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Args = argh::from_env();
 
-    if args.subcommand.is_some() && !matches!(&args.subcommand, Some(SubCommandsArgs::Five(_))) {
+    if args.subcommand.is_some()
+        && !matches!(&args.subcommand, Some(SubCommandsArgs::Five(_)))
+        && !matches!(&args.subcommand, Some(SubCommandsArgs::Three(_)))
+    {
         CombinedLogger::init(vec![
             TermLogger::new(
                 args.level,
@@ -48,7 +51,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // For EspTest, logging will be handled by its TuiLogger.
         // You might want a minimal print or log here indicating EspTest is starting,
         // but TuiLogger in esp_tool.rs will print its own startup messages.
-        // println!("Starting ESP Test Tool..."); // Simple console feedback before TUI takes over
     }
 
     debug!("Parsed args and initialized CombinedLogger");

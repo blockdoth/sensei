@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use crossterm::event::{KeyCode, KeyEvent};
-use lib::network::rpc_message::CtrlMsg;
 use lib::network::rpc_message::RpcMessageKind::Ctrl;
+use lib::network::rpc_message::{CtrlMsg, HostId, SourceType};
 use lib::network::tcp::ChannelMsg;
 use lib::network::tcp::client::TcpClient;
 use lib::tui::Tui;
@@ -14,11 +14,59 @@ use tokio::sync::Mutex;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use super::tui::ui;
+use crate::services::DEFAULT_ADDRESS;
 
 pub struct OrgTuiState {
-    should_quit: bool,
-    client: Arc<Mutex<TcpClient>>,
-    known_clients: Vec<SocketAddr>,
+    pub should_quit: bool,
+    pub client: Arc<Mutex<TcpClient>>,
+    pub known_hosts: Vec<SocketAddr>,
+    pub registry_addr: Option<SocketAddr>,
+    pub registry_status: RegistryStatus,
+    pub connected_hosts: Vec<Host>,
+    pub logs: Vec<LogEntry>,
+    pub focussed_panel: FocusedPanel,
+}
+
+pub struct Host {
+    pub id: HostId,
+    pub addr: SocketAddr,
+    pub devices: Vec<Device>,
+    pub status: HostStatus,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum HostStatus {
+    Connected,
+    Dead,
+    Sending,
+}
+
+pub struct Device {
+    pub id: DeviceID,
+    pub dev_type: SourceType,
+    pub status: DeviceStatus,
+}
+#[derive(Debug, PartialEq)]
+pub enum DeviceStatus {
+    Subscribed,
+    NotSubscribed,
+}
+pub enum RegistryStatus {
+    Connected,
+    Disconnected,
+    NotSpecified,
+}
+
+pub enum FocusedPanel {
+    Main,
+    Registry(FocusedRegistryPanel),
+    Status,
+    ConnectedHosts,
+}
+
+pub enum FocusedRegistryPanel {
+    Host(usize),
+    Device(usize),
 }
 
 pub enum OrgCommand {}
@@ -44,7 +92,58 @@ impl OrgTuiState {
         OrgTuiState {
             client,
             should_quit: false,
-            known_clients: vec![],
+            known_hosts: vec![DEFAULT_ADDRESS, DEFAULT_ADDRESS, DEFAULT_ADDRESS],
+            registry_addr: Some(DEFAULT_ADDRESS),
+            registry_status: RegistryStatus::Disconnected,
+            logs: vec![],
+            focussed_panel: FocusedPanel::Main,
+            connected_hosts: vec![
+                Host {
+                    id: 0,
+                    status: HostStatus::Dead,
+                    devices: vec![],
+                    addr: DEFAULT_ADDRESS,
+                },
+                Host {
+                    id: 2,
+                    status: HostStatus::Sending,
+                    devices: vec![
+                        Device {
+                            id: 5,
+                            dev_type: SourceType::AX210,
+                            status: DeviceStatus::Subscribed,
+                        },
+                        Device {
+                            id: 9,
+                            dev_type: SourceType::AtherosQCA,
+                            status: DeviceStatus::Subscribed,
+                        },
+                    ],
+                    addr: DEFAULT_ADDRESS,
+                },
+                Host {
+                    id: 1,
+                    status: HostStatus::Connected,
+                    devices: vec![
+                        Device {
+                            id: 10,
+                            dev_type: SourceType::TCP,
+                            status: DeviceStatus::NotSubscribed,
+                        },
+                        Device {
+                            id: 90,
+                            dev_type: SourceType::Unknown,
+                            status: DeviceStatus::Subscribed,
+                        },
+                        Device {
+                            id: 91,
+                            dev_type: SourceType::CSV,
+                            status: DeviceStatus::NotSubscribed,
+                        },
+                    ],
+                    addr: DEFAULT_ADDRESS,
+                },
+            ],
         }
     }
 }
@@ -70,10 +169,12 @@ impl Tui<OrgUpdate, ChannelMsg> for OrgTuiState {
             OrgUpdate::Exit => {
                 self.should_quit = true;
             }
-            OrgUpdate::Log(entry) => {}
+            OrgUpdate::Log(entry) => {
+                self.logs.push(entry);
+            }
             OrgUpdate::Connect(socket_addr) => {
                 self.client.lock().await.connect(socket_addr);
-                self.known_clients.push(socket_addr);
+                self.known_hosts.push(socket_addr);
             }
             OrgUpdate::Disconnect(socket_addr) => {
                 self.client.lock().await.disconnect(socket_addr);
