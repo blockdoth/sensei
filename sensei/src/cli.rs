@@ -1,13 +1,11 @@
-use std::net::{AddrParseError, SocketAddr};
 use std::path::PathBuf;
 
 use anyhow::Error;
 use argh::FromArgs;
 use lib::handler::device_handler::DeviceHandlerConfig;
 use log::debug;
-use simplelog::{ColorChoice, CombinedLogger, LevelFilter, TermLogger, TerminalMode, WriteLogger};
+use simplelog::LevelFilter;
 
-use crate::esp_tool;
 use crate::services::{EspToolConfig, GlobalConfig, OrchestratorConfig, RegistryConfig, SystemNodeConfig, VisualiserConfig};
 
 /// A trait for overlaying subcommand arguments onto an existing configuration.
@@ -92,7 +90,7 @@ impl ConfigFromCli<SystemNodeConfig> for SystemNodeSubcommandArgs {
 impl OverlaySubcommandArgs<SystemNodeConfig> for SystemNodeSubcommandArgs {
     fn overlay_subcommand_args(&self, full_config: SystemNodeConfig) -> Result<SystemNodeConfig, Box<dyn std::error::Error>> {
         // Because of the default value we expact that there's always a file to read
-        debug!("Loading system node configuration from YAML file: {:?}", self.config_path);
+        debug!("Loading system node configuration from YAML file: {}", self.config_path.display());
         let mut config = full_config.clone();
         // overwrite fields when provided by the subcommand
         config.addr = format!("{}:{}", self.addr, self.port).parse().unwrap_or(config.addr);
@@ -192,16 +190,15 @@ impl ConfigFromCli<EspToolConfig> for EspToolSubcommandArgs {
 
 #[cfg(test)]
 mod tests {
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
     use super::*;
-    use crate::services::SystemNodeRegistryConfig;
 
     fn create_testing_config() -> SystemNodeConfig {
         SystemNodeConfig {
             addr: "127.0.0.1:8080".parse().unwrap(),
             host_id: 1,
-            registry: Some(SystemNodeRegistryConfig {
-                addr: "127.0.0.2:8888".parse().unwrap(),
-            }),
+            registry: Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080)),
             device_configs: vec![],
         }
     }

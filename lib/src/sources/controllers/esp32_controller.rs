@@ -162,13 +162,12 @@ pub struct Esp32ControllerParams {
     pub transmit_custom_frame: Option<CustomFrameParams>,
 }
 
-#[typetag::serde(name = "ESP32Controller")]
 #[async_trait]
 impl Controller for Esp32ControllerParams {
     async fn apply(&self, source: &mut dyn DataSourceT) -> Result<(), ControllerError> {
         // Ensure your DataSourceT trait has `fn as_any_mut(&mut self) -> &mut dyn Any;`
         // and Esp32Source implements it.
-        let mut esp_source = (source as &mut dyn Any)
+        let esp_source = (source as &mut dyn Any)
             .downcast_mut::<Esp32Source>()
             .ok_or_else(|| ControllerError::InvalidDataSource("Esp32Controller requires an Esp32Source.".to_string()))?;
 

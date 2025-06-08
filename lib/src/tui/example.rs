@@ -4,30 +4,18 @@
 //! quitting the application, and logging. It is designed to demonstrate how the `TuiRunner` and `Tui`
 //! trait can be used to manage event-driven TUI workflows.
 
-use std::error::Error;
-use std::io::{self, stdout};
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-use std::thread::sleep;
-use std::time::Duration;
 use std::vec;
 
 use async_trait::async_trait;
-use crossterm::event::{Event, EventStream, KeyCode, KeyEvent};
-use crossterm::execute;
-use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
-use futures::StreamExt;
-use log::{Log, debug, info, warn};
+use crossterm::event::{KeyCode, KeyEvent};
+use log::{info, warn};
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout};
-use ratatui::prelude::CrosstermBackend;
-use ratatui::text::{Line, Span};
+use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Paragraph};
-use ratatui::{Frame, Terminal};
 use tokio::sync::mpsc::{self, Receiver, Sender};
-use tokio::task::JoinHandle;
 
 use super::{FromLog, LogEntry, Tui, TuiRunner};
-use crate::sources::controllers::esp32_controller::Esp32ControllerParams;
 
 /// Represents the state of the TUI application.
 pub struct TuiState {
@@ -163,7 +151,7 @@ impl Tui<Update, Command> for TuiState {
 /// ```
 pub async fn run_example() {
     let (command_send, mut command_recv) = mpsc::channel::<Command>(10);
-    let (update_send, mut update_recv) = mpsc::channel::<Update>(10);
+    let (update_send, update_recv) = mpsc::channel::<Update>(10);
 
     let update_send_clone = update_send.clone();
 

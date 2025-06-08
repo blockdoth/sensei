@@ -1,45 +1,26 @@
-use std::collections::HashMap;
-use std::env;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
-use std::ops::Deref;
-use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use argh::{CommandInfo, FromArgs};
 use async_trait::async_trait;
 use lib::FromConfig;
-use lib::adapters::CsiDataAdapter;
-use lib::csi_types::{Complex, CsiData};
 use lib::errors::NetworkError;
+use lib::handler::device_handler::CfgType::{Create, Delete, Edit};
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
 use lib::network::rpc_message::CtrlMsg::*;
-use lib::network::rpc_message::DataMsg::*;
-use lib::network::rpc_message::RpcMessageKind::{Ctrl as RpcMessageKindCtrl, Data as RpcMessageKindData};
+use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
 use lib::network::rpc_message::SourceType::*;
-use lib::network::rpc_message::{AdapterMode, CtrlMsg, DataMsg, RpcMessage, RpcMessageKind, SourceType, make_msg};
+use lib::network::rpc_message::{CtrlMsg, DataMsg, DeviceId, RpcMessage};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
-use lib::network::*;
-use lib::sinks::file::{FileConfig, FileSink};
-use lib::sources::DataSourceT;
-use lib::sources::controllers::Controller;
-use lib::sources::controllers::esp32_controller::{
-    Bandwidth as EspBandwidth, CsiType as EspCsiType, Esp32ControllerParams, Esp32DeviceConfig, OperationMode as EspOperationMode,
-    SecondaryChannel as EspSecondaryChannel,
-};
-use lib::sources::esp32::{Esp32Source, Esp32SourceConfig};
+use lib::sources::DataSourceConfig;
 #[cfg(target_os = "linux")]
-use lib::sources::netlink::NetlinkConfig;
+use lib::sources::tcp::TCPConfig;
 use log::*;
-use tokio::io::AsyncWriteExt;
 use tokio::net::tcp::OwnedWriteHalf;
-use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::{Mutex, broadcast, watch};
-use tokio::task::JoinHandle;
 
-use crate::cli::*;
 use crate::services::{GlobalConfig, Run, SystemNodeConfig};
 
 /// The System Node is a sender and a receiver in the network of Sensei.
@@ -54,12 +35,17 @@ use crate::services::{GlobalConfig, Run, SystemNodeConfig};
 /// send_data_channel: the System Node communicates which data should be sent to other receivers across its threads using this tokio channel
 #[derive(Clone)]
 pub struct SystemNode {
-    send_data_channel: broadcast::Sender<DataMsg>,
+    send_data_channel: broadcast::Sender<(DataMsg, DeviceId)>, // Call .subscribe() on the sender in order to get a receiver
+    handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+    addr: SocketAddr,
+    host_id: u64,
+    registry_addr: Option<SocketAddr>,
+    device_configs: Vec<DeviceHandlerConfig>,
 }
 
 impl SubscribeDataChannel for SystemNode {
     /// Creates a mew receiver for the System Nodes send data channel
-    fn subscribe_data_channel(&self) -> broadcast::Receiver<DataMsg> {
+    fn subscribe_data_channel(&self) -> broadcast::Receiver<(DataMsg, u64)> {
         self.send_data_channel.subscribe()
     }
 }
@@ -77,52 +63,96 @@ impl ConnectionHandler for SystemNode {
     async fn handle_recv(&self, request: RpcMessage, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
         info!("Received message {:?} from {}", request.msg, request.src_addr);
         match request.msg {
-            RpcMessageKindCtrl(command) => match command {
+            Ctrl(command) => match command {
                 Connect => {
                     let src = request.src_addr;
                     info!("Started connection with {src}");
                 }
                 Disconnect => {
                     // Correct way to signal disconnect to the sending task for this connection
-                    if send_channel_msg_channel.send(ChannelMsg::Disconnect).is_err() {
-                        warn!("Failed to send Disconnect to own handle_send task; already closed?");
-                    }
+                    send_channel_msg_channel.send(ChannelMsg::Disconnect)?;
                     return Err(NetworkError::Closed); // Indicate connection should close
                 }
-                Subscribe { device_id, mode } => {
-                    // device_id and mode are unused for now
-                    if send_channel_msg_channel.send(ChannelMsg::Subscribe).is_err() {
-                        warn!("Failed to send Subscribe to own handle_send task; already closed?");
-                        return Err(NetworkError::UnableToConnect);
-                    }
+                Subscribe { device_id } => {
+                    send_channel_msg_channel.send(ChannelMsg::Subscribe { device_id })?;
                     info!("Client {} subscribed to data stream for device_id: {}", request.src_addr, device_id);
                 }
                 Unsubscribe { device_id } => {
-                    // device_id is unused for now
-                    if send_channel_msg_channel.send(ChannelMsg::Unsubscribe).is_err() {
-                        warn!("Failed to send Unsubscribe to own handle_send task; already closed?");
-                        return Err(NetworkError::UnableToConnect);
-                    }
+                    send_channel_msg_channel.send(ChannelMsg::Unsubscribe { device_id })?;
                     info!("Client {} unsubscribed from data stream for device_id: {}", request.src_addr, device_id);
                 }
-                PollHostStatus => {
-                    let reg_addr = request.src_addr;
-                    info!("Received PollDevices from {reg_addr}");
-                    if send_channel_msg_channel.send(ChannelMsg::SendHostStatus { reg_addr }).is_err() {
-                        warn!("Could not send HostStatus message");
-                        return Err(NetworkError::UnableToConnect);
+                SubscribeTo { target, device_id } => {
+                    // Create a device handler with a source that will connect to the node server of the target
+                    // The sink will connect to this nodes server
+                    // Node servers broadcast all incoming data to all connections, but only relevant sources will process this data
+                    let source: DataSourceConfig = lib::sources::DataSourceConfig::Tcp(TCPConfig {
+                        target_addr: target,
+                        device_id,
+                    });
+                    let controller = None;
+                    let adapter = None;
+                    let tcp_sink_config = lib::sinks::tcp::TCPConfig {
+                        target_addr: self.addr,
+                        device_id,
+                    };
+                    let sinks = vec![lib::sinks::SinkConfig::Tcp(tcp_sink_config)];
+                    let new_handler_config = DeviceHandlerConfig {
+                        device_id,
+                        stype: TCP,
+                        source,
+                        controller,
+                        adapter,
+                        sinks,
+                    };
+
+                    let new_handler = DeviceHandler::from_config(new_handler_config).await.unwrap();
+
+                    info!("Handler created to subscribe to {target}");
+
+                    self.handlers.lock().await.insert(device_id, new_handler);
+                }
+                UnsubscribeFrom { target: _, device_id } => {
+                    // TODO: Make it target specific, but for now removing based on device id should be fine.
+                    // Would require extracting the source itself from the device handler
+                    info!("Removing handler subscribing to {device_id}");
+                    match self.handlers.lock().await.remove(&device_id) {
+                        Some(mut handler) => handler.stop().await.expect("Whoopsy"),
+                        _ => info!("This handler does not exist."),
                     }
                 }
+                PollHostStatus { host_id } => {
+                    let reg_addr = request.src_addr;
+                    info!("Received PollDevices from {reg_addr}");
+                    send_channel_msg_channel.send(ChannelMsg::SendHostStatus { reg_addr, host_id })?
+                }
+                Configure { device_id, cfg_type } => match cfg_type {
+                    Create { cfg } => {
+                        info!("Creating a new device handler for device id {device_id}");
+                        let handler = DeviceHandler::from_config(cfg).await.unwrap();
+                        self.handlers.lock().await.insert(device_id, handler);
+                    }
+                    Edit { cfg } => {
+                        info!("Editing existing device handler for device id {device_id}");
+                        match self.handlers.lock().await.get_mut(&device_id) {
+                            Some(handler) => handler.reconfigure(cfg).await.expect("Whoopsy"),
+                            _ => info!("This handler does not exist."),
+                        }
+                    }
+                    Delete => {
+                        info!("Deleting device handler for device id {device_id}");
+                        match self.handlers.lock().await.remove(&device_id) {
+                            Some(mut handler) => handler.stop().await.expect("Whoopsy"),
+                            _ => info!("This handler does not exist."),
+                        }
+                    }
+                },
                 m => {
                     warn!("Received unhandled CtrlMsg: {m:?}");
                 }
             },
-            RpcMessageKindData {
-                // SystemNode typically doesn't receive Data messages, it sends them.
-                data_msg,
-                device_id,
-            } => {
-                warn!("Received unexpected DataMsg: {data_msg:?} for device_id: {device_id}");
+            Data { data_msg, device_id } => {
+                // TODO: Pass it through relevant TCP sources
+                self.send_data_channel.send((data_msg, device_id))?;
             }
         }
         Ok(())
@@ -134,119 +164,102 @@ impl ConnectionHandler for SystemNode {
     async fn handle_send(
         &self,
         mut recv_command_channel: watch::Receiver<ChannelMsg>,
-        mut recv_data_channel: broadcast::Receiver<DataMsg>, // This is from the SystemNode's own broadcast
+        mut recv_data_channel: broadcast::Receiver<(DataMsg, DeviceId)>,
         mut send_stream: OwnedWriteHalf,
     ) -> Result<(), NetworkError> {
-        let mut sending_active = false; // Renamed for clarity
+        let mut subscribed_ids: HashSet<u64> = HashSet::new();
         loop {
-            tokio::select! {
-                biased; // Prioritize command changes
-                Ok(_) = recv_command_channel.changed() => {
-                    let msg_opt = recv_command_channel.borrow_and_update().clone();
-                    debug!("Received command {msg_opt:?} in handle_send");
-                    match msg_opt {
-                        ChannelMsg::Disconnect => {
-                            // We don't send Disconnect message here usually,
-                            // handle_recv signals this task to break by returning Err or closing channel.
-                            // Or, if a Disconnect message must be sent to client:
-                            // if send_message(&mut send_stream, Ctrl(CtrlMsg::Disconnect)).await.is_err() {
-                            //     warn!("Failed to send Disconnect confirmation to client");
-                            // }
-                            debug!("Disconnect command received in handle_send, terminating send loop.");
-                            return Ok(()); // Gracefully exit
-                        }
-                        ChannelMsg::Subscribe => {
-                            info!("Subscription activated for client, will start sending data.");
-                            sending_active = true;
-                        }
-                        ChannelMsg::Unsubscribe => {
-                            info!("Subscription deactivated for client, will stop sending data.");
-                            sending_active = false;
-                        }
-                        ChannelMsg::SendHostStatus { reg_addr } => {
-                            let host_status = CtrlMsg::HostStatus {
-                                host_id: 0, // TODO
-                                device_status: vec![],
-                            };
-                            let msg = RpcMessageKindCtrl(host_status);
-                            tcp::send_message(&mut send_stream, msg).await;
-                        }
-                        _ => (), // Other ChannelMsg types not relevant here
+            if recv_command_channel.has_changed().unwrap_or(false) {
+                let msg_opt = recv_command_channel.borrow_and_update().clone();
+                debug!("Received message {msg_opt:?} over channel");
+                match msg_opt {
+                    ChannelMsg::Disconnect => {
+                        send_message(&mut send_stream, Ctrl(CtrlMsg::Disconnect)).await?;
+                        debug!("Send close confirmation");
+                        break;
                     }
-                }
-                // Only try to receive from data channel if we are actively sending
-                Ok(data_msg) = recv_data_channel.recv(), if sending_active => {
-                    // TODO: device_id should ideally come from the DataMsg if it's heterogeneous,
-                    // or be based on the subscription. For now, using a default.
-                    let device_id = 0; // Assuming ESP32 is device 0
-                    if tcp::send_message(
-                        &mut send_stream,
-                        RpcMessageKindData { data_msg, device_id },
-                    ).await.is_err() {
-                        warn!("Failed to send DataMsg to client, connection likely closed.");
-                        return Err(NetworkError::UnableToConnect); // Propagate error to close connection
+                    ChannelMsg::Subscribe { device_id } => {
+                        info!("Subscribed");
+                        subscribed_ids.insert(device_id);
                     }
-                    debug!("Sent DataMsg to client"); // Changed to debug to reduce log spam
-                }
-                // Break loop if recv_data_channel is closed and no longer sending.
-                // recv() returns Err when channel is closed and empty.
-                else => {
-                    // This branch is taken if recv_data_channel.recv() errors (e.g. closed)
-                    // or if !sending_active and the recv was skipped.
-                    if sending_active { // If we were sending, an error on recv means the channel closed.
-                        warn!("Data broadcast channel closed while subscribed. Terminating send loop.");
-                        return Err(NetworkError::UnableToConnect);
+                    ChannelMsg::Unsubscribe { device_id } => {
+                        info!("Unsubscribed");
+                        subscribed_ids.remove(&device_id);
                     }
-                    // If not sending_active, we might just be waiting for commands.
-                    // However, if recv_command_channel also closes, this select might livelock.
-                    // A small yield or timeout can prevent tight loops if both conditions are inactive.
-                    tokio::task::yield_now().await;
+                    ChannelMsg::SendHostStatus { reg_addr: _, host_id: _ } => {
+                        let host_status = HostStatus {
+                            host_id: self.host_id,
+                            device_status: vec![],
+                        };
+                        let msg = Ctrl(host_status);
+                        send_message(&mut send_stream, msg).await?;
+                    }
+                    _ => (),
                 }
             }
+
+            if !recv_data_channel.is_empty() {
+                let (data_msg, device_id) = recv_data_channel.recv().await.unwrap();
+
+                info!("Sending data {data_msg:?} for {device_id} to {send_stream:?}");
+                let msg = Data { data_msg, device_id };
+
+                send_message(&mut send_stream, msg).await?;
+            }
         }
-        // Ok(()) // Loop is infinite unless broken by Disconnect or error
+        // Loop is infinite unless broken by Disconnect or error
+        Ok(())
     }
 }
 
 impl Run<SystemNodeConfig> for SystemNode {
-    fn new() -> Self {
-        let (send_data_channel, _) = broadcast::channel::<DataMsg>(16); // Buffer size 16
-        SystemNode { send_data_channel }
+    fn new(global_config: GlobalConfig, config: SystemNodeConfig) -> Self {
+        let (send_data_channel, _) = broadcast::channel::<(DataMsg, DeviceId)>(16);
+
+        SystemNode {
+            send_data_channel,
+            handlers: Arc::new(Mutex::new(HashMap::new())),
+            addr: config.addr,
+            host_id: 0,
+            registry_addr: config.registry,
+            device_configs: config.device_configs,
+        }
     }
 
-    async fn run(&mut self, global_config: GlobalConfig, config: SystemNodeConfig) -> Result<(), Box<dyn std::error::Error>> {
+    /// Starts the system node
+    ///
+    /// Initializes a hashmap of device handlers based on the configuration file on startup
+    ///
+    /// # Arguments
+    ///
+    /// SystemNodeConfig: Specifies the target address
+    async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let connection_handler = Arc::new(self.clone());
 
-        let sender_data_channel = connection_handler.send_data_channel.clone();
-
-        let handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>> = Arc::new(Mutex::new(HashMap::new()));
-
-        for cfg in config.device_configs {
-            handlers
+        for cfg in &self.device_configs {
+            self.handlers
                 .lock()
                 .await
                 .insert(cfg.device_id, DeviceHandler::from_config(cfg.clone()).await.unwrap());
         }
 
-        info!("ESP32 data reading task started.");
-
-        if let Some(registry) = &config.registry {
-            info!("Connecting to registry at {}", registry.addr);
-            let registry_addr: SocketAddr = registry.addr;
-            let heartbeat_msg = RpcMessageKindCtrl(CtrlMsg::AnnouncePresence {
-                host_id: config.host_id,
-                host_address: config.addr,
+        if let Some(registry) = &self.registry_addr {
+            info!("Connecting to registry at {registry}");
+            let registry_addr: SocketAddr = *registry;
+            let heartbeat_msg = Ctrl(CtrlMsg::AnnouncePresence {
+                host_id: self.host_id,
+                host_address: self.addr,
             });
             let mut client = TcpClient::new();
             client.connect(registry_addr).await?;
             client.send_message(registry_addr, heartbeat_msg).await?;
             client.disconnect(registry_addr);
-            info!("Heartbeat sent to registry at {}", registry.addr);
+            info!("Heartbeat sent to registry at {registry_addr}");
         }
 
         // Start TCP server to handle client connections
-        info!("Starting TCP server on {}...", config.addr);
-        TcpServer::serve(config.addr, connection_handler).await;
+        info!("Starting TCP server on {}...", self.addr);
+        TcpServer::serve(self.addr, connection_handler).await?;
         Ok(())
     }
 }

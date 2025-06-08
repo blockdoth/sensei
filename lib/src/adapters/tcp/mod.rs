@@ -6,8 +6,6 @@
 //! - `adapter`: Mactching the correct adapter
 pub mod adapter;
 
-use thiserror::Error;
-
 /// Re-export of the main adapter interface for Tcp
 ///
 /// This allows external crates/modules to access the adapter functionality

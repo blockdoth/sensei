@@ -1,5 +1,5 @@
+use std::fs;
 use std::path::PathBuf;
-use std::{fs, future};
 
 use clap::Parser;
 use lib::FromConfig;

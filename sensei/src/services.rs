@@ -1,11 +1,9 @@
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
-use std::vec;
 
 use lib::handler::device_handler::DeviceHandlerConfig;
 use log::LevelFilter;
-use serde::{Deserialize, Serialize};
-use serialport::SerialPort;
+use serde::Deserialize;
 
 pub const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
 
@@ -52,15 +50,10 @@ pub struct OrchestratorConfig {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-pub struct SystemNodeRegistryConfig {
-    pub addr: SocketAddr,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct SystemNodeConfig {
     pub addr: SocketAddr,
     pub host_id: u64,
-    pub registry: Option<SystemNodeRegistryConfig>,
+    pub registry: Option<SocketAddr>,
     pub device_configs: Vec<DeviceHandlerConfig>,
 }
 
@@ -92,11 +85,10 @@ pub enum ServiceConfig {
 
 pub trait Run<ServiceConfig> {
     // Initialize standalone state which does not depend on any config
-    fn new() -> Self;
+    fn new(global_config: GlobalConfig, config: ServiceConfig) -> Self;
 
     // Actually applies given config and runs the service
-    async fn run(&mut self, global_config: GlobalConfig, config: ServiceConfig) -> Result<(), Box<dyn std::error::Error>>;
+    async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>>;
 }
 
-impl FromYaml for SystemNodeRegistryConfig {}
 impl FromYaml for SystemNodeConfig {}

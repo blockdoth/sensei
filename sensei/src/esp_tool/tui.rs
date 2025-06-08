@@ -1,11 +1,6 @@
-use core::time;
-use std::fmt::format;
-
-use chrono::{DateTime, TimeZone, Utc};
-use crossterm::style;
-use lib::csi_types::CsiData;
+use chrono::{TimeZone, Utc};
 use lib::sources::controllers::esp32_controller::{
-    Bandwidth as EspBandwidth, CsiType as EspCsiType, EspMode, OperationMode as EspOperationMode, SecondaryChannel as EspSecondaryChannel,
+    Bandwidth as EspBandwidth, CsiType as EspCsiType, EspMode, SecondaryChannel as EspSecondaryChannel,
 };
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout};
@@ -108,7 +103,7 @@ pub fn ui(f: &mut Frame, tui_state: &EspTuiState) {
     };
 
     // Compose multi-line status block
-    let mut status_lines = vec![
+    let status_lines = vec![
         Line::from(vec![
             Span::raw("ESP32 Status: "),
             Span::styled(tui_state.connection_status.clone(), connection_style),

@@ -3,7 +3,6 @@ pub use crate::adapters::csv::adapter::CSVAdapter;
 pub use crate::adapters::esp32::adapter::ESP32Adapter;
 pub use crate::adapters::iwl::adapter::IwlAdapter;
 use crate::adapters::{CsiDataAdapter, DataAdapterConfig};
-use crate::csi_types::{Complex, CsiData};
 use crate::errors::{CsiAdapterError, TaskError};
 use crate::network::rpc_message::{DataMsg, SourceType};
 

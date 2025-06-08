@@ -3,27 +3,20 @@ pub mod logs;
 
 use std::error::Error;
 use std::io::{self, stdout};
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-use std::thread::sleep;
 use std::time::Duration;
 use std::vec;
 
 use async_trait::async_trait;
-use crossterm::event::{Event, EventStream, KeyCode, KeyEvent};
+use crossterm::event::{Event, EventStream, KeyEvent};
 use crossterm::execute;
 use crossterm::terminal::{Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
 use futures::StreamExt;
 use log::{LevelFilter, debug, info};
 use logs::{FromLog, LogEntry, init_logger};
-use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::prelude::CrosstermBackend;
-use ratatui::widgets::{Block, Borders};
 use ratatui::{Frame, Terminal};
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::task::JoinHandle;
-
-use crate::sources::controllers::esp32_controller::Esp32ControllerParams;
 
 /// A configurable and generic runner that manages the entire lifecycle of a TUI application.
 /// It handles input events, log streaming, periodic ticks, and state updates.

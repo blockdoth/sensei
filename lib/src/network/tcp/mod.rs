@@ -1,17 +1,17 @@
 use std::net::SocketAddr;
 
 use async_trait::async_trait;
-use log::{debug, error, info, trace};
+use log::{debug, error, info};
 use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::sync::broadcast;
-use tokio::sync::watch::{self, Receiver, Sender};
+use tokio::sync::watch::{self};
 
-use super::rpc_message::{self, DataMsg, RpcMessage, RpcMessageKind};
+use super::rpc_message::{DataMsg, DeviceId, RpcMessage, RpcMessageKind};
 use crate::errors::NetworkError;
-use crate::network::rpc_message::make_msg;
+use crate::handler::device_handler::CfgType;
+use crate::network::rpc_message::{HostId, make_msg};
 
 pub mod client;
 pub mod server;
@@ -27,7 +27,7 @@ pub async fn read_message(read_stream: &mut OwnedReadHalf, buffer: &mut [u8]) ->
             info!("Stream closed by peer.");
             Err(NetworkError::Closed)
         }
-        Err(e) => todo!("idk"), //TODO: better error handling
+        Err(_) => todo!("idk"), //TODO: better error handling
     }?;
 
     debug!("Received message of length {msg_length}");
@@ -75,20 +75,12 @@ pub async fn send_message(stream: &mut OwnedWriteHalf, msg: RpcMessageKind) -> R
 }
 
 // TODO better error handling
-fn serialize_rpc_message(msg: RpcMessage) -> Result<Vec<u8>, NetworkError> {
-    if let Ok(buf) = bincode::serialize(&msg) {
-        Ok(buf)
-    } else {
-        Err(NetworkError::Serialization)
-    }
+fn serialize_rpc_message(msg: RpcMessage) -> Result<Vec<u8>, Box<NetworkError>> {
+    bincode::serialize(&msg).map_err(|_| Box::from(NetworkError::Serialization))
 }
 
-fn deserialize_rpc_message(buf: &[u8]) -> Result<RpcMessage, NetworkError> {
-    if let Ok(msg) = bincode::deserialize(buf) {
-        Ok(msg)
-    } else {
-        Err(NetworkError::Serialization)
-    }
+fn deserialize_rpc_message(buf: &[u8]) -> Result<RpcMessage, Box<NetworkError>> {
+    bincode::deserialize(buf).map_err(|_| Box::from(NetworkError::Serialization))
 }
 
 #[async_trait]
@@ -98,24 +90,28 @@ pub trait ConnectionHandler: Send + Sync {
     async fn handle_send(
         &self,
         mut recv_commands_channel: watch::Receiver<ChannelMsg>,
-        mut recv_data_channel: broadcast::Receiver<DataMsg>,
+        mut recv_data_channel: broadcast::Receiver<(DataMsg, DeviceId)>,
         mut send_stream: OwnedWriteHalf,
     ) -> Result<(), NetworkError>;
 }
 
 #[async_trait]
 pub trait SubscribeDataChannel {
-    fn subscribe_data_channel(&self) -> broadcast::Receiver<DataMsg>;
+    fn subscribe_data_channel(&self) -> broadcast::Receiver<(DataMsg, DeviceId)>;
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub enum ChannelMsg {
     Empty,
     Disconnect,
-    Subscribe,
+    Subscribe { device_id: DeviceId },
+    Unsubscribe { device_id: DeviceId },
+    SubscribeTo { target_addr: SocketAddr, device_id: DeviceId },
+    UnsubscribeFrom { target_addr: SocketAddr, device_id: DeviceId },
     ListenSubscribe { addr: SocketAddr },
     ListenUnsubscribe { addr: SocketAddr },
-    Unsubscribe,
-    Poll,
-    SendHostStatus { reg_addr: SocketAddr },
+    Configure { device_id: DeviceId, cfg_type: CfgType },
+    SendHostStatus { reg_addr: SocketAddr, host_id: HostId },
+    SendHostStatuses,
+    Data { data: DataMsg },
 }

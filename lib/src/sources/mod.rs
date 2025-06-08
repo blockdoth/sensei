@@ -22,11 +22,9 @@ pub mod netlink;
 pub mod tcp;
 
 use std::any::Any;
-use std::net::SocketAddr;
 
 use crate::errors::{DataSourceError, TaskError};
 use crate::network::rpc_message::DataMsg;
-use crate::sources::controllers::Controller;
 use crate::{FromConfig, ToConfig};
 
 pub const BUFSIZE: usize = 65535;
@@ -80,7 +78,6 @@ pub trait DataSourceT: Send + Any + ToConfig<DataSourceConfig> {
 /// - `Esp32`: ESP32-based data source
 /// - 'Tcp': receiving from another node
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-#[serde(tag = "type")]
 pub enum DataSourceConfig {
     /// Linux netlink source (packet capture via netlink sockets).
     #[cfg(target_os = "linux")]

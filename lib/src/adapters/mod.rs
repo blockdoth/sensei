@@ -10,10 +10,8 @@
 //! Mofidied based on: wisense/sensei/lib/src/adapters/mod.rs
 //! Originally authored by: Fabian Portner
 
-use crate::csi_types::CsiData;
 use crate::errors::{CsiAdapterError, TaskError};
 use crate::network::rpc_message::DataMsg;
-use crate::network::rpc_message::DataMsg::CsiFrame;
 use crate::{FromConfig, ToConfig};
 pub mod csv;
 pub mod esp32;
@@ -50,7 +48,6 @@ pub trait CsiDataAdapter: Send + ToConfig<DataAdapterConfig> {
 /// This enum allows adapters to be specified via configuration files and deserialized
 /// automatically. Each variant contains options specific to the corresponding adapter.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy)]
-#[serde(tag = "type")]
 pub enum DataAdapterConfig {
     Iwl { scale_csi: bool },
     Esp32 { scale_csi: bool },

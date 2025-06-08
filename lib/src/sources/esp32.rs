@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::collections::HashMap;
 use std::io::{Read as StdRead, Write as StdWrite}; // Renamed to avoid ambiguity
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
@@ -6,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use byteorder::{LittleEndian, ReadBytesExt as _}; // Use _ to import extension methods
+// Use _ to import extension methods
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, bounded};
 use log::{debug, error, info, trace, warn};
 use serialport::{ClearBuffer, SerialPort};
@@ -404,7 +403,7 @@ impl DataSourceT for Esp32Source {
             self.config.port_name, self.config.baud_rate
         );
 
-        let mut port = serialport::new(&self.config.port_name, self.config.baud_rate)
+        let port = serialport::new(&self.config.port_name, self.config.baud_rate)
             .timeout(Duration::from_millis(SERIAL_READ_TIMEOUT_MS))
             .open()
             .map_err(|e| {
@@ -530,7 +529,7 @@ impl Drop for Esp32Source {
             }
             // Joining thread in drop is generally discouraged as it can deadlock or panic.
             // The reader thread should observe `is_running` and exit.
-            if let Some(handle) = self.reader_handle.take() {
+            if let Some(_handle) = self.reader_handle.take() {
                 // Optionally, can try a timed join or just let it be if it's designed to exit quickly.
                 // For now, we just take it. The thread should exit on its own.
                 debug!("Reader thread handle taken in drop. Thread should self-terminate.");

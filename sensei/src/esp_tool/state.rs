@@ -1,27 +1,20 @@
-use std::cmp::{max, min};
 use std::collections::VecDeque;
 use std::vec;
 
 use async_trait::async_trait;
 use crossterm::event::{KeyCode, KeyEvent};
-use futures::sink::Send;
 use lib::csi_types::CsiData;
 use lib::sources::controllers::esp32_controller::{
     Bandwidth as EspBandwidth, CsiType as EspCsiType, CustomFrameParams, Esp32ControllerParams, Esp32DeviceConfig, EspMode,
     OperationMode as EspOperationMode, SecondaryChannel as EspSecondaryChannel,
 };
-use lib::sources::esp32::Esp32SourceConfig;
 use lib::tui::Tui;
 use lib::tui::logs::LogEntry;
 use log::{debug, error, info, warn};
 use ratatui::Frame;
-use ratatui::prelude::Color;
-use ratatui::style::{Modifier, Style};
-use ratatui::text::{Line, Span};
-use tokio::sync::mpsc::{self, Receiver, Sender};
-use tokio::time::{Duration, sleep};
+use tokio::sync::mpsc::{Receiver, Sender};
 
-use super::spam_settings::{self, SpamSettings};
+use super::spam_settings::SpamSettings;
 use super::tui::ui;
 use super::{CSI_DATA_BUFFER_CAPACITY, EspChannelCommand, LOG_BUFFER_CAPACITY};
 

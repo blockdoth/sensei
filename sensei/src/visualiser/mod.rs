@@ -1,79 +1,68 @@
-use std::cell::RefCell;
 use std::cmp::PartialEq;
 use std::collections::HashMap;
+use std::fmt;
 use std::io::stdout;
 use std::net::SocketAddr;
-use std::num::ParseIntError;
-use std::ops::DerefMut;
 use std::str::FromStr;
-use std::sync::mpsc::channel;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::{fmt, fs};
 
-use async_trait::async_trait;
 use charming::HtmlRenderer;
 use charming::component::Title;
 use charming::element::AxisType;
-use charming::series::{Line, Scatter};
+use charming::series::Line;
 use charming::theme::Theme;
-use lib::csi_types::{Complex, CsiData};
-use lib::errors::NetworkError;
-use lib::network::rpc_message::AdapterMode::SOURCE;
-use lib::network::rpc_message::CtrlMsg::*;
+use lib::csi_types::CsiData;
 use lib::network::rpc_message::DataMsg::*;
 use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
-use lib::network::rpc_message::{AdapterMode, CtrlMsg, RpcMessage, RpcMessageKind};
+use lib::network::rpc_message::{CtrlMsg, RpcMessage};
 use lib::network::tcp::client::TcpClient;
-use lib::network::tcp::server::TcpServer;
-use lib::network::tcp::{ChannelMsg, ConnectionHandler};
-use log::{debug, info, warn};
+use log::{debug, info};
+use ratatui::Terminal;
 use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::crossterm::cursor::{Hide, Show};
 use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture, Event, KeyCode};
 use ratatui::crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
 use ratatui::crossterm::{event, execute};
-use ratatui::layout::{Constraint, Layout, Position};
+use ratatui::layout::{Constraint, Layout};
 use ratatui::prelude::Direction;
 use ratatui::style::{Color, Style};
-use ratatui::symbols::line;
-use ratatui::text::{Span, ToLine};
+use ratatui::text::Span;
 use ratatui::widgets::{Axis, Block, Borders, Chart, Dataset};
-use ratatui::{Frame, Terminal, symbols};
 use tokio::io;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::tcp::OwnedWriteHalf;
-use tokio::sync::watch::{Receiver, Sender};
-use tokio::sync::{Mutex, watch};
+use tokio::sync::Mutex;
 
-use crate::orchestrator::Orchestrator;
 use crate::services::{GlobalConfig, Run, VisualiserConfig};
-use crate::visualiser::GraphType::Amplitude;
 
 pub struct Visualiser {
     // This seemed to me the best way to structure the data, as the socketaddr is a primary key for each node, and each device has a unique id only within a node
     #[allow(clippy::type_complexity)]
     data: Arc<Mutex<HashMap<SocketAddr, HashMap<u64, Vec<CsiData>>>>>, // Nodes x Devices x CsiData over time
+    target: SocketAddr,
+    ui_type: String,
 }
 
 impl Run<VisualiserConfig> for Visualiser {
-    fn new() -> Self {
+    fn new(global_config: GlobalConfig, config: VisualiserConfig) -> Self {
         Visualiser {
             data: Arc::new(Default::default()),
+            target: config.target,
+            ui_type: config.ui_type,
         }
     }
 
-    async fn run(&mut self, global_config: GlobalConfig, config: VisualiserConfig) -> Result<(), Box<dyn std::error::Error>> {
+    async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         // Technically, the visualiser has cli tools for connecting to multiple nodes
         // At the moment, it is sufficient to connect to one target node on startup
         // Manually start the subscription by typing subscribe
         let client = Arc::new(Mutex::new(TcpClient::new()));
-        self.client_task(client.clone(), config.target).await;
-        self.receive_data_task(self.data.clone(), client.clone(), config.target);
+        self.client_task(client.clone(), self.target).await;
+        self.receive_data_task(self.data.clone(), client.clone(), self.target);
 
-        io::stdout().flush().await;
+        io::stdout().flush().await?;
 
-        if (config.ui_type == "tui") {
+        if self.ui_type == "tui" {
             self.plot_data_tui().await?;
         } else {
             self.plot_data_gui().await?;
@@ -148,7 +137,11 @@ impl Visualiser {
                 let mut client = client.lock().await;
                 match client.read_message(target_addr).await {
                     Ok(msg) => {
-                        let RpcMessage { msg, src_addr, target_addr } = msg;
+                        let RpcMessage {
+                            msg,
+                            src_addr,
+                            target_addr: _,
+                        } = msg;
                         if let Data {
                             data_msg: CsiFrame { csi },
                             device_id,
@@ -208,7 +201,7 @@ impl Visualiser {
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
-        self.tui_loop(&mut terminal).await;
+        self.tui_loop(&mut terminal).await?;
 
         // Shutdown process
         disable_raw_mode()?;
@@ -268,7 +261,7 @@ impl Visualiser {
                         .constraints([Constraint::Percentage(80), Constraint::Length(3)].as_ref())
                         .split(size);
 
-                    let graph_count = if (current_data.is_empty()) { 1 } else { current_data.len() };
+                    let graph_count = if current_data.is_empty() { 1 } else { current_data.len() };
                     let constraints = vec![Constraint::Percentage(100 / graph_count as u16); graph_count];
                     let chart_area = Layout::default()
                         .direction(Direction::Horizontal)
@@ -406,8 +399,6 @@ impl Visualiser {
         });
 
         loop {
-            let timeout = tick_rate.checked_sub(last_tick.elapsed()).unwrap_or_else(|| Duration::from_secs(0));
-
             if last_tick.elapsed() >= tick_rate {
                 for (i, graph) in graphs_2.lock().await.clone().into_iter().enumerate() {
                     let chart = Self::generate_chart_from_data(self.process_data(graph).await);
@@ -420,8 +411,6 @@ impl Visualiser {
                 last_tick = Instant::now();
             }
         }
-
-        Ok(())
     }
 
     fn generate_chart_from_data(data: Vec<(f64, f64)>) -> charming::Chart {
@@ -433,7 +422,7 @@ impl Visualiser {
             .series(Line::new().data(data))
     }
 
-    async fn client_task(&self, client: Arc<Mutex<TcpClient>>, target_addr: SocketAddr) {
+    async fn client_task(&self, client: Arc<Mutex<TcpClient>>, target_addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
         info!("Client task");
 
         // Visualiser connects and subscribes to the target node on startup
@@ -441,11 +430,12 @@ impl Visualiser {
             // Locking the client within this lifetime ensures that the receiver task
             // only starts once the lock in this lifetime has been released
             let mut client = client.lock().await;
-            client.connect(target_addr).await;
+            client.connect(target_addr).await?;
 
-            let msg = Ctrl(CtrlMsg::Subscribe { device_id: 0, mode: SOURCE });
-            client.send_message(target_addr, msg).await;
-            info!("Subscribed to node {target_addr}")
+            let msg = Ctrl(CtrlMsg::Subscribe { device_id: 0 });
+            client.send_message(target_addr, msg).await?;
+            info!("Subscribed to node {target_addr}");
+            Ok(())
         }
     }
 }

@@ -1,19 +1,17 @@
-
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use crossterm::event::{KeyCode, KeyEvent};
 use lib::network::rpc_message::CtrlMsg;
-use lib::network::tcp::client::TcpClient;
+use lib::network::rpc_message::RpcMessageKind::Ctrl;
 use lib::network::tcp::ChannelMsg;
+use lib::network::tcp::client::TcpClient;
 use lib::tui::Tui;
 use lib::tui::logs::{FromLog, LogEntry};
 use ratatui::Frame;
-use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::Mutex;
-use crate::orchestrator::AdapterMode;
-use lib::network::rpc_message::RpcMessageKind::Ctrl;
+use tokio::sync::mpsc::{Receiver, Sender};
 
 use super::tui::ui;
 
@@ -30,7 +28,7 @@ pub enum OrgUpdate {
     Log(LogEntry),
     Connect(SocketAddr),
     Disconnect(SocketAddr),
-    Subscribe(SocketAddr, DeviceID, AdapterMode),
+    Subscribe(SocketAddr, DeviceID),
     Unsubscribe(SocketAddr, DeviceID),
     Exit,
 }
@@ -42,11 +40,11 @@ impl FromLog for OrgUpdate {
 }
 
 impl OrgTuiState {
-    pub fn new(client:Arc<Mutex<TcpClient>>) -> Self {
-        OrgTuiState { 
-          client: client,
-          should_quit: false,
-          known_clients: vec![],
+    pub fn new(client: Arc<Mutex<TcpClient>>) -> Self {
+        OrgTuiState {
+            client,
+            should_quit: false,
+            known_clients: vec![],
         }
     }
 }
@@ -72,24 +70,22 @@ impl Tui<OrgUpdate, ChannelMsg> for OrgTuiState {
             OrgUpdate::Exit => {
                 self.should_quit = true;
             }
-            OrgUpdate::Log(entry) => {
-
-            }
+            OrgUpdate::Log(entry) => {}
             OrgUpdate::Connect(socket_addr) => {
-              self.client.lock().await.connect(socket_addr);
-              self.known_clients.push(socket_addr);
-            },
+                self.client.lock().await.connect(socket_addr);
+                self.known_clients.push(socket_addr);
+            }
             OrgUpdate::Disconnect(socket_addr) => {
-              self.client.lock().await.disconnect(socket_addr);
-            },
-            OrgUpdate::Subscribe(socket_addr, device_id, mode) => {
-              let msg = Ctrl(CtrlMsg::Subscribe { device_id, mode });
-              self.client.lock().await.send_message(socket_addr, msg);
-            },
+                self.client.lock().await.disconnect(socket_addr);
+            }
+            OrgUpdate::Subscribe(socket_addr, device_id) => {
+                let msg = Ctrl(CtrlMsg::Subscribe { device_id });
+                self.client.lock().await.send_message(socket_addr, msg);
+            }
             OrgUpdate::Unsubscribe(socket_addr, device_id) => {
-              let msg = Ctrl(CtrlMsg::Unsubscribe { device_id });
-              self.client.lock().await.send_message(socket_addr, msg);
-            },
+                let msg = Ctrl(CtrlMsg::Unsubscribe { device_id });
+                self.client.lock().await.send_message(socket_addr, msg);
+            }
         }
     }
     fn should_quit(&self) -> bool {
