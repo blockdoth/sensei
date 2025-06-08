@@ -10,6 +10,7 @@ use lib::network::tcp::ChannelMsg;
 use lib::network::tcp::client::TcpClient;
 use lib::tui::Tui;
 use lib::tui::logs::{FromLog, LogEntry};
+use log::info;
 use ratatui::Frame;
 use tokio::sync::Mutex;
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -25,7 +26,7 @@ pub struct OrgTuiState {
     pub registry_status: RegistryStatus,
     pub connected_hosts: Vec<Host>,
     pub logs: Vec<LogEntry>,
-    pub focussed_panel: FocusedPanel,
+    pub focussed_panel: Focused,
 }
 
 pub struct Host {
@@ -58,36 +59,26 @@ pub enum RegistryStatus {
     NotSpecified,
 }
 
-pub enum FocusedPanel {
+#[derive(PartialEq)]
+pub enum Focused {
     Main,
-    Registry(FocusedRegistryPanel),
-    Hosts(FocusedHostsPanel),
+    Registry(FocusedRegistry),
+    Hosts(FocusedHosts),
+    Experiments,
     Status,
 }
 
-pub enum FocusedRegistryPanel {
-  RegistryAddress(usize),
-  AvailableHosts(usize),
+#[derive(PartialEq)]
+pub enum FocusedRegistry {
+    RegistryAddress(usize),
+    AvailableHosts(usize),
 }
 
-pub enum FocusedHostsPanel {
-    Host(usize, usize),
-}
-
-impl FocusedHostsPanel {
-  fn up(self) -> Self {
-    match self {
-        FocusedHostsPanel::Host(0,0) => FocusedHostsPanel::Host(0,0),
-        FocusedHostsPanel::Host(h, 0) => FocusedHostsPanel::Host(h - 1, 0),
-        FocusedHostsPanel::Host(h, d) => FocusedHostsPanel::Host(h, d - 1),
-    }
-  }
-
-  fn down(self) -> Self {
-    match self {
-      FocusedHostsPanel::Host(h,_) => FocusedHostsPanel::Host(h+1, 0),
-    }
-  }
+#[derive(PartialEq)]
+pub enum FocusedHosts {
+    None,
+    HostTree(usize, usize),
+    AddHost(usize),
 }
 
 pub enum OrgCommand {}
@@ -99,8 +90,16 @@ pub enum OrgUpdate {
     Disconnect(SocketAddr),
     Subscribe(SocketAddr, DeviceID),
     Unsubscribe(SocketAddr, DeviceID),
-    FocusChange(FocusedPanel),
+    FocusChange(Focused),
+    SubscribeAll(SocketAddr),
+    UnsubscribeAll(SocketAddr),
     Exit,
+    Up,
+    Down,
+    Left,
+    Right,
+    Tab,
+    BackTab,
 }
 
 impl FromLog for OrgUpdate {
@@ -118,7 +117,7 @@ impl OrgTuiState {
             registry_addr: Some(DEFAULT_ADDRESS),
             registry_status: RegistryStatus::Disconnected,
             logs: vec![],
-            focussed_panel: FocusedPanel::Main,
+            focussed_panel: Focused::Main,
             connected_hosts: vec![
                 Host {
                     id: 0,
@@ -162,6 +161,16 @@ impl OrgTuiState {
                             dev_type: SourceType::CSV,
                             status: DeviceStatus::NotSubscribed,
                         },
+                        Device {
+                            id: 42,
+                            dev_type: SourceType::TCP,
+                            status: DeviceStatus::NotSubscribed,
+                        },
+                        Device {
+                            id: 911,
+                            dev_type: SourceType::AX200,
+                            status: DeviceStatus::Subscribed,
+                        },
                     ],
                     addr: DEFAULT_ADDRESS,
                 },
@@ -181,38 +190,113 @@ impl Tui<OrgUpdate, ChannelMsg> for OrgTuiState {
     fn handle_keyboard_event(&self, key_event: KeyEvent) -> Option<OrgUpdate> {
         let key = key_event.code;
         match key {
-          KeyCode::Char('q') | KeyCode::Char('Q') => return Some(OrgUpdate::Exit),
-          KeyCode::Esc => return Some(OrgUpdate::FocusChange(FocusedPanel::Main)),
-          _ => {}
+            KeyCode::Char('q') | KeyCode::Char('Q') => return Some(OrgUpdate::Exit),
+            KeyCode::Esc => return Some(OrgUpdate::FocusChange(Focused::Main)),
+            _ => {}
         };
-        
+
         match &self.focussed_panel {
-            FocusedPanel::Main => 
-              match key {
-                KeyCode::Char('r') | KeyCode::Char('R') => Some(OrgUpdate::FocusChange(FocusedPanel::Registry(FocusedRegistryPanel::RegistryAddress(0)))),
-                KeyCode::Char('h') | KeyCode::Char('H') => Some(OrgUpdate::FocusChange(FocusedPanel::Hosts(FocusedHostsPanel::Host(0,0)))),
+            Focused::Main => match key {
+                KeyCode::Char('r') | KeyCode::Char('R') => Some(OrgUpdate::FocusChange(Focused::Registry(FocusedRegistry::RegistryAddress(0)))),
+                KeyCode::Char('e') | KeyCode::Char('E') => Some(OrgUpdate::FocusChange(Focused::Experiments)),
+                KeyCode::Char('h') | KeyCode::Char('H') => {
+                  if self.connected_hosts.len() > 0 {
+                    Some(OrgUpdate::FocusChange(Focused::Hosts(FocusedHosts::HostTree(0, 0))))
+                  } else {
+                    Some(OrgUpdate::FocusChange(Focused::Hosts(FocusedHosts::None)))
+                  }
+                }
                 _ => None,
             },
-            
-            FocusedPanel::Registry(focused_registry_panel) => match focused_registry_panel {
-                FocusedRegistryPanel::RegistryAddress(_) =>  match key {
-                  _ => None
-                },
-                FocusedRegistryPanel::AvailableHosts(_) =>  match key {
-                  _ => None
-                },
-            }
-            FocusedPanel::Hosts(focused_hosts_panel) => match focused_hosts_panel {
-                FocusedHostsPanel::Host(_,_) => match key {
-                  _ => None
-                },
-            }
-            FocusedPanel::Status => match key {
-              _ => None
-            },
-        }
-        
 
+            Focused::Registry(focused_registry_panel) => match focused_registry_panel {
+                FocusedRegistry::RegistryAddress(_) => match key {
+                    _ => None,
+                },
+                FocusedRegistry::AvailableHosts(_) => match key {
+                    _ => None,
+                },
+            },
+            Focused::Hosts(focused_hosts_panel) => match focused_hosts_panel {
+                FocusedHosts::None => match key {
+                    KeyCode::Char('a') | KeyCode::Char('A') => return Some(OrgUpdate::FocusChange(Focused::Hosts(FocusedHosts::AddHost(0)))),
+                    _ => None,
+                },
+                FocusedHosts::AddHost(host_idx) => None,
+                FocusedHosts::HostTree(host_idx, 0) => match key {
+                    KeyCode::Char('c') | KeyCode::Char('C') => {
+                        if let Some(host) = self.connected_hosts.get(*host_idx) {
+                            Some(OrgUpdate::Connect(host.addr))
+                        } else {
+                            None
+                        }
+                    }
+
+                    KeyCode::Char('d') | KeyCode::Char('D') => {
+                        if let Some(host) = self.connected_hosts.get(*host_idx) {
+                            Some(OrgUpdate::Disconnect(host.addr))
+                        } else {
+                            None
+                        }
+                    }
+
+                    KeyCode::Char('s') | KeyCode::Char('S') => {
+                        if let Some(host) = self.connected_hosts.get(*host_idx) {
+                            Some(OrgUpdate::SubscribeAll(host.addr))
+                        } else {
+                            None
+                        }
+                    }
+                    KeyCode::Char('u') | KeyCode::Char('U') => {
+                        if let Some(host) = self.connected_hosts.get(*host_idx) {
+                            Some(OrgUpdate::UnsubscribeAll(host.addr))
+                        } else {
+                            None
+                        }
+                    }
+                    KeyCode::Up => Some(OrgUpdate::Up),
+                    KeyCode::Down => Some(OrgUpdate::Down),
+                    KeyCode::Tab => Some(OrgUpdate::Tab),
+                    KeyCode::BackTab => Some(OrgUpdate::BackTab),
+                    _ => None,
+                },
+                FocusedHosts::HostTree(host_idx, device_idx) => match key {
+                    KeyCode::Char('s') | KeyCode::Char('S') => {
+                        if let Some(host) = self.connected_hosts.get(*host_idx) {
+                            if let Some(device) = host.devices.get(*device_idx) {
+                                Some(OrgUpdate::Subscribe(host.addr, device.id))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }
+                    KeyCode::Char('u') | KeyCode::Char('U') => {
+                        if let Some(host) = self.connected_hosts.get(*host_idx) {
+                            if let Some(device) = host.devices.get(*device_idx) {
+                                Some(OrgUpdate::Unsubscribe(host.addr, device.id))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }
+                    KeyCode::Up => Some(OrgUpdate::Up),
+                    KeyCode::Down => Some(OrgUpdate::Down),
+                    KeyCode::Tab => Some(OrgUpdate::Tab),
+                    KeyCode::BackTab => Some(OrgUpdate::BackTab),
+                    _ => None,
+                },
+            },
+            Focused::Status => match key {
+                _ => None,
+            },
+            Focused::Experiments => match key {
+              _ => None,
+          },            
+        }
     }
 
     /// Applies updates and potentially sends commands to background tasks.
@@ -226,24 +310,100 @@ impl Tui<OrgUpdate, ChannelMsg> for OrgTuiState {
                 self.logs.push(entry);
             }
             OrgUpdate::Connect(socket_addr) => {
+                info!("Connecting to {socket_addr}");
                 self.client.lock().await.connect(socket_addr);
                 self.known_hosts.push(socket_addr);
             }
             OrgUpdate::Disconnect(socket_addr) => {
+                info!("Disconnecting from {socket_addr}");
                 self.client.lock().await.disconnect(socket_addr);
             }
             OrgUpdate::Subscribe(socket_addr, device_id) => {
+                info!("Subscribing to device {device_id} on host {socket_addr}");
                 let msg = Ctrl(CtrlMsg::Subscribe { device_id });
                 self.client.lock().await.send_message(socket_addr, msg);
             }
             OrgUpdate::Unsubscribe(socket_addr, device_id) => {
+                info!("Unsubscribing to device {device_id} on host {socket_addr}");
                 let msg = Ctrl(CtrlMsg::Unsubscribe { device_id });
                 self.client.lock().await.send_message(socket_addr, msg);
-            },
-            OrgUpdate::FocusChange(focused_panel) => {
-              self.focussed_panel = focused_panel
+            }
+            OrgUpdate::FocusChange(focused_panel) => self.focussed_panel = focused_panel,
+            OrgUpdate::SubscribeAll(socket_addr) => {
+                let mut client = self.client.lock().await;
+                if let Some(host) = self.connected_hosts.iter().find(|a| a.addr == socket_addr) {
+                    info!("Subscribing to {} devices on host {}", host.devices.len(), socket_addr);
+                    for device in &host.devices {
+                        let msg = Ctrl(CtrlMsg::Subscribe { device_id: device.id });
+                        client.send_message(socket_addr, msg);
+                    }
+                }
+            }
+            OrgUpdate::UnsubscribeAll(socket_addr) => {
+                let mut client = self.client.lock().await;
+                if let Some(host) = self.connected_hosts.iter().find(|a| a.addr == socket_addr) {
+                    info!("Subscribing from {} devices on host {}", host.devices.len(), socket_addr);
+                    for device in &host.devices {
+                        let msg = Ctrl(CtrlMsg::Unsubscribe { device_id: device.id });
+                        client.send_message(socket_addr, msg);
+                    }
+                }
+            }
+            OrgUpdate::Up => match &self.focussed_panel {
+                Focused::Hosts(host_focus) => match host_focus {
+                    FocusedHosts::HostTree(0, 0) => self.focussed_panel = Focused::Hosts(FocusedHosts::HostTree(0, 0)),
+                    FocusedHosts::HostTree(h, 0) => {
+                        if let Some(host) = self.connected_hosts.get(*h - 1) {
+                            let d = host.devices.len();
+                            self.focussed_panel = Focused::Hosts(FocusedHosts::HostTree(h - 1, d));
+                        }
+                    }
+                    FocusedHosts::HostTree(h, d) => self.focussed_panel = Focused::Hosts(FocusedHosts::HostTree(*h, d - 1)),
+                    _ => {}
+                },
+                _ => {}
             },
 
+            OrgUpdate::Down => match &self.focussed_panel {
+                Focused::Hosts(host_focus) => match host_focus {
+                    FocusedHosts::HostTree(h, d) if *h < self.connected_hosts.len() => {
+                        if let Some(host) = self.connected_hosts.get(*h) {
+                            if *d < host.devices.len() {
+                                self.focussed_panel = Focused::Hosts(FocusedHosts::HostTree(*h, d + 1))
+                            } else if *h < self.connected_hosts.len() - 1 {
+                                self.focussed_panel = Focused::Hosts(FocusedHosts::HostTree(h + 1, 0))
+                            } else{
+                              self.focussed_panel = Focused::Hosts(FocusedHosts::AddHost(0))
+                            }
+                        }
+                    }
+                    _ => {}
+                },
+                _ => {}
+            },
+            OrgUpdate::BackTab => match &self.focussed_panel {
+                Focused::Hosts(host_focus) => match host_focus {
+                    FocusedHosts::HostTree(0, 0) => self.focussed_panel = Focused::Hosts(FocusedHosts::HostTree(0, 0)),
+                    FocusedHosts::HostTree(h, 0) => {
+                        self.focussed_panel = Focused::Hosts(FocusedHosts::HostTree(h - 1, 0));
+                    }
+                    _ => {}
+                },
+                _ => {}
+            },
+            OrgUpdate::Tab => match &self.focussed_panel {
+                Focused::Hosts(host_focus) => match host_focus {
+                    FocusedHosts::HostTree(h, 0) if *h < self.connected_hosts.len() - 1 => {
+                        self.focussed_panel = Focused::Hosts(FocusedHosts::HostTree(h + 1, 0));
+                    }
+                    _ => {
+                      self.focussed_panel = Focused::Hosts(FocusedHosts::AddHost(0))
+                    }
+                },
+                _ => {}
+            },
+            OrgUpdate::Left => {}
+            OrgUpdate::Right => {}
         }
     }
     fn should_quit(&self) -> bool {
