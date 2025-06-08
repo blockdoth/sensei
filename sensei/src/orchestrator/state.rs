@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::usize;
 
 use async_trait::async_trait;
 use crossterm::event::{KeyCode, KeyEvent};
@@ -60,13 +61,33 @@ pub enum RegistryStatus {
 pub enum FocusedPanel {
     Main,
     Registry(FocusedRegistryPanel),
+    Hosts(FocusedHostsPanel),
     Status,
-    ConnectedHosts,
 }
 
 pub enum FocusedRegistryPanel {
-    Host(usize),
-    Device(usize),
+  RegistryAddress(usize),
+  AvailableHosts(usize),
+}
+
+pub enum FocusedHostsPanel {
+    Host(usize, usize),
+}
+
+impl FocusedHostsPanel {
+  fn up(self) -> Self {
+    match self {
+        FocusedHostsPanel::Host(0,0) => FocusedHostsPanel::Host(0,0),
+        FocusedHostsPanel::Host(h, 0) => FocusedHostsPanel::Host(h - 1, 0),
+        FocusedHostsPanel::Host(h, d) => FocusedHostsPanel::Host(h, d - 1),
+    }
+  }
+
+  fn down(self) -> Self {
+    match self {
+      FocusedHostsPanel::Host(h,_) => FocusedHostsPanel::Host(h+1, 0),
+    }
+  }
 }
 
 pub enum OrgCommand {}
@@ -78,6 +99,7 @@ pub enum OrgUpdate {
     Disconnect(SocketAddr),
     Subscribe(SocketAddr, DeviceID),
     Unsubscribe(SocketAddr, DeviceID),
+    FocusChange(FocusedPanel),
     Exit,
 }
 
@@ -157,10 +179,40 @@ impl Tui<OrgUpdate, ChannelMsg> for OrgTuiState {
 
     /// Handles keyboard input events and maps them to updates.
     fn handle_keyboard_event(&self, key_event: KeyEvent) -> Option<OrgUpdate> {
-        match key_event.code {
-            KeyCode::Char('q') | KeyCode::Char('Q') => Some(OrgUpdate::Exit),
-            _ => None,
+        let key = key_event.code;
+        match key {
+          KeyCode::Char('q') | KeyCode::Char('Q') => return Some(OrgUpdate::Exit),
+          KeyCode::Esc => return Some(OrgUpdate::FocusChange(FocusedPanel::Main)),
+          _ => {}
+        };
+        
+        match &self.focussed_panel {
+            FocusedPanel::Main => 
+              match key {
+                KeyCode::Char('r') | KeyCode::Char('R') => Some(OrgUpdate::FocusChange(FocusedPanel::Registry(FocusedRegistryPanel::RegistryAddress(0)))),
+                KeyCode::Char('h') | KeyCode::Char('H') => Some(OrgUpdate::FocusChange(FocusedPanel::Hosts(FocusedHostsPanel::Host(0,0)))),
+                _ => None,
+            },
+            
+            FocusedPanel::Registry(focused_registry_panel) => match focused_registry_panel {
+                FocusedRegistryPanel::RegistryAddress(_) =>  match key {
+                  _ => None
+                },
+                FocusedRegistryPanel::AvailableHosts(_) =>  match key {
+                  _ => None
+                },
+            }
+            FocusedPanel::Hosts(focused_hosts_panel) => match focused_hosts_panel {
+                FocusedHostsPanel::Host(_,_) => match key {
+                  _ => None
+                },
+            }
+            FocusedPanel::Status => match key {
+              _ => None
+            },
         }
+        
+
     }
 
     /// Applies updates and potentially sends commands to background tasks.
@@ -168,6 +220,7 @@ impl Tui<OrgUpdate, ChannelMsg> for OrgTuiState {
         match update {
             OrgUpdate::Exit => {
                 self.should_quit = true;
+                command_send.send(ChannelMsg::Shutdown).await; // Graceful shutdown
             }
             OrgUpdate::Log(entry) => {
                 self.logs.push(entry);
@@ -186,7 +239,11 @@ impl Tui<OrgUpdate, ChannelMsg> for OrgTuiState {
             OrgUpdate::Unsubscribe(socket_addr, device_id) => {
                 let msg = Ctrl(CtrlMsg::Unsubscribe { device_id });
                 self.client.lock().await.send_message(socket_addr, msg);
-            }
+            },
+            OrgUpdate::FocusChange(focused_panel) => {
+              self.focussed_panel = focused_panel
+            },
+
         }
     }
     fn should_quit(&self) -> bool {

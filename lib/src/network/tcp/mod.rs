@@ -103,6 +103,7 @@ pub trait SubscribeDataChannel {
 #[derive(Debug, Clone, Deserialize)]
 pub enum ChannelMsg {
     Empty,
+    Shutdown,
     Disconnect,
     Subscribe { device_id: DeviceId },
     Unsubscribe { device_id: DeviceId },

@@ -51,12 +51,15 @@ impl Run<OrchestratorConfig> for Orchestrator {
 
 impl Orchestrator {
     async fn listen(mut recv_commands_channel: Receiver<ChannelMsg>, client: Arc<Mutex<TcpClient>>) {
+        info!("Started stream processor task");
         let mut receiving = false;
         let mut targets: Vec<SocketAddr> = vec![];
         loop {
             if !recv_commands_channel.is_empty() {
                 let msg_opt = recv_commands_channel.recv().await;
+                debug!("Received channel message {:?}", msg_opt);
                 match msg_opt {
+                    Some(ChannelMsg::Shutdown) => break,
                     Some(ChannelMsg::ListenSubscribe { addr }) => {
                         if !targets.contains(&addr) {
                             targets.push(addr);
