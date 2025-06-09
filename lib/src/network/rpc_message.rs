@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
 use crate::csi_types::CsiData;
-use crate::handler::device_handler::CfgType;
+use crate::handler::device_handler::{CfgType, DeviceHandlerConfig};
 
 pub const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
 
@@ -52,6 +52,15 @@ pub enum RegCtrl {
 pub struct DeviceStatus {
     pub id: DeviceId,
     pub dev_type: SourceType,
+}
+
+impl From<&DeviceHandlerConfig> for DeviceStatus {
+    fn from(value: &DeviceHandlerConfig) -> Self {
+        DeviceStatus {
+            id: value.device_id,
+            dev_type: value.stype.clone(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -116,7 +125,6 @@ impl FromStr for HostCtrl {
                 Ok(HostCtrl::Unsubscribe { device_id })
             }
             s => Err(s.to_owned()),
-            _ => Err(format!("An unsuppored case was reached! {kind}")),
         }
     }
 }

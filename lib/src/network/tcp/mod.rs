@@ -122,7 +122,7 @@ pub enum HostChannel {
 
 #[derive(Debug, Clone, Deserialize)]
 pub enum RegChannel {
-    SendHostStatus { reg_addr: SocketAddr, host_id: HostId },
+    SendHostStatus { host_id: HostId },
     SendHostStatuses,
 }
 

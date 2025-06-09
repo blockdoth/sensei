@@ -389,7 +389,7 @@ pub enum RegistryError {
 
     /// No Standalone
     #[error("The registry cannot be ran as a standalone process.")]
-    NoStandalone
+    NoStandalone,
 }
 
 // Allow conversion from Box<NetworkError> to NetworkError

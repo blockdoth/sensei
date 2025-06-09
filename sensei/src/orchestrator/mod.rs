@@ -35,7 +35,7 @@ impl Run<OrchestratorConfig> for Orchestrator {
 
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         for target_addr in self.targets.clone() {
-            Self::connect(&self.client, target_addr).await;
+            Self::connect(&self.client, target_addr).await?;
         }
         self.cli_interface().await?;
         Ok(())
@@ -185,12 +185,8 @@ impl Orchestrator {
                 send_client.lock().await.send_message(target_addr, msg).await?;
             }
             Some("sendstatus") => {
-                let target_addr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
                 let host_id = input.next().unwrap_or("").parse().unwrap_or(0);
-                send_commands_channel.send(ChannelMsg::from(RegChannel::SendHostStatus {
-                    reg_addr: target_addr,
-                    host_id,
-                }))?;
+                send_commands_channel.send(ChannelMsg::from(RegChannel::SendHostStatus { host_id }))?;
             }
             Some("configure") => {
                 let target_addr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);

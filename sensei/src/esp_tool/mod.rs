@@ -91,7 +91,7 @@ impl Run<EspToolConfig> for EspTool {
         let tasks = vec![esp_task];
 
         let tui_runner = TuiRunner::new(TuiState::new(), command_send, update_recv, update_send, self.log_level);
-        tui_runner.run(tasks).await;
+        tui_runner.run(tasks).await?;
         Ok(())
     }
 }

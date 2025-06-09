@@ -9,7 +9,7 @@ use lib::handler::device_handler::CfgType::{Create, Delete, Edit};
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
 use lib::network::rpc_message::RegCtrl::*;
 use lib::network::rpc_message::SourceType::*;
-use lib::network::rpc_message::{self, DataMsg, DeviceId, HostCtrl, HostId, RpcMessage, RpcMessageKind};
+use lib::network::rpc_message::{self, DataMsg, DeviceId, DeviceStatus, HostCtrl, HostId, RegCtrl, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, HostChannel, RegChannel, SubscribeDataChannel, send_message};
@@ -22,7 +22,7 @@ use tokio::sync::{Mutex, broadcast, watch};
 use tokio::task;
 
 use crate::registry::Registry;
-use crate::services::{GlobalConfig, RegistryConfig, Run, SystemNodeConfig};
+use crate::services::{GlobalConfig, Run, SystemNodeConfig};
 
 /// The System Node is a sender and a receiver in the network of Sensei.
 /// It hosts the devices that send and receive CSI data, and is responsible for sending this data further to other receivers in the system.
@@ -54,6 +54,13 @@ impl SubscribeDataChannel for SystemNode {
 }
 
 impl SystemNode {
+    fn get_host_status(&self) -> RegCtrl {
+        RegCtrl::HostStatus {
+            host_id: self.host_id,
+            device_status: self.device_configs.iter().map(DeviceStatus::from).collect(),
+        }
+    }
+
     async fn handle_host_ctrl(
         &self,
         request: RpcMessage,
@@ -115,7 +122,7 @@ impl SystemNode {
                 info!("Removing handler subscribing to {device_id}");
                 match self.handlers.lock().await.remove(&device_id) {
                     Some(mut handler) => handler.stop().await.expect("Whoopsy"),
-                    _ => info!("This handler does not exist."),
+                    _ => warn!("This handler does not exist."),
                 }
             }
             HostCtrl::Configure { device_id, cfg_type } => match cfg_type {
@@ -128,14 +135,14 @@ impl SystemNode {
                     info!("Editing existing device handler for device id {device_id}");
                     match self.handlers.lock().await.get_mut(&device_id) {
                         Some(handler) => handler.reconfigure(cfg).await.expect("Whoopsy"),
-                        _ => info!("This handler does not exist."),
+                        _ => warn!("This handler does not exist."),
                     }
                 }
                 Delete => {
                     info!("Deleting device handler for device id {device_id}");
                     match self.handlers.lock().await.remove(&device_id) {
                         Some(mut handler) => handler.stop().await.expect("Whoopsy"),
-                        _ => info!("This handler does not exist."),
+                        _ => warn!("This handler does not exist."),
                     }
                 }
             },
@@ -189,11 +196,11 @@ impl SystemNode {
     /// Handles channel messages used for registry actions
     async fn handle_reg_channel(&self, reg_msg: RegChannel, send_stream: &mut OwnedWriteHalf) -> Result<(), NetworkError> {
         match reg_msg {
-            RegChannel::SendHostStatus { reg_addr: _, host_id: _ } => {
-                // if host_id is current host
-                let host_status = HostStatus {
-                    host_id: self.host_id,
-                    device_status: vec![],
+            RegChannel::SendHostStatus { host_id } => {
+                let host_status = if host_id == self.host_id {
+                    self.get_host_status()
+                } else {
+                    RegCtrl::from(self.registry.get_host_by_id(host_id).await?)
                 };
                 let msg = RpcMessageKind::RegCtrl(host_status);
                 send_message(send_stream, msg).await?;
@@ -205,7 +212,7 @@ impl SystemNode {
                         .list_host_statuses()
                         .await
                         .iter()
-                        .map(|(id, info)| rpc_message::RegCtrl::from(info.clone()))
+                        .map(|(_, info)| rpc_message::RegCtrl::from(info.clone()))
                         .collect(),
                 };
                 send_message(send_stream, RpcMessageKind::RegCtrl(msg)).await?;
@@ -226,7 +233,7 @@ impl ConnectionHandler for SystemNode {
     /// - Subscribe/Unsubscribe
     /// - Configure
     async fn handle_recv(&self, request: RpcMessage, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
-        info!("Received message {:?} from {}", request.msg, request.src_addr);
+        debug!("Received message {:?} from {}", request.msg, request.src_addr);
         match &request.msg {
             RpcMessageKind::HostCtrl(command) => self.handle_host_ctrl(request.clone(), command.clone(), send_channel_msg_channel).await?,
             RpcMessageKind::RegCtrl(command) => {
@@ -266,14 +273,12 @@ impl ConnectionHandler for SystemNode {
             if !recv_data_channel.is_empty() {
                 let (data_msg, device_id) = recv_data_channel.recv().await.unwrap();
 
-                info!("Sending data {data_msg:?} for {device_id} to {send_stream:?}");
+                debug!("Sending data {data_msg:?} for {device_id} to {send_stream:?}");
                 let msg = RpcMessageKind::Data { data_msg, device_id };
 
                 send_message(&mut send_stream, msg).await?;
             }
         }
-        // Loop is infinite unless broken by Disconnect or error
-        Ok(())
     }
 }
 
@@ -285,17 +290,11 @@ impl Run<SystemNodeConfig> for SystemNode {
             send_data_channel,
             handlers: Arc::new(Mutex::new(HashMap::new())),
             addr: config.addr,
-            host_id: 0,
+            host_id: config.host_id,
             registry_addrs: config.registries,
             device_configs: config.device_configs,
             registry_polling_rate_s: config.registry_polling_rate_s,
-            registry: Registry::new(
-                global_config,
-                RegistryConfig {
-                    addr: "127.0.0.1:8080".parse().unwrap(),
-                    poll_interval: 10000,
-                },
-            ),
+            registry: Registry::new(),
         }
     }
 
@@ -308,14 +307,13 @@ impl Run<SystemNodeConfig> for SystemNode {
     /// SystemNodeConfig: Specifies the target address
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let connection_handler = Arc::new(self.clone());
-
         for cfg in &self.device_configs {
             self.handlers
                 .lock()
                 .await
                 .insert(cfg.device_id, DeviceHandler::from_config(cfg.clone()).await.unwrap());
         }
-        // Register at provided registries
+        // Register at provided registries. When a single registry refuses, the client exits.
         if let Some(registries) = &self.registry_addrs {
             let mut client = TcpClient::new();
             for registry in registries {
