@@ -1,9 +1,9 @@
+use std::error::Error;
 use std::fs::File;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::vec;
-use std::error::Error;
 
 use futures::future::pending;
 use lib::handler::device_handler::DeviceHandlerConfig;
@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::{Mutex, watch};
+
 use crate::orchestrator::IsRecurring::{NotRecurring, Recurring};
 use crate::services::{DEFAULT_ADDRESS, GlobalConfig, OrchestratorConfig, Run};
 
@@ -112,7 +113,7 @@ pub enum Command {
     },
     Delay {
         delay: u64,
-    }
+    },
 }
 
 impl Run<OrchestratorConfig> for Orchestrator {
@@ -138,16 +139,15 @@ impl Orchestrator {
     pub async fn load_experiment(&mut self, client: Arc<Mutex<TcpClient>>, experiment: Experiment) -> Result<(), Box<dyn Error + Send + Sync>> {
         self.output_path = experiment.metadata.output_path;
 
-        match &self.output_path {
-            Some(path) => { File::create(path)?; }
-            None => {}
+        if let Some(path) = &self.output_path {
+            File::create(path)?;
         }
 
         for (i, stage) in experiment.stages.into_iter().enumerate() {
             let name = stage.name.clone();
-            info!("Executing stage {}", name);
+            info!("Executing stage {name}");
             Self::execute_stage(client.clone(), stage).await?;
-            info!("Finished stage {}", name);
+            info!("Finished stage {name}");
         }
 
         Ok(())
@@ -157,9 +157,7 @@ impl Orchestrator {
 
         for block in stage.command_blocks {
             let clone_client = client.clone();
-            let task = tokio::spawn(async move {
-                Self::execute_command_block(clone_client, block).await.expect("Failed to execute command")
-            });
+            let task = tokio::spawn(async move { Self::execute_command_block(clone_client, block).await.expect("Failed to execute command") });
             tasks.push(task);
         }
 
@@ -203,11 +201,7 @@ impl Orchestrator {
         }
     }
 
-    pub async fn match_commands(
-        client: Arc<Mutex<TcpClient>>,
-        commands: Vec<Command>,
-        command_delay: u64,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn match_commands(client: Arc<Mutex<TcpClient>>, commands: Vec<Command>, command_delay: u64) -> Result<(), Box<dyn std::error::Error>> {
         for command in commands {
             Self::match_command(client.clone(), command.clone()).await;
             tokio::time::sleep(std::time::Duration::from_millis(command_delay)).await;
@@ -238,7 +232,8 @@ impl Orchestrator {
                 cfg_type,
             } => Ok(Self::configure(&client, target_addr, device_id, cfg_type).await?),
             Command::Delay { delay } => {
-                Ok(tokio::time::sleep(std::time::Duration::from_millis(delay)).await)
+                tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                Ok(())
             }
         }
     }
