@@ -6,7 +6,7 @@ use lib::handler::device_handler::DeviceHandlerConfig;
 use log::debug;
 use simplelog::LevelFilter;
 
-use crate::services::{EspToolConfig, GlobalConfig, OrchestratorConfig, RegistryConfig, SystemNodeConfig, VisualiserConfig};
+use crate::services::{EspToolConfig, GlobalConfig, OrchestratorConfig, SystemNodeConfig, VisualiserConfig};
 
 /// A trait for overlaying subcommand arguments onto an existing configuration.
 ///
@@ -82,8 +82,8 @@ impl ConfigFromCli<SystemNodeConfig> for SystemNodeSubcommandArgs {
             addr: format!("{}:{}", self.addr, self.port).parse()?,
             device_configs: DeviceHandlerConfig::from_yaml(self.config_path.clone())?,
             host_id: 0,
-            registries: todo!(),
-            registry_polling_rate_s: Option::None,
+            registries: None,
+            registry_polling_rate_s: None,
         })
     }
 }
@@ -101,19 +101,6 @@ impl OverlaySubcommandArgs<SystemNodeConfig> for SystemNodeSubcommandArgs {
     }
 }
 
-/// Registry node commands
-#[derive(FromArgs)]
-#[argh(subcommand, name = "registry")]
-pub struct RegistrySubcommandArgs {}
-
-impl ConfigFromCli<RegistryConfig> for RegistrySubcommandArgs {
-    fn parse(&self) -> Result<RegistryConfig, Error> {
-        Ok(RegistryConfig {
-            addr: "127.0.0.1:8080".parse()?,
-            poll_interval: 5,
-        })
-    }
-}
 /// Orchestrator node commands
 #[derive(FromArgs)]
 #[argh(subcommand, name = "orchestrator")]
