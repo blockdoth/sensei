@@ -8,7 +8,7 @@ use lib::errors::NetworkError;
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
 use lib::network::rpc_message::CfgType::{Create, Delete, Edit};
 use lib::network::rpc_message::SourceType::*;
-use lib::network::rpc_message::{self, DataMsg, DeviceId, DeviceStatus, HostCtrl, HostId, RegCtrl, RpcMessage, RpcMessageKind};
+use lib::network::rpc_message::{DataMsg, DeviceId, DeviceStatus, HostCtrl, HostId, HostStatus, RegCtrl, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, HostChannel, RegChannel, SubscribeDataChannel, send_message};
@@ -53,10 +53,10 @@ impl SubscribeDataChannel for SystemNode {
 
 impl SystemNode {
     fn get_host_status(&self) -> RegCtrl {
-        RegCtrl::HostStatus {
+        RegCtrl::HostStatus(HostStatus {
             host_id: self.host_id,
             device_status: self.device_configs.iter().map(DeviceStatus::from).collect(),
-        }
+        })
     }
 
     async fn handle_host_ctrl(
@@ -210,7 +210,7 @@ impl SystemNode {
                         .list_host_statuses()
                         .await
                         .iter()
-                        .map(|(_, info)| rpc_message::RegCtrl::from(info.clone()))
+                        .map(|(_, info)| HostStatus::from(RegCtrl::from(info.clone())))
                         .collect(),
                 };
                 send_message(send_stream, RpcMessageKind::RegCtrl(msg)).await?;

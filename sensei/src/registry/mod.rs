@@ -8,8 +8,8 @@ use std::convert::From;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use lib::errors::{AppError, NetworkError, RegistryError};
-use lib::network::rpc_message::{DataMsg, DeviceId, DeviceStatus, HostId, RegCtrl, RpcMessage, RpcMessageKind};
+use lib::errors::{NetworkError, RegistryError};
+use lib::network::rpc_message::{DataMsg, DeviceId, DeviceStatus, HostId, HostStatus, RegCtrl, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::{ChannelMsg, RegChannel, SubscribeDataChannel};
 use log::{debug, info, warn};
@@ -46,7 +46,7 @@ pub struct RegHostStatus {
 impl From<RegCtrl> for RegHostStatus {
     fn from(item: RegCtrl) -> Self {
         match item {
-            RegCtrl::HostStatus { host_id, device_status } => RegHostStatus { host_id, device_status },
+            RegCtrl::HostStatus(HostStatus { host_id, device_status }) => RegHostStatus { host_id, device_status },
             _ => {
                 panic!("Could not convert from this type of CtrlMsg: {item:?}");
             }
@@ -56,10 +56,10 @@ impl From<RegCtrl> for RegHostStatus {
 /// Conversion from an internal RegistryHostStatus type to a CtrlMsg
 impl From<RegHostStatus> for RegCtrl {
     fn from(value: RegHostStatus) -> Self {
-        RegCtrl::HostStatus {
+        RegCtrl::HostStatus(HostStatus {
             host_id: value.host_id,
             device_status: value.device_status,
-        }
+        })
     }
 }
 
@@ -103,13 +103,11 @@ impl Registry {
             RegCtrl::PollHostStatuses => {
                 send_commands_channel.send(ChannelMsg::from(RegChannel::SendHostStatuses))?;
             }
-            RegCtrl::HostStatus { host_id, device_status } => self.store_host_update(host_id, request.src_addr, device_status).await?,
+            RegCtrl::HostStatus(HostStatus { host_id, device_status }) => self.store_host_update(host_id, request.src_addr, device_status).await?,
             RegCtrl::HostStatuses { host_statuses } => {
                 for host_status in host_statuses {
-                    match host_status {
-                        RegCtrl::HostStatus { host_id, device_status } => self.store_host_update(host_id, request.src_addr, device_status).await?,
-                        _ => return Err(NetworkError::App(AppError::NoSuchHost)),
-                    }
+                    self.store_host_update(host_status.host_id, request.src_addr, host_status.device_status)
+                        .await?
                 }
             }
             _ => {}
@@ -162,8 +160,8 @@ impl Registry {
                         .map_err(|e| RegistryError::from(Box::new(e)))?;
                     let msg = client.read_message(target_addr).await.map_err(|e| RegistryError::from(Box::new(e)))?;
                     debug!("msg: {msg:?}");
-                    if let RpcMessageKind::RegCtrl(RegCtrl::HostStatus { host_id, device_status }) = msg.msg {
-                        self.store_host_update(host_id, target_addr, device_status).await?;
+                    if let RpcMessageKind::RegCtrl(RegCtrl::HostStatus(host_status)) = msg.msg {
+                        self.store_host_update(host_id, target_addr, host_status.device_status).await?;
                     } else {
                         return Err(RegistryError::NetworkError(Box::from(NetworkError::MessageError)));
                     }
@@ -247,7 +245,7 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::sync::Arc;
 
-    use lib::network::rpc_message::{DeviceStatus, HostId, RegCtrl, RpcMessageKind, SourceType};
+    use lib::network::rpc_message::{DeviceStatus, HostId, HostStatus, RegCtrl, RpcMessageKind, SourceType};
     use tokio::sync::{Mutex, broadcast};
 
     use super::Registry;
@@ -363,10 +361,10 @@ mod tests {
             id: 42,
             dev_type: SourceType::ESP32,
         }];
-        let msg_kind = RpcMessageKind::RegCtrl(RegCtrl::HostStatus {
+        let msg_kind = RpcMessageKind::RegCtrl(RegCtrl::HostStatus(HostStatus {
             host_id,
             device_status: device_status.clone(),
-        });
+        }));
         // Extract device_status from msg_kind and pass it to store_host_update
         registry.store_host_update(host_id, addr, device_status.clone()).await.unwrap();
 

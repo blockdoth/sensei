@@ -45,8 +45,31 @@ pub enum RegCtrl {
     PollHostStatus { host_id: HostId },
     PollHostStatuses,
     AnnouncePresence { host_id: HostId, host_address: SocketAddr },
-    HostStatus { host_id: HostId, device_status: Vec<DeviceStatus> },
-    HostStatuses { host_statuses: Vec<RegCtrl> },
+    HostStatus(HostStatus),
+    HostStatuses { host_statuses: Vec<HostStatus> },
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct HostStatus {
+    pub host_id: HostId,
+    pub device_status: Vec<DeviceStatus>,
+}
+
+impl From<HostStatus> for RegCtrl {
+    fn from(value: HostStatus) -> Self {
+        RegCtrl::HostStatus(value)
+    }
+}
+
+impl From<RegCtrl> for HostStatus {
+    fn from(value: RegCtrl) -> Self {
+        match value {
+            RegCtrl::HostStatus(HostStatus { host_id, device_status }) => HostStatus { host_id, device_status },
+            _ => {
+                panic!("Could not convert from this type of CtrlMsg: {value:?}");
+            }
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -166,10 +189,10 @@ impl FromStr for RegCtrl {
                 Ok(RegCtrl::PollHostStatus { host_id })
             }
             "pollhoststatuses" => Ok(RegCtrl::PollHostStatuses),
-            "hoststatus" => Ok(RegCtrl::HostStatus {
+            "hoststatus" => Ok(RegCtrl::HostStatus(HostStatus {
                 host_id: 0,
                 device_status: vec![],
-            }),
+            })),
             "heartbeat" => Ok(RegCtrl::AnnouncePresence {
                 host_id: 0,
                 host_address: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 8080)),
