@@ -19,6 +19,7 @@ use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::{Mutex, watch};
 
+use crate::cli::DEFAULT_ORCHESTRATOR_CONFIG;
 use crate::orchestrator::IsRecurring::{NotRecurring, Recurring};
 use crate::services::{DEFAULT_ADDRESS, GlobalConfig, OrchestratorConfig, Run};
 
@@ -432,7 +433,7 @@ impl Orchestrator {
                 let target_addr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
                 let device_id: DeviceId = input.next().unwrap_or("0").parse().unwrap();
                 let configure_type = input.next();
-                let config_path: PathBuf = input.next().unwrap_or("sensei/src/orchestrator/example_config.yaml").into();
+                let config_path: PathBuf = input.next().unwrap_or(DEFAULT_ORCHESTRATOR_CONFIG).into();
                 let cfg = match DeviceHandlerConfig::from_yaml(config_path.clone()) {
                     Ok(cfgs) => match cfgs.first() {
                         Some(cfg) => cfg.clone(),
