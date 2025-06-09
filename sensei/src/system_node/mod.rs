@@ -5,16 +5,14 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use lib::FromConfig;
 use lib::errors::NetworkError;
-use lib::handler::device_handler::CfgType::{Create, Delete, Edit};
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
-use lib::network::rpc_message::RegCtrl::*;
+use lib::network::rpc_message::CfgType::{Create, Delete, Edit};
 use lib::network::rpc_message::SourceType::*;
 use lib::network::rpc_message::{self, DataMsg, DeviceId, DeviceStatus, HostCtrl, HostId, RegCtrl, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, HostChannel, RegChannel, SubscribeDataChannel, send_message};
 use lib::sources::DataSourceConfig;
-#[cfg(target_os = "linux")]
 use lib::sources::tcp::TCPConfig;
 use log::*;
 use tokio::net::tcp::OwnedWriteHalf;
@@ -48,7 +46,7 @@ pub struct SystemNode {
 
 impl SubscribeDataChannel for SystemNode {
     /// Creates a mew receiver for the System Nodes send data channel
-    fn subscribe_data_channel(&self) -> broadcast::Receiver<(DataMsg, u64)> {
+    fn subscribe_data_channel(&self) -> broadcast::Receiver<(DataMsg, DeviceId)> {
         self.send_data_channel.subscribe()
     }
 }
@@ -206,7 +204,7 @@ impl SystemNode {
                 send_message(send_stream, msg).await?;
             }
             RegChannel::SendHostStatuses => {
-                let msg = HostStatuses {
+                let msg = RegCtrl::HostStatuses {
                     host_statuses: self
                         .registry
                         .list_host_statuses()
@@ -319,7 +317,7 @@ impl Run<SystemNodeConfig> for SystemNode {
             for registry in registries {
                 info!("Connecting to registry at {registry}");
                 let registry_addr: SocketAddr = *registry;
-                let heartbeat_msg = RpcMessageKind::RegCtrl(AnnouncePresence {
+                let heartbeat_msg = RpcMessageKind::RegCtrl(RegCtrl::AnnouncePresence {
                     host_id: self.host_id,
                     host_address: self.addr,
                 });

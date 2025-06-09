@@ -46,7 +46,7 @@ pub trait FromYaml: Sized + for<'de> Deserialize<'de> {
 }
 
 pub struct OrchestratorConfig {
-    pub targets: Vec<SocketAddr>,
+    pub experiment_config: PathBuf,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
