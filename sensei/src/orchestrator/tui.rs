@@ -1,4 +1,3 @@
-use log::info;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Modifier, Style};
@@ -41,13 +40,12 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
         Block::default()
             .padding(padding)
             .borders(Borders::ALL)
-            .border_style(
-              if matches!(tui_state.focussed_panel, Focused::Status) {
-                  Style::default().fg(Color::Blue)
-              } else {
-                  Style::default()
-              }
-          )            .title(Span::styled(format!(" Log ({}) ", tui_state.logs.len()), header_style)),
+            .border_style(if matches!(tui_state.focussed_panel, Focused::Status) {
+                Style::default().fg(Color::Blue)
+            } else {
+                Style::default()
+            })
+            .title(Span::styled(format!(" Log ({}) ", tui_state.logs.len()), header_style)),
     );
 
     f.render_widget(logs_widget, status_area);
@@ -92,13 +90,11 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
             .padding(padding)
             .title(Span::styled("Registry", header_style))
             .borders(Borders::ALL)
-            .border_style(
-              if matches!(tui_state.focussed_panel, Focused::Registry(_)) {
-                  Style::default().fg(Color::Blue)
-              } else {
-                  Style::default()
-              }
-          )
+            .border_style(if matches!(tui_state.focussed_panel, Focused::Registry(_)) {
+                Style::default().fg(Color::Blue)
+            } else {
+                Style::default()
+            }),
     );
     f.render_widget(registry_widget, control_chunks[0]);
 
@@ -181,10 +177,7 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
     ));
     tree_lines.push(hosts_divider.clone());
 
-    let add_host = vec![
-        Line::from("Add host"),
-        Line::from(" [IP:Port] ___.___.___.___:______"),
-    ];
+    let add_host = vec![Line::from("Add host"), Line::from(" [IP:Port] ___.___.___.___:______")];
 
     tree_lines.extend(add_host);
 
@@ -195,38 +188,34 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
             .padding(padding)
             .title(Span::styled("Hosts", header_style))
             .borders(Borders::ALL)
-            .border_style(
-              if matches!(tui_state.focussed_panel, Focused::Hosts(_)) {
-                  Style::default().fg(Color::Blue)
-              } else {
-                  Style::default()
-              }
-          )
+            .border_style(if matches!(tui_state.focussed_panel, Focused::Hosts(_)) {
+                Style::default().fg(Color::Blue)
+            } else {
+                Style::default()
+            }),
     );
 
     f.render_widget(hosts_tree_view, control_chunks[1]);
-    
-    
-    let mut exp_lines:Vec<Line> = vec![
-      Line::from("Status: [BALLS]"),
-      Line::from("Participating devices:"),
-      Line::from(" -[Device ID's]"),
-      Line::from("Progress"),
-      Line::from(" - Status bar / Time"),
-    ];
-    
 
-    let experiment_widget =  Paragraph::new(Text::from(exp_lines)).block(Block::default()
-    .padding(padding)
-    .borders(Borders::ALL)
-    .border_style(
-      if matches!(tui_state.focussed_panel, Focused::Experiments) {
-          Style::default().fg(Color::Blue)
-      } else {
-          Style::default()
-      }
-    )         
-    .title(Span::styled("Experiment Control", header_style)));
+    let mut exp_lines: Vec<Line> = vec![
+        Line::from("Status: [BALLS]"),
+        Line::from("Participating devices:"),
+        Line::from(" -[Device ID's]"),
+        Line::from("Progress"),
+        Line::from(" - Status bar / Time"),
+    ];
+
+    let experiment_widget = Paragraph::new(Text::from(exp_lines)).block(
+        Block::default()
+            .padding(padding)
+            .borders(Borders::ALL)
+            .border_style(if matches!(tui_state.focussed_panel, Focused::Experiments) {
+                Style::default().fg(Color::Blue)
+            } else {
+                Style::default()
+            })
+            .title(Span::styled("Experiment Control", header_style)),
+    );
 
     f.render_widget(experiment_widget, control_chunks[2]);
 
@@ -242,7 +231,7 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
             FocusedRegistry::RegistryAddress(_) => "[ESC]ape | [Q]uit",
             FocusedRegistry::AvailableHosts(_) => "[ESC]ape | [Q]uit",
         },
-        
+
         Focused::Experiments => "[B]egin experiment | [E]nd Experiment | [P]ause |[ESC]ape | [Q]uit",
         Focused::Status => todo!(),
     })
@@ -252,7 +241,7 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
 
     let footer = Paragraph::new(footer_text).wrap(Wrap { trim: true }).block(
         Block::default()
-            .borders(Borders::ALL)   
+            .borders(Borders::ALL)
             .padding(padding)
             .title(Span::styled("Info / Errors", header_style)), // .style(footer_style),
     );

@@ -57,7 +57,7 @@ impl Orchestrator {
         loop {
             if !recv_commands_channel.is_empty() {
                 let msg_opt = recv_commands_channel.recv().await;
-                debug!("Received channel message {:?}", msg_opt);
+                debug!("Received channel message {msg_opt:?}");
                 match msg_opt {
                     Some(ChannelMsg::Shutdown) => break,
                     Some(ChannelMsg::ListenSubscribe { addr }) => {

@@ -1,6 +1,5 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::usize;
 
 use async_trait::async_trait;
 use crossterm::event::{KeyCode, KeyEvent};
@@ -200,60 +199,32 @@ impl Tui<OrgUpdate, ChannelMsg> for OrgTuiState {
                 KeyCode::Char('r') | KeyCode::Char('R') => Some(OrgUpdate::FocusChange(Focused::Registry(FocusedRegistry::RegistryAddress(0)))),
                 KeyCode::Char('e') | KeyCode::Char('E') => Some(OrgUpdate::FocusChange(Focused::Experiments)),
                 KeyCode::Char('h') | KeyCode::Char('H') => {
-                  if self.connected_hosts.len() > 0 {
-                    Some(OrgUpdate::FocusChange(Focused::Hosts(FocusedHosts::HostTree(0, 0))))
-                  } else {
-                    Some(OrgUpdate::FocusChange(Focused::Hosts(FocusedHosts::None)))
-                  }
+                    if !self.connected_hosts.is_empty() {
+                        Some(OrgUpdate::FocusChange(Focused::Hosts(FocusedHosts::HostTree(0, 0))))
+                    } else {
+                        Some(OrgUpdate::FocusChange(Focused::Hosts(FocusedHosts::None)))
+                    }
                 }
                 _ => None,
             },
 
             Focused::Registry(focused_registry_panel) => match focused_registry_panel {
-                FocusedRegistry::RegistryAddress(_) => match key {
-                    _ => None,
-                },
-                FocusedRegistry::AvailableHosts(_) => match key {
-                    _ => None,
-                },
+                FocusedRegistry::RegistryAddress(_) => None,
+                FocusedRegistry::AvailableHosts(_) => None,
             },
             Focused::Hosts(focused_hosts_panel) => match focused_hosts_panel {
                 FocusedHosts::None => match key {
-                    KeyCode::Char('a') | KeyCode::Char('A') => return Some(OrgUpdate::FocusChange(Focused::Hosts(FocusedHosts::AddHost(0)))),
+                    KeyCode::Char('a') | KeyCode::Char('A') => Some(OrgUpdate::FocusChange(Focused::Hosts(FocusedHosts::AddHost(0)))),
                     _ => None,
                 },
                 FocusedHosts::AddHost(host_idx) => None,
                 FocusedHosts::HostTree(host_idx, 0) => match key {
-                    KeyCode::Char('c') | KeyCode::Char('C') => {
-                        if let Some(host) = self.connected_hosts.get(*host_idx) {
-                            Some(OrgUpdate::Connect(host.addr))
-                        } else {
-                            None
-                        }
-                    }
+                    KeyCode::Char('c') | KeyCode::Char('C') => self.connected_hosts.get(*host_idx).map(|host| OrgUpdate::Connect(host.addr)),
 
-                    KeyCode::Char('d') | KeyCode::Char('D') => {
-                        if let Some(host) = self.connected_hosts.get(*host_idx) {
-                            Some(OrgUpdate::Disconnect(host.addr))
-                        } else {
-                            None
-                        }
-                    }
+                    KeyCode::Char('d') | KeyCode::Char('D') => self.connected_hosts.get(*host_idx).map(|host| OrgUpdate::Disconnect(host.addr)),
 
-                    KeyCode::Char('s') | KeyCode::Char('S') => {
-                        if let Some(host) = self.connected_hosts.get(*host_idx) {
-                            Some(OrgUpdate::SubscribeAll(host.addr))
-                        } else {
-                            None
-                        }
-                    }
-                    KeyCode::Char('u') | KeyCode::Char('U') => {
-                        if let Some(host) = self.connected_hosts.get(*host_idx) {
-                            Some(OrgUpdate::UnsubscribeAll(host.addr))
-                        } else {
-                            None
-                        }
-                    }
+                    KeyCode::Char('s') | KeyCode::Char('S') => self.connected_hosts.get(*host_idx).map(|host| OrgUpdate::SubscribeAll(host.addr)),
+                    KeyCode::Char('u') | KeyCode::Char('U') => self.connected_hosts.get(*host_idx).map(|host| OrgUpdate::UnsubscribeAll(host.addr)),
                     KeyCode::Up => Some(OrgUpdate::Up),
                     KeyCode::Down => Some(OrgUpdate::Down),
                     KeyCode::Tab => Some(OrgUpdate::Tab),
@@ -263,22 +234,14 @@ impl Tui<OrgUpdate, ChannelMsg> for OrgTuiState {
                 FocusedHosts::HostTree(host_idx, device_idx) => match key {
                     KeyCode::Char('s') | KeyCode::Char('S') => {
                         if let Some(host) = self.connected_hosts.get(*host_idx) {
-                            if let Some(device) = host.devices.get(*device_idx) {
-                                Some(OrgUpdate::Subscribe(host.addr, device.id))
-                            } else {
-                                None
-                            }
+                            host.devices.get(*device_idx).map(|device| OrgUpdate::Subscribe(host.addr, device.id))
                         } else {
                             None
                         }
                     }
                     KeyCode::Char('u') | KeyCode::Char('U') => {
                         if let Some(host) = self.connected_hosts.get(*host_idx) {
-                            if let Some(device) = host.devices.get(*device_idx) {
-                                Some(OrgUpdate::Unsubscribe(host.addr, device.id))
-                            } else {
-                                None
-                            }
+                            host.devices.get(*device_idx).map(|device| OrgUpdate::Unsubscribe(host.addr, device.id))
                         } else {
                             None
                         }
@@ -290,12 +253,8 @@ impl Tui<OrgUpdate, ChannelMsg> for OrgTuiState {
                     _ => None,
                 },
             },
-            Focused::Status => match key {
-                _ => None,
-            },
-            Focused::Experiments => match key {
-              _ => None,
-          },            
+            Focused::Status => None,
+            Focused::Experiments => None,
         }
     }
 
@@ -349,59 +308,61 @@ impl Tui<OrgUpdate, ChannelMsg> for OrgTuiState {
                     }
                 }
             }
-            OrgUpdate::Up => match &self.focussed_panel {
-                Focused::Hosts(host_focus) => match host_focus {
-                    FocusedHosts::HostTree(0, 0) => self.focussed_panel = Focused::Hosts(FocusedHosts::HostTree(0, 0)),
-                    FocusedHosts::HostTree(h, 0) => {
-                        if let Some(host) = self.connected_hosts.get(*h - 1) {
-                            let d = host.devices.len();
-                            self.focussed_panel = Focused::Hosts(FocusedHosts::HostTree(h - 1, d));
-                        }
-                    }
-                    FocusedHosts::HostTree(h, d) => self.focussed_panel = Focused::Hosts(FocusedHosts::HostTree(*h, d - 1)),
-                    _ => {}
-                },
-                _ => {}
-            },
-
-            OrgUpdate::Down => match &self.focussed_panel {
-                Focused::Hosts(host_focus) => match host_focus {
-                    FocusedHosts::HostTree(h, d) if *h < self.connected_hosts.len() => {
-                        if let Some(host) = self.connected_hosts.get(*h) {
-                            if *d < host.devices.len() {
-                                self.focussed_panel = Focused::Hosts(FocusedHosts::HostTree(*h, d + 1))
-                            } else if *h < self.connected_hosts.len() - 1 {
-                                self.focussed_panel = Focused::Hosts(FocusedHosts::HostTree(h + 1, 0))
-                            } else{
-                              self.focussed_panel = Focused::Hosts(FocusedHosts::AddHost(0))
+            OrgUpdate::Up => {
+                if let Focused::Hosts(host_focus) = &self.focussed_panel {
+                    match host_focus {
+                        FocusedHosts::HostTree(0, 0) => self.focussed_panel = Focused::Hosts(FocusedHosts::HostTree(0, 0)),
+                        FocusedHosts::HostTree(h, 0) => {
+                            if let Some(host) = self.connected_hosts.get(*h - 1) {
+                                let d = host.devices.len();
+                                self.focussed_panel = Focused::Hosts(FocusedHosts::HostTree(h - 1, d));
                             }
                         }
+                        FocusedHosts::HostTree(h, d) => self.focussed_panel = Focused::Hosts(FocusedHosts::HostTree(*h, d - 1)),
+                        _ => {}
                     }
-                    _ => {}
-                },
-                _ => {}
-            },
-            OrgUpdate::BackTab => match &self.focussed_panel {
-                Focused::Hosts(host_focus) => match host_focus {
-                    FocusedHosts::HostTree(0, 0) => self.focussed_panel = Focused::Hosts(FocusedHosts::HostTree(0, 0)),
-                    FocusedHosts::HostTree(h, 0) => {
-                        self.focussed_panel = Focused::Hosts(FocusedHosts::HostTree(h - 1, 0));
+                }
+            }
+
+            OrgUpdate::Down => {
+                if let Focused::Hosts(host_focus) = &self.focussed_panel {
+                    match host_focus {
+                        FocusedHosts::HostTree(h, d) if *h < self.connected_hosts.len() => {
+                            if let Some(host) = self.connected_hosts.get(*h) {
+                                if *d < host.devices.len() {
+                                    self.focussed_panel = Focused::Hosts(FocusedHosts::HostTree(*h, d + 1))
+                                } else if *h < self.connected_hosts.len() - 1 {
+                                    self.focussed_panel = Focused::Hosts(FocusedHosts::HostTree(h + 1, 0))
+                                } else {
+                                    self.focussed_panel = Focused::Hosts(FocusedHosts::AddHost(0))
+                                }
+                            }
+                        }
+                        _ => {}
                     }
-                    _ => {}
-                },
-                _ => {}
-            },
-            OrgUpdate::Tab => match &self.focussed_panel {
-                Focused::Hosts(host_focus) => match host_focus {
-                    FocusedHosts::HostTree(h, 0) if *h < self.connected_hosts.len() - 1 => {
-                        self.focussed_panel = Focused::Hosts(FocusedHosts::HostTree(h + 1, 0));
+                }
+            }
+            OrgUpdate::BackTab => {
+                if let Focused::Hosts(host_focus) = &self.focussed_panel {
+                    match host_focus {
+                        FocusedHosts::HostTree(0, 0) => self.focussed_panel = Focused::Hosts(FocusedHosts::HostTree(0, 0)),
+                        FocusedHosts::HostTree(h, 0) => {
+                            self.focussed_panel = Focused::Hosts(FocusedHosts::HostTree(h - 1, 0));
+                        }
+                        _ => {}
                     }
-                    _ => {
-                      self.focussed_panel = Focused::Hosts(FocusedHosts::AddHost(0))
+                }
+            }
+            OrgUpdate::Tab => {
+                if let Focused::Hosts(host_focus) = &self.focussed_panel {
+                    match host_focus {
+                        FocusedHosts::HostTree(h, 0) if *h < self.connected_hosts.len() - 1 => {
+                            self.focussed_panel = Focused::Hosts(FocusedHosts::HostTree(h + 1, 0));
+                        }
+                        _ => self.focussed_panel = Focused::Hosts(FocusedHosts::AddHost(0)),
                     }
-                },
-                _ => {}
-            },
+                }
+            }
             OrgUpdate::Left => {}
             OrgUpdate::Right => {}
         }
