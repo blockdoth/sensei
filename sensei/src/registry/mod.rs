@@ -8,14 +8,11 @@ use std::convert::From;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use lib::errors::{NetworkError, RegistryError};
 use lib::network::rpc_message::{DataMsg, DeviceId, DeviceStatus, HostId, RegCtrl, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
-use lib::network::tcp::server::TcpServer;
-use lib::network::tcp::{ChannelMsg, ConnectionHandler, RegChannel, SubscribeDataChannel, send_message};
-use log::*;
-use tokio::net::tcp::OwnedWriteHalf;
+use lib::network::tcp::{ChannelMsg, RegChannel, SubscribeDataChannel};
+use log::info;
 use tokio::sync::watch::{self};
 use tokio::sync::{Mutex, broadcast};
 use tokio::task;

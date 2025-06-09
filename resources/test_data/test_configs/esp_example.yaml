@@ -1,3 +1,6 @@
+addr: "127.0.0.1:8080"
+host_id: 5
+device_configs:
 - device_id: 0
   stype: TCP
   source: !Tcp

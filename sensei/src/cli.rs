@@ -27,6 +27,8 @@ pub trait OverlaySubcommandArgs<T> {
     fn overlay_subcommand_args(&self, full_config: T) -> Result<T, Box<dyn std::error::Error>>;
 }
 
+static DEFAULT_HOST_CONFIG: &str = "resources/test_data/test_configs/minimal.yaml";
+
 /// A simple app to perform collection from configured sources
 #[derive(FromArgs)]
 pub struct Args {
@@ -51,11 +53,10 @@ pub trait ConfigFromCli<Config> {
 #[derive(FromArgs)]
 #[argh(subcommand)]
 pub enum SubCommandsArgs {
-    One(SystemNodeSubcommandArgs),
-    Two(RegistrySubcommandArgs),
-    Three(OrchestratorSubcommandArgs),
-    Four(VisualiserSubcommandArgs),
-    Five(EspToolSubcommandArgs),
+    SystemNode(SystemNodeSubcommandArgs),
+    Orchestrator(OrchestratorSubcommandArgs),
+    Visualiser(VisualiserSubcommandArgs),
+    EspTool(EspToolSubcommandArgs),
 }
 
 /// System node commands
@@ -71,7 +72,7 @@ pub struct SystemNodeSubcommandArgs {
     pub port: u16,
 
     /// location of config file (default sensei/src/system_node/example_config.yaml)
-    #[argh(option, default = "PathBuf::from(\"sensei/src/system_node/example_config.yaml\")")]
+    #[argh(option, default = "DEFAULT_HOST_CONFIG.parse().unwrap()")]
     pub config_path: PathBuf,
 }
 
@@ -98,10 +99,6 @@ impl OverlaySubcommandArgs<SystemNodeConfig> for SystemNodeSubcommandArgs {
 
         Ok(config)
     }
-}
-
-fn default_device_configs() -> PathBuf {
-    "sensei/src/system_node/example_config.yaml".parse().unwrap()
 }
 
 /// Registry node commands
