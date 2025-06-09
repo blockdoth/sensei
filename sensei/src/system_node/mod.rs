@@ -5,8 +5,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use lib::FromConfig;
 use lib::errors::NetworkError;
-use lib::handler::device_handler::CfgType::{Create, Delete, Edit};
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
+use lib::network::rpc_message::CfgType::{Create, Delete, Edit};
 use lib::network::rpc_message::CtrlMsg::*;
 use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
 use lib::network::rpc_message::SourceType::*;
@@ -15,7 +15,6 @@ use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, SubscribeDataChannel, send_message};
 use lib::sources::DataSourceConfig;
-#[cfg(target_os = "linux")]
 use lib::sources::tcp::TCPConfig;
 use log::*;
 use tokio::net::tcp::OwnedWriteHalf;
@@ -45,7 +44,7 @@ pub struct SystemNode {
 
 impl SubscribeDataChannel for SystemNode {
     /// Creates a mew receiver for the System Nodes send data channel
-    fn subscribe_data_channel(&self) -> broadcast::Receiver<(DataMsg, u64)> {
+    fn subscribe_data_channel(&self) -> broadcast::Receiver<(DataMsg, DeviceId)> {
         self.send_data_channel.subscribe()
     }
 }

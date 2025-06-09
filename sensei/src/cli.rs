@@ -120,20 +120,20 @@ impl ConfigFromCli<RegistryConfig> for RegistrySubcommandArgs {
 #[derive(FromArgs)]
 #[argh(subcommand, name = "orchestrator")]
 pub struct OrchestratorSubcommandArgs {
-    /// server port (default: 6969)
-    #[argh(option, default = "vec![String::from(\"127.0.0.1:6969\")]")]
-    pub target: Vec<String>,
-
     /// whether to enable tui input
     #[argh(option, default = "true")]
     pub tui: bool,
+
+    /// file path of the experiment config
+    #[argh(option, default = "PathBuf::from(\"sensei/src/orchestrator/experiment_config.yaml\")")]
+    pub experiment_config: PathBuf,
 }
 
 impl ConfigFromCli<OrchestratorConfig> for OrchestratorSubcommandArgs {
     fn parse(&self) -> Result<OrchestratorConfig, Error> {
         // TODO input validation
         Ok(OrchestratorConfig {
-            targets: self.target.iter().map(|addr| addr.parse().unwrap()).collect(),
+            experiment_config: self.experiment_config.clone(),
         })
     }
 }
