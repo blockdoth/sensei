@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::{Mutex, watch};
-
+use crate::orchestrator::CommandType::Delay;
 use crate::orchestrator::IsRecurring::{NotRecurring, Recurring};
 use crate::services::{DEFAULT_ADDRESS, GlobalConfig, OrchestratorConfig, Run};
 
@@ -90,6 +90,9 @@ pub enum CommandType {
         device_id: DeviceId,
         cfg_type: CfgType,
     },
+    Delay {
+        delay: u64,
+    }
 }
 
 impl Run<OrchestratorConfig> for Orchestrator {
@@ -181,6 +184,9 @@ impl Orchestrator {
                 device_id,
                 cfg_type,
             } => Ok(Self::configure(&client, target_addr, device_id, cfg_type).await?),
+            Delay { delay } => {
+                Ok(tokio::time::sleep(std::time::Duration::from_millis(delay)).await)
+            }
         }
     }
 
