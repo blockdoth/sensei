@@ -1,7 +1,9 @@
+use std::fs::File;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::vec;
+use std::error::Error;
 
 use futures::future::pending;
 use lib::handler::device_handler::DeviceHandlerConfig;
@@ -17,23 +19,41 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::{Mutex, watch};
-use crate::orchestrator::CommandType::Delay;
 use crate::orchestrator::IsRecurring::{NotRecurring, Recurring};
 use crate::services::{DEFAULT_ADDRESS, GlobalConfig, OrchestratorConfig, Run};
 
 pub struct Orchestrator {
     client: Arc<Mutex<TcpClient>>,
     experiment_config: PathBuf,
+    output_path: Option<PathBuf>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Command {
-    command_types: Vec<CommandType>,
+pub struct Experiment {
+    metadata: Metadata,
+    stages: Vec<Stage>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Metadata {
+    name: String,
+    output_path: Option<PathBuf>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Stage {
+    name: String,
+    command_blocks: Vec<Block>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Block {
+    commands: Vec<Command>,
     delays: Delays,
 }
 
-impl Command {
-    pub fn from_yaml(file: PathBuf) -> Result<Vec<Self>, Box<dyn std::error::Error>> {
+impl Experiment {
+    pub fn from_yaml(file: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
         let yaml = std::fs::read_to_string(file.clone()).map_err(|e| format!("Failed to read YAML file: {}\n{}", file.display(), e))?;
         Ok(serde_yaml::from_str(&yaml)?)
     }
@@ -56,7 +76,7 @@ pub enum IsRecurring {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum CommandType {
+pub enum Command {
     Connect {
         target_addr: SocketAddr,
     },
@@ -100,15 +120,14 @@ impl Run<OrchestratorConfig> for Orchestrator {
         Orchestrator {
             client: Arc::new(Mutex::new(TcpClient::new())),
             experiment_config: config.experiment_config,
+            output_path: None,
         }
     }
 
-    async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let commands = Command::from_yaml(self.experiment_config.clone())?;
+    async fn run(&mut self) -> Result<(), Box<dyn Error>> {
+        let experiment = Experiment::from_yaml(self.experiment_config.clone())?;
 
-        for command in commands {
-            Orchestrator::execute_command(self.client.clone(), command).await;
-        }
+        self.load_experiment(self.client.clone(), experiment).await;
 
         self.cli_interface().await?;
         Ok(())
@@ -116,75 +135,109 @@ impl Run<OrchestratorConfig> for Orchestrator {
 }
 
 impl Orchestrator {
-    pub async fn execute_command(client: Arc<Mutex<TcpClient>>, command: Command) -> Result<(), Box<dyn std::error::Error>> {
-        tokio::time::sleep(std::time::Duration::from_millis(command.delays.init_delay.unwrap_or(0u64))).await;
-        let command_delay = command.delays.command_delay.unwrap_or(0u64);
-        let command_types = command.command_types;
+    pub async fn load_experiment(&mut self, client: Arc<Mutex<TcpClient>>, experiment: Experiment) -> Result<(), Box<dyn Error + Send + Sync>> {
+        self.output_path = experiment.metadata.output_path;
 
-        match command.delays.is_recurring.clone() {
+        match &self.output_path {
+            Some(path) => { File::create(path)?; }
+            None => {}
+        }
+
+        for (i, stage) in experiment.stages.into_iter().enumerate() {
+            let name = stage.name.clone();
+            info!("Executing stage {}", name);
+            Self::execute_stage(client.clone(), stage).await?;
+            info!("Finished stage {}", name);
+        }
+
+        Ok(())
+    }
+    pub async fn execute_stage(client: Arc<Mutex<TcpClient>>, stage: Stage) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let mut tasks = vec![];
+
+        for block in stage.command_blocks {
+            let clone_client = client.clone();
+            let task = tokio::spawn(async move {
+                Self::execute_command_block(clone_client, block).await.expect("Failed to execute command")
+            });
+            tasks.push(task);
+        }
+
+        let results = futures::future::join_all(tasks).await;
+
+        for result in results {
+            result?;
+        }
+
+        Ok(())
+    }
+    pub async fn execute_command_block(client: Arc<Mutex<TcpClient>>, block: Block) -> Result<(), Box<dyn Error + Send + Sync>> {
+        tokio::time::sleep(std::time::Duration::from_millis(block.delays.init_delay.unwrap_or(0u64))).await;
+        let command_delay = block.delays.command_delay.unwrap_or(0u64);
+        let command_types = block.commands;
+
+        match block.delays.is_recurring.clone() {
             Recurring {
                 recurrence_delay,
                 iterations,
             } => {
-                tokio::spawn(async move {
-                    let r_delay = recurrence_delay.unwrap_or(0u64);
-                    let n = iterations.unwrap_or(0u64);
-                    if n == 0 {
-                        loop {
-                            Self::match_command_types(client.clone(), command_types.clone(), command_delay).await;
-                            tokio::time::sleep(std::time::Duration::from_millis(r_delay)).await;
-                        }
-                    } else {
-                        for _ in 0..n {
-                            Self::match_command_types(client.clone(), command_types.clone(), command_delay).await;
-                            tokio::time::sleep(std::time::Duration::from_millis(r_delay)).await;
-                        }
+                let r_delay = recurrence_delay.unwrap_or(0u64);
+                let n = iterations.unwrap_or(0u64);
+                if n == 0 {
+                    loop {
+                        Self::match_commands(client.clone(), command_types.clone(), command_delay).await;
+                        tokio::time::sleep(std::time::Duration::from_millis(r_delay)).await;
                     }
-                });
+                } else {
+                    for _ in 0..n {
+                        Self::match_commands(client.clone(), command_types.clone(), command_delay).await;
+                        tokio::time::sleep(std::time::Duration::from_millis(r_delay)).await;
+                    }
+                }
                 Ok(())
             }
             NotRecurring => {
-                Self::match_command_types(client, command_types, command_delay).await;
+                Self::match_commands(client, command_types, command_delay).await;
                 Ok(())
             }
         }
     }
 
-    pub async fn match_command_types(
+    pub async fn match_commands(
         client: Arc<Mutex<TcpClient>>,
-        command_types: Vec<CommandType>,
+        commands: Vec<Command>,
         command_delay: u64,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        for command_type in command_types {
-            Self::match_command_type(client.clone(), command_type.clone()).await;
+        for command in commands {
+            Self::match_command(client.clone(), command.clone()).await;
             tokio::time::sleep(std::time::Duration::from_millis(command_delay)).await;
         }
         Ok(())
     }
 
-    pub async fn match_command_type(client: Arc<Mutex<TcpClient>>, command_type: CommandType) -> Result<(), Box<dyn std::error::Error>> {
-        match command_type {
-            CommandType::Connect { target_addr } => Ok(Self::connect(&client, target_addr).await?),
-            CommandType::Disconnect { target_addr } => Ok(Self::disconnect(&client, target_addr).await?),
-            CommandType::Subscribe { target_addr, device_id } => Ok(Self::subscribe(&client, target_addr, device_id).await?),
-            CommandType::Unsubscribe { target_addr, device_id } => Ok(Self::unsubscribe(&client, target_addr, device_id).await?),
-            CommandType::SubscribeTo {
+    pub async fn match_command(client: Arc<Mutex<TcpClient>>, command: Command) -> Result<(), Box<dyn std::error::Error>> {
+        match command {
+            Command::Connect { target_addr } => Ok(Self::connect(&client, target_addr).await?),
+            Command::Disconnect { target_addr } => Ok(Self::disconnect(&client, target_addr).await?),
+            Command::Subscribe { target_addr, device_id } => Ok(Self::subscribe(&client, target_addr, device_id).await?),
+            Command::Unsubscribe { target_addr, device_id } => Ok(Self::unsubscribe(&client, target_addr, device_id).await?),
+            Command::SubscribeTo {
                 target_addr,
                 source_addr,
                 device_id,
             } => Ok(Self::subscribe_to(&client, target_addr, source_addr, device_id).await?),
-            CommandType::UnsubscribeFrom {
+            Command::UnsubscribeFrom {
                 target_addr,
                 source_addr,
                 device_id,
             } => Ok(Self::unsubscribe_from(&client, target_addr, source_addr, device_id).await?),
-            CommandType::SendStatus { target_addr, host_id } => Ok(Self::send_status(&client, target_addr, host_id).await?),
-            CommandType::Configure {
+            Command::SendStatus { target_addr, host_id } => Ok(Self::send_status(&client, target_addr, host_id).await?),
+            Command::Configure {
                 target_addr,
                 device_id,
                 cfg_type,
             } => Ok(Self::configure(&client, target_addr, device_id, cfg_type).await?),
-            Delay { delay } => {
+            Command::Delay { delay } => {
                 Ok(tokio::time::sleep(std::time::Duration::from_millis(delay)).await)
             }
         }
