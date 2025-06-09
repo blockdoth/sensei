@@ -1,3 +1,12 @@
+//! # System Node Module
+//!
+//! The System Node is a core component in the Sensei network. It acts as both a sender and receiver of CSI data, hosting devices that generate or consume this data.
+//! System Nodes are responsible for forwarding CSI data to other receivers, adapting data to a universal standard, and managing device handlers.
+//!
+//! Devices can subscribe to CSI data streams by sending a `Subscribe` message with a device ID. The System Node manages these subscriptions and ensures data is routed appropriately.
+//!
+//! The System Node also interacts with registries to announce its presence and can periodically poll other nodes when functioning as a registry.
+
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -25,13 +34,18 @@ use crate::services::{GlobalConfig, Run, SystemNodeConfig};
 /// The System Node is a sender and a receiver in the network of Sensei.
 /// It hosts the devices that send and receive CSI data, and is responsible for sending this data further to other receivers in the system.
 ///
-/// Devices can "ask" for the CSI data generated at a System Node by sending it a Subscribe message, specifying the device id.
-///
 /// The System Node can also adapt this CSI data to our universal standard, which lets it be used by other parts of Sensei, like the Visualiser.
 ///
-/// # Arguments
+/// # Fields
+/// - `send_data_channel`: Tokio broadcast channel for distributing data to subscribers.
+/// - `handlers`: Map of device IDs to their respective device handlers.
+/// - `addr`: The network address of this node.
+/// - `host_id`: Unique identifier for this node.
+/// - `registry_addrs`: Optional list of registry addresses to register with.
+/// - `device_configs`: Configuration for each device managed by this node.
+/// - `registry`: Local registry instance for host/device status.
+/// - `registry_polling_rate_s`: Optional polling interval for registry updates.
 ///
-/// send_data_channel: the System Node communicates which data should be sent to other receivers across its threads using this tokio channel
 #[derive(Clone)]
 pub struct SystemNode {
     send_data_channel: broadcast::Sender<(DataMsg, DeviceId)>, // Call .subscribe() on the sender in order to get a receiver
@@ -41,24 +55,39 @@ pub struct SystemNode {
     registry_addrs: Option<Vec<SocketAddr>>,
     device_configs: Vec<DeviceHandlerConfig>,
     registry: Registry,
-    registry_polling_rate_s: Option<u64>,
 }
 
 impl SubscribeDataChannel for SystemNode {
-    /// Creates a mew receiver for the System Nodes send data channel
+    /// Creates a new receiver for the System Node's send data channel.
     fn subscribe_data_channel(&self) -> broadcast::Receiver<(DataMsg, DeviceId)> {
         self.send_data_channel.subscribe()
     }
 }
 
 impl SystemNode {
+    /// Returns the current host status as a `RegCtrl` message.
     fn get_host_status(&self) -> RegCtrl {
         RegCtrl::HostStatus(HostStatus {
             host_id: self.host_id,
-            device_status: self.device_configs.iter().map(DeviceStatus::from).collect(),
+            device_statuses: self.device_configs.iter().map(DeviceStatus::from).collect(),
         })
     }
 
+    /// Handles incoming host control messages and performs the corresponding actions.
+    ///
+    /// # Arguments
+    /// * `request` - The incoming RPC message containing the request details.
+    /// * `message` - The host control command to handle.
+    /// * `send_channel_msg_channel` - A channel to send messages to the connection's sending task.
+    ///
+    /// # Returns
+    /// * `Result<(), NetworkError>` - Returns `Ok(())` if the command was handled successfully, or a `NetworkError` if an error occurred.
+    ///
+    /// # Behavior
+    /// - Handles various `HostCtrl` commands such as `Connect`, `Disconnect`, `Subscribe`, `Unsubscribe`, `SubscribeTo`, `UnsubscribeFrom`, and `Configure`.
+    /// - For `Disconnect`, signals the sending task to disconnect and returns an error to indicate the connection should close.
+    /// - For subscription commands, updates the relevant handlers and logs the actions.
+    /// - For configuration commands, creates, edits, or deletes device handlers as specified.
     async fn handle_host_ctrl(
         &self,
         request: RpcMessage,
@@ -151,21 +180,7 @@ impl SystemNode {
         Ok(())
     }
 
-    /// Handles incoming host control messages and performs the corresponding actions.
-    ///
-    /// # Arguments
-    /// * `request` - The incoming RPC message containing the request details.
-    /// * `message` - The host control command to handle.
-    /// * `send_channel_msg_channel` - A channel to send messages to the connection's sending task.
-    ///
-    /// # Returns
-    /// * `Result<(), NetworkError>` - Returns `Ok(())` if the command was handled successfully, or a `NetworkError` if an error occurred.
-    ///
-    /// # Behavior
-    /// - Handles various `HostCtrl` commands such as `Connect`, `Disconnect`, `Subscribe`, `Unsubscribe`, `SubscribeTo`, `UnsubscribeFrom`, and `Configure`.
-    /// - For `Disconnect`, signals the sending task to disconnect and returns an error to indicate the connection should close.
-    /// - For subscription commands, updates the relevant handlers and logs the actions.
-    /// - For configuration commands, creates, edits, or deletes device handlers as specified.
+    /// Handles channel messages for host actions (subscribe, unsubscribe, disconnect).
     async fn handle_host_channel(
         &self,
         host_msg: HostChannel,
@@ -191,7 +206,7 @@ impl SystemNode {
         Ok(())
     }
 
-    /// Handles channel messages used for registry actions
+    /// Handles channel messages used for registry actions.
     async fn handle_reg_channel(&self, reg_msg: RegChannel, send_stream: &mut OwnedWriteHalf) -> Result<(), NetworkError> {
         match reg_msg {
             RegChannel::SendHostStatus { host_id } => {
@@ -281,6 +296,7 @@ impl ConnectionHandler for SystemNode {
 }
 
 impl Run<SystemNodeConfig> for SystemNode {
+    /// Constructs a new `SystemNode` from the given global and node-specific configuration.
     fn new(global_config: GlobalConfig, config: SystemNodeConfig) -> Self {
         let (send_data_channel, _) = broadcast::channel::<(DataMsg, DeviceId)>(16);
 
@@ -291,12 +307,11 @@ impl Run<SystemNodeConfig> for SystemNode {
             host_id: config.host_id,
             registry_addrs: config.registries,
             device_configs: config.device_configs,
-            registry_polling_rate_s: config.registry_polling_rate_s,
-            registry: Registry::new(),
+            registry: Registry::new(config.registry_polling_rate_s),
         }
     }
 
-    /// Starts the system node
+    /// Starts the system node.
     ///
     /// Initializes a hashmap of device handlers based on the configuration file on startup
     ///
@@ -334,13 +349,7 @@ impl Run<SystemNodeConfig> for SystemNode {
             TcpServer::serve(connection_handler.addr, connection_handler).await.unwrap();
         });
         // create registry polling task, if configured
-        let polling_task = if let Some(interval) = self.registry_polling_rate_s {
-            info!("Started registry polling task");
-            self.registry.create_polling_client_task(interval)
-        } else {
-            task::spawn(async {})
-        };
-
+        let polling_task = self.registry.create_polling_task();
         // Run both tasks concurrently, utill either errors, or both exit
         tokio::try_join!(tcp_server, polling_task)?;
         Ok(())
