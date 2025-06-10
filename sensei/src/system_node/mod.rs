@@ -61,7 +61,7 @@ impl ConnectionHandler for SystemNode {
     /// - Subscribe/Unsubscribe
     /// - Configure
     async fn handle_recv(&self, request: RpcMessage, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
-        info!("Received message {:?} from {}", request.msg, request.src_addr);
+        debug!("Received message {:?} from {}", request.msg, request.src_addr);
         match request.msg {
             Ctrl(command) => match command {
                 Connect => {

@@ -31,7 +31,7 @@ pub trait OverlaySubcommandArgs<T> {
 #[derive(FromArgs)]
 pub struct Args {
     /// log level to use for terminal logging
-    #[argh(option, default = "LevelFilter::Debug")]
+    #[argh(option, default = "LevelFilter::Info")]
     pub level: LevelFilter,
 
     #[argh(subcommand)]

@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Padding, Paragraph, Wrap};
 
 use super::state::OrgTuiState;
-use crate::orchestrator::state::{DeviceStatus, Focused, FocusedHosts, FocusedRegistry, RegistryStatus};
+use crate::orchestrator::state::{DeviceStatus, Focused, FocusedAddHostField, FocusedHosts, FocusedRegistry, RegistryStatus};
 
 pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
     let screen_chunks = Layout::default()
@@ -81,7 +81,7 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
     ];
 
     // Append known addresses as Lines
-    for addr in &tui_state.known_hosts {
+    for addr in &tui_state.host_available_from_reg {
         lines.push(Line::from(Span::raw(addr.to_string())));
     }
 
@@ -99,7 +99,7 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
     f.render_widget(registry_widget, control_chunks[0]);
 
     let mut tree_lines: Vec<Line> = vec![];
-    for (host_idx, host) in tui_state.connected_hosts.iter().enumerate() {
+    for (host_idx, host) in tui_state.known_hosts.iter().enumerate() {
         // Handles host style
         let host_style = if host.devices.iter().all(|d| d.status == DeviceStatus::Subscribed) {
             match &tui_state.focussed_panel {
@@ -177,9 +177,23 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
     ));
     tree_lines.push(hosts_divider.clone());
 
-    let add_host = vec![Line::from("Add host"), Line::from(" [IP:Port] ___.___.___.___:______")];
+    let ip_input = Line::from(" [IP:Port] ___.___.___.___:______");
 
-    tree_lines.extend(add_host);
+    tree_lines.push(Line::from("Add Host: "));
+    let mut add_addr = vec![Span::from(" IP:Port ")];
+    add_addr.extend(edit_number(
+        &tui_state.focussed_panel,
+        tui_state.add_host_input_socket,
+        FocusedAddHostField::Address,
+    ));
+    tree_lines.push(Line::from(add_addr));
+    let mut add_id = vec![Span::from(" ID      ")];
+    add_id.extend(edit_number(
+        &tui_state.focussed_panel,
+        tui_state.add_host_input_id,
+        FocusedAddHostField::ID,
+    ));
+    tree_lines.push(Line::from(add_id));
 
     tree_lines.push(hosts_divider);
 
@@ -223,9 +237,9 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
         Focused::Main => "[R]egistry | [H]osts  | [E]xperiment | [Q]uit",
         Focused::Hosts(focused_hosts_panel) => match focused_hosts_panel {
             FocusedHosts::None => "[A]dd host | [ESC]ape | [Q]uit",
-            FocusedHosts::AddHost(_) => "[ESC]ape | [Q]uit",
-            FocusedHosts::HostTree(_, 0) => "[A]dd host | [C]onnect | [D]isconnect | [S]ubscribe to all |  [U]nsubscribe to all | [ESC]ape | [Q]uit",
-            FocusedHosts::HostTree(_, _) => "[A]dd host | [S]ubscribe | [U]nsubscribe | [ESC]ape | [Q]uit",
+            FocusedHosts::AddHost(_,_) => "| [Tab]/[Ent] Next | [Shft+Tab] Prev | [←→↑↓] Move | [Enter] | [ESC]ape | [Q]uit",
+            FocusedHosts::HostTree(_, 0) => "[A]dd host | [C]onnect | [D]isconnect | [S]ubscribe to all |  [U]nsubscribe to all | [Tab]/[Ent] Next | [Shft+Tab] Prev | [←→↑↓] Move| [ESC]ape | [Q]uit",
+            FocusedHosts::HostTree(_, _) => "[A]dd host | [S]ubscribe | [U]nsubscribe | [Tab]/[Ent] Next | [Shft+Tab] Prev | [←→↑↓] Move | [ESC]ape | [Q]uit",
         },
         Focused::Registry(focused_registry_panel) => match focused_registry_panel {
             FocusedRegistry::RegistryAddress(_) => "[ESC]ape | [Q]uit",
@@ -247,4 +261,29 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
     );
 
     f.render_widget(footer, footer_area);
+}
+
+/// Reusable edit IP function
+fn edit_number(focussed: &Focused, input: [char; 21], selected: FocusedAddHostField) -> Vec<Span<'static>> {
+    match focussed {
+        Focused::Hosts(FocusedHosts::AddHost(selected_idx, f)) if *f == selected => {
+            let mut spans: Vec<Span> = vec![];
+            for (i, ch) in input.iter().enumerate() {
+                let mut style = Style::default();
+                if i == *selected_idx {
+                    style = style
+                        .fg(Color::Black)
+                        .bg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
+                    spans.push(Span::styled(ch.to_string(), style));
+                } else {
+                    spans.push(Span::raw(ch.to_string()));
+                }
+            }
+            spans
+        }
+        _ => {
+            vec![Span::from(input.iter().collect::<String>())]
+        }
+    }
 }

@@ -142,7 +142,6 @@ impl Registry {
                         .send_message(target_addr, RpcMessageKind::Ctrl(CtrlMsg::PollHostStatus { host_id }))
                         .await?;
                     let msg = client.read_message(target_addr).await?;
-                    info!("msg: {msg:?}");
                     self.store_host_update(host_id, target_addr, msg.msg).await?;
                     client.disconnect(target_addr).await?;
                     Ok(())
