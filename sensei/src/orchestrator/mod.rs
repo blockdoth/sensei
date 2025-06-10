@@ -7,19 +7,19 @@ use std::vec;
 
 use futures::future::pending;
 use lib::handler::device_handler::DeviceHandlerConfig;
-use lib::network::rpc_message::CtrlMsg::*;
 use lib::network::rpc_message::DataMsg::RawFrame;
-use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
+use lib::network::rpc_message::RpcMessageKind::Data;
 use lib::network::rpc_message::SourceType::ESP32;
-use lib::network::rpc_message::{CfgType, CtrlMsg, DataMsg, DeviceId, HostId};
-use lib::network::tcp::ChannelMsg;
+use lib::network::rpc_message::{CfgType, DataMsg, DeviceId, HostCtrl, HostId, RegCtrl, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
+use lib::network::tcp::{ChannelMsg, HostChannel};
 use log::*;
 use serde::{Deserialize, Serialize};
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::{Mutex, watch};
 
+use crate::cli::DEFAULT_ORCHESTRATOR_CONFIG;
 use crate::orchestrator::IsRecurring::{NotRecurring, Recurring};
 use crate::services::{DEFAULT_ADDRESS, GlobalConfig, OrchestratorConfig, Run};
 
@@ -247,15 +247,15 @@ impl Orchestrator {
     }
 
     async fn subscribe(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: u64) -> Result<(), Box<dyn std::error::Error>> {
-        let msg = Ctrl(CtrlMsg::Subscribe { device_id });
+        let msg = HostCtrl::Subscribe { device_id };
         info!("Subscribing to {target_addr} for device id {device_id}");
-        Ok(client.lock().await.send_message(target_addr, msg).await?)
+        Ok(client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?)
     }
 
     async fn unsubscribe(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: u64) -> Result<(), Box<dyn std::error::Error>> {
-        let msg = Ctrl(CtrlMsg::Unsubscribe { device_id });
+        let msg = HostCtrl::Unsubscribe { device_id };
         info!("Unsubscribing from {target_addr} for device id {device_id}");
-        Ok(client.lock().await.send_message(target_addr, msg).await?)
+        Ok(client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?)
     }
 
     async fn subscribe_to(
@@ -264,7 +264,7 @@ impl Orchestrator {
         source_addr: SocketAddr,
         device_id: u64,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let msg = Ctrl(SubscribeTo {
+        let msg = RpcMessageKind::HostCtrl(HostCtrl::SubscribeTo {
             target: source_addr,
             device_id,
         });
@@ -280,7 +280,7 @@ impl Orchestrator {
         source_addr: SocketAddr,
         device_id: u64,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let msg = Ctrl(UnsubscribeFrom {
+        let msg = RpcMessageKind::HostCtrl(HostCtrl::UnsubscribeFrom {
             target: source_addr,
             device_id,
         });
@@ -291,7 +291,7 @@ impl Orchestrator {
     }
 
     async fn send_status(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, host_id: HostId) -> Result<(), Box<dyn std::error::Error>> {
-        let msg = Ctrl(PollHostStatus { host_id });
+        let msg = RpcMessageKind::RegCtrl(RegCtrl::PollHostStatus { host_id });
 
         Ok(client.lock().await.send_message(target_addr, msg).await?)
     }
@@ -302,7 +302,7 @@ impl Orchestrator {
         device_id: DeviceId,
         cfg_type: CfgType,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let msg = Ctrl(Configure { device_id, cfg_type });
+        let msg = RpcMessageKind::HostCtrl(HostCtrl::Configure { device_id, cfg_type });
 
         info!("Telling {target_addr} to configure the device handler");
 
@@ -311,7 +311,7 @@ impl Orchestrator {
 
     // Temporary, refactor once TUI gets added
     async fn cli_interface(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let (send_commands_channel, recv_commands_channel) = watch::channel::<ChannelMsg>(ChannelMsg::Empty);
+        let (send_commands_channel, recv_commands_channel) = watch::channel::<ChannelMsg>(ChannelMsg::from(HostChannel::Empty));
 
         let send_client = self.client.clone();
         let recv_client = self.client.clone();
@@ -376,7 +376,7 @@ impl Orchestrator {
                 let device_id: DeviceId = input.next().unwrap_or("0").parse().unwrap();
 
                 Self::subscribe(&send_client, target_addr, device_id).await?;
-                Ok(send_commands_channel.send(ChannelMsg::ListenSubscribe { addr: target_addr })?)
+                Ok(send_commands_channel.send(ChannelMsg::from(HostChannel::ListenSubscribe { addr: target_addr }))?)
             }
             Some("unsub") => {
                 // Unsubscribe the orchestrator from the data output of another node
@@ -387,7 +387,7 @@ impl Orchestrator {
                     .unwrap_or(DEFAULT_ADDRESS);
                 let device_id: DeviceId = input.next().unwrap_or("0").parse().unwrap();
                 Self::unsubscribe(&send_client, target_addr, device_id).await?;
-                Ok(send_commands_channel.send(ChannelMsg::ListenUnsubscribe { addr: target_addr })?)
+                Ok(send_commands_channel.send(ChannelMsg::from(HostChannel::ListenUnsubscribe { addr: target_addr }))?)
             }
             Some("subto") => {
                 // Tells a node to subscribe to another node
@@ -422,10 +422,10 @@ impl Orchestrator {
                 Ok(send_client.lock().await.send_message(target_addr, msg).await?)
             }
             Some("sendstatus") => {
-                let target_addr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
+                let target_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
                 let host_id = input.next().unwrap_or("").parse().unwrap_or(0);
 
-                let msg = Ctrl(PollHostStatus { host_id });
+                let msg = RpcMessageKind::RegCtrl(RegCtrl::PollHostStatus { host_id });
 
                 Ok(send_client.lock().await.send_message(target_addr, msg).await?)
             }
@@ -433,7 +433,7 @@ impl Orchestrator {
                 let target_addr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
                 let device_id: DeviceId = input.next().unwrap_or("0").parse().unwrap();
                 let configure_type = input.next();
-                let config_path: PathBuf = input.next().unwrap_or("sensei/src/orchestrator/example_config.yaml").into();
+                let config_path: PathBuf = input.next().unwrap_or(DEFAULT_ORCHESTRATOR_CONFIG).into();
                 let cfg = match DeviceHandlerConfig::from_yaml(config_path.clone()) {
                     Ok(cfgs) => match cfgs.first() {
                         Some(cfg) => cfg.clone(),
@@ -473,13 +473,13 @@ impl Orchestrator {
             if recv_commands_channel.has_changed().unwrap_or(false) {
                 let msg_opt = recv_commands_channel.borrow_and_update().clone();
                 match msg_opt {
-                    ChannelMsg::ListenSubscribe { addr } => {
+                    ChannelMsg::HostChannel(HostChannel::ListenSubscribe { addr }) => {
                         if !targets.contains(&addr) {
                             targets.push(addr);
                         }
                         receiving = true;
                     }
-                    ChannelMsg::ListenUnsubscribe { addr } => {
+                    ChannelMsg::HostChannel(HostChannel::ListenUnsubscribe { addr }) => {
                         if let Some(pos) = targets.iter().position(|x| *x == addr) {
                             targets.remove(pos);
                         }

@@ -101,6 +101,13 @@ pub trait SubscribeDataChannel {
 
 #[derive(Debug, Clone, Deserialize)]
 pub enum ChannelMsg {
+    HostChannel(HostChannel),
+    RegChannel(RegChannel),
+    Data { data: DataMsg },
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub enum HostChannel {
     Empty,
     Disconnect,
     Subscribe { device_id: DeviceId },
@@ -110,7 +117,22 @@ pub enum ChannelMsg {
     ListenSubscribe { addr: SocketAddr },
     ListenUnsubscribe { addr: SocketAddr },
     Configure { device_id: DeviceId, cfg_type: CfgType },
-    SendHostStatus { reg_addr: SocketAddr, host_id: HostId },
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub enum RegChannel {
+    SendHostStatus { host_id: HostId },
     SendHostStatuses,
-    Data { data: DataMsg },
+}
+
+impl From<HostChannel> for ChannelMsg {
+    fn from(value: HostChannel) -> Self {
+        ChannelMsg::HostChannel(value)
+    }
+}
+
+impl From<RegChannel> for ChannelMsg {
+    fn from(value: RegChannel) -> Self {
+        ChannelMsg::RegChannel(value)
+    }
 }

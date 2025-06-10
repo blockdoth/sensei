@@ -53,13 +53,9 @@ pub struct OrchestratorConfig {
 pub struct SystemNodeConfig {
     pub addr: SocketAddr,
     pub host_id: u64,
-    pub registry: Option<SocketAddr>,
+    pub registries: Option<Vec<SocketAddr>>,
+    pub registry_polling_rate_s: Option<u64>,
     pub device_configs: Vec<DeviceHandlerConfig>,
-}
-
-pub struct RegistryConfig {
-    pub addr: SocketAddr,
-    pub poll_interval: u64,
 }
 
 pub struct VisualiserConfig {
@@ -76,11 +72,10 @@ pub struct GlobalConfig {
 }
 
 pub enum ServiceConfig {
-    One(OrchestratorConfig),
-    Two(RegistryConfig),
-    Three(SystemNodeConfig),
-    Four(VisualiserConfig),
-    Five(EspToolConfig),
+    Orchestrator(OrchestratorConfig),
+    SystemNode(SystemNodeConfig),
+    Visualiser(VisualiserConfig),
+    EspTool(EspToolConfig),
 }
 
 pub trait Run<ServiceConfig> {

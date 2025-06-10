@@ -6,7 +6,7 @@ use lib::handler::device_handler::DeviceHandlerConfig;
 use log::debug;
 use simplelog::LevelFilter;
 
-use crate::services::{EspToolConfig, GlobalConfig, OrchestratorConfig, RegistryConfig, SystemNodeConfig, VisualiserConfig};
+use crate::services::{EspToolConfig, GlobalConfig, OrchestratorConfig, SystemNodeConfig, VisualiserConfig};
 
 /// A trait for overlaying subcommand arguments onto an existing configuration.
 ///
@@ -26,6 +26,9 @@ pub trait OverlaySubcommandArgs<T> {
     /// This trait is used to overlay fields set in the subcommands over the config read from the YAML file.
     fn overlay_subcommand_args(&self, full_config: T) -> Result<T, Box<dyn std::error::Error>>;
 }
+
+pub static DEFAULT_HOST_CONFIG: &str = "resources/test_data/test_configs/minimal.yaml";
+pub static DEFAULT_ORCHESTRATOR_CONFIG: &str = "resources/example_configs/orchstrator/experiment_config.yaml";
 
 /// A simple app to perform collection from configured sources
 #[derive(FromArgs)]
@@ -52,11 +55,10 @@ pub trait ConfigFromCli<Config> {
 #[derive(FromArgs)]
 #[argh(subcommand)]
 pub enum SubCommandsArgs {
-    One(SystemNodeSubcommandArgs),
-    Two(RegistrySubcommandArgs),
-    Three(OrchestratorSubcommandArgs),
-    Four(VisualiserSubcommandArgs),
-    Five(EspToolSubcommandArgs),
+    SystemNode(SystemNodeSubcommandArgs),
+    Orchestrator(OrchestratorSubcommandArgs),
+    Visualiser(VisualiserSubcommandArgs),
+    EspTool(EspToolSubcommandArgs),
 }
 
 /// System node commands
@@ -72,7 +74,7 @@ pub struct SystemNodeSubcommandArgs {
     pub port: u16,
 
     /// location of config file (default sensei/src/system_node/example_config.yaml)
-    #[argh(option, default = "PathBuf::from(\"sensei/src/system_node/example_config.yaml\")")]
+    #[argh(option, default = "DEFAULT_HOST_CONFIG.parse().unwrap()")]
     pub config_path: PathBuf,
 }
 
@@ -82,7 +84,8 @@ impl ConfigFromCli<SystemNodeConfig> for SystemNodeSubcommandArgs {
             addr: format!("{}:{}", self.addr, self.port).parse()?,
             device_configs: DeviceHandlerConfig::from_yaml(self.config_path.clone())?,
             host_id: 0,
-            registry: todo!(),
+            registries: None,
+            registry_polling_rate_s: None,
         })
     }
 }
@@ -100,23 +103,6 @@ impl OverlaySubcommandArgs<SystemNodeConfig> for SystemNodeSubcommandArgs {
     }
 }
 
-fn default_device_configs() -> PathBuf {
-    "sensei/src/system_node/example_config.yaml".parse().unwrap()
-}
-
-/// Registry node commands
-#[derive(FromArgs)]
-#[argh(subcommand, name = "registry")]
-pub struct RegistrySubcommandArgs {}
-
-impl ConfigFromCli<RegistryConfig> for RegistrySubcommandArgs {
-    fn parse(&self) -> Result<RegistryConfig, Error> {
-        Ok(RegistryConfig {
-            addr: "127.0.0.1:8080".parse()?,
-            poll_interval: 5,
-        })
-    }
-}
 /// Orchestrator node commands
 #[derive(FromArgs)]
 #[argh(subcommand, name = "orchestrator")]
@@ -126,7 +112,7 @@ pub struct OrchestratorSubcommandArgs {
     pub tui: bool,
 
     /// file path of the experiment config
-    #[argh(option, default = "PathBuf::from(\"sensei/src/orchestrator/experiment_config.yaml\")")]
+    #[argh(option, default = "DEFAULT_ORCHESTRATOR_CONFIG.parse().unwrap()")]
     pub experiment_config: PathBuf,
 }
 
@@ -191,16 +177,15 @@ impl ConfigFromCli<EspToolConfig> for EspToolSubcommandArgs {
 
 #[cfg(test)]
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-
     use super::*;
 
     fn create_testing_config() -> SystemNodeConfig {
         SystemNodeConfig {
             addr: "127.0.0.1:8080".parse().unwrap(),
             host_id: 1,
-            registry: Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080)),
+            registries: Option::None,
             device_configs: vec![],
+            registry_polling_rate_s: Option::None,
         }
     }
 
