@@ -1,0 +1,141 @@
+# This file is an example configuration for a System Node in the Sensei framework.
+# sensei/src/system_node/example_full.yaml
+# Comprehensive example showcasing various configurations for a System Node.
+
+# --- SystemNodeConfig Top-Level Fields ---
+addr: "127.0.0.1:6969" # Listening address for this System Node's server component (Required)
+host_id: 1             # Unique ID for this host in the Sensei network (Required)
+
+# Optional: List of registry addresses to announce presence to
+registries:
+  - "127.0.0.1:8080"
+  - "127.0.0.1:8081"
+
+# Optional: How often (in seconds) this node should poll registries.
+# Used by the internal registry client part if this node connects to other registries,
+# or if it acts as a registry itself and needs to prune stale entries (though pruning logic might be separate).
+registry_polling_rate_s: 60
+
+# --- Shared Sinks Configuration ---
+# This section is optional in YAML (due to #[serde(default)] on SystemNodeConfig.sinks).
+# If present, it must be a list.
+sinks:
+  - id: "main_log_file"    # Unique identifier for this sink (Required within a sink entry)
+    type: File            # Corresponds to SinkConfig::File (Required)
+    file: "/tmp/sensei_all_data.log" # Path to the output file (Required for File sink)
+
+  - id: "backup_log_file"
+    type: File
+    file: "/var/log/sensei_backup.log"
+
+  - id: "remote_tcp_endpoint_1" # Unique identifier for this sink
+    type: Tcp                 # Corresponds to SinkConfig::Tcp (Required)
+    target_addr: "127.0.0.1:7000" # Target IP and port (Required for TCP sink)
+    # device_id used by this TCPSink when it sends data.
+    # This helps the receiver identify the source of this specific sink's stream.
+    device_id: 0              # (Required for TCP sink)
+
+  - id: "remote_tcp_endpoint_2"
+    type: Tcp
+    target_addr: "another.server.com:7001"
+    device_id: 10
+
+# --- Device Handler Configurations ---
+# This section is required in YAML, but the list can be empty if no devices are configured.
+device_configs:
+  # Example 1: ESP32 device with an adapter and controller
+  - device_id: 101       # Unique ID for this device (Required)
+    stype: Esp32         # SourceType, determines which variant of 'source' config to use (Required)
+    source:              # Configuration for DataSourceConfig::Esp32 (Required)
+      serial_path: "/dev/ttyUSB0" # Serial port for ESP32 (Required for Esp32 source)
+      baud_rate: 115200           # Optional: Baud rate for serial communication
+      # filters:                    # Optional: ESP32 specific source filters (structure depends on Esp32SourceConfig)
+      #   - "MAC:AA:BB:CC:DD:EE:FF"
+    controller:          # Optional: Controller parameters
+      type: Esp32        # Corresponds to ControllerParams::Esp32
+      # Esp32ControllerConfig fields:
+      # filters: ["MAC:FILTER..."]
+      bandwidth: 20      # Optional: e.g., 20, 40, 80 MHz
+      channel: 6         # Optional: Wi-Fi channel
+      # forward_mac: "00:11:22:33:44:55"
+      # group_mac: "01:00:5E:..."
+      # recv_mac: "AA:BB:CC:DD:EE:FF"
+      # rssi: -50
+      # csi_settings: "..." # Raw CSI settings string if applicable
+    adapter:             # Optional: Adapter configuration
+      type: Esp32ToCsi   # Corresponds to DataAdapterConfig::Esp32ToCsi
+      # Esp32AdapterConfig fields:
+      normalize_rssi: true
+      output_format: "StandardCsi" # Example, could be other formats
+    output_to:           # List of sink IDs to route this device's data to (Required, can be empty)
+      - "main_log_file"
+      - "remote_tcp_endpoint_1"
+
+  # Example 2: Netlink device
+  - device_id: 102
+    stype: Netlink
+    source:              # Configuration for DataSourceConfig::Netlink
+      iface: "wlan0"     # Wireless interface name (Required for Netlink source)
+      promiscuous: true  # Optional
+      monitor: true      # Optional
+      # channel: 11        # Optional: Wi-Fi channel to set
+      # ht_sec_channel: "HT40+" # Optional: e.g., "HT20", "HT40+", "HT40-" (actual type might be enum or u32)
+      # filter_mac: "11:22:33:44:55:66" # Optional: MAC address to filter for
+    controller:          # Optional
+      type: Netlink
+      # NetlinkControllerConfig fields:
+      channel: 36
+      # ht_sec_channel: ...
+      # filter_mac: "..."
+    adapter:             # Optional
+      type: IwlToCsi
+      # IwlAdapterConfig fields:
+      target_format: "StandardCsi"
+    output_to:
+      - "main_log_file"
+
+  # Example 3: TCP client source (subscribing to another node)
+  - device_id: 103         # This device_id is local to this SystemNode
+    stype: Tcp
+    source:              # Configuration for DataSourceConfig::Tcp (acting as a client)
+      target_addr: "127.0.0.1:9999" # Address of the remote data source node (Required)
+      # device_id that this handler is interested in *from* the remote source.
+      device_id: 201     # (Required for TCP source)
+    # controller: # Optional, type: Tcp. TcpControllerConfig fields depend on its definition.
+    #   type: Tcp
+    #   some_setting: "value"
+    # adapter: # Optional
+    #   type: TcpToCsi
+    #   expected_input: "RawBinary"
+    output_to:
+      - "remote_tcp_endpoint_2"
+
+  # Example 4: CSV file source
+  - device_id: 104
+    stype: Csv
+    source:              # Configuration for DataSourceConfig::Csv
+      file_path: "resources/test_data/csv/csi_data.csv" # Path to CSV (Required)
+      # delimiter: 44 # Optional: ASCII for ',', defaults to comma if not set
+      has_headers: true # Optional: Defaults to true
+      timestamp_column: "timestamp" # Optional: Name of the timestamp column
+      data_columns:      # List of column names to treat as data (Required)
+        - "rssi"
+        - "csi_real_0"
+        - "csi_imag_0"
+      loop_on_end: false # Optional: Defaults to false
+      read_interval_ms: 100 # Optional: Defaults to 100ms
+    # adapter: # Optional
+    #   type: CsvToCsi
+    #   timestamp_format: "%Y-%m-%d %H:%M:%S%.f" # Example strptime format
+    #   scale_factor: 1.0
+    output_to:
+      - "main_log_file"
+
+  # Example 5: A device with no specific outputs (data might only be broadcast via TCP server)
+  - device_id: 105
+    stype: Esp32
+    source:
+      serial_path: "/dev/ttyUSB1"
+    output_to: [] # Empty list, data only goes to connected TCP clients of the SystemNode server
+
+# --- End of Device Handler Configurations ---
