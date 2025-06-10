@@ -169,16 +169,19 @@ impl Registry {
     /// // The polling task is now running in the background.
     /// ```
     pub fn create_polling_task(&self) -> tokio::task::JoinHandle<()> {
-        if let Some(interval) = self.polling_rate_s && interval > 0 {
-            let connection_handler = Arc::new(self.clone());
-            task::spawn(async move {
-                info!("Starting TCP client to poll hosts...");
-                let client = TcpClient::new();
-                connection_handler.poll_hosts(client, Duration::from_secs(interval)).await.unwrap();
-            })
-        } else {
-            info!("No registry polling inteval was defined. Pollin task was not started");
-            task::spawn(async {}) // return an empty task if no interval is defined
+        match self.polling_rate_s {
+            Some(interval) if interval > 0 => {
+                let connection_handler = Arc::new(self.clone());
+                task::spawn(async move {
+                    info!("Starting TCP client to poll hosts...");
+                    let client = TcpClient::new();
+                    connection_handler.poll_hosts(client, Duration::from_secs(interval)).await.unwrap();
+                })
+            }
+            _ => {
+                info!("No valid registry polling interval was defined (e.g., not set or not positive). Polling task was not started");
+                task::spawn(async {}) // return an empty task if no valid interval is defined
+            }
         }
     }
     /// Go though the list of hosts and poll their status
