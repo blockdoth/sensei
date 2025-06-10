@@ -5,6 +5,8 @@ use lib::handler::device_handler::DeviceHandlerConfig;
 use log::LevelFilter;
 use serde::Deserialize;
 
+use crate::system_node::SinkConfigWithName;
+
 pub const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
 
 /// A trait for parsing a YAML file into a struct using Serde.
@@ -56,6 +58,8 @@ pub struct SystemNodeConfig {
     pub registries: Option<Vec<SocketAddr>>,
     pub registry_polling_rate_s: Option<u64>,
     pub device_configs: Vec<DeviceHandlerConfig>,
+    #[serde(default)]
+    pub sinks: Vec<SinkConfigWithName>,
 }
 
 pub struct VisualiserConfig {
