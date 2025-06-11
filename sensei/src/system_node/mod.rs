@@ -66,12 +66,12 @@ impl SubscribeDataChannel for SystemNode {
 
 impl SystemNode {
     /// Returns the current host status as a `RegCtrl` message.
-    fn get_host_status(&self) -> RegCtrl {
-        RegCtrl::HostStatus(HostStatus {
+    fn get_host_status(&self) -> HostStatus {
+        HostStatus {
             host_id: self.host_id,
             device_statuses: self.device_configs.iter().map(DeviceStatus::from).collect(),
             responsiveness: Responsiveness::Connected,
-        })
+        }
     }
 
     /// Handles incoming host control messages and performs the corresponding actions.
@@ -212,7 +212,7 @@ impl SystemNode {
         match reg_msg {
             RegChannel::SendHostStatus { host_id } => {
                 let host_status = if host_id == self.host_id {
-                    self.get_host_status()
+                    RegCtrl::HostStatus(self.get_host_status())
                 } else {
                     RegCtrl::from(self.registry.get_host_by_id(host_id).await?)
                 };
@@ -220,15 +220,16 @@ impl SystemNode {
                 send_message(send_stream, msg).await?;
             }
             RegChannel::SendHostStatuses => {
-                let msg = RegCtrl::HostStatuses {
-                    host_statuses: self
-                        .registry
-                        .list_host_statuses()
-                        .await
-                        .iter()
-                        .map(|(_, info)| HostStatus::from(RegCtrl::from(info.clone())))
-                        .collect(),
-                };
+                let own_status = self.get_host_status();
+                let mut host_statuses: Vec<HostStatus> = self
+                    .registry
+                    .list_host_statuses()
+                    .await
+                    .iter()
+                    .map(|(_, info)| HostStatus::from(RegCtrl::from(info.clone())))
+                    .collect();
+                host_statuses.push(own_status);
+                let msg = RegCtrl::HostStatuses { host_statuses };
                 send_message(send_stream, RpcMessageKind::RegCtrl(msg)).await?;
             }
         }
