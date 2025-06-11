@@ -7,9 +7,10 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use charming::HtmlRenderer;
 use charming::Chart as CharmingChart; // Alias for charming::Chart
+use charming::HtmlRenderer;
 use charming::theme::Theme;
+use lib::csi_types::Complex as LibComplex; // Alias to avoid confusion
 use lib::csi_types::CsiData;
 use lib::network::rpc_message::DataMsg::*;
 use lib::network::rpc_message::RpcMessageKind::Data;
@@ -27,14 +28,12 @@ use ratatui::prelude::Direction;
 use ratatui::style::{Color, Style};
 use ratatui::text::Span;
 use ratatui::widgets::{Axis, Block, Borders, Chart, Dataset};
-use tokio::io;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::sync::Mutex;
-
 // Imports for PDP
 use rustfft::FftPlanner;
 use rustfft::num_complex::Complex as FftComplex;
-use lib::csi_types::Complex as LibComplex; // Alias to avoid confusion
+use tokio::io;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::sync::Mutex;
 
 use crate::services::{GlobalConfig, Run, VisualiserConfig};
 
@@ -83,7 +82,7 @@ struct Graph {
     core: usize,
     stream: usize,
     subcarrier: usize,
-    time_interval: usize, // For Amplitude plots: x-axis time window in ms
+    time_interval: usize,            // For Amplitude plots: x-axis time window in ms
     y_axis_bounds: Option<[f64; 2]>, // For PDP plots: fixed y-axis bounds [min, max]
 }
 
@@ -103,13 +102,14 @@ impl PartialEq for Graph {
 #[derive(Clone, Debug)]
 struct GraphDisplayState {
     data_points: Vec<(f64, f64)>,
-    csi_timestamp: f64, // Timestamp of the CsiData this state is based on
+    csi_timestamp: f64,             // Timestamp of the CsiData this state is based on
     last_loop_update_time: Instant, // When this state was last updated or checked in the tui_loop
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum GraphType {
     Amplitude,
+    #[allow(clippy::upper_case_acronyms)]
     PDP, // Added PDP
 }
 
@@ -224,7 +224,7 @@ impl Visualiser {
                         let csi_for_ifft: Vec<LibComplex> = latest_csi_data.csi[core][stream].clone();
                         if csi_for_ifft.is_empty() {
                             // Return empty data but with the timestamp of the (empty) CSI packet
-                            return (vec![], Some(csi_timestamp)); 
+                            return (vec![], Some(csi_timestamp));
                         }
                         let ifft_result = Self::perform_ifft(&csi_for_ifft);
                         let mut power_profile: Vec<f64> = ifft_result.iter().map(|c| c.norm_sqr()).collect();
@@ -234,15 +234,18 @@ impl Visualiser {
                         if n > 0 {
                             power_profile.rotate_left(n / 2); // Standard fftshift operation
                         }
-                        
-                        (power_profile.into_iter().enumerate().map(|(idx, p)| (idx as f64, p)).collect(), Some(csi_timestamp))
+
+                        (
+                            power_profile.into_iter().enumerate().map(|(idx, p)| (idx as f64, p)).collect(),
+                            Some(csi_timestamp),
+                        )
                     } else {
                         // Invalid core or stream index, return empty data but with the CSI packet's timestamp
                         (vec![], Some(csi_timestamp))
                     }
                 } else {
                     // This case should ideally be caught by device_data.is_empty() check earlier
-                    (vec![], None) 
+                    (vec![], None)
                 }
             }
         }
@@ -266,7 +269,6 @@ impl Visualiser {
         }
         buffer
     }
-
 
     async fn plot_data_tui(&self) -> Result<(), Box<dyn std::error::Error>> {
         enable_raw_mode()?;
@@ -334,9 +336,9 @@ impl Visualiser {
 
                 let mut data_to_render_this_frame = Vec::new();
                 let now = Instant::now();
-                const DECAY_RATE: f64 = 0.9; 
-                const STALE_THRESHOLD: Duration = Duration::from_millis(200); 
-                const MIN_POWER_THRESHOLD: f64 = 0.015; 
+                const DECAY_RATE: f64 = 0.9;
+                const STALE_THRESHOLD: Duration = Duration::from_millis(200);
+                const MIN_POWER_THRESHOLD: f64 = 0.015;
 
                 for (i, graph_spec) in graphs_snapshot.iter().enumerate() {
                     let (points_from_processor, opt_timestamp_from_processor) = self.process_data(*graph_spec).await;
@@ -357,15 +359,19 @@ impl Visualiser {
                                 } else {
                                     // Same CSI data as before, check for decay based on loop time
                                     if now.duration_since(state.last_loop_update_time) > STALE_THRESHOLD {
-                                        state.data_points = state.data_points.iter().map(|(x, y)| {
-                                            let new_y = *y * DECAY_RATE;
-                                            if new_y.abs() < MIN_POWER_THRESHOLD { (*x, 0.0) } else { (*x, new_y) }
-                                        }).collect();
-                                        state.last_loop_update_time = now; 
+                                        state.data_points = state
+                                            .data_points
+                                            .iter()
+                                            .map(|(x, y)| {
+                                                let new_y = *y * DECAY_RATE;
+                                                if new_y.abs() < MIN_POWER_THRESHOLD { (*x, 0.0) } else { (*x, new_y) }
+                                            })
+                                            .collect();
+                                        state.last_loop_update_time = now;
                                     }
                                     processed_points_for_render = state.data_points.clone();
                                 }
-                            },
+                            }
                             (Some(timestamp_proc), None) => {
                                 // New processed data, no existing state. Create one.
                                 *current_display_state_slot = Some(GraphDisplayState {
@@ -374,18 +380,22 @@ impl Visualiser {
                                     last_loop_update_time: now,
                                 });
                                 processed_points_for_render = points_from_processor;
-                            },
+                            }
                             (None, Some(state)) => {
                                 // No data from processor (e.g. device disconnected), but have old state. Decay it.
                                 if now.duration_since(state.last_loop_update_time) > STALE_THRESHOLD {
-                                     state.data_points = state.data_points.iter().map(|(x, y)| {
-                                        let new_y = *y * DECAY_RATE;
-                                        if new_y.abs() < MIN_POWER_THRESHOLD { (*x, 0.0) } else { (*x, new_y) }
-                                    }).collect();
-                                    state.last_loop_update_time = now; 
+                                    state.data_points = state
+                                        .data_points
+                                        .iter()
+                                        .map(|(x, y)| {
+                                            let new_y = *y * DECAY_RATE;
+                                            if new_y.abs() < MIN_POWER_THRESHOLD { (*x, 0.0) } else { (*x, new_y) }
+                                        })
+                                        .collect();
+                                    state.last_loop_update_time = now;
                                 }
                                 processed_points_for_render = state.data_points.clone();
-                            },
+                            }
                             (None, None) => {
                                 // No data from processor and no old state. Render empty.
                                 processed_points_for_render = vec![];
@@ -397,7 +407,7 @@ impl Visualiser {
                         data_to_render_this_frame.push(points_from_processor);
                         // Ensure non-PDP graphs don't interact with display_state if it was set by a previous PDP graph at this index
                         if display_states_locked[i].is_some() && graph_spec.graph_type != GraphType::PDP {
-                             display_states_locked[i] = None; // Clear state if graph type changed from PDP
+                            display_states_locked[i] = None; // Clear state if graph type changed from PDP
                         }
                     }
                 }
@@ -492,7 +502,7 @@ impl Visualiser {
                         let chart_block_title = format!(
                             "Chart {} - {} @ {} dev {} C{} S{}",
                             i,
-                            current_graph_spec.graph_type.to_string(),
+                            current_graph_spec.graph_type,
                             current_graph_spec.target_addr,
                             current_graph_spec.device,
                             current_graph_spec.core,
@@ -552,7 +562,6 @@ impl Visualiser {
         } else {
             0 // Default or indicate all subcarriers for PDP if not provided
         };
-
 
         Some(Graph {
             graph_type,
@@ -616,7 +625,8 @@ impl Visualiser {
         }
     }
 
-    async fn plot_data_gui(&self) -> Result<(), Box<dyn std::error::Error>> { // Corrected return type
+    async fn plot_data_gui(&self) -> Result<(), Box<dyn std::error::Error>> {
+        // Corrected return type
         let tick_rate = Duration::from_millis(2000);
         let mut last_tick = Instant::now();
 
@@ -634,7 +644,7 @@ impl Visualiser {
                 if line.is_empty() {
                     continue;
                 }
-                info!("GUI Command received: {}", line);
+                info!("GUI Command received: {line}");
                 Self::execute_command(line.parse().unwrap(), graphs.clone()).await;
             }
         });
@@ -648,12 +658,20 @@ impl Visualiser {
                         continue;
                     }
                     let chart = generate_chart_from_data(processed_data.0, &graph_spec.graph_type.to_string());
-                    let filename = format!("{}_{}_{}_{}_c{}_s{}_chart.html", i, graph_spec.graph_type.to_string().to_lowercase(), graph_spec.target_addr.to_string().replace(':', "-"), graph_spec.device, graph_spec.core, graph_spec.stream);
+                    let filename = format!(
+                        "{}_{}_{}_{}_c{}_s{}_chart.html",
+                        i,
+                        graph_spec.graph_type.to_string().to_lowercase(),
+                        graph_spec.target_addr.to_string().replace(':', "-"),
+                        graph_spec.device,
+                        graph_spec.core,
+                        graph_spec.stream
+                    );
                     HtmlRenderer::new(format!("{} Plot", graph_spec.graph_type), 800, 600)
                         .theme(Theme::Default)
                         .save(&chart, &filename)
                         .expect("Failed to save chart");
-                    info!("Saved chart to {}", filename);
+                    info!("Saved chart to {filename}");
                 }
 
                 last_tick = Instant::now();
@@ -680,7 +698,8 @@ impl Visualiser {
 }
 
 // Moved generate_chart_from_data outside of impl Visualiser
-fn generate_chart_from_data(data: Vec<(f64, f64)>, title_str: &str) -> CharmingChart { // Use aliased CharmingChart, remove lifetime
+fn generate_chart_from_data(data: Vec<(f64, f64)>, title_str: &str) -> CharmingChart {
+    // Use aliased CharmingChart, remove lifetime
     use charming::component::Title;
     use charming::element::AxisType;
     use charming::series::Line;
