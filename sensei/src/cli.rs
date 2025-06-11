@@ -83,10 +83,10 @@ impl ConfigFromCli<SystemNodeConfig> for SystemNodeSubcommandArgs {
         Ok(SystemNodeConfig {
             addr: format!("{}:{}", self.addr, self.port).parse()?,
             device_configs: DeviceHandlerConfig::from_yaml(self.config_path.clone())?,
-            host_id: 0, // Default host_id, might be overwritten by YAML or other logic
-            registries: None, // Default, might be overwritten by YAML
+            host_id: 0,                    // Default host_id, might be overwritten by YAML or other logic
+            registries: None,              // Default, might be overwritten by YAML
             registry_polling_rate_s: None, // Default, might be overwritten by YAML
-            sinks: Vec::new(), // Initialize with an empty Vec, to be populated from YAML
+            sinks: Vec::new(),             // Initialize with an empty Vec, to be populated from YAML
         })
     }
 }

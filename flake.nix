@@ -48,11 +48,11 @@
                 mprocs
                 pkg-config
               ]
-              ++ lib.optionals pkgs.stdenv.isLinux [ 
-                  pkgs.udev
-                  pkgs.llvmPackages_latest.llvm
-                  pkgs.cargo-llvm-cov
-                ];
+              ++ lib.optionals pkgs.stdenv.isLinux [
+                pkgs.udev
+                pkgs.llvmPackages_latest.llvm
+                pkgs.cargo-llvm-cov
+              ];
             RUST_SRC_PATH = "${toolchain}/lib/rustlib/src/rust/library";
             # env vars for coverage tool
             LLVM_COV = "${pkgs.llvmPackages_latest.llvm}/bin/llvm-cov";

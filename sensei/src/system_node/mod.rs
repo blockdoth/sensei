@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use lib::FromConfig;
+use lib::adapters::CsiDataAdapter; // Added CsiDataAdapter
 use lib::errors::NetworkError;
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
 use lib::network::rpc_message::CfgType::{Create, Delete, Edit};
@@ -21,18 +22,16 @@ use lib::network::rpc_message::{DataMsg, DeviceId, DeviceStatus, HostCtrl, HostI
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, HostChannel, RegChannel, SubscribeDataChannel, send_message};
-use lib::sources::{DataSourceConfig, DataSourceT}; // Added DataSourceT
-use lib::sources::tcp::TCPConfig;
 use lib::sinks::{Sink, SinkConfig};
-use lib::adapters::CsiDataAdapter; // Added CsiDataAdapter
+use lib::sources::tcp::TCPConfig;
+use lib::sources::{DataSourceConfig, DataSourceT}; // Added DataSourceT
 use log::*;
 use tokio::net::tcp::OwnedWriteHalf;
-use tokio::sync::{mpsc, Mutex, broadcast, watch}; // Added mpsc
+use tokio::sync::{Mutex, broadcast, mpsc, watch}; // Added mpsc
 use tokio::task;
 
 use crate::registry::Registry;
 use crate::services::{GlobalConfig, Run, SystemNodeConfig};
-
 
 /// The System Node is a sender and a receiver in the network of Sensei.
 /// It hosts the devices that send and receive CSI data, and is responsible for sending this data further to other receivers in the system.
@@ -53,8 +52,8 @@ use crate::services::{GlobalConfig, Run, SystemNodeConfig};
 ///
 #[derive(Clone)]
 pub struct SystemNode {
-    send_data_channel: broadcast::Sender<(DataMsg, DeviceId)>, // For external TCP clients
-    local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>, // For local DeviceHandler data
+    send_data_channel: broadcast::Sender<(DataMsg, DeviceId)>,      // For external TCP clients
+    local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,               // For local DeviceHandler data
     local_data_rx: Arc<Mutex<mpsc::Receiver<(DataMsg, DeviceId)>>>, // Receiver for local data
     handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
     sinks: Arc<Mutex<HashMap<String, Box<dyn Sink>>>>, // Added shared sinks
@@ -364,7 +363,7 @@ impl Run<SystemNodeConfig> for SystemNode {
 
         SystemNode {
             send_data_channel,
-            local_data_tx, // Store the sender
+            local_data_tx,                                      // Store the sender
             local_data_rx: Arc::new(Mutex::new(local_data_rx)), // Store the receiver
             handlers: Arc::new(Mutex::new(HashMap::new())),
             sinks: Arc::new(Mutex::new(HashMap::new())), // Initialize sinks map
@@ -392,7 +391,9 @@ impl Run<SystemNodeConfig> for SystemNode {
         for sink_conf_with_name in &self.sink_configs {
             info!("Initializing sink: {}", sink_conf_with_name.id);
             let mut sink = <dyn Sink>::from_config(sink_conf_with_name.config.clone()).await?;
-            sink.open().await.map_err(|e| format!("Failed to open sink {}: {:?}", sink_conf_with_name.id, e))?;
+            sink.open()
+                .await
+                .map_err(|e| format!("Failed to open sink {}: {:?}", sink_conf_with_name.id, e))?;
             sinks_map.insert(sink_conf_with_name.id.clone(), sink);
         }
         drop(sinks_map); // Release lock
@@ -402,15 +403,18 @@ impl Run<SystemNodeConfig> for SystemNode {
         for cfg in &self.device_configs {
             let mut handler = DeviceHandler::from_config(cfg.clone()).await.unwrap();
             // Pass the sender for local data to the handler's start method
-            handler.start( 
-                <dyn DataSourceT>::from_config(cfg.source.clone()).await?, 
-                if let Some(adapter_cfg) = cfg.adapter { 
-                    Some(<dyn CsiDataAdapter>::from_config(adapter_cfg).await?) 
-                } else { 
-                    None 
-                },
-                self.local_data_tx.clone()
-            ).await.expect("Failed to start device handler");
+            handler
+                .start(
+                    <dyn DataSourceT>::from_config(cfg.source.clone()).await?,
+                    if let Some(adapter_cfg) = cfg.adapter {
+                        Some(<dyn CsiDataAdapter>::from_config(adapter_cfg).await?)
+                    } else {
+                        None
+                    },
+                    self.local_data_tx.clone(),
+                )
+                .await
+                .expect("Failed to start device handler");
             handlers_map.insert(cfg.device_id, handler);
         }
         drop(handlers_map); // Release lock

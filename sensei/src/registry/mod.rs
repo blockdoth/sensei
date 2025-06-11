@@ -177,7 +177,7 @@ impl Registry {
                     let client = TcpClient::new();
                     connection_handler.poll_hosts(client, Duration::from_secs(interval)).await.unwrap();
                 })
-            },
+            }
             _ => {
                 info!("No registry polling inteval was defined. Pollin task was not started");
                 task::spawn(async {}) // return an empty task if no interval is defined

@@ -5,8 +5,8 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
-use tokio::sync::watch;
 use tokio::sync::mpsc; // Added for sending data out
+use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use crate::adapters::*;
@@ -141,19 +141,18 @@ impl DeviceHandler {
         // Start the source.
         source.start().await.map_err(|e| {
             log::error!("Device {device_id} source start failed: {e:?}");
-            TaskError::DataSourceError(e) 
+            TaskError::DataSourceError(e)
         })?;
         log::info!("Device {device_id} source started successfully.");
 
         // Apply controller if configured, now that the source is started.
         if let Some(controller_cfg) = self.config.controller.clone() {
             log::info!("Applying controller for device {device_id}.");
-            let controller: Box<dyn Controller> =
-                <dyn Controller>::from_config(controller_cfg.clone()).await.map_err(|e|{
-                    log::error!("Device {device_id} controller instantiation failed: {e:?}");
-                    e // Assuming TaskError::Controller will be handled by `?` or caller
-                })?;
-            controller.apply(source.as_mut()).await.map_err(|e|{
+            let controller: Box<dyn Controller> = <dyn Controller>::from_config(controller_cfg.clone()).await.map_err(|e| {
+                log::error!("Device {device_id} controller instantiation failed: {e:?}");
+                e // Assuming TaskError::Controller will be handled by `?` or caller
+            })?;
+            controller.apply(source.as_mut()).await.map_err(|e| {
                 log::error!("Device {device_id} controller apply failed: {e:?}");
                 TaskError::ControllerError(e)
             })?;
@@ -298,8 +297,7 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
         // Validate controller configuration if present.
         if let Some(controller_cfg) = &cg.controller {
             match (controller_cfg, &cg.source) {
-                (ControllerParams::Esp32(_), DataSourceConfig::Esp32(_))
-                | (ControllerParams::Tcp(_), DataSourceConfig::Tcp(_)) => {
+                (ControllerParams::Esp32(_), DataSourceConfig::Esp32(_)) | (ControllerParams::Tcp(_), DataSourceConfig::Tcp(_)) => {
                     // These combinations are allowed.
                 }
                 #[cfg(target_os = "linux")]
