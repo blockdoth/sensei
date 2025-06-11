@@ -167,7 +167,7 @@ impl DeviceHandler {
                     _ = shutdown_rx.changed() => {
                         log::info!("Shutdown signal received for device {device_id}.");
                         if let Err(e) = source.stop().await {
-                            log::warn!("Failed to stop source for device {device_id} during shutdown: {:?}", e);
+                            log::warn!("Failed to stop source for device {device_id} during shutdown: {e:?}");
                         } else {
                             log::info!("Source for device {device_id} stopped gracefully during shutdown.");
                         }

@@ -256,16 +256,16 @@ impl SystemNode {
             let mut sinks_guard = self.sinks.lock().await;
             for sink_id in &handler_config.output_to {
                 if let Some(sink) = sinks_guard.get_mut(sink_id) {
-                    info!("Routing data from device {} to sink {}", device_id, sink_id);
+                    info!("Routing data from device {device_id} to sink {sink_id}");
                     if let Err(e) = sink.provide(data_msg.clone()).await {
-                        error!("Error providing data to sink {}: {:?}", sink_id, e);
+                        error!("Error providing data to sink {sink_id}: {e:?}");
                     }
                 } else {
-                    warn!("Sink ID {} configured for device {} not found", sink_id, device_id);
+                    warn!("Sink ID {sink_id} configured for device {device_id} not found");
                 }
             }
         } else {
-            warn!("Device ID {} not found in handlers for data routing", device_id);
+            warn!("Device ID {device_id} not found in handlers for data routing");
         }
     }
 
@@ -274,11 +274,11 @@ impl SystemNode {
         let mut rx = self.local_data_rx.lock().await;
         info!("Starting local data processing task.");
         while let Some((data_msg, device_id)) = rx.recv().await {
-            info!("SystemNode received local data for device_id: {}", device_id);
+            info!("SystemNode received local data for device_id: {device_id}");
             // 1. Broadcast to connected TCP clients
             if self.send_data_channel.receiver_count() > 0 {
                 if let Err(e) = self.send_data_channel.send((data_msg.clone(), device_id)) {
-                    error!("Failed to broadcast local data: {:?}", e);
+                    error!("Failed to broadcast local data: {e:?}");
                 }
             }
             // 2. Route to configured sinks
@@ -309,11 +309,11 @@ impl ConnectionHandler for SystemNode {
             }
             RpcMessageKind::Data { data_msg, device_id } => {
                 // Data from EXTERNAL source (network)
-                info!("SystemNode received external data for device_id: {}", device_id);
+                info!("SystemNode received external data for device_id: {device_id}");
                 // 1. Broadcast to connected TCP clients
                 if self.send_data_channel.receiver_count() > 0 {
                     if let Err(e) = self.send_data_channel.send((data_msg.clone(), *device_id)) {
-                        error!("Failed to broadcast external data: {:?}", e);
+                        error!("Failed to broadcast external data: {e:?}");
                     }
                 }
                 // 2. Route to configured sinks for this device_id
