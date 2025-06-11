@@ -1,11 +1,12 @@
-use std::net::{AddrParseError, SocketAddr};
 use std::path::PathBuf;
 
+use anyhow::Error;
 use argh::FromArgs;
+use lib::handler::device_handler::DeviceHandlerConfig;
 use log::debug;
 use simplelog::LevelFilter;
 
-use crate::config::{OrchestratorConfig, RegistryConfig, SystemNodeConfig, VisualiserConfig};
+use crate::services::{EspToolConfig, GlobalConfig, OrchestratorConfig, SystemNodeConfig, VisualiserConfig};
 
 /// A trait for overlaying subcommand arguments onto an existing configuration.
 ///
@@ -26,30 +27,38 @@ pub trait OverlaySubcommandArgs<T> {
     fn overlay_subcommand_args(&self, full_config: T) -> Result<T, Box<dyn std::error::Error>>;
 }
 
+pub static DEFAULT_HOST_CONFIG: &str = "resources/example_configs/host/example_full.yaml";
+pub static DEFAULT_ORCHESTRATOR_CONFIG: &str = "resources/example_configs/orchestrator/experiment_config.yaml";
+
 /// A simple app to perform collection from configured sources
 #[derive(FromArgs)]
 pub struct Args {
     /// log level to use for terminal logging
+    /// Possible values: OFF, ERROR, WARN, INFO, DEBUG, TRACE
     #[argh(option, default = "LevelFilter::Info")]
     pub level: LevelFilter,
 
     #[argh(subcommand)]
-    pub subcommand: SubCommandsArgs,
+    pub subcommand: Option<SubCommandsArgs>,
 }
 
-pub struct GlobalConfig {
-    pub target_addr: SocketAddr,
-    pub tui: bool,
+impl Args {
+    pub fn parse_global_config(&self) -> Result<GlobalConfig, Error> {
+        Ok(GlobalConfig { log_level: self.level })
+    }
+}
+
+pub trait ConfigFromCli<Config> {
+    fn parse(&self) -> Result<Config, Error>;
 }
 
 #[derive(FromArgs)]
 #[argh(subcommand)]
 pub enum SubCommandsArgs {
-    One(SystemNodeSubcommandArgs),
-    Two(RegistrySubcommandArgs),
-    Three(OrchestratorSubcommandArgs),
-    Four(VisualiserSubcommandArgs),
-    Five(EspToolSubcommandArgs),
+    SystemNode(SystemNodeSubcommandArgs),
+    Orchestrator(OrchestratorSubcommandArgs),
+    Visualiser(VisualiserSubcommandArgs),
+    EspTool(EspToolSubcommandArgs),
 }
 
 /// System node commands
@@ -64,16 +73,29 @@ pub struct SystemNodeSubcommandArgs {
     #[argh(option, default = "0")]
     pub port: u16,
 
-    /// location of config file (default sensei/src/system_node/example_config.yaml)
-    #[argh(option, default = "default_device_configs()")]
-    pub config: PathBuf,
+    /// location of config file
+    #[argh(option, default = "PathBuf::from(DEFAULT_HOST_CONFIG)")]
+    pub config_path: PathBuf,
+}
+
+impl ConfigFromCli<SystemNodeConfig> for SystemNodeSubcommandArgs {
+    fn parse(&self) -> Result<SystemNodeConfig, Error> {
+        Ok(SystemNodeConfig {
+            addr: format!("{}:{}", self.addr, self.port).parse()?,
+            device_configs: DeviceHandlerConfig::from_yaml(self.config_path.clone())?,
+            host_id: 0,                    // Default host_id, might be overwritten by YAML or other logic
+            registries: None,              // Default, might be overwritten by YAML
+            registry_polling_rate_s: None, // Default, might be overwritten by YAML
+            sinks: Vec::new(),             // Initialize with an empty Vec, to be populated from YAML
+        })
+    }
 }
 
 /// Overlays subcommand arguments onto a SystemNodeConfig, overriding fields if provided.
 impl OverlaySubcommandArgs<SystemNodeConfig> for SystemNodeSubcommandArgs {
     fn overlay_subcommand_args(&self, full_config: SystemNodeConfig) -> Result<SystemNodeConfig, Box<dyn std::error::Error>> {
         // Because of the default value we expact that there's always a file to read
-        debug!("Loading system node configuration from YAML file: {}", self.config.display());
+        debug!("Loading system node configuration from YAML file: {}", self.config_path.display());
         let mut config = full_config.clone();
         // overwrite fields when provided by the subcommand
         config.addr = format!("{}:{}", self.addr, self.port).parse().unwrap_or(config.addr);
@@ -82,41 +104,24 @@ impl OverlaySubcommandArgs<SystemNodeConfig> for SystemNodeSubcommandArgs {
     }
 }
 
-fn default_device_configs() -> PathBuf {
-    "sensei/src/system_node/example_config.yaml".parse().unwrap()
-}
-
-/// Registry node commands
-#[derive(FromArgs)]
-#[argh(subcommand, name = "registry")]
-pub struct RegistrySubcommandArgs {}
-
-impl RegistrySubcommandArgs {
-    pub fn parse(&self) -> Result<RegistryConfig, AddrParseError> {
-        Ok(RegistryConfig {
-            addr: "127.0.0.1:8080".parse()?,
-            poll_interval: 5,
-        })
-    }
-}
 /// Orchestrator node commands
 #[derive(FromArgs)]
 #[argh(subcommand, name = "orchestrator")]
 pub struct OrchestratorSubcommandArgs {
-    /// server port (default: 6969)
-    #[argh(option, default = "vec![String::from(\"127.0.0.1:6969\")]")]
-    pub target: Vec<String>,
-
     /// whether to enable tui input
     #[argh(option, default = "true")]
     pub tui: bool,
+
+    /// file path of the experiment config
+    #[argh(option, default = "DEFAULT_ORCHESTRATOR_CONFIG.parse().unwrap()")]
+    pub experiment_config: PathBuf,
 }
 
-impl OrchestratorSubcommandArgs {
-    pub fn parse(&self) -> Result<OrchestratorConfig, AddrParseError> {
+impl ConfigFromCli<OrchestratorConfig> for OrchestratorSubcommandArgs {
+    fn parse(&self) -> Result<OrchestratorConfig, Error> {
         // TODO input validation
         Ok(OrchestratorConfig {
-            targets: self.target.iter().map(|addr| addr.parse().unwrap()).collect(),
+            experiment_config: self.experiment_config.clone(),
         })
     }
 }
@@ -130,11 +135,11 @@ pub struct VisualiserSubcommandArgs {
     pub target: String,
 
     /// height of the eventual window
-    #[argh(option, default = "default_height()")]
+    #[argh(option, default = "600")]
     pub height: usize,
 
     /// width of the eventual window
-    #[argh(option, default = "default_width()")]
+    #[argh(option, default = "800")]
     pub width: usize,
 
     /// using tui (ratatui, default) or gui (plotters, minifb)
@@ -142,16 +147,8 @@ pub struct VisualiserSubcommandArgs {
     pub ui_type: String,
 }
 
-fn default_height() -> usize {
-    600
-}
-
-fn default_width() -> usize {
-    800
-}
-
-impl VisualiserSubcommandArgs {
-    pub fn parse(&self) -> Result<VisualiserConfig, AddrParseError> {
+impl ConfigFromCli<VisualiserConfig> for VisualiserSubcommandArgs {
+    fn parse(&self) -> Result<VisualiserConfig, Error> {
         // TODO input validation
         Ok(VisualiserConfig {
             target: self.target.parse()?,
@@ -164,9 +161,17 @@ impl VisualiserSubcommandArgs {
 #[derive(FromArgs, Debug, Clone)]
 #[argh(subcommand, name = "esp-tool")]
 pub struct EspToolSubcommandArgs {
-    /// serial port at which the ESP32 is connected (e.g., /dev/ttyUSB0 or COM3)
-    #[argh(option)]
-    pub port: String,
+    /// serial port
+    #[argh(option, default = "String::from(\"/dev/ttyUSB0\")")]
+    pub serial_port: String,
+}
+
+impl ConfigFromCli<EspToolConfig> for EspToolSubcommandArgs {
+    fn parse(&self) -> Result<EspToolConfig, Error> {
+        Ok(EspToolConfig {
+            serial_port: self.serial_port.clone(), // TODO remove clone
+        })
+    }
 }
 
 // Tests
@@ -174,17 +179,15 @@ pub struct EspToolSubcommandArgs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::SystemNodeRegistryConfig;
 
     fn create_testing_config() -> SystemNodeConfig {
         SystemNodeConfig {
             addr: "127.0.0.1:8080".parse().unwrap(),
             host_id: 1,
-            registry: SystemNodeRegistryConfig {
-                use_registry: true,
-                addr: "127.0.0.2:8888".parse().unwrap(),
-            },
+            registries: Option::None,
             device_configs: vec![],
+            registry_polling_rate_s: Option::None,
+            sinks: Vec::new(), // Add sinks field
         }
     }
 
@@ -193,7 +196,7 @@ mod tests {
         let args = SystemNodeSubcommandArgs {
             addr: "10.0.0.1".to_string(),
             port: 4321,
-            config: PathBuf::from("does_not_matter.yaml"), // This will not be used
+            config_path: PathBuf::from("does_not_matter.yaml"), // This will not be used
         };
 
         let base_cfg = create_testing_config();
@@ -206,7 +209,7 @@ mod tests {
         let args = SystemNodeSubcommandArgs {
             addr: "".to_string(),
             port: 0,
-            config: PathBuf::from("does_not_matter.yaml"), // This will not be used
+            config_path: PathBuf::from("does_not_matter.yaml"), // This will not be used
         };
 
         // If addr is empty and port is 0, overlay will parse ":0" which is invalid,
@@ -221,7 +224,7 @@ mod tests {
         let args = SystemNodeSubcommandArgs {
             addr: "invalid_addr".to_string(),
             port: 1234,
-            config: PathBuf::from("does_not_matter.yaml"), // This will not be used
+            config_path: PathBuf::from("does_not_matter.yaml"), // This will not be used
         };
 
         // "invalid_addr:1234" is not a valid SocketAddr, so should fallback to YAML

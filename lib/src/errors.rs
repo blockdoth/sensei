@@ -1,7 +1,10 @@
+use std::sync::PoisonError;
+
 use thiserror::Error;
 
 use crate::adapters::csv::CSVAdapterError;
 use crate::network::rpc_message::{DataMsg, HostId};
+use crate::network::tcp::ChannelMsg;
 
 /// Errors that can occur during network communication with sources or clients.
 #[derive(Error, Debug)]
@@ -9,6 +12,22 @@ pub enum NetworkError {
     /// I/O-related errors
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+
+    /// Tokio was unable to send the message
+    #[error("Message could not be sent due to a broadcast error")]
+    TokioBroadcastSendingError(#[from] tokio::sync::broadcast::error::SendError<(DataMsg, HostId)>),
+
+    /// Tokio was unable to send the message
+    #[error("Message could not be sent due to a Watch error")]
+    TokioWatchSendingError(#[from] tokio::sync::watch::error::SendError<ChannelMsg>),
+
+    /// Communication operation timed out.
+    #[error("Communication timed out")]
+    Timeout(#[from] tokio::time::error::Elapsed),
+
+    /// There's a problem that originated from the App
+    #[error("There's an error in the App")]
+    App(#[from] AppError),
 
     /// Failed during serialization or deserialization.
     #[error("Error during (De)Serialization")]
@@ -26,17 +45,13 @@ pub enum NetworkError {
     #[error("This client is already connected")]
     AlreadyConnected,
 
-    /// Communication operation timed out.
-    #[error("Communication timed out")]
-    Timeout(#[from] tokio::time::error::Elapsed),
-
     /// The response could not be parsed.
     #[error("Message could not be parsed")]
     MessageError,
 
-    /// Tokio was unable to send the message
-    #[error("Message could not be sent")]
-    SendingError(#[from] tokio::sync::broadcast::error::SendError<(DataMsg, HostId)>),
+    /// Registry error
+    #[error("The registry produced an error")]
+    RegistryError(#[from] RegistryError),
 }
 
 /// Generic application-level error for unimplemented functionality.
@@ -67,7 +82,7 @@ pub enum DataSourceError {
     ParsingError(String),
 
     #[error("Tcp source error: {0}")]
-    NetworkError(#[from] NetworkError),
+    NetworkError(#[from] Box<NetworkError>),
 
     /// Packet was incomplete, likely due to a bug in the source handler.
     #[error("Incomplete packet (Source handler bug)")]
@@ -84,6 +99,9 @@ pub enum DataSourceError {
     /// Tried to use a feature or function that isn't implemented.
     #[error("Tried to use unimplemented feature: {0}")]
     NotImplemented(String),
+
+    #[error("Not connected: {0}")]
+    NotConnected(String),
 
     /// Insufficient privileges to access the source.
     #[error("Permission denied: application lacks sufficient privileges. See `README.md` for details on permissions.")]
@@ -268,6 +286,11 @@ pub enum ControllerError {
     #[error("Missing parameter: {0}")]
     MissingParameter(String),
 
+    #[error("Command failed to execute")]
+    CommandFailed { command_name: String, details: String },
+
+    #[error("Invalid datasource")]
+    InvalidDataSource(String),
     /// Could not determine the wireless PHY name.
     #[error("Failed to extract PhyName due to string conversions")]
     PhyName,
@@ -298,7 +321,7 @@ pub enum SinkError {
 
     /// Error related to tcp sinks
     #[error("Error from tcp sink: {0}")]
-    NetworkError(#[from] NetworkError),
+    NetworkError(#[from] Box<NetworkError>),
 }
 
 /// Top-level task errors used across Sensei's runtime.
@@ -344,4 +367,34 @@ pub enum TaskError {
     /// Specifically for the tcp sink
     #[error("Incorrect device_id for sink, according to config")]
     WrongSinkDid,
+}
+
+#[derive(Error, Debug)]
+pub enum RegistryError {
+    /// A generic error only intended to be used in development
+    #[error("A generic error. Should not be used in finalized features")]
+    GenericError,
+
+    /// A poisonerror`
+    #[error("Poisonerror")]
+    PosonError(#[from] PoisonError<()>),
+
+    /// No such host
+    #[error("No such host")]
+    NoSuchHost,
+
+    /// Netowrk Error
+    #[error("Network Error")]
+    NetworkError(#[from] Box<NetworkError>),
+
+    /// No Standalone
+    #[error("The registry cannot be ran as a standalone process.")]
+    NoStandalone,
+}
+
+// Allow conversion from Box<NetworkError> to NetworkError
+impl From<Box<NetworkError>> for NetworkError {
+    fn from(err: Box<NetworkError>) -> Self {
+        *err
+    }
 }

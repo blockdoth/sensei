@@ -1,21 +1,21 @@
+addr: "127.0.0.1:8080"
+host_id: 5
+device_configs:
 - device_id: 42
   stype: IWL5300
-  source:
-    type: Netlink
+  source: !Netlink
     group: 5
-  controller:
-    type: Esp32
+  controller: !Esp32
     params:
       interface: "wlp1s0"
       center_freq_mhz: 2412
       bandwidth_mhz: 20
       control_freq_mhz: null
       antenna_mask: 7
-  adapter:
-    type: Iwl
+  adapter: !Iwl
     scale_csi: true
   sinks:
-    - type: File
+    - !File
       file: "/out/file.dat"
-    - type: File
+    - !File
       file: "/dev/stdout"

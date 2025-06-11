@@ -7,14 +7,9 @@ edition = "2024"
 name = "lib"
 path = "src/lib.rs"
 
-[[bin]]
-name = "config"
-path = "src/bin/handler_tool.rs"
-
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 bincode = "1.3"
-# Dependencies from HEAD
 serialport = "4.7.1"
 byteorder = "1.5.0"
 crossterm = { version = "0.29.0", features = ["event-stream"] }
@@ -24,20 +19,13 @@ serde_json = "1.0.140"
 async-trait = "0.1.88"
 serde_yaml = "0.9.34"
 num-complex = { version = "0.4.6", features = ["serde"] }
-file = "1.1.2" # Note: 'file' might be a very generic name, ensure it's the correct crate.
-tcpserver = "2.2.0"
-tokio-stream = "0.1.17"
-async-stream = "0.3.6"
 schemars = "0.8.22"
-# Common dependencies (or versions resolved)
 log = "0.4.27"
-env_logger = "0.11.8" # Kept from HEAD, dev had simplelog which is also a logger
 thiserror = "2.0.12"
 chrono = "0.4.41"
-clap = { version = "4.5.38", features = ["derive"] }
 futures = "0.3.31"
-typetag = "0.2.20"
 tempfile = "3.20.0"
+ratatui = "0.29.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 netlink-sys = "0.8.7"

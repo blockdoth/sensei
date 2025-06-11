@@ -8,9 +8,9 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::sync::broadcast;
 use tokio::sync::watch::{self};
 
-use super::rpc_message::{DataMsg, DeviceId, RpcMessage, RpcMessageKind};
+use super::rpc_message::{CfgType, DataMsg, DeviceId, RpcMessage, RpcMessageKind};
 use crate::errors::NetworkError;
-use crate::network::rpc_message::make_msg;
+use crate::network::rpc_message::{HostId, make_msg};
 
 pub mod client;
 pub mod server;
@@ -74,20 +74,12 @@ pub async fn send_message(stream: &mut OwnedWriteHalf, msg: RpcMessageKind) -> R
 }
 
 // TODO better error handling
-fn serialize_rpc_message(msg: RpcMessage) -> Result<Vec<u8>, NetworkError> {
-    if let Ok(buf) = bincode::serialize(&msg) {
-        Ok(buf)
-    } else {
-        Err(NetworkError::Serialization)
-    }
+fn serialize_rpc_message(msg: RpcMessage) -> Result<Vec<u8>, Box<NetworkError>> {
+    bincode::serialize(&msg).map_err(|_| Box::from(NetworkError::Serialization))
 }
 
-fn deserialize_rpc_message(buf: &[u8]) -> Result<RpcMessage, NetworkError> {
-    if let Ok(msg) = bincode::deserialize(buf) {
-        Ok(msg)
-    } else {
-        Err(NetworkError::Serialization)
-    }
+fn deserialize_rpc_message(buf: &[u8]) -> Result<RpcMessage, Box<NetworkError>> {
+    bincode::deserialize(buf).map_err(|_| Box::from(NetworkError::Serialization))
 }
 
 #[async_trait]
@@ -109,6 +101,13 @@ pub trait SubscribeDataChannel {
 
 #[derive(Debug, Clone, Deserialize)]
 pub enum ChannelMsg {
+    HostChannel(HostChannel),
+    RegChannel(RegChannel),
+    Data { data: DataMsg },
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub enum HostChannel {
     Empty,
     Disconnect,
     Subscribe { device_id: DeviceId },
@@ -117,7 +116,23 @@ pub enum ChannelMsg {
     UnsubscribeFrom { target_addr: SocketAddr, device_id: DeviceId },
     ListenSubscribe { addr: SocketAddr },
     ListenUnsubscribe { addr: SocketAddr },
-    Poll,
-    SendHostStatus { reg_addr: SocketAddr },
-    Data { data: DataMsg },
+    Configure { device_id: DeviceId, cfg_type: CfgType },
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub enum RegChannel {
+    SendHostStatus { host_id: HostId },
+    SendHostStatuses,
+}
+
+impl From<HostChannel> for ChannelMsg {
+    fn from(value: HostChannel) -> Self {
+        ChannelMsg::HostChannel(value)
+    }
+}
+
+impl From<RegChannel> for ChannelMsg {
+    fn from(value: RegChannel) -> Self {
+        ChannelMsg::RegChannel(value)
+    }
 }

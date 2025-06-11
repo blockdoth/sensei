@@ -7,7 +7,7 @@ use tokio::sync::watch;
 
 use super::{ConnectionHandler, MAX_MESSAGE_LENGTH, SubscribeDataChannel, read_message};
 use crate::errors::NetworkError;
-use crate::network::tcp::ChannelMsg;
+use crate::network::tcp::{ChannelMsg, HostChannel};
 
 pub struct TcpServer {}
 
@@ -47,7 +47,7 @@ impl TcpServer {
 
         let (mut read_stream, write_stream) = stream.into_split();
 
-        let (send_commands_channel, recv_commands_channel) = watch::channel::<ChannelMsg>(ChannelMsg::Empty);
+        let (send_commands_channel, recv_commands_channel) = watch::channel::<ChannelMsg>(ChannelMsg::HostChannel(HostChannel::Empty));
 
         let send_commands_channel_local = send_commands_channel.clone();
         let connection_handler_local = connection_handler.clone();
@@ -67,8 +67,8 @@ impl TcpServer {
                         info!("Connection with {local_peer_addr:?} closed gracefully");
                         break;
                     }
-                    Err(_) => {
-                        warn!("Connection with {local_peer_addr:?} closed abruptly");
+                    Err(e) => {
+                        warn!("Connection with {local_peer_addr:?} closed abruptly {e}");
                         break;
                     }
                 }

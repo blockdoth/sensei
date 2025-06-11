@@ -9,7 +9,6 @@
 //! instantiation of controller implementations from serialized configuration.
 
 use async_trait::async_trait;
-use typetag;
 
 use crate::FromConfig;
 use crate::errors::{ControllerError, TaskError};
@@ -42,7 +41,6 @@ use crate::ToConfig;
 /// // Apply to source
 /// controller.apply(&mut my_source).await?;
 /// ```
-#[typetag::serde(tag = "type")]
 #[async_trait]
 pub trait Controller: Send + Sync + ToConfig<ControllerParams> {
     /// Apply controller parameters or logic to the given source.
@@ -61,7 +59,6 @@ pub trait Controller: Send + Sync + ToConfig<ControllerParams> {
 /// Each variant carries the specific parameters needed to construct that
 /// controller implementation. Tagged via Serde as `{ "type": "...", "params": { ... } }`.
 #[derive(serde::Serialize, serde::Deserialize, Debug, schemars::JsonSchema, Clone)]
-#[serde(tag = "type", content = "params")]
 pub enum ControllerParams {
     #[cfg(target_os = "linux")]
     Netlink(netlink_controller::NetlinkControllerParams),
