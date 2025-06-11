@@ -161,7 +161,7 @@ mod tests {
         }
     }
 
-    #[tokio:test]
+    #[tokio::test]
     async fn test_new() {
         let config = make_config();
         let mut source = TCPSource::new(config.clone());
@@ -176,7 +176,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_start() {
-        let mut mock = TcpClient::default();
+        let mut mock =TcpClient::default();
+        let config = make_config();
 
         mock.expect_connect()
         .with(eq(config.target_addr))
@@ -190,6 +191,7 @@ mod tests {
     #[tokio::test]
     async fn test_stop() {
         let mut mock = TcpClient::default();
+        let config = make_config();
 
         mock.expect_disconnect()
         .with(eq(config.target_addr))
@@ -202,10 +204,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_buf() {
-        let mut source = TCPSource{client: TCPClient::default(), config: make_config()};
+        let mut source = TCPSource{client: TcpClient::default(), config: make_config()};
 
-        let buf = vec![0u8; 8];
-        assert!(matches!(source.read_buf(buf).unwrap_err(), DataSourceError::ReadBuf));
+        let mut buf = [0u8; 8];
+        assert!(matches!(source.read_buf(&buf).await.unwrap_err(), DataSourceError::ReadBuf));
     }
 
     #[tokio::test]
@@ -223,7 +225,7 @@ mod tests {
                 data_msg: dt_msg.clone(),
                 device_id: config.device_id,
             },
-            scr_addr: test_addr(),
+            src_addr: test_addr(),
             target_addr: test_addr(),
         };
 
@@ -246,25 +248,25 @@ mod tests {
         let config = make_config();
         let dt_msg = DataMsg::RawFrame {
             ts: 0f64,
-            bytes: &vec![0u8, 8],
+            bytes: vec![0u8, 8],
             source_type: SourceType::IWL5300,
         };
 
         let message = RpcMessage {
             msg: RpcMessageKind::Data{
                 data_msg: dt_msg,
-                device_id: config.device_id() - 2,
+                device_id: config.device_id - 2,
             },
-            scr_addr: test_addr(),
+            src_addr: test_addr(),
             target_addr: test_addr(),
         };
 
         mock.expect_read()
         .returning(|_| Ok(message));
 
-        let source = TCPSource{client: mock , config.clone()};
+        let source = TCPSource{client: mock , config: config.clone()};
         let ret = source.read().await;
-        assert_eq!(ret.unwrap()is_none());
+        assert!(ret.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -275,7 +277,9 @@ mod tests {
         mock.expect_read_message()
             .returning(|_| {
                 Ok(RpcMessage {
-                    msg: RpcMessageKind::HostCtrl::Connect,
+                    msg: RpcMessageKind::HostCtrl(HostCtrl::Connect),
+                    src_addr: test_addr(),
+                    target_addr: test_addr(),
                 })
             });
 

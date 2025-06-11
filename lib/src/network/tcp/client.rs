@@ -23,11 +23,11 @@ use crate::network::rpc_message::RpcMessageKind::*;
 use crate::network::rpc_message::{HostCtrl, RpcMessage, RpcMessageKind};
 use crate::network::tcp;
 use crate::network::tcp::MAX_MESSAGE_LENGTH;
+use mockall_double::double;
 
 const CONNECTION_TIME: u64 = 10;
 
 /// Tcp Client
-#[cfg_attr(test, mockall::automock)]
 pub struct TcpClient {
     //TODO look if using SocketAddr is fine to use as key
     connections: Arc<Mutex<HashMap<SocketAddr, Connection>>>,
@@ -49,6 +49,7 @@ impl Default for TcpClient {
     }
 }
 
+#[automock]
 impl TcpClient {
     pub fn new() -> Self {
         Self {
