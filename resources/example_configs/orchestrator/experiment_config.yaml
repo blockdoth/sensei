@@ -7,7 +7,7 @@ stages:
     command_blocks:
         - commands:
             - !Connect
-              target_addr: "127.0.0.1:6969"
+              target_addr: "127.0.0.1:8080"
           delays:
             init_delay: 2000
             is_recurring: !NotRecurring
@@ -34,17 +34,17 @@ stages:
             iterations: 5
       - commands:
           - !Connect
-            target_addr: "127.0.0.1:8001"
+            target_addr: "127.0.0.1:8080"
           - !Subscribe
-            target_addr: "127.0.0.1:8001"
+            target_addr: "127.0.0.1:8080"
             device_id: 0
           - !Delay
             delay: 5000
           - !Unsubscribe
-            target_addr: "127.0.0.1:8001"
+            target_addr: "127.0.0.1:8080"
             device_id: 0
           - !Disconnect
-            target_addr: "127.0.0.1:8001"
+            target_addr: "127.0.0.1:8080"
         delays:
           init_delay: 500
           command_delay: 200
@@ -55,6 +55,6 @@ stages:
     command_blocks:
       - commands:
         - !Disconnect
-          target_addr: "127.0.0.1:6969"
+          target_addr: "127.0.0.1:8080"
         delays:
           is_recurring: !NotRecurring 
