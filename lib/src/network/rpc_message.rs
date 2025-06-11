@@ -15,6 +15,14 @@ use crate::network::rpc_message::CfgType::{Create, Delete, Edit};
 /// The default address used for network communication (localhost:6969).
 pub const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
 
+/// Information about how well the host is responding
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum Responsiveness {
+    Connected,
+    Lossy,
+    Disconnected,
+}
+
 /// Represents a full RPC message, including its kind and source/target addresses.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RpcMessage {
@@ -83,6 +91,8 @@ pub struct HostStatus {
     pub host_id: HostId,
     /// The status of each device managed by the host.
     pub device_statuses: Vec<DeviceStatus>,
+    /// How well the host is responding.
+    pub responsiveness: Responsiveness,
 }
 
 impl From<HostStatus> for RegCtrl {
@@ -96,10 +106,12 @@ impl From<RegCtrl> for HostStatus {
         match value {
             RegCtrl::HostStatus(HostStatus {
                 host_id,
-                device_statuses: device_status,
+                device_statuses,
+                responsiveness,
             }) => HostStatus {
                 host_id,
-                device_statuses: device_status,
+                device_statuses,
+                responsiveness,
             },
             _ => {
                 panic!("Could not convert from this type of CtrlMsg: {value:?}");
@@ -245,6 +257,7 @@ impl FromStr for RegCtrl {
             "hoststatus" => Ok(RegCtrl::HostStatus(HostStatus {
                 host_id: 0,
                 device_statuses: vec![],
+                responsiveness: Responsiveness::Connected,
             })),
             "heartbeat" => Ok(RegCtrl::AnnouncePresence {
                 host_id: 0,
