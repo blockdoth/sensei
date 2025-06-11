@@ -454,8 +454,8 @@ impl Visualiser {
                                 let num_delay_bins = data_points.len();
                                 let max_delay_bin_idx = if num_delay_bins == 0 { 0.0 } else { (num_delay_bins - 1) as f64 };
                                 // Ensure bounds are always positive and sensible
-                                let bounds = [0.0, max_delay_bin_idx.max(0.0)]; 
-                                
+                                let bounds = [0.0, max_delay_bin_idx.max(0.0)];
+
                                 let mut labels = vec![
                                     Span::from(bounds[0].floor().to_string()),
                                     Span::from(bounds[1].floor().to_string())
@@ -483,12 +483,11 @@ impl Visualiser {
                             } else {
                                 (min_val, max_val)
                             };
-                            
                             let data_range = max_val - min_val;
-                            let padding = (data_range * 0.05).max(0.1); 
+                            let padding = (data_range * 0.05).max(0.1);
                             [min_val - padding, max_val + padding]
                         };
-                        
+
                         let data_labels: Vec<Span> = vec![
                             Span::from(format!("{:.2}", y_bounds_to_use[0])),
                             Span::from(format!("{:.2}", y_bounds_to_use[1])),
@@ -498,7 +497,6 @@ impl Visualiser {
                             GraphType::Amplitude => current_graph_spec.graph_type.to_string(),
                             GraphType::PDP => "Power".to_string(),
                         };
-                        
                         let chart_block_title = format!(
                             "Chart {} - {} @ {} dev {} C{} S{}",
                             i,
