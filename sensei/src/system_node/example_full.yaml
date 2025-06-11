@@ -33,12 +33,12 @@ host_id: 1
 # Each sink needs a unique `id` so device handlers can reference it.
 sinks:
   # This sink writes data to a local file.
-  - id: "log_file"
-    # The `config` block defines the sink's type and parameters.
-    # `!File` corresponds to the `FileSink` in the Rust code.
-    config: !File
-      # Parameters are derived from the `FileConfig` struct in `sinks/file.rs`.
-      file: "a.txt"
+  # - id: "log_file"
+  #   # The `config` block defines the sink's type and parameters.
+  #   # `!File` corresponds to the `FileSink` in the Rust code.
+  #   config: !File
+  #     # Parameters are derived from the `FileConfig` struct in `sinks/file.rs`.
+  #     file: "yourfile.txt"
 
   # A second file sink, this time pointing to standard output.
   - id: "stdout"
@@ -93,7 +93,7 @@ device_configs:
     # `output_to`: A list of sink `id`s where this handler's processed data should be sent.
     # This handler will send its data to both "log_file" and "stdout".
     output_to:
-      - "log_file"
+      # - "log_file"
       - "stdout"
 
   # --- EXAMPLE: How to add another device handler (e.g., for an Intel Wi-Fi card) ---
