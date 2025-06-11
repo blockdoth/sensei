@@ -70,7 +70,6 @@ pub struct SystemNode {
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct SinkConfigWithName {
     pub id: String,
-    #[serde(flatten)] // Flattens the SinkConfig enum, so `type` is at the same level as `id`
     pub config: SinkConfig,
 }
 
@@ -149,7 +148,7 @@ impl SystemNode {
                     source,
                     controller,
                     adapter,
-                    output_to: Vec::new(), // Example: an empty list, or specific sink IDs
+                    output_to: vec![],
                 };
 
                 let new_handler = DeviceHandler::from_config(new_handler_config).await.unwrap();
