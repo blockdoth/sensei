@@ -404,7 +404,7 @@ impl Run<SystemNodeConfig> for SystemNode {
             // Pass the sender for local data to the handler's start method
             handler.start( 
                 <dyn DataSourceT>::from_config(cfg.source.clone()).await?, 
-                if let Some(adapter_cfg) = cfg.adapter.clone() { 
+                if let Some(adapter_cfg) = cfg.adapter { 
                     Some(<dyn CsiDataAdapter>::from_config(adapter_cfg).await?) 
                 } else { 
                     None 
