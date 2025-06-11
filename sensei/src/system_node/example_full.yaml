@@ -94,7 +94,7 @@ device_configs:
     # This handler will send its data to both "log_file" and "stdout".
     output_to:
       # - "log_file"
-      - "stdout"
+      # - "stdout"
 
   # --- EXAMPLE: How to add another device handler (e.g., for an Intel Wi-Fi card) ---
   # This complete example shows how to combine different components.
