@@ -275,7 +275,7 @@ impl SystemNode {
         let mut rx = self.local_data_rx.lock().await;
         info!("Starting local data processing task.");
         while let Some((data_msg, device_id)) = rx.recv().await {
-            info!("SystemNode received local data for device_id: {device_id}");
+            trace!("SystemNode received local data for device_id: {device_id}");
             // 1. Broadcast to connected TCP clients
             if self.send_data_channel.receiver_count() > 0 {
                 if let Err(e) = self.send_data_channel.send((data_msg.clone(), device_id)) {
