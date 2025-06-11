@@ -28,7 +28,6 @@ use ratatui::prelude::Direction;
 use ratatui::style::{Color, Style};
 use ratatui::text::Span;
 use ratatui::widgets::{Axis, Block, Borders, Chart, Dataset};
-// Imports for PDP
 use rustfft::FftPlanner;
 use rustfft::num_complex::Complex as FftComplex;
 use tokio::io;
@@ -38,9 +37,8 @@ use tokio::sync::Mutex;
 use crate::services::{GlobalConfig, Run, VisualiserConfig};
 
 pub struct Visualiser {
-    // This seemed to me the best way to structure the data, as the socketaddr is a primary key for each node, and each device has a unique id only within a node
     #[allow(clippy::type_complexity)]
-    data: Arc<Mutex<HashMap<SocketAddr, HashMap<u64, Vec<CsiData>>>>>, // Nodes x Devices x CsiData over time
+    data: Arc<Mutex<HashMap<SocketAddr, HashMap<u64, Vec<CsiData>>>>>,
     target: SocketAddr,
     ui_type: String,
 }
@@ -110,7 +108,7 @@ struct GraphDisplayState {
 pub enum GraphType {
     Amplitude,
     #[allow(clippy::upper_case_acronyms)]
-    PDP, // Added PDP
+    PDP,
 }
 
 impl FromStr for GraphType {
@@ -120,7 +118,7 @@ impl FromStr for GraphType {
         match s.to_lowercase().as_str() {
             "amp" => Ok(GraphType::Amplitude),
             "amplitude" => Ok(GraphType::Amplitude),
-            "pdp" => Ok(GraphType::PDP), // Added PDP parsing
+            "pdp" => Ok(GraphType::PDP),
             _ => Err(()),
         }
     }
@@ -411,7 +409,7 @@ impl Visualiser {
                         }
                     }
                 }
-                // Drop the lock before drawing, as drawing can take time.
+                // Drop the lock before drawing, as drawing slow slow slow
                 drop(display_states_locked);
 
                 terminal.draw(|f| {
@@ -624,7 +622,6 @@ impl Visualiser {
     }
 
     async fn plot_data_gui(&self) -> Result<(), Box<dyn std::error::Error>> {
-        // Corrected return type
         let tick_rate = Duration::from_millis(2000);
         let mut last_tick = Instant::now();
 
@@ -695,9 +692,7 @@ impl Visualiser {
     }
 }
 
-// Moved generate_chart_from_data outside of impl Visualiser
 fn generate_chart_from_data(data: Vec<(f64, f64)>, title_str: &str) -> CharmingChart {
-    // Use aliased CharmingChart, remove lifetime
     use charming::component::Title;
     use charming::element::AxisType;
     use charming::series::Line;
@@ -705,7 +700,7 @@ fn generate_chart_from_data(data: Vec<(f64, f64)>, title_str: &str) -> CharmingC
     let x_data: Vec<String> = data.iter().map(|(x, _)| x.to_string()).collect(); // Convert f64 to String for x_axis data
     let y_data: Vec<f64> = data.iter().map(|(_, y)| *y).collect();
 
-    CharmingChart::new() // Corrected: new() takes no arguments for charming::Chart
+    CharmingChart::new()
         .title(Title::new().text(title_str))
         .x_axis(charming::component::Axis::new().type_(AxisType::Category).data(x_data))
         .y_axis(charming::component::Axis::new().type_(AxisType::Value))
