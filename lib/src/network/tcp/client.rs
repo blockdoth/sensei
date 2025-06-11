@@ -25,19 +25,6 @@ use crate::network::tcp;
 use crate::network::tcp::MAX_MESSAGE_LENGTH;
 
 const CONNECTION_TIME: u64 = 10;
-#[cfg(test)]
-use mockall::automock;
-
-// This is for mocking
-#[cfg_attr(test, automock)]
-pub trait TcpClientT: Send + Sync {
-    pub async fn get_src_addr(&self, src_addr: SocketAddr) -> SocketAddr;
-    pub async fn get_connections(&self) -> Vec<SocketAddr>;
-    pub async fn connect(&mut self, addr: SocketAddr) -> std::io::Result<()>;
-    pub async fn disconnect(&mut self, addr: SocketAddr) -> std::io::Result<()>;
-    pub async fn read_message(&mut self, addr: SocketAddr) -> std::io::Result<RpcMessage>;
-    pub async fn send_message(&mut self, target_addr: SocketAddr, msg: RpcMessageKind) -> Result<(), NetworkError>
-}
 
 /// Tcp Client
 pub struct TcpClient {
@@ -61,7 +48,7 @@ impl Default for TcpClient {
     }
 }
 
-impl TcpClientT for TcpClient {
+impl TcpClient {
     pub fn new() -> Self {
         Self {
             connections: Arc::new(Mutex::new(HashMap::new())),

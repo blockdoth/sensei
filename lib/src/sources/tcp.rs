@@ -24,9 +24,9 @@ pub struct TCPConfig {
 ///
 /// Establishes a TCP connection to a remote data provider and reads serialized
 /// `RpcMessage` values from the stream.
-pub struct TCPSource<C: TcpClientT>  {
+pub struct TCPSource {
     /// Client from which to read
-    client: C,
+    client: TcpClient,
     /// Place to where to send
     config: TCPConfig,
 }
