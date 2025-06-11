@@ -285,7 +285,6 @@ impl NetlinkSource {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -293,7 +292,7 @@ mod tests {
 
     #[test]
     fn test_parse_valid() {
-        let buf = [0u8; 16]; 
+        let buf = [0u8; 16];
         let result = NetlinkHeader::parse(&buf).unwrap();
         assert_eq!(result.length, 0);
         assert_eq!(result.message_type, 0);
@@ -310,7 +309,7 @@ mod tests {
 
     #[test]
     fn test_connector_parse_valid() {
-        let buf = [0u8; 20]; 
+        let buf = [0u8; 20];
         let result = ConnectorMessageHeader::parse(&buf).unwrap();
         assert_eq!(result.idx, 0);
         assert_eq!(result.val, 0);
@@ -322,13 +321,16 @@ mod tests {
     #[test]
     fn test_connector_parse_invalid() {
         let buf = [0u8; 3];
-        assert!(matches!(ConnectorMessageHeader::parse(&buf).unwrap_err(), DataSourceError::IncompletePacket));
+        assert!(matches!(
+            ConnectorMessageHeader::parse(&buf).unwrap_err(),
+            DataSourceError::IncompletePacket
+        ));
     }
 
     #[test]
     fn test_get_connector_payload_invalid_type() {
         let mut buf = vec![0u8; 16];
-        buf[4..6].copy_from_slice(&0xFFFFu16.to_ne_bytes()); 
+        buf[4..6].copy_from_slice(&0xFFFFu16.to_ne_bytes());
         assert!(matches!(get_connector_payload(&buf).unwrap_err(), DataSourceError::NotImplemented(_)));
     }
 
@@ -349,5 +351,3 @@ mod tests {
         assert_eq!(source.buffer.len(), 8192);
     }
 }
-
-

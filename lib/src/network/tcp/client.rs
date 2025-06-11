@@ -13,6 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use log::{debug, error, info};
+use mockall::automock;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
@@ -23,7 +24,6 @@ use crate::network::rpc_message::RpcMessageKind::*;
 use crate::network::rpc_message::{HostCtrl, RpcMessage, RpcMessageKind};
 use crate::network::tcp;
 use crate::network::tcp::MAX_MESSAGE_LENGTH;
-use mockall_double::double;
 
 const CONNECTION_TIME: u64 = 10;
 

@@ -169,7 +169,9 @@ impl Registry {
     /// // The polling task is now running in the background.
     /// ```
     pub fn create_polling_task(&self) -> tokio::task::JoinHandle<()> {
-        if let Some(interval) = self.polling_rate_s && interval > 0 {
+        if let Some(interval) = self.polling_rate_s
+            && interval > 0
+        {
             let connection_handler = Arc::new(self.clone());
             task::spawn(async move {
                 info!("Starting TCP client to poll hosts...");
