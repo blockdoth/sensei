@@ -38,7 +38,7 @@ sinks:
     # `!File` corresponds to the `FileSink` in the Rust code.
     config: !File
       # Parameters are derived from the `FileConfig` struct in `sinks/file.rs`.
-      file: "/tmp/sensei_esp32.log"
+      file: "a.txt"
 
   # A second file sink, this time pointing to standard output.
   - id: "stdout"
@@ -64,9 +64,9 @@ device_configs:
     # The tag `!Esp32` corresponds to `Esp32Source` and its `Esp32SourceConfig` struct.
     source: !Esp32
       port_name: "/dev/cu.usbmodem101"
-      baud_rate: 3000000
-      csi_buffer_size: 100
-      ack_timeout_ms: 2000
+      # baud_rate: 3000000
+      # csi_buffer_size: 100
+      # ack_timeout_ms: 2000
 
     # `controller`: Configures the source hardware/software. This block is OPTIONAL.
     # The tag `!Esp32` corresponds to `Esp32ControllerParams`.
@@ -74,14 +74,14 @@ device_configs:
       # High-level behavioral command. See file comments for details.
       mode: Listening
       # Low-level hardware settings.
-      device_config:
-        channel: 1
-        mode: Receive
-        bandwidth: Twenty
-        secondary_channel: None
-        csi_type: HighThroughputLTF
-        manual_scale: 0
-      synchronize_time: true
+      # device_config:
+      #   channel: 1
+      #   mode: Receive
+      #   bandwidth: Twenty
+      #   secondary_channel: None
+      #   csi_type: HighThroughputLTF
+      #   manual_scale: 0
+      # synchronize_time: true
 
     # `adapter`: Parses or transforms raw data from the source. This block is OPTIONAL.
     # If omitted, raw data is passed through.

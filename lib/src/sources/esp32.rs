@@ -27,6 +27,20 @@ const SERIAL_READ_TIMEOUT_MS: u64 = 100;
 const SERIAL_READ_BUFFER_SIZE: usize = 4096; // Increased for potentially larger bursts
 const BAUDRATE: u32 = 3_000_000;
 
+// --- Helper functions for serde defaults ---
+fn default_baud_rate() -> u32 {
+    BAUDRATE
+}
+
+fn default_csi_buffer_size() -> usize {
+    DEFAULT_CSI_BUFFER_SIZE
+}
+
+fn default_ack_timeout_ms() -> u64 {
+    DEFAULT_ACK_TIMEOUT_MS
+}
+// --- End Helper functions ---
+
 // --- Type Aliases for `ack_waiters` ---
 type AckPayload = Result<Vec<u8>, ControllerError>;
 type AckSender = Sender<AckPayload>;
@@ -37,8 +51,11 @@ type SharedAckWaiters = Arc<Mutex<AckWaiterMap>>;
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct Esp32SourceConfig {
     pub port_name: String,
+    #[serde(default = "default_baud_rate")]
     pub baud_rate: u32,
+    #[serde(default = "default_csi_buffer_size")]
     pub csi_buffer_size: usize,
+    #[serde(default = "default_ack_timeout_ms")]
     pub ack_timeout_ms: u64,
 }
 
