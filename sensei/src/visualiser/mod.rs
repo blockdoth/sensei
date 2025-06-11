@@ -182,27 +182,13 @@ impl Visualiser {
         self.data.lock().await.clone()
     }
 
-    async fn process_amplitude_data(
-        &self,
-        device_data: &[CsiData],
-        core: usize,
-        stream: usize,
-        subcarrier: usize,
-    ) -> (Vec<(f64, f64)>, Option<f64>) {
+    async fn process_amplitude_data(&self, device_data: &[CsiData], core: usize, stream: usize, subcarrier: usize) -> (Vec<(f64, f64)>, Option<f64>) {
         let latest_timestamp = device_data.last().map(|x| x.timestamp);
-        let data = device_data
-            .iter()
-            .map(|x| (x.timestamp, x.csi[core][stream][subcarrier].re))
-            .collect();
+        let data = device_data.iter().map(|x| (x.timestamp, x.csi[core][stream][subcarrier].re)).collect();
         (data, latest_timestamp)
     }
 
-    async fn process_pdp_data(
-        &self,
-        device_data: &[CsiData],
-        core: usize,
-        stream: usize,
-    ) -> (Vec<(f64, f64)>, Option<f64>) {
+    async fn process_pdp_data(&self, device_data: &[CsiData], core: usize, stream: usize) -> (Vec<(f64, f64)>, Option<f64>) {
         if let Some(latest_csi_data) = device_data.last() {
             let csi_timestamp = latest_csi_data.timestamp;
             if core < latest_csi_data.csi.len() && stream < latest_csi_data.csi[core].len() {
@@ -219,11 +205,7 @@ impl Visualiser {
                 }
 
                 (
-                    power_profile
-                        .into_iter()
-                        .enumerate()
-                        .map(|(idx, p)| (idx as f64, p))
-                        .collect(),
+                    power_profile.into_iter().enumerate().map(|(idx, p)| (idx as f64, p)).collect(),
                     Some(csi_timestamp),
                 )
             } else {
@@ -239,10 +221,7 @@ impl Visualiser {
     /// Returns the processed data and an Option containing the timestamp of the CSI data used.
     async fn process_data(&self, graph: Graph) -> (Vec<(f64, f64)>, Option<f64>) {
         let data_map = self.data.lock().await;
-        let device_data_map = match data_map
-            .get(&graph.target_addr)
-            .and_then(|node_data| node_data.get(&graph.device))
-        {
+        let device_data_map = match data_map.get(&graph.target_addr).and_then(|node_data| node_data.get(&graph.device)) {
             Some(data) => data.clone(),
             None => return (vec![], None),
         };
@@ -358,11 +337,7 @@ impl Visualiser {
         }
     }
 
-    fn get_x_axis_config(
-        graph_type: GraphType,
-        data_points: &[(f64, f64)],
-        time_interval: usize,
-    ) -> (String, [f64; 2], Vec<Span>) {
+    fn get_x_axis_config(graph_type: GraphType, data_points: &[(f64, f64)], time_interval: usize) -> (String, [f64; 2], Vec<Span>) {
         match graph_type {
             GraphType::Amplitude => {
                 let time_max = data_points.iter().max_by(|x, y| x.0.total_cmp(&y.0)).unwrap_or(&(0f64, 0f64)).0;
@@ -374,10 +349,7 @@ impl Visualiser {
                 let num_delay_bins = data_points.len();
                 let max_delay_bin_idx = if num_delay_bins == 0 { 0.0 } else { (num_delay_bins - 1) as f64 };
                 let bounds = [0.0, max_delay_bin_idx.max(0.0)];
-                let mut labels = vec![
-                    Span::from(bounds[0].floor().to_string()),
-                    Span::from(bounds[1].floor().to_string()),
-                ];
+                let mut labels = vec![Span::from(bounds[0].floor().to_string()), Span::from(bounds[1].floor().to_string())];
                 labels.dedup_by(|a, b| a.content == b.content);
                 if labels.is_empty() {
                     labels.push(Span::from("0"));
@@ -387,28 +359,34 @@ impl Visualiser {
         }
     }
 
-    fn get_y_axis_config(
-        graph_type: GraphType,
-        data_points: &[(f64, f64)],
-        y_axis_bounds_spec: Option<[f64; 2]>,
-    ) -> (String, [f64; 2], Vec<Span>) {
-        let y_bounds_to_use = if graph_type == GraphType::PDP && y_axis_bounds_spec.is_some() {
-            y_axis_bounds_spec.unwrap()
+    fn calculate_dynamic_bounds(data_points: &[(f64, f64)]) -> [f64; 2] {
+        let (min_val, max_val) = data_points
+            .iter()
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(min_acc, max_acc), &(_, y)| {
+                (min_acc.min(y), max_acc.max(y))
+            });
+        let (min_val, max_val) = if min_val.is_infinite() || max_val.is_infinite() {
+            (0.0, 1.0)
+        } else if (max_val - min_val).abs() < f64::EPSILON {
+            (min_val - 0.5, max_val + 0.5)
         } else {
-            let (min_val, max_val) = data_points.iter().fold(
-                (f64::INFINITY, f64::NEG_INFINITY),
-                |(min_acc, max_acc), &(_, y)| (min_acc.min(y), max_acc.max(y)),
-            );
-            let (min_val, max_val) = if min_val.is_infinite() || max_val.is_infinite() {
-                (0.0, 1.0)
-            } else if (max_val - min_val).abs() < f64::EPSILON {
-                (min_val - 0.5, max_val + 0.5)
+            (min_val, max_val)
+        };
+        let data_range = max_val - min_val;
+        let padding = (data_range * 0.05).max(0.1);
+        [min_val - padding, max_val + padding]
+    }
+
+    fn get_y_axis_config(graph_type: GraphType, data_points: &[(f64, f64)], y_axis_bounds_spec: Option<[f64; 2]>) -> (String, [f64; 2], Vec<Span>) {
+        let y_bounds_to_use = if graph_type == GraphType::PDP {
+            if let Some(bounds) = y_axis_bounds_spec {
+                bounds
             } else {
-                (min_val, max_val)
-            };
-            let data_range = max_val - min_val;
-            let padding = (data_range * 0.05).max(0.1);
-            [min_val - padding, max_val + padding]
+                // Default behavior for PDP if y_axis_bounds_spec is None
+                Self::calculate_dynamic_bounds(data_points)
+            }
+        } else {
+            Self::calculate_dynamic_bounds(data_points)
         };
 
         let data_labels: Vec<Span> = vec![
@@ -423,7 +401,6 @@ impl Visualiser {
 
         (y_axis_title_str, y_bounds_to_use, data_labels)
     }
-
 
     async fn tui_loop<B: Backend>(
         &self,
@@ -472,22 +449,18 @@ impl Visualiser {
 
                 let mut data_to_render_this_frame = Vec::new();
                 let now = Instant::now();
-                
+
                 for (i, graph_spec) in graphs_snapshot.iter().enumerate() {
                     let (points_from_processor, opt_timestamp_from_processor) = self.process_data(*graph_spec).await;
 
                     if graph_spec.graph_type == GraphType::PDP {
-                        let processed_points_for_render = Self::update_pdp_display_state(
-                            &mut display_states_locked[i],
-                            points_from_processor,
-                            opt_timestamp_from_processor,
-                            now,
-                        );
+                        let processed_points_for_render =
+                            Self::update_pdp_display_state(&mut display_states_locked[i], points_from_processor, opt_timestamp_from_processor, now);
                         data_to_render_this_frame.push(processed_points_for_render);
                     } else {
                         data_to_render_this_frame.push(points_from_processor);
                         if display_states_locked[i].is_some() {
-                            display_states_locked[i] = None; 
+                            display_states_locked[i] = None;
                         }
                     }
                 }
@@ -534,7 +507,6 @@ impl Visualiser {
                             data_points,
                             current_graph_spec.y_axis_bounds,
                         );
-                        
                         let chart_block_title = format!(
                             "Chart {} - {} @ {} dev {} C{} S{}",
                             i,
