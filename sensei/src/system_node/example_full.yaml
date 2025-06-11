@@ -1,0 +1,149 @@
+# sensei/src/system_node/config.yaml
+#
+# Welcome to the System Node configuration file!
+# This file defines the behavior of a single node in the Sensei network.
+# A node can read data from multiple sources (like hardware devices or files),
+# process that data, and send it to multiple destinations (sinks).
+#
+# The key concept is the "Device Handler": a pipeline that connects one
+# data source to one or more sinks, optionally transforming the data along the way.
+#
+# HOW TO USE THIS FILE:
+# 1. Define all your desired data outputs in the `sinks` section. Give each a unique `id`.
+# 2. For each data source you want to read from, create an entry in the `device_configs` list.
+# 3. In each device config, specify the `source`, an optional `controller` and `adapter`,
+#    and finally, use `output_to` to link it to the `sinks` you defined.
+#
+# YAML SYNTAX NOTE:
+# This configuration uses explicit YAML tags (e.g., `!File`, `!Esp32`) to define
+# polymorphic components. The tag name MUST match the corresponding variant name in the
+# Rust code (e.g., `SinkConfig::File`, `DataSourceConfig::Esp32`).
+
+# --- SystemNodeConfig Top-Level Fields ---
+
+# `addr`: The IP address and port this System Node will listen on for incoming
+# connections from other nodes or clients (like the Visualiser).
+addr: "127.0.0.1:6969"
+
+# `host_id`: A unique number to identify this node across the entire Sensei network.
+host_id: 1
+
+# --- Shared Sinks Configuration ---
+# Sinks are data destinations. You define all possible outputs for this node here.
+# Each sink needs a unique `id` so device handlers can reference it.
+sinks:
+  # This sink writes data to a local file.
+  # - id: "log_file"
+  #   # The `config` block defines the sink's type and parameters.
+  #   # `!File` corresponds to the `FileSink` in the Rust code.
+  #   config: !File
+  #     # Parameters are derived from the `FileConfig` struct in `sinks/file.rs`.
+  #     file: "yourfile.txt"
+
+  # A second file sink, this time pointing to standard output.
+  - id: "stdout"
+    config: !File
+      file: "/dev/stdout"
+
+  # EXAMPLE: To add a TCP sink that forwards data to another service.
+  # This corresponds to `TCPSink` from `sinks/tcp.rs`.
+  # The parameters `target_addr` and `device_id` come from the `TCPConfig` struct.
+  # - id: "remote_visualiser"
+  #   config: !Tcp
+  #     target_addr: "127.0.0.1:7000"
+  #     device_id: 100 # A device_id to identify this sink's data stream on the receiver end.
+
+# --- Device Handler Configurations ---
+# A list of data pipelines. Each item processes data from one source.
+device_configs:
+  # This is the first device handler, for an ESP32.
+  - device_id: 0 # A unique ID for this specific handler/pipeline.
+    stype: ESP32 # A high-level identifier for the source type.
+
+    # `source`: Defines where the data comes from. This block is REQUIRED.
+    # The tag `!Esp32` corresponds to `Esp32Source` and its `Esp32SourceConfig` struct.
+    source: !Esp32
+      port_name: "/dev/cu.usbmodem101"
+      # baud_rate: 3000000
+      # csi_buffer_size: 100
+      # ack_timeout_ms: 2000
+
+    # `controller`: Configures the source hardware/software. This block is OPTIONAL.
+    # The tag `!Esp32` corresponds to `Esp32ControllerParams`.
+    controller: !Esp32
+      # High-level behavioral command. See file comments for details.
+      mode: Listening
+      # Low-level hardware settings.
+      # device_config:
+      #   channel: 1
+      #   mode: Receive
+      #   bandwidth: Twenty
+      #   secondary_channel: None
+      #   csi_type: HighThroughputLTF
+      #   manual_scale: 0
+      # synchronize_time: true
+
+    # `adapter`: Parses or transforms raw data from the source. This block is OPTIONAL.
+    # If omitted, raw data is passed through.
+    # The tag `!Esp32` corresponds to `ESP32Adapter`.
+    adapter: !Esp32
+      # Parameters are derived from the adapter's `new` function or a config struct.
+      scale_csi: false
+
+    # `output_to`: A list of sink `id`s where this handler's processed data should be sent.
+    # This handler will send its data to both "log_file" and "stdout".
+    output_to:
+      # - "log_file"
+      # - "stdout"
+
+  # --- EXAMPLE: How to add another device handler (e.g., for an Intel Wi-Fi card) ---
+  # This complete example shows how to combine different components.
+  # It reads from a Linux Netlink interface, configures it, adapts the data using
+  # the IWL adapter, and sends the result to a remote TCP endpoint.
+  #
+  # - device_id: 1
+  #   stype: IWL5300
+  #
+  #   # Source is a Netlink socket.
+  #   # Tag `!Netlink` uses `NetlinkConfig` from `sources/netlink.rs`.
+  #   source: !Netlink
+  #     group: 11 # The Netlink connector group for your CSI driver.
+  #
+  #   # Controller configures the network card via `iw` and `ifconfig` commands.
+  #   # Tag `!Netlink` uses `NetlinkControllerParams`.
+  #   controller: !Netlink
+  #     interface: "wlp1s0"
+  #     center_freq_mhz: 5180 # Wi-Fi Channel 36
+  #     bandwidth_mhz: 20
+  #
+  #   # Adapter parses the raw byte stream from the Intel card.
+  #   # Tag `!Iwl` uses `IwlAdapter` from `iwl/adapter.rs`.
+  #   adapter: !Iwl
+  #     scale_csi: true # Enable signal scaling based on RSSI.
+  #
+  #   # Send the output of this pipeline to the TCP sink defined above.
+  #   output_to:
+  #     - "remote_visualiser"
+
+  # --- EXAMPLE: How to add a CSV file source ---
+  # This handler reads data from a CSV file instead of a hardware device.
+  #
+  # - device_id: 2
+  #   stype: CSV
+  #
+  #   # `!Csv` uses `CsvConfig` from `sources/csv.rs`
+  #   source: !Csv
+  #     path: "/path/to/my/csi_data.csv"
+  #     cell_delimiter: 44 # ASCII for comma ','
+  #     row_delimiter: 10  # ASCII for newline '\n'
+  #     header: true       # Set to false if the CSV has no header row.
+  #     delay: 100         # Delay in milliseconds between reading each row.
+  #
+  #   # No controller is needed for a static file.
+  #
+  #   # An adapter would be needed here to parse the CSV text lines into CSI data.
+  #   # adapter: !MyCsvAdapter
+  #   #   ...
+  #
+  #   output_to:
+  #     - "stdout"
