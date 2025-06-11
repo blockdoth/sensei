@@ -27,8 +27,8 @@ pub trait OverlaySubcommandArgs<T> {
     fn overlay_subcommand_args(&self, full_config: T) -> Result<T, Box<dyn std::error::Error>>;
 }
 
-pub static DEFAULT_HOST_CONFIG: &str = "resources/test_data/test_configs/minimal.yaml";
-pub static DEFAULT_ORCHESTRATOR_CONFIG: &str = "resources/example_configs/orchstrator/experiment_config.yaml";
+pub static DEFAULT_HOST_CONFIG: &str = "resources/example_configs/host/minimal.yaml";
+pub static DEFAULT_ORCHESTRATOR_CONFIG: &str = "resources/example_configs/orchestrator/experiment_config.yaml";
 
 /// A simple app to perform collection from configured sources
 #[derive(FromArgs)]
