@@ -182,70 +182,81 @@ impl Visualiser {
         self.data.lock().await.clone()
     }
 
-    /// Data is divided into:
-    /// Nodes in outer hashmap, devices in inner hashmap.
-    /// Then you get to the vec of csi data from that device.
-    /// There is a timestamp for each csi data, and that data can be reduced by core, stream and subcarrier.
-    ///
+    async fn process_amplitude_data(
+        &self,
+        device_data: &[CsiData],
+        core: usize,
+        stream: usize,
+        subcarrier: usize,
+    ) -> (Vec<(f64, f64)>, Option<f64>) {
+        let latest_timestamp = device_data.last().map(|x| x.timestamp);
+        let data = device_data
+            .iter()
+            .map(|x| (x.timestamp, x.csi[core][stream][subcarrier].re))
+            .collect();
+        (data, latest_timestamp)
+    }
+
+    async fn process_pdp_data(
+        &self,
+        device_data: &[CsiData],
+        core: usize,
+        stream: usize,
+    ) -> (Vec<(f64, f64)>, Option<f64>) {
+        if let Some(latest_csi_data) = device_data.last() {
+            let csi_timestamp = latest_csi_data.timestamp;
+            if core < latest_csi_data.csi.len() && stream < latest_csi_data.csi[core].len() {
+                let csi_for_ifft: Vec<LibComplex> = latest_csi_data.csi[core][stream].clone();
+                if csi_for_ifft.is_empty() {
+                    return (vec![], Some(csi_timestamp));
+                }
+                let ifft_result = Self::perform_ifft(&csi_for_ifft);
+                let mut power_profile: Vec<f64> = ifft_result.iter().map(|c| c.norm_sqr()).collect();
+
+                let n = power_profile.len();
+                if n > 0 {
+                    power_profile.rotate_left(n / 2);
+                }
+
+                (
+                    power_profile
+                        .into_iter()
+                        .enumerate()
+                        .map(|(idx, p)| (idx as f64, p))
+                        .collect(),
+                    Some(csi_timestamp),
+                )
+            } else {
+                (vec![], Some(csi_timestamp))
+            }
+        } else {
+            (vec![], None)
+        }
+    }
+
     /// Processing data turns each data point into a vec of tuples (timestamp, datapoint), such that it can be charted easily.
     /// For PDP, it returns (delay_bin, power) for the latest CSI packet.
     /// Returns the processed data and an Option containing the timestamp of the CSI data used.
     async fn process_data(&self, graph: Graph) -> (Vec<(f64, f64)>, Option<f64>) {
-        // TODO: More processing types
-        let target_addr = graph.target_addr;
-        let device = graph.device;
-        let core = graph.core;
-        let stream = graph.stream;
-        let subcarrier = graph.subcarrier; // Used for Amplitude, ignored for PDP
-
         let data_map = self.data.lock().await;
-        let device_data = match data_map.get(&target_addr).and_then(|node_data| node_data.get(&device)) {
+        let device_data_map = match data_map
+            .get(&graph.target_addr)
+            .and_then(|node_data| node_data.get(&graph.device))
+        {
             Some(data) => data.clone(),
             None => return (vec![], None),
         };
 
-        if device_data.is_empty() {
+        if device_data_map.is_empty() {
             return (vec![], None);
         }
 
         match graph.graph_type {
             GraphType::Amplitude => {
-                let latest_timestamp = device_data.last().map(|x| x.timestamp);
-                let data = device_data.iter().map(|x| (x.timestamp, x.csi[core][stream][subcarrier].re)).collect();
-                (data, latest_timestamp)
+                self.process_amplitude_data(&device_data_map, graph.core, graph.stream, graph.subcarrier)
+                    .await
             }
-            GraphType::PDP => {
-                if let Some(latest_csi_data) = device_data.last() {
-                    let csi_timestamp = latest_csi_data.timestamp;
-                    // Ensure core and stream indices are valid
-                    if core < latest_csi_data.csi.len() && stream < latest_csi_data.csi[core].len() {
-                        let csi_for_ifft: Vec<LibComplex> = latest_csi_data.csi[core][stream].clone();
-                        if csi_for_ifft.is_empty() {
-                            // Return empty data but with the timestamp of the (empty) CSI packet
-                            return (vec![], Some(csi_timestamp));
-                        }
-                        let ifft_result = Self::perform_ifft(&csi_for_ifft);
-                        let mut power_profile: Vec<f64> = ifft_result.iter().map(|c| c.norm_sqr()).collect();
-
-                        // Apply fftshift to the power profile to center the impulse response or align earliest arrivals
-                        let n = power_profile.len();
-                        if n > 0 {
-                            power_profile.rotate_left(n / 2); // Standard fftshift operation
-                        }
-
-                        (
-                            power_profile.into_iter().enumerate().map(|(idx, p)| (idx as f64, p)).collect(),
-                            Some(csi_timestamp),
-                        )
-                    } else {
-                        // Invalid core or stream index, return empty data but with the CSI packet's timestamp
-                        (vec![], Some(csi_timestamp))
-                    }
-                } else {
-                    // This case should ideally be caught by device_data.is_empty() check earlier
-                    (vec![], None)
-                }
-            }
+            GraphType::PDP => self.process_pdp_data(&device_data_map, graph.core, graph.stream).await,
         }
     }
 
@@ -286,6 +297,133 @@ impl Visualiser {
 
         Ok(())
     }
+
+    fn update_pdp_display_state(
+        current_display_state_slot: &mut Option<GraphDisplayState>,
+        points_from_processor: Vec<(f64, f64)>,
+        opt_timestamp_from_processor: Option<f64>,
+        now: Instant,
+    ) -> Vec<(f64, f64)> {
+        const DECAY_RATE: f64 = 0.9;
+        const STALE_THRESHOLD: Duration = Duration::from_millis(200);
+        const MIN_POWER_THRESHOLD: f64 = 0.015;
+
+        match (opt_timestamp_from_processor, current_display_state_slot.as_mut()) {
+            (Some(timestamp_proc), Some(state)) => {
+                if timestamp_proc > state.csi_timestamp || points_from_processor.len() != state.data_points.len() {
+                    state.data_points = points_from_processor.clone();
+                    state.csi_timestamp = timestamp_proc;
+                    state.last_loop_update_time = now;
+                    points_from_processor
+                } else {
+                    if now.duration_since(state.last_loop_update_time) > STALE_THRESHOLD {
+                        state.data_points = state
+                            .data_points
+                            .iter()
+                            .map(|(x, y)| {
+                                let new_y = *y * DECAY_RATE;
+                                if new_y.abs() < MIN_POWER_THRESHOLD { (*x, 0.0) } else { (*x, new_y) }
+                            })
+                            .collect();
+                        state.last_loop_update_time = now;
+                    }
+                    state.data_points.clone()
+                }
+            }
+            (Some(timestamp_proc), None) => {
+                *current_display_state_slot = Some(GraphDisplayState {
+                    data_points: points_from_processor.clone(),
+                    csi_timestamp: timestamp_proc,
+                    last_loop_update_time: now,
+                });
+                points_from_processor
+            }
+            (None, Some(state)) => {
+                if now.duration_since(state.last_loop_update_time) > STALE_THRESHOLD {
+                    state.data_points = state
+                        .data_points
+                        .iter()
+                        .map(|(x, y)| {
+                            let new_y = *y * DECAY_RATE;
+                            if new_y.abs() < MIN_POWER_THRESHOLD { (*x, 0.0) } else { (*x, new_y) }
+                        })
+                        .collect();
+                    state.last_loop_update_time = now;
+                }
+                state.data_points.clone()
+            }
+            (None, None) => {
+                vec![]
+            }
+        }
+    }
+
+    fn get_x_axis_config(
+        graph_type: GraphType,
+        data_points: &[(f64, f64)],
+        time_interval: usize,
+    ) -> (String, [f64; 2], Vec<Span>) {
+        match graph_type {
+            GraphType::Amplitude => {
+                let time_max = data_points.iter().max_by(|x, y| x.0.total_cmp(&y.0)).unwrap_or(&(0f64, 0f64)).0;
+                let bounds = [(time_max - time_interval as f64 - 1f64).round(), (time_max + 1f64).round()];
+                let labels = bounds.iter().map(|n| Span::from(n.to_string())).collect();
+                ("Time".to_string(), bounds, labels)
+            }
+            GraphType::PDP => {
+                let num_delay_bins = data_points.len();
+                let max_delay_bin_idx = if num_delay_bins == 0 { 0.0 } else { (num_delay_bins - 1) as f64 };
+                let bounds = [0.0, max_delay_bin_idx.max(0.0)];
+                let mut labels = vec![
+                    Span::from(bounds[0].floor().to_string()),
+                    Span::from(bounds[1].floor().to_string()),
+                ];
+                labels.dedup_by(|a, b| a.content == b.content);
+                if labels.is_empty() {
+                    labels.push(Span::from("0"));
+                }
+                ("Delay Bin".to_string(), bounds, labels)
+            }
+        }
+    }
+
+    fn get_y_axis_config(
+        graph_type: GraphType,
+        data_points: &[(f64, f64)],
+        y_axis_bounds_spec: Option<[f64; 2]>,
+    ) -> (String, [f64; 2], Vec<Span>) {
+        let y_bounds_to_use = if graph_type == GraphType::PDP && y_axis_bounds_spec.is_some() {
+            y_axis_bounds_spec.unwrap()
+        } else {
+            let (min_val, max_val) = data_points.iter().fold(
+                (f64::INFINITY, f64::NEG_INFINITY),
+                |(min_acc, max_acc), &(_, y)| (min_acc.min(y), max_acc.max(y)),
+            );
+            let (min_val, max_val) = if min_val.is_infinite() || max_val.is_infinite() {
+                (0.0, 1.0)
+            } else if (max_val - min_val).abs() < f64::EPSILON {
+                (min_val - 0.5, max_val + 0.5)
+            } else {
+                (min_val, max_val)
+            };
+            let data_range = max_val - min_val;
+            let padding = (data_range * 0.05).max(0.1);
+            [min_val - padding, max_val + padding]
+        };
+
+        let data_labels: Vec<Span> = vec![
+            Span::from(format!("{:.2}", y_bounds_to_use[0])),
+            Span::from(format!("{:.2}", y_bounds_to_use[1])),
+        ];
+
+        let y_axis_title_str = match graph_type {
+            GraphType::Amplitude => graph_type.to_string(),
+            GraphType::PDP => "Power".to_string(),
+        };
+
+        (y_axis_title_str, y_bounds_to_use, data_labels)
+    }
+
 
     async fn tui_loop<B: Backend>(
         &self,
@@ -334,78 +472,22 @@ impl Visualiser {
 
                 let mut data_to_render_this_frame = Vec::new();
                 let now = Instant::now();
-                const DECAY_RATE: f64 = 0.9;
-                const STALE_THRESHOLD: Duration = Duration::from_millis(200);
-                const MIN_POWER_THRESHOLD: f64 = 0.015;
-
+                
                 for (i, graph_spec) in graphs_snapshot.iter().enumerate() {
                     let (points_from_processor, opt_timestamp_from_processor) = self.process_data(*graph_spec).await;
 
                     if graph_spec.graph_type == GraphType::PDP {
-                        let mut processed_points_for_render = vec![];
-                        let current_display_state_slot = &mut display_states_locked[i];
-
-                        match (opt_timestamp_from_processor, current_display_state_slot.as_mut()) {
-                            (Some(timestamp_proc), Some(state)) => {
-                                // Have new processed data and an existing state
-                                if timestamp_proc > state.csi_timestamp || points_from_processor.len() != state.data_points.len() {
-                                    // Data is genuinely new (newer CSI timestamp or different structure)
-                                    state.data_points = points_from_processor.clone();
-                                    state.csi_timestamp = timestamp_proc;
-                                    state.last_loop_update_time = now;
-                                    processed_points_for_render = points_from_processor;
-                                } else {
-                                    // Same CSI data as before, check for decay based on loop time
-                                    if now.duration_since(state.last_loop_update_time) > STALE_THRESHOLD {
-                                        state.data_points = state
-                                            .data_points
-                                            .iter()
-                                            .map(|(x, y)| {
-                                                let new_y = *y * DECAY_RATE;
-                                                if new_y.abs() < MIN_POWER_THRESHOLD { (*x, 0.0) } else { (*x, new_y) }
-                                            })
-                                            .collect();
-                                        state.last_loop_update_time = now;
-                                    }
-                                    processed_points_for_render = state.data_points.clone();
-                                }
-                            }
-                            (Some(timestamp_proc), None) => {
-                                // New processed data, no existing state. Create one.
-                                *current_display_state_slot = Some(GraphDisplayState {
-                                    data_points: points_from_processor.clone(),
-                                    csi_timestamp: timestamp_proc,
-                                    last_loop_update_time: now,
-                                });
-                                processed_points_for_render = points_from_processor;
-                            }
-                            (None, Some(state)) => {
-                                // No data from processor (e.g. device disconnected), but have old state. Decay it.
-                                if now.duration_since(state.last_loop_update_time) > STALE_THRESHOLD {
-                                    state.data_points = state
-                                        .data_points
-                                        .iter()
-                                        .map(|(x, y)| {
-                                            let new_y = *y * DECAY_RATE;
-                                            if new_y.abs() < MIN_POWER_THRESHOLD { (*x, 0.0) } else { (*x, new_y) }
-                                        })
-                                        .collect();
-                                    state.last_loop_update_time = now;
-                                }
-                                processed_points_for_render = state.data_points.clone();
-                            }
-                            (None, None) => {
-                                // No data from processor and no old state. Render empty.
-                                processed_points_for_render = vec![];
-                            }
-                        }
+                        let processed_points_for_render = Self::update_pdp_display_state(
+                            &mut display_states_locked[i],
+                            points_from_processor,
+                            opt_timestamp_from_processor,
+                            now,
+                        );
                         data_to_render_this_frame.push(processed_points_for_render);
                     } else {
-                        // For Amplitude or other graph types, use points_from_processor directly
                         data_to_render_this_frame.push(points_from_processor);
-                        // Ensure non-PDP graphs don't interact with display_state if it was set by a previous PDP graph at this index
-                        if display_states_locked[i].is_some() && graph_spec.graph_type != GraphType::PDP {
-                            display_states_locked[i] = None; // Clear state if graph type changed from PDP
+                        if display_states_locked[i].is_some() {
+                            display_states_locked[i] = None; 
                         }
                     }
                 }
@@ -441,60 +523,18 @@ impl Visualiser {
                             .style(Style::default().fg(Color::Cyan))
                             .data(data_points);
 
-                        let (x_axis_title_str, x_bounds_arr, x_labels_vec) = match current_graph_spec.graph_type {
-                            GraphType::Amplitude => {
-                                let time_max = data_points.iter().max_by(|x, y| x.0.total_cmp(&y.0)).unwrap_or(&(0f64, 0f64)).0;
-                                let bounds = [(time_max - current_graph_spec.time_interval as f64 - 1f64).round(), (time_max + 1f64).round()];
-                                let labels = bounds.iter().map(|n| Span::from(n.to_string())).collect();
-                                ("Time".to_string(), bounds, labels)
-                            }
-                            GraphType::PDP => {
-                                let num_delay_bins = data_points.len();
-                                let max_delay_bin_idx = if num_delay_bins == 0 { 0.0 } else { (num_delay_bins - 1) as f64 };
-                                // Ensure bounds are always positive and sensible
-                                let bounds = [0.0, max_delay_bin_idx.max(0.0)];
+                        let (x_axis_title_str, x_bounds_arr, x_labels_vec) = Self::get_x_axis_config(
+                            current_graph_spec.graph_type,
+                            data_points,
+                            current_graph_spec.time_interval,
+                        );
 
-                                let mut labels = vec![
-                                    Span::from(bounds[0].floor().to_string()),
-                                    Span::from(bounds[1].floor().to_string())
-                                ];
-                                labels.dedup_by(|a,b| a.content == b.content); // Avoid duplicate labels if range is 0
-                                if labels.is_empty() { // Should only happen if bounds somehow led to empty after dedup
-                                    labels.push(Span::from("0"));
-                                }
-                                ("Delay Bin".to_string(), bounds, labels)
-                            }
-                        };
-
-                        let y_bounds_to_use = if current_graph_spec.graph_type == GraphType::PDP && current_graph_spec.y_axis_bounds.is_some() {
-                            current_graph_spec.y_axis_bounds.unwrap()
-                        } else {
-                            let (min_val, max_val) = data_points.iter()
-                                .fold((f64::INFINITY, f64::NEG_INFINITY), |(min_acc, max_acc), &(_, y)| {
-                                    (min_acc.min(y), max_acc.max(y))
-                                });
-
-                            let (min_val, max_val) = if min_val.is_infinite() || max_val.is_infinite() {
-                                (0.0, 1.0)
-                            } else if (max_val - min_val).abs() < f64::EPSILON {
-                                (min_val - 0.5, max_val + 0.5)
-                            } else {
-                                (min_val, max_val)
-                            };
-                            let data_range = max_val - min_val;
-                            let padding = (data_range * 0.05).max(0.1);
-                            [min_val - padding, max_val + padding]
-                        };
-
-                        let data_labels: Vec<Span> = vec![
-                            Span::from(format!("{:.2}", y_bounds_to_use[0])),
-                            Span::from(format!("{:.2}", y_bounds_to_use[1])),
-                        ];
-
-                        let y_axis_title_str = match current_graph_spec.graph_type {
-                            GraphType::Amplitude => current_graph_spec.graph_type.to_string(),
-                            GraphType::PDP => "Power".to_string(),
-                        };
+                        let (y_axis_title_str, y_bounds_to_use, y_labels_vec) = Self::get_y_axis_config(
+                            current_graph_spec.graph_type,
+                            data_points,
+                            current_graph_spec.y_axis_bounds,
+                        );
+                        
                         let chart_block_title = format!(
                             "Chart {} - {} @ {} dev {} C{} S{}",
                             i,
@@ -512,7 +552,7 @@ impl Visualiser {
                                     .borders(Borders::ALL)
                             )
                             .x_axis(Axis::default().title(x_axis_title_str).bounds(x_bounds_arr).labels(x_labels_vec))
-                            .y_axis(Axis::default().title(y_axis_title_str).bounds(y_bounds_to_use).labels(data_labels));
+                            .y_axis(Axis::default().title(y_axis_title_str).bounds(y_bounds_to_use).labels(y_labels_vec));
                         f.render_widget(chart, chart_area[i]);
                     }
 
