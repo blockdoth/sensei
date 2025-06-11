@@ -27,6 +27,7 @@ use crate::network::tcp::MAX_MESSAGE_LENGTH;
 const CONNECTION_TIME: u64 = 10;
 
 /// Tcp Client
+#[cfg_attr(test, mockall::automock)]
 pub struct TcpClient {
     //TODO look if using SocketAddr is fine to use as key
     connections: Arc<Mutex<HashMap<SocketAddr, Connection>>>,

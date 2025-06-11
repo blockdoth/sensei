@@ -5,8 +5,10 @@ use log::trace;
 use crate::ToConfig;
 use crate::errors::{DataSourceError, TaskError};
 use crate::network::rpc_message::{DataMsg, RpcMessage, RpcMessageKind};
+#[double]
 use crate::network::tcp::client::TcpClient;
 use crate::sources::{DataSourceConfig, DataSourceT};
+use mockall_double::double;
 
 /// Configuration for a `TCPSource`.
 ///
@@ -137,3 +139,4 @@ impl ToConfig<DataSourceConfig> for TCPSource {
         }))
     }
 }
+
