@@ -17,19 +17,6 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use super::tui::ui;
 use crate::services::DEFAULT_ADDRESS;
 
-pub struct OrgTuiState {
-    pub should_quit: bool,
-    pub client: Arc<Mutex<TcpClient>>,
-    pub host_available_from_reg: Vec<SocketAddr>,
-    pub registry_addr: Option<SocketAddr>,
-    pub registry_status: RegistryStatus,
-    pub known_hosts: Vec<Host>,
-    pub logs: Vec<LogEntry>,
-    pub focussed_panel: Focused,
-    pub add_host_input_socket: [char; 21],
-    pub add_host_input_id: [char; 21], // Made to match with the add_host_input_socket, one larger than the max size of an u64
-}
-
 pub struct Host {
     pub id: HostId,
     pub addr: SocketAddr,
@@ -39,10 +26,11 @@ pub struct Host {
 
 #[derive(Debug, PartialEq)]
 pub enum HostStatus {
-    NotConnected,
+    Available,
     Connected,
     Disconnected,
     Sending,
+    Unresponsive,
 }
 
 pub struct Device {
@@ -96,11 +84,12 @@ pub enum OrgUpdate {
     Log(LogEntry),
     Connect(SocketAddr),
     Disconnect(SocketAddr),
-    Subscribe(SocketAddr, DeviceID),
-    Unsubscribe(SocketAddr, DeviceID),
+    Subscribe(SocketAddr, Option<SocketAddr>, DeviceID),
+    Unsubscribe(SocketAddr, Option<SocketAddr>, DeviceID),
+    SubscribeAll(SocketAddr, Option<SocketAddr>),
+    UnsubscribeAll(SocketAddr, Option<SocketAddr>),
+    SelectHost(SocketAddr),
     FocusChange(Focused),
-    SubscribeAll(SocketAddr),
-    UnsubscribeAll(SocketAddr),
     Edit(char),
     Exit,
     Up,
@@ -111,12 +100,28 @@ pub enum OrgUpdate {
     BackTab,
     Backspace,
     Enter,
+    ClearLogs,
 }
 
 impl FromLog for OrgUpdate {
     fn from_log(log: LogEntry) -> Self {
         OrgUpdate::Log(log)
     }
+}
+
+/// Holds the entire state of the TUI, including configurations, logs, and mode information.
+pub struct OrgTuiState {
+    pub should_quit: bool,
+    pub client: Arc<Mutex<TcpClient>>,
+    pub host_available_from_reg: Vec<SocketAddr>,
+    pub registry_addr: Option<SocketAddr>,
+    pub registry_status: RegistryStatus,
+    pub known_hosts: Vec<Host>,
+    pub logs: Vec<LogEntry>,
+    pub focussed_panel: Focused,
+    pub add_host_input_socket: [char; 21],
+    pub add_host_input_id: [char; 21], // Made to match with the add_host_input_socket, one larger than the max size of an u64
+    pub selected_host: Option<SocketAddr>,
 }
 
 impl OrgTuiState {
@@ -133,10 +138,11 @@ impl OrgTuiState {
                 '_', '_', '_', '.', '_', '_', '_', '.', '_', '_', '_', '.', '_', '_', '_', ':', '_', '_', '_', '_', '_',
             ],
             add_host_input_id: ['_'; 21],
+            selected_host: None,
             known_hosts: vec![
                 Host {
                     id: 0,
-                    status: HostStatus::NotConnected,
+                    status: HostStatus::Available,
                     devices: vec![],
                     addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 8080)),
                 },
@@ -157,38 +163,38 @@ impl OrgTuiState {
                     ],
                     addr: DEFAULT_ADDRESS,
                 },
-                Host {
-                    id: 1,
-                    status: HostStatus::Connected,
-                    devices: vec![
-                        Device {
-                            id: 10,
-                            dev_type: SourceType::TCP,
-                            status: DeviceStatus::NotSubscribed,
-                        },
-                        Device {
-                            id: 90,
-                            dev_type: SourceType::Unknown,
-                            status: DeviceStatus::Subscribed,
-                        },
-                        Device {
-                            id: 91,
-                            dev_type: SourceType::CSV,
-                            status: DeviceStatus::NotSubscribed,
-                        },
-                        Device {
-                            id: 42,
-                            dev_type: SourceType::TCP,
-                            status: DeviceStatus::NotSubscribed,
-                        },
-                        Device {
-                            id: 911,
-                            dev_type: SourceType::AX200,
-                            status: DeviceStatus::Subscribed,
-                        },
-                    ],
-                    addr: DEFAULT_ADDRESS,
-                },
+                // Host {
+                //     id: 1,
+                //     status: HostStatus::Connected,
+                //     devices: vec![
+                //         Device {
+                //             id: 10,
+                //             dev_type: SourceType::TCP,
+                //             status: DeviceStatus::NotSubscribed,
+                //         },
+                //         Device {
+                //             id: 90,
+                //             dev_type: SourceType::Unknown,
+                //             status: DeviceStatus::Subscribed,
+                //         },
+                //         Device {
+                //             id: 91,
+                //             dev_type: SourceType::CSV,
+                //             status: DeviceStatus::NotSubscribed,
+                //         },
+                //         Device {
+                //             id: 42,
+                //             dev_type: SourceType::TCP,
+                //             status: DeviceStatus::NotSubscribed,
+                //         },
+                //         Device {
+                //             id: 911,
+                //             dev_type: SourceType::AX200,
+                //             status: DeviceStatus::Subscribed,
+                //         },
+                //     ],
+                //     addr: DEFAULT_ADDRESS,
+                // },
             ],
         }
     }
@@ -206,6 +212,7 @@ impl Tui<OrgUpdate, ChannelMsg> for OrgTuiState {
         let key = key_event.code;
         match key {
             KeyCode::Char('q') | KeyCode::Char('Q') => return Some(OrgUpdate::Exit),
+            KeyCode::Char('.') => return Some(OrgUpdate::ClearLogs),
             KeyCode::Esc => return Some(OrgUpdate::FocusChange(Focused::Main)),
             _ => {}
         };
@@ -242,10 +249,17 @@ impl Tui<OrgUpdate, ChannelMsg> for OrgTuiState {
                         FocusedAddHostField::Address,
                     )))),
                     KeyCode::Char('c') | KeyCode::Char('C') => self.known_hosts.get(*host_idx).map(|host| OrgUpdate::Connect(host.addr)),
-
                     KeyCode::Char('d') | KeyCode::Char('D') => self.known_hosts.get(*host_idx).map(|host| OrgUpdate::Disconnect(host.addr)),
-                    KeyCode::Char('s') | KeyCode::Char('S') => self.known_hosts.get(*host_idx).map(|host| OrgUpdate::SubscribeAll(host.addr)),
-                    KeyCode::Char('u') | KeyCode::Char('U') => self.known_hosts.get(*host_idx).map(|host| OrgUpdate::UnsubscribeAll(host.addr)),
+                    KeyCode::Char('e') | KeyCode::Char('E') => self.known_hosts.get(*host_idx).map(|host| OrgUpdate::SelectHost(host.addr)),
+
+                    KeyCode::Char('s') | KeyCode::Char('S') => self
+                        .known_hosts
+                        .get(*host_idx)
+                        .map(|host| OrgUpdate::SubscribeAll(host.addr, self.selected_host)),
+                    KeyCode::Char('u') | KeyCode::Char('U') => self
+                        .known_hosts
+                        .get(*host_idx)
+                        .map(|host| OrgUpdate::UnsubscribeAll(host.addr, self.selected_host)),
                     KeyCode::Up => Some(OrgUpdate::Up),
                     KeyCode::Down => Some(OrgUpdate::Down),
                     KeyCode::Tab => Some(OrgUpdate::Tab),
@@ -259,14 +273,18 @@ impl Tui<OrgUpdate, ChannelMsg> for OrgTuiState {
                     )))),
                     KeyCode::Char('s') | KeyCode::Char('S') => {
                         if let Some(host) = self.known_hosts.get(*host_idx) {
-                            host.devices.get(*device_idx).map(|device| OrgUpdate::Subscribe(host.addr, device.id))
+                            host.devices
+                                .get(*device_idx)
+                                .map(|device| OrgUpdate::Subscribe(host.addr, self.selected_host, device.id))
                         } else {
                             None
                         }
                     }
                     KeyCode::Char('u') | KeyCode::Char('U') => {
                         if let Some(host) = self.known_hosts.get(*host_idx) {
-                            host.devices.get(*device_idx).map(|device| OrgUpdate::Unsubscribe(host.addr, device.id))
+                            host.devices
+                                .get(*device_idx)
+                                .map(|device| OrgUpdate::Unsubscribe(host.addr, self.selected_host, device.id))
                         } else {
                             None
                         }
@@ -306,41 +324,96 @@ impl Tui<OrgUpdate, ChannelMsg> for OrgTuiState {
                 self.logs.push(entry);
             }
             OrgUpdate::Connect(socket_addr) => {
-                self.client.lock().await.connect(socket_addr).await;
+                if self.client.lock().await.connect(socket_addr).await.is_ok() {
+                    self.known_hosts.iter_mut().find(|a| a.addr == socket_addr).unwrap().status = HostStatus::Connected;
+                }
             }
             OrgUpdate::Disconnect(socket_addr) => {
                 self.client.lock().await.disconnect(socket_addr).await;
+                self.known_hosts.iter_mut().find(|a| a.addr == socket_addr).unwrap().status = HostStatus::Disconnected;
             }
-            OrgUpdate::Subscribe(socket_addr, device_id) => {
-                info!("Subscribing to device {device_id} on host {socket_addr}");
-                let msg = Ctrl(CtrlMsg::Subscribe { device_id });
-                self.client.lock().await.send_message(socket_addr, msg).await;
+            OrgUpdate::Subscribe(target_addr, sub_to_addr, device_id) => {
+                let msg = if let Some(sub_to_addr) = sub_to_addr {
+                    info!("Subscribing host {target_addr} to device {device_id} on host {sub_to_addr:?}");
+                    Ctrl(CtrlMsg::SubscribeTo {
+                        target: sub_to_addr,
+                        device_id,
+                    })
+                } else {
+                    info!("Subscribing to device {device_id} on host {target_addr:?}");
+                    Ctrl(CtrlMsg::Subscribe { device_id })
+                };
+                self.client.lock().await.send_message(target_addr, msg).await;
             }
-            OrgUpdate::Unsubscribe(socket_addr, device_id) => {
-                info!("Unsubscribing to device {device_id} on host {socket_addr}");
-                let msg = Ctrl(CtrlMsg::Unsubscribe { device_id });
-                self.client.lock().await.send_message(socket_addr, msg);
+            OrgUpdate::Unsubscribe(target_addr, sub_to_addr, device_id) => {
+                let msg = if let Some(sub_to_addr) = sub_to_addr {
+                    info!("Unsubscribing host {target_addr} to device {device_id} on host {sub_to_addr:?}");
+                    Ctrl(CtrlMsg::SubscribeTo {
+                        target: sub_to_addr,
+                        device_id,
+                    })
+                } else {
+                    info!("Unsubscribing to device {device_id} on host {target_addr:?}");
+                    Ctrl(CtrlMsg::Subscribe { device_id })
+                };
+                self.client.lock().await.send_message(target_addr, msg).await;
             }
-            OrgUpdate::SubscribeAll(socket_addr) => {
+            OrgUpdate::SubscribeAll(target_addr, sub_to_addr) => {
                 let mut client = self.client.lock().await;
-                if let Some(host) = self.known_hosts.iter().find(|a| a.addr == socket_addr) {
-                    info!("Subscribing to {} devices on host {}", host.devices.len(), socket_addr);
+
+                if let Some(host) = self.known_hosts.iter().find(|a| a.addr == target_addr) {
+                    if sub_to_addr.is_none() {
+                        info!("Subscribing to {} devices on host {}", host.devices.len(), target_addr);
+                    } else {
+                        info!("Subscribing host {target_addr} to {} devices on host {}", host.devices.len(), target_addr);
+                    }
                     for device in &host.devices {
-                        let msg = Ctrl(CtrlMsg::Subscribe { device_id: device.id });
-                        client.send_message(socket_addr, msg).await;
+                        let msg = if let Some(sub_to_addr) = sub_to_addr {
+                            Ctrl(CtrlMsg::SubscribeTo {
+                                target: sub_to_addr,
+                                device_id: device.id,
+                            })
+                        } else {
+                            Ctrl(CtrlMsg::Subscribe { device_id: device.id })
+                        };
+                        client.send_message(target_addr, msg).await;
                     }
                 }
             }
-            OrgUpdate::UnsubscribeAll(socket_addr) => {
+            OrgUpdate::UnsubscribeAll(target_addr, sub_to_addr) => {
                 let mut client = self.client.lock().await;
-                if let Some(host) = self.known_hosts.iter().find(|a| a.addr == socket_addr) {
-                    info!("Subscribing from {} devices on host {}", host.devices.len(), socket_addr);
+                if let Some(host) = self.known_hosts.iter().find(|a| a.addr == target_addr) {
+                    if sub_to_addr.is_none() {
+                        info!("Unsubscribing to {} devices on host {}", host.devices.len(), target_addr);
+                    } else {
+                        info!(
+                            "Unsubscribing host {target_addr} to {} devices on host {}",
+                            host.devices.len(),
+                            target_addr
+                        );
+                    }
                     for device in &host.devices {
-                        let msg = Ctrl(CtrlMsg::Unsubscribe { device_id: device.id });
-                        client.send_message(socket_addr, msg).await;
+                        let msg = if let Some(sub_to_addr) = sub_to_addr {
+                            Ctrl(CtrlMsg::SubscribeTo {
+                                target: sub_to_addr,
+                                device_id: device.id,
+                            })
+                        } else {
+                            Ctrl(CtrlMsg::Subscribe { device_id: device.id })
+                        };
+                        client.send_message(target_addr, msg).await;
                     }
                 }
             }
+            OrgUpdate::SelectHost(selected_addr) => {
+                self.selected_host = match self.selected_host {
+                    None => Some(selected_addr),
+                    Some(prev) if prev != selected_addr => Some(selected_addr),
+                    _ => None,
+                }
+            }
+
+            OrgUpdate::ClearLogs => self.logs.clear(),
             OrgUpdate::FocusChange(focused_panel) => self.focussed_panel = focused_panel,
             OrgUpdate::Edit(chr) => match &self.focussed_panel {
                 Focused::Hosts(host_focus) if chr.is_numeric() => match host_focus {
@@ -393,7 +466,7 @@ impl Tui<OrgUpdate, ChannelMsg> for OrgTuiState {
                                 id,
                                 addr: socket_addr,
                                 devices: vec![],
-                                status: HostStatus::NotConnected,
+                                status: HostStatus::Available,
                             })
                         }
                     } else {
@@ -441,7 +514,7 @@ impl Tui<OrgUpdate, ChannelMsg> for OrgTuiState {
 }
 
 impl FocusedHosts {
-    // Move cursor up (like OrgUpdate::Up)
+    // Move cursor up
     fn cursor_up(&self, connected_hosts: &[Host]) -> FocusedHosts {
         match self {
             FocusedHosts::HostTree(0, 0) => FocusedHosts::HostTree(0, 0),
@@ -493,28 +566,6 @@ impl FocusedHosts {
         }
     }
 
-    // Tab key behavior
-    fn tab(&self, connected_hosts: &[Host]) -> FocusedHosts {
-        match self {
-            FocusedHosts::HostTree(h, 0) if *h < connected_hosts.len() - 1 => FocusedHosts::HostTree(h + 1, 0),
-            FocusedHosts::HostTree(h, 0) if *h == connected_hosts.len() - 1 => FocusedHosts::AddHost(0, FocusedAddHostField::Address),
-            FocusedHosts::AddHost(i, FocusedAddHostField::Address) if *i < 14 => FocusedHosts::AddHost(4 * (i / 4) + 4, FocusedAddHostField::Address),
-            FocusedHosts::AddHost(_, FocusedAddHostField::Address) => FocusedHosts::AddHost(0, FocusedAddHostField::ID),
-            other => other.clone(),
-        }
-    }
-
-    // BackTab (shift+tab) behavior
-    fn back_tab(&self, connected_hosts: &[Host]) -> FocusedHosts {
-        match self {
-            FocusedHosts::HostTree(0, 0) => FocusedHosts::HostTree(0, 0),
-            FocusedHosts::HostTree(h, 0) if *h > 0 => FocusedHosts::HostTree(h - 1, 0),
-            FocusedHosts::AddHost(i, FocusedAddHostField::Address) if *i > 2 => FocusedHosts::AddHost(4 * (i / 4) - 4, FocusedAddHostField::Address),
-            FocusedHosts::AddHost(_, FocusedAddHostField::ID) => FocusedHosts::AddHost(0, FocusedAddHostField::Address),
-            other => other.clone(),
-        }
-    }
-
     // Move cursor left
     fn cursor_left(&self) -> FocusedHosts {
         match self {
@@ -533,6 +584,28 @@ impl FocusedHosts {
                 FocusedHosts::AddHost(i + 2, FocusedAddHostField::Address)
             }
             FocusedHosts::AddHost(i, f) if *i < 20 => FocusedHosts::AddHost(i + 1, *f),
+            other => other.clone(),
+        }
+    }
+
+    // Tab key behavior
+    fn tab(&self, connected_hosts: &[Host]) -> FocusedHosts {
+        match self {
+            FocusedHosts::HostTree(h, 0) if *h < connected_hosts.len() - 1 => FocusedHosts::HostTree(h + 1, 0),
+            FocusedHosts::HostTree(h, 0) if *h == connected_hosts.len() - 1 => FocusedHosts::AddHost(0, FocusedAddHostField::Address),
+            FocusedHosts::AddHost(i, FocusedAddHostField::Address) if *i < 14 => FocusedHosts::AddHost(4 * (i / 4) + 4, FocusedAddHostField::Address),
+            FocusedHosts::AddHost(_, FocusedAddHostField::Address) => FocusedHosts::AddHost(0, FocusedAddHostField::ID),
+            other => other.clone(),
+        }
+    }
+
+    // BackTab (shift+tab) behavior
+    fn back_tab(&self, connected_hosts: &[Host]) -> FocusedHosts {
+        match self {
+            FocusedHosts::HostTree(0, 0) => FocusedHosts::HostTree(0, 0),
+            FocusedHosts::HostTree(h, 0) if *h > 0 => FocusedHosts::HostTree(h - 1, 0),
+            FocusedHosts::AddHost(i, FocusedAddHostField::Address) if *i > 2 => FocusedHosts::AddHost(4 * (i / 4) - 4, FocusedAddHostField::Address),
+            FocusedHosts::AddHost(_, FocusedAddHostField::ID) => FocusedHosts::AddHost(0, FocusedAddHostField::Address),
             other => other.clone(),
         }
     }

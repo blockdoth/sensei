@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Padding, Paragraph, Wrap};
 
 use super::state::OrgTuiState;
-use crate::orchestrator::state::{DeviceStatus, Focused, FocusedAddHostField, FocusedHosts, FocusedRegistry, RegistryStatus};
+use crate::orchestrator::state::{DeviceStatus, Focused, FocusedAddHostField, FocusedHosts, FocusedRegistry, HostStatus, RegistryStatus};
 
 pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
     let screen_chunks = Layout::default()
@@ -34,7 +34,12 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
     let status_area = content_horizontal_chunks[0];
     let control_area = content_horizontal_chunks[1];
 
-    let logs_to_display: Vec<Line> = tui_state.logs.iter().map(|entry| entry.format()).collect();
+    let log_panel_content_height = status_area.height.saturating_sub(2) as usize;
+    let current_log_count = tui_state.logs.len();
+
+    let start_index = current_log_count.saturating_sub(log_panel_content_height);
+
+    let logs_to_display: Vec<Line> = tui_state.logs.iter().skip(start_index).map(|entry| entry.format()).collect();
 
     let logs_widget = Paragraph::new(Text::from(logs_to_display)).wrap(Wrap { trim: true }).block(
         Block::default()
@@ -45,7 +50,7 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
             } else {
                 Style::default()
             })
-            .title(Span::styled(format!(" Log ({}) ", tui_state.logs.len()), header_style)),
+            .title(Span::styled(format!(" Log ({current_log_count}) "), header_style)),
     );
 
     f.render_widget(logs_widget, status_area);
@@ -98,34 +103,41 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
     );
     f.render_widget(registry_widget, control_chunks[0]);
 
-    let mut tree_lines: Vec<Line> = vec![];
+    let hosts_divider = Line::from(Span::styled(
+        "─".repeat(control_chunks[0].width.into()), // horizontal divider
+        Style::default().add_modifier(Modifier::DIM),
+    ));
+
+    let current_host = if let Some(selected) = tui_state.selected_host {
+        selected.to_string()
+    } else {
+        "Current device".to_string()
+    };
+
+    let mut h_lines: Vec<Line> = vec![];
+    h_lines.push(Line::from(format!("ID  Address/Device  Status   Selected Host: [{current_host}]")));
+    h_lines.push(hosts_divider.clone());
     for (host_idx, host) in tui_state.known_hosts.iter().enumerate() {
         // Handles host style
-        let host_style = if host.devices.iter().all(|d| d.status == DeviceStatus::Subscribed) {
-            match &tui_state.focussed_panel {
-                Focused::Hosts(FocusedHosts::HostTree(h, 0)) if *h == host_idx => {
-                    if host.devices.is_empty() {
-                        Style::default().fg(Color::Yellow).bg(Color::Gray)
-                    } else {
-                        Style::default().fg(Color::Green).bg(Color::Gray)
-                    }
-                }
-                _ => {
-                    if host.devices.is_empty() {
-                        Style::default().fg(Color::Yellow)
-                    } else {
-                        Style::default().fg(Color::Green)
-                    }
-                }
-            }
-        } else {
-            match &tui_state.focussed_panel {
-                Focused::Hosts(FocusedHosts::HostTree(h, 0)) if *h == host_idx => Style::default().bg(Color::Gray),
+        let host_style = {
+            let mut style = match tui_state.focussed_panel {
+                Focused::Hosts(FocusedHosts::HostTree(h, 0)) if h == host_idx => Style::default().bg(Color::Gray),
                 _ => Style::default(),
+            };
+
+            match host.status {
+                HostStatus::Available => style.fg(Color::DarkGray),
+                HostStatus::Connected => style.fg(Color::Yellow),
+                HostStatus::Disconnected => style.fg(Color::DarkGray),
+                HostStatus::Sending => style.fg(Color::Green),
+                HostStatus::Unresponsive => style.fg(Color::Red),
             }
         };
 
-        tree_lines.push(Line::from(Span::styled(format!("[{}] {}", host.id, host.addr), host_style)));
+        h_lines.push(Line::from(Span::styled(
+            format!("[{}] {} [{:?}]", host.id, host.addr, host.status),
+            host_style,
+        )));
 
         for (dev_idx, device) in host.devices.iter().enumerate() {
             let is_last_device = dev_idx == host.devices.len() - 1;
@@ -133,71 +145,47 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
             // let status = if device.status == DeviceStatus::Subscribed { "Subbed" } else { "" };
 
             let text = format!("{}[{}] {:?}", branch_prefix, device.id, device.dev_type,);
-
-            let device_style = if let Focused::Hosts(FocusedHosts::HostTree(host_idx, device_idx)) = &tui_state.focussed_panel {
-                match device.status {
-                    DeviceStatus::Subscribed => Style::default().fg(Color::Green).bg(Color::Gray),
-                    _ => Style::default().fg(Color::White).bg(Color::Gray),
-                }
-            } else if device.status == DeviceStatus::Subscribed {
-                Style::default().fg(Color::Green)
-            } else {
-                Style::default()
+            let mut device_style = match tui_state.focussed_panel {
+                Focused::Hosts(FocusedHosts::HostTree(h, d)) if d != 0 && (d - 1) == dev_idx && h == host_idx => Style::default().bg(Color::Gray),
+                _ => Style::default(),
             };
 
-            let device_style = if device.status == DeviceStatus::Subscribed {
-                match &tui_state.focussed_panel {
-                    Focused::Hosts(FocusedHosts::HostTree(h, d)) if *d != 0 && (*d - 1) == dev_idx && *h == host_idx => {
-                        Style::default().fg(Color::Green).bg(Color::Gray)
-                    }
-                    _ => Style::default().fg(Color::Green),
-                }
-            } else {
-                match &tui_state.focussed_panel {
-                    Focused::Hosts(FocusedHosts::HostTree(h, d)) if *d != 0 && (*d - 1) == dev_idx && *h == host_idx => {
-                        Style::default().bg(Color::Gray)
-                    }
-                    _ => Style::default(),
-                }
+            device_style = match host.status {
+                HostStatus::Connected | HostStatus::Sending => match device.status {
+                    DeviceStatus::Subscribed => device_style.fg(Color::LightGreen),
+                    DeviceStatus::NotSubscribed => device_style,
+                },
+                HostStatus::Unresponsive => todo!(),
+                _ => device_style.fg(Color::DarkGray),
             };
 
-            tree_lines.push(Line::from(Span::styled(text, device_style)));
+            h_lines.push(Line::from(Span::styled(text, device_style)));
         }
     }
 
-    // let host_text = if let FocusedPanel::Hosts(FocusedHostsPanel::Host(h, d)) = tui_state.focussed_panel {
-    //     format!("Hosts: {h} / {d}")
-    // } else {
-    //     "Hosts".to_string()
-    // };
-
-    let hosts_divider = Line::from(Span::styled(
-        "─".repeat(control_chunks[0].width.into()), // horizontal divider
-        Style::default().add_modifier(Modifier::DIM),
-    ));
-    tree_lines.push(hosts_divider.clone());
+    h_lines.push(hosts_divider.clone());
+    h_lines.push(Line::from("Manually add Host: "));
+    h_lines.push(hosts_divider.clone());
 
     let ip_input = Line::from(" [IP:Port] ___.___.___.___:______");
 
-    tree_lines.push(Line::from("Add Host: "));
     let mut add_addr = vec![Span::from(" IP:Port ")];
     add_addr.extend(edit_number(
         &tui_state.focussed_panel,
         tui_state.add_host_input_socket,
         FocusedAddHostField::Address,
     ));
-    tree_lines.push(Line::from(add_addr));
+    h_lines.push(Line::from(add_addr));
     let mut add_id = vec![Span::from(" ID      ")];
     add_id.extend(edit_number(
         &tui_state.focussed_panel,
         tui_state.add_host_input_id,
         FocusedAddHostField::ID,
     ));
-    tree_lines.push(Line::from(add_id));
+    h_lines.push(Line::from(add_id));
+    h_lines.push(hosts_divider);
 
-    tree_lines.push(hosts_divider);
-
-    let hosts_tree_view = Paragraph::new(Text::from(tree_lines)).block(
+    let hosts_tree_view = Paragraph::new(Text::from(h_lines)).block(
         Block::default()
             .padding(padding)
             .title(Span::styled("Hosts", header_style))
@@ -234,19 +222,19 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
     f.render_widget(experiment_widget, control_chunks[2]);
 
     let footer_text = (match &tui_state.focussed_panel {
-        Focused::Main => "[R]egistry | [H]osts  | [E]xperiment | [Q]uit",
+        Focused::Main => "[R]egistry | [H]osts  | [E]xperiment | [.] Clear Logs | [Q]uit",
         Focused::Hosts(focused_hosts_panel) => match focused_hosts_panel {
-            FocusedHosts::None => "[A]dd host | [ESC]ape | [Q]uit",
-            FocusedHosts::AddHost(_,_) => "| [Tab]/[Ent] Next | [Shft+Tab] Prev | [←→↑↓] Move | [Enter] | [ESC]ape | [Q]uit",
-            FocusedHosts::HostTree(_, 0) => "[A]dd host | [C]onnect | [D]isconnect | [S]ubscribe to all |  [U]nsubscribe to all | [Tab]/[Ent] Next | [Shft+Tab] Prev | [←→↑↓] Move| [ESC]ape | [Q]uit",
-            FocusedHosts::HostTree(_, _) => "[A]dd host | [S]ubscribe | [U]nsubscribe | [Tab]/[Ent] Next | [Shft+Tab] Prev | [←→↑↓] Move | [ESC]ape | [Q]uit",
+            FocusedHosts::None => "[A]dd host |  [.] Clear Logs | [ESC]ape | [Q]uit",
+            FocusedHosts::AddHost(_,_) => "| [Tab]/[Ent] Next | [Shft+Tab] Prev | [←→↑↓] Move | [Enter] | [.] Clear Logs | [ESC]ape | [Q]uit",
+            FocusedHosts::HostTree(_, 0) => "[A]dd host | S[E]lect Host | [C]onnect | [D]isconnect | [S]ubscribe to all | [U]nsubscribe to all | [Tab] Next | [Shft+Tab] Prev | [←→↑↓] Move |  [.] Clear Logs | [ESC]ape | [Q]uit",
+            FocusedHosts::HostTree(_, _) => "[A]dd host | S[E]lect Host | [S]ubscribe | [U]nsubscribe | [Tab] Next | [Shft+Tab] Prev | [←→↑↓] Move | [.] Clear Logs | [ESC]ape | [Q]uit",
         },
         Focused::Registry(focused_registry_panel) => match focused_registry_panel {
-            FocusedRegistry::RegistryAddress(_) => "[ESC]ape | [Q]uit",
-            FocusedRegistry::AvailableHosts(_) => "[ESC]ape | [Q]uit",
+            FocusedRegistry::RegistryAddress(_) => "[.] Clear Logs | [ESC]ape | [Q]uit",
+            FocusedRegistry::AvailableHosts(_) => " [.] Clear Logs | [ESC]ape | [Q]uit",
         },
 
-        Focused::Experiments => "[B]egin experiment | [E]nd Experiment | [P]ause |[ESC]ape | [Q]uit",
+        Focused::Experiments => "[B]egin experiment | [E]nd Experiment | [P]ause | [.] Clear Logs | [ESC]ape | [Q]uit",
         Focused::Status => todo!(),
     })
     .to_owned();

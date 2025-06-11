@@ -58,16 +58,19 @@ pub enum SubCommandsArgs {
     Five(EspToolSubcommandArgs),
 }
 
+const DEFAULT_PORT_CLI: u16 = 6969;
+const DEFAULT_IP_CLI: &str = "127.0.0.1";
+
 /// System node commands
 #[derive(FromArgs)]
 #[argh(subcommand, name = "node")]
 pub struct SystemNodeSubcommandArgs {
     /// server address (default: 127.0.0.1)
-    #[argh(option, default = "String::from(\"\")")]
+    #[argh(option, default = "DEFAULT_IP_CLI.to_owned()")]
     pub addr: String,
 
     /// server port (default: 6969)
-    #[argh(option, default = "0")]
+    #[argh(option, default = "DEFAULT_PORT_CLI")]
     pub port: u16,
 
     /// location of config file (default sensei/src/system_node/example_config.yaml)
@@ -88,14 +91,18 @@ impl ConfigFromCli<SystemNodeConfig> for SystemNodeSubcommandArgs {
 
 /// Overlays subcommand arguments onto a SystemNodeConfig, overriding fields if provided.
 impl OverlaySubcommandArgs<SystemNodeConfig> for SystemNodeSubcommandArgs {
-    fn overlay_subcommand_args(&self, full_config: SystemNodeConfig) -> Result<SystemNodeConfig, Box<dyn std::error::Error>> {
+    fn overlay_subcommand_args(&self, mut full_config: SystemNodeConfig) -> Result<SystemNodeConfig, Box<dyn std::error::Error>> {
         // Because of the default value we expact that there's always a file to read
         debug!("Loading system node configuration from YAML file: {}", self.config_path.display());
-        let mut config = full_config.clone();
         // overwrite fields when provided by the subcommand
-        config.addr = format!("{}:{}", self.addr, self.port).parse().unwrap_or(config.addr);
+        if self.addr != DEFAULT_IP_CLI {
+            full_config.addr.set_ip(self.addr.parse().unwrap_or(full_config.addr.ip()));
+        }
+        if self.port != DEFAULT_PORT_CLI {
+            full_config.addr.set_port(self.port);
+        }
 
-        Ok(config)
+        Ok(full_config)
     }
 }
 
