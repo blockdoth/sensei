@@ -27,7 +27,7 @@ pub trait OverlaySubcommandArgs<T> {
     fn overlay_subcommand_args(&self, full_config: T) -> Result<T, Box<dyn std::error::Error>>;
 }
 
-pub static DEFAULT_HOST_CONFIG: &str = "resources/example_configs/host/minimal.yaml";
+pub static DEFAULT_HOST_CONFIG: &str = "\"sensei/src/system_node/example_full.yaml\".parse().unwrap()";
 pub static DEFAULT_ORCHESTRATOR_CONFIG: &str = "resources/example_configs/orchestrator/experiment_config.yaml";
 
 /// A simple app to perform collection from configured sources
@@ -74,7 +74,7 @@ pub struct SystemNodeSubcommandArgs {
     pub port: u16,
 
     /// location of config file
-    #[argh(option, default = "\"sensei/src/system_node/example_full.yaml\".parse().unwrap()")]
+    #[argh(option, default = "PathBuf::from(DEFAULT_HOST_CONFIG)")]
     pub config_path: PathBuf,
 }
 
