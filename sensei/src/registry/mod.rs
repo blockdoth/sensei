@@ -46,46 +46,9 @@ pub struct HostInfo {
     /// The network address of the host.
     addr: SocketAddr,
     /// The current status of the host.
-    status: RegHostStatus,
+    status: HostStatus,
     /// Whether the host responded to the last heartbeat (allowed to miss one).
     responded_to_last_heardbeat: bool,
-}
-
-/// Registry's internal representation of a host's status.
-/// This is similar to the type in rpc_message, but avoids matching on rpc_message every time.
-#[derive(Clone, Debug)]
-pub struct RegHostStatus {
-    /// The unique ID of the host.
-    host_id: HostId,
-    /// The status of each device managed by the host.
-    device_statuses: Vec<DeviceStatus>,
-}
-
-/// Conversion from a control message to a registry host status.
-impl From<RegCtrl> for RegHostStatus {
-    fn from(item: RegCtrl) -> Self {
-        match item {
-            RegCtrl::HostStatus(HostStatus {
-                host_id,
-                device_statuses: device_status,
-            }) => RegHostStatus {
-                host_id,
-                device_statuses: device_status,
-            },
-            _ => {
-                panic!("Could not convert from this type of CtrlMsg: {item:?}");
-            }
-        }
-    }
-}
-/// Conversion from an internal RegistryHostStatus type to a CtrlMsg
-impl From<RegHostStatus> for RegCtrl {
-    fn from(value: RegHostStatus) -> Self {
-        RegCtrl::HostStatus(HostStatus {
-            host_id: value.host_id,
-            device_statuses: value.device_statuses,
-        })
-    }
 }
 
 /// Allows clients to subscribe to the registry's data channel.
@@ -169,7 +132,9 @@ impl Registry {
     /// // The polling task is now running in the background.
     /// ```
     pub fn create_polling_task(&self) -> tokio::task::JoinHandle<()> {
-        if let Some(interval) = self.polling_rate_s && interval > 0 {
+        if let Some(interval) = self.polling_rate_s
+            && interval > 0
+        {
             let connection_handler = Arc::new(self.clone());
             task::spawn(async move {
                 info!("Starting TCP client to poll hosts...");
@@ -216,7 +181,7 @@ impl Registry {
     }
 
     /// Retrieve a host from the table by its HostId, or throw an AppError::NoSuchHost
-    pub async fn get_host_by_id(&self, host_id: HostId) -> Result<RegHostStatus, RegistryError> {
+    pub async fn get_host_by_id(&self, host_id: HostId) -> Result<HostStatus, RegistryError> {
         let host_info_table = self.hosts.lock().await;
         let host_info = host_info_table.get(&host_id).ok_or(RegistryError::NoSuchHost)?;
         Ok(host_info.status.clone())
@@ -239,7 +204,7 @@ impl Registry {
         self.hosts.lock().await.iter().map(|(id, info)| (*id, info.addr)).collect()
     }
     /// List the status of every host in the registry.
-    pub async fn list_host_statuses(&self) -> Vec<(HostId, RegHostStatus)> {
+    pub async fn list_host_statuses(&self) -> Vec<(HostId, HostStatus)> {
         self.hosts.lock().await.iter().map(|(id, info)| (*id, info.status.clone())).collect()
     }
     /// Register a new host with the registry.
@@ -249,7 +214,7 @@ impl Registry {
             host_id,
             HostInfo {
                 addr: host_address,
-                status: RegHostStatus {
+                status: HostStatus {
                     host_id,
                     device_statuses: Vec::new(),
                 },
@@ -264,7 +229,7 @@ impl Registry {
         debug!("{host_status:?}");
         let status = HostInfo {
             addr: host_address,
-            status: RegHostStatus {
+            status: HostStatus {
                 host_id,
                 device_statuses: host_status,
             },
