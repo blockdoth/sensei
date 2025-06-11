@@ -1,3 +1,7 @@
+//! Network RPC message types and related data structures for Sensei.
+//!
+//! This module defines the types used for remote procedure call (RPC) messages exchanged between nodes and orchestrators in the Sensei system. It includes message kinds, control commands, device and host status, and serialization helpers for network communication.
+
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::str::FromStr;
 
@@ -6,52 +10,132 @@ use tokio::net::TcpStream;
 
 use crate::csi_types::CsiData;
 use crate::handler::device_handler::DeviceHandlerConfig;
+use crate::network::rpc_message::CfgType::{Create, Delete, Edit};
 
+/// The default address used for network communication (localhost:6969).
 pub const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
 
-#[derive(Serialize, Deserialize, Debug)]
+/// Represents a full RPC message, including its kind and source/target addresses.
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RpcMessage {
+    /// The kind of RPC message (control, registration, or data).
     pub msg: RpcMessageKind,
+    /// The address of the sender.
     pub src_addr: SocketAddr,
+    /// The address of the intended recipient.
     pub target_addr: SocketAddr,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+/// The different kinds of RPC messages that can be sent over the network.
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum RpcMessageKind {
-    Ctrl(CtrlMsg),
+    /// Host control message (e.g., connect, disconnect, configure).
+    HostCtrl(HostCtrl),
+    /// Registration/control message (e.g., poll status, announce presence).
+    RegCtrl(RegCtrl),
+    /// Data message containing CSI or raw frame data.
     Data { data_msg: DataMsg, device_id: u64 },
 }
 
-/// There was some discussion about what we should use as a host id.
-/// This makes it more flexible
+/// Unique identifier for a host in the network.
 pub type HostId = u64;
+/// Unique identifier for a device in the network.
 pub type DeviceId = u64;
 
+/// Host control commands for managing device connections and subscriptions.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum CtrlMsg {
+pub enum HostCtrl {
+    /// Connect to a host.
     Connect,
+    /// Disconnect from a host.
     Disconnect,
-    Configure { device_id: DeviceId, cfg: DeviceHandlerConfig },
+    /// Configure a device handler.
+    Configure { device_id: DeviceId, cfg_type: CfgType },
+    /// Subscribe to a device's data stream.
     Subscribe { device_id: DeviceId },
+    /// Unsubscribe from a device's data stream.
     Unsubscribe { device_id: DeviceId },
-    SubscribeTo { target: SocketAddr, device_id: DeviceId }, // Orchestrator to node, node subscribes to another node
-    UnsubscribeFrom { target: SocketAddr, device_id: DeviceId }, // Orchestrator to node
-    PollHostStatus,
-    AnnouncePresence { host_id: HostId, host_address: SocketAddr },
-    HostStatus { host_id: HostId, device_status: Vec<DeviceStatus> },
+    /// Subscribe to another node's device stream.
+    SubscribeTo { target: SocketAddr, device_id: DeviceId },
+    /// Unsubscribe from another node's device stream.
+    UnsubscribeFrom { target: SocketAddr, device_id: DeviceId },
 }
 
+/// Registration and control messages for orchestrator and node communication.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum RegCtrl {
+    /// Poll the status of a specific host.
+    PollHostStatus { host_id: HostId },
+    /// Poll the statuses of all hosts.
+    PollHostStatuses,
+    /// Announce the presence of a host to the network.
+    AnnouncePresence { host_id: HostId, host_address: SocketAddr },
+    /// Report the status of a host.
+    HostStatus(HostStatus),
+    /// Report the statuses of multiple hosts.
+    HostStatuses { host_statuses: Vec<HostStatus> },
+}
+
+/// Status information for a host, including its devices.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct HostStatus {
+    /// The unique ID of the host.
+    pub host_id: HostId,
+    /// The status of each device managed by the host.
+    pub device_statuses: Vec<DeviceStatus>,
+}
+
+impl From<HostStatus> for RegCtrl {
+    fn from(value: HostStatus) -> Self {
+        RegCtrl::HostStatus(value)
+    }
+}
+
+impl From<RegCtrl> for HostStatus {
+    fn from(value: RegCtrl) -> Self {
+        match value {
+            RegCtrl::HostStatus(HostStatus {
+                host_id,
+                device_statuses: device_status,
+            }) => HostStatus {
+                host_id,
+                device_statuses: device_status,
+            },
+            _ => {
+                panic!("Could not convert from this type of CtrlMsg: {value:?}");
+            }
+        }
+    }
+}
+
+/// Status information for a device managed by a host.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct DeviceStatus {
+    /// The unique ID of the device.
     pub id: DeviceId,
+    /// The type of the device/source.
     pub dev_type: SourceType,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum DataMsg {
-    RawFrame { ts: f64, bytes: Vec<u8>, source_type: SourceType }, // raw bytestream, requires decoding adapter
-    CsiFrame { csi: CsiData },                                     // This would contain a proper deserialized CSI
+impl From<&DeviceHandlerConfig> for DeviceStatus {
+    fn from(value: &DeviceHandlerConfig) -> Self {
+        DeviceStatus {
+            id: value.device_id,
+            dev_type: value.stype.clone(),
+        }
+    }
 }
+
+/// Data messages exchanged between nodes, containing either raw or parsed CSI data.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub enum DataMsg {
+    /// Raw frame data (requires decoding adapter).
+    RawFrame { ts: f64, bytes: Vec<u8>, source_type: SourceType },
+    /// Parsed CSI frame data.
+    CsiFrame { csi: CsiData },
+}
+
+/// Supported source/device types in the Sensei system.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum SourceType {
     ESP32,
@@ -64,11 +148,41 @@ pub enum SourceType {
     Unknown,
 }
 
+/// Modes for CSI adapters.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum AdapterMode {
     RAW,
     SOURCE,
     TARGET,
+}
+
+/// Types of configuration operations for device handlers.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub enum CfgType {
+    /// Create a new device handler with the given config.
+    Create { cfg: DeviceHandlerConfig },
+    /// Edit an existing device handler with the given config.
+    Edit { cfg: DeviceHandlerConfig },
+    /// Delete a device handler.
+    Delete,
+}
+
+impl CfgType {
+    /// It is sadly necessary to make my own function, as FromStr can not have two fields nor be async
+    /// This requires preprocessing the cfg
+    /// Construct a CfgType from a string and a device handler config.
+    ///
+    /// # Arguments
+    /// * `config_type` - The type of configuration operation ("create", "edit", or "delete").
+    /// * `cfg` - The device handler configuration.
+    pub fn from_string(config_type: Option<&str>, cfg: DeviceHandlerConfig) -> Result<Self, String> {
+        match config_type {
+            Some("create") => Ok(Create { cfg }),
+            Some("edit") => Ok(Edit { cfg }),
+            Some("delete") => Ok(Delete),
+            _ => Err(format!("Unrecognized config type {config_type:?}")),
+        }
+    }
 }
 
 impl FromStr for AdapterMode {
@@ -84,7 +198,7 @@ impl FromStr for AdapterMode {
 }
 
 // FromStr implementations for easy cli usage
-impl FromStr for CtrlMsg {
+impl FromStr for HostCtrl {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -93,27 +207,46 @@ impl FromStr for CtrlMsg {
         let kind = parts.next().unwrap_or("not a valid command");
 
         match kind {
-            "connect" => Ok(CtrlMsg::Connect),
-            "disconnect" => Ok(CtrlMsg::Disconnect),
+            "connect" => Ok(HostCtrl::Connect),
+            "disconnect" => Ok(HostCtrl::Disconnect),
             "configure" => {
                 todo!("support this")
             }
             "subscribe" => {
                 let device_id = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0); // TODO better id assignment
 
-                Ok(CtrlMsg::Subscribe { device_id })
+                Ok(HostCtrl::Subscribe { device_id })
             }
             "unsubscribe" => {
                 let device_id = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
 
-                Ok(CtrlMsg::Unsubscribe { device_id })
+                Ok(HostCtrl::Unsubscribe { device_id })
             }
-            "pollhoststatus" => Ok(CtrlMsg::PollHostStatus),
-            "hoststatus" => Ok(CtrlMsg::HostStatus {
+            s => Err(s.to_owned()),
+        }
+    }
+}
+
+// FromStr implementations for easy cli usage
+impl FromStr for RegCtrl {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let lowercase = s.to_lowercase();
+        let mut parts = lowercase.split_whitespace();
+        let kind = parts.next().unwrap_or("not a valid command");
+
+        match kind {
+            "pollhoststatus" => {
+                let host_id = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+                Ok(RegCtrl::PollHostStatus { host_id })
+            }
+            "pollhoststatuses" => Ok(RegCtrl::PollHostStatuses),
+            "hoststatus" => Ok(RegCtrl::HostStatus(HostStatus {
                 host_id: 0,
-                device_status: vec![],
-            }),
-            "heartbeat" => Ok(CtrlMsg::AnnouncePresence {
+                device_statuses: vec![],
+            })),
+            "heartbeat" => Ok(RegCtrl::AnnouncePresence {
                 host_id: 0,
                 host_address: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 8080)),
             }), // TODO better id assignment
@@ -122,9 +255,10 @@ impl FromStr for CtrlMsg {
     }
 }
 
-// Convenient wrapper to add src/target data to RpcMessage's
-// Takes any type that implements AsRef, such as TcpStream/OwnedReadHalf/OwnedWriteHalf
-// as refs (&), Arc<>, Box<> and Rc<>
+/// Helper to construct an RpcMessage from a stream and message kind.
+///
+/// Takes any type that implements AsRef, such as TcpStream/OwnedReadHalf/OwnedWriteHalf,
+/// as refs (&), Arc<>, Box<> and Rc<>.
 pub fn make_msg<S: AsRef<TcpStream>>(stream: S, msg: RpcMessageKind) -> RpcMessage {
     let stream_ref = stream.as_ref();
     RpcMessage {

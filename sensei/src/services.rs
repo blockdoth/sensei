@@ -2,6 +2,7 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
 
 use lib::handler::device_handler::DeviceHandlerConfig;
+use log::LevelFilter;
 use serde::Deserialize;
 
 pub const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
@@ -45,26 +46,16 @@ pub trait FromYaml: Sized + for<'de> Deserialize<'de> {
 }
 
 pub struct OrchestratorConfig {
-    pub targets: Vec<SocketAddr>,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-pub struct SystemNodeRegistryConfig {
-    pub use_registry: bool,
-    pub addr: SocketAddr,
+    pub experiment_config: PathBuf,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct SystemNodeConfig {
     pub addr: SocketAddr,
     pub host_id: u64,
-    pub registry: SystemNodeRegistryConfig,
+    pub registries: Option<Vec<SocketAddr>>,
+    pub registry_polling_rate_s: Option<u64>,
     pub device_configs: Vec<DeviceHandlerConfig>,
-}
-
-pub struct RegistryConfig {
-    pub addr: SocketAddr,
-    pub poll_interval: u64,
 }
 
 pub struct VisualiserConfig {
@@ -72,12 +63,27 @@ pub struct VisualiserConfig {
     pub ui_type: String,
 }
 
-pub enum ServiceConfig {
-    One(OrchestratorConfig),
-    Two(RegistryConfig),
-    Three(SystemNodeConfig),
-    Four(VisualiserConfig),
+pub struct EspToolConfig {
+    pub serial_port: String,
 }
 
-impl FromYaml for SystemNodeRegistryConfig {}
+pub struct GlobalConfig {
+    pub log_level: LevelFilter,
+}
+
+pub enum ServiceConfig {
+    Orchestrator(OrchestratorConfig),
+    SystemNode(SystemNodeConfig),
+    Visualiser(VisualiserConfig),
+    EspTool(EspToolConfig),
+}
+
+pub trait Run<ServiceConfig> {
+    // Initialize standalone state which does not depend on any config
+    fn new(global_config: GlobalConfig, config: ServiceConfig) -> Self;
+
+    // Actually applies given config and runs the service
+    async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>>;
+}
+
 impl FromYaml for SystemNodeConfig {}

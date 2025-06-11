@@ -40,7 +40,6 @@ impl Default for NetlinkControllerParams {
 ///
 /// This implementation issues system commands to configure the wireless
 /// interface into monitor mode with the desired frequency and settings.
-#[typetag::serde(name = "NetLink")]
 #[async_trait::async_trait]
 impl Controller for NetlinkControllerParams {
     async fn apply(&self, _source: &mut dyn DataSourceT) -> Result<(), ControllerError> {

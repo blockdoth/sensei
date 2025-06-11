@@ -78,7 +78,6 @@ pub trait DataSourceT: Send + Any + ToConfig<DataSourceConfig> {
 /// - `Esp32`: ESP32-based data source
 /// - 'Tcp': receiving from another node
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-#[serde(tag = "type")]
 pub enum DataSourceConfig {
     /// Linux netlink source (packet capture via netlink sockets).
     #[cfg(target_os = "linux")]

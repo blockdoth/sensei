@@ -14,8 +14,8 @@ use charming::series::Line;
 use charming::theme::Theme;
 use lib::csi_types::CsiData;
 use lib::network::rpc_message::DataMsg::*;
-use lib::network::rpc_message::RpcMessageKind::{Ctrl, Data};
-use lib::network::rpc_message::{CtrlMsg, RpcMessage};
+use lib::network::rpc_message::RpcMessageKind::Data;
+use lib::network::rpc_message::{HostCtrl, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
 use log::{debug, info};
 use ratatui::Terminal;
@@ -33,33 +33,32 @@ use tokio::io;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::Mutex;
 
-use crate::config::VisualiserConfig;
-use crate::module::Run;
+use crate::services::{GlobalConfig, Run, VisualiserConfig};
 
 pub struct Visualiser {
     // This seemed to me the best way to structure the data, as the socketaddr is a primary key for each node, and each device has a unique id only within a node
     #[allow(clippy::type_complexity)]
     data: Arc<Mutex<HashMap<SocketAddr, HashMap<u64, Vec<CsiData>>>>>, // Nodes x Devices x CsiData over time
-    target_addr: SocketAddr,
+    target: SocketAddr,
     ui_type: String,
 }
 
 impl Run<VisualiserConfig> for Visualiser {
-    fn new(config: VisualiserConfig) -> Self {
+    fn new(global_config: GlobalConfig, config: VisualiserConfig) -> Self {
         Visualiser {
             data: Arc::new(Default::default()),
-            target_addr: config.target,
+            target: config.target,
             ui_type: config.ui_type,
         }
     }
 
-    async fn run(&self, _config: VisualiserConfig) -> Result<(), Box<dyn std::error::Error>> {
+    async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         // Technically, the visualiser has cli tools for connecting to multiple nodes
         // At the moment, it is sufficient to connect to one target node on startup
         // Manually start the subscription by typing subscribe
         let client = Arc::new(Mutex::new(TcpClient::new()));
-        self.client_task(client.clone(), self.target_addr).await?;
-        self.receive_data_task(self.data.clone(), client.clone(), self.target_addr);
+        self.client_task(client.clone(), self.target).await;
+        self.receive_data_task(self.data.clone(), client.clone(), self.target);
 
         io::stdout().flush().await?;
 
@@ -433,8 +432,8 @@ impl Visualiser {
             let mut client = client.lock().await;
             client.connect(target_addr).await?;
 
-            let msg = Ctrl(CtrlMsg::Subscribe { device_id: 0 });
-            client.send_message(target_addr, msg).await?;
+            let msg = HostCtrl::Subscribe { device_id: 0 };
+            client.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?;
             info!("Subscribed to node {target_addr}");
             Ok(())
         }
