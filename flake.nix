@@ -30,6 +30,7 @@
           pkgs = import inputs.nixpkgs {
             inherit system;
             overlays = [ inputs.rust-overlay.overlays.default ];
+            config.allowBroken = true;
           };
           toolchain = pkgs.rust-bin.fromRustupToolchainFile ./toolchain.toml;
         in
@@ -46,10 +47,12 @@
                 rust-analyzer-unwrapped
                 mprocs
                 pkg-config
-                pkgs.llvmPackages_latest.llvm # required for coverage tool
-                pkgs.cargo-llvm-cov
               ]
-              ++ lib.optionals pkgs.stdenv.isLinux [ pkgs.udev ];
+              ++ lib.optionals pkgs.stdenv.isLinux [ 
+                  pkgs.udev
+                  pkgs.llvmPackages_latest.llvm
+                  pkgs.cargo-llvm-cov
+                ];
             RUST_SRC_PATH = "${toolchain}/lib/rustlib/src/rust/library";
             # env vars for coverage tool
             LLVM_COV = "${pkgs.llvmPackages_latest.llvm}/bin/llvm-cov";
