@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::Error;
 use argh::FromArgs;
 use lib::handler::device_handler::DeviceHandlerConfig;
-use log::debug;
+use log::{debug, info};
 use simplelog::LevelFilter;
 
 use crate::services::{EspToolConfig, GlobalConfig, OrchestratorConfig, RegistryConfig, SystemNodeConfig, VisualiserConfig};
@@ -101,7 +101,6 @@ impl OverlaySubcommandArgs<SystemNodeConfig> for SystemNodeSubcommandArgs {
         if self.port != DEFAULT_PORT_CLI {
             full_config.addr.set_port(self.port);
         }
-
         Ok(full_config)
     }
 }
@@ -203,7 +202,7 @@ mod tests {
 
     fn create_testing_config() -> SystemNodeConfig {
         SystemNodeConfig {
-            addr: "127.0.0.1:8080".parse().unwrap(),
+            addr: SocketAddr::new(IpAddr::V4(DEFAULT_IP_CLI.parse().unwrap()), DEFAULT_PORT_CLI),
             host_id: 1,
             registry: Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080)),
             device_configs: vec![],
@@ -226,8 +225,8 @@ mod tests {
     #[test]
     fn test_overlay_subcommand_args_uses_yaml_when_no_override() {
         let args = SystemNodeSubcommandArgs {
-            addr: "".to_string(),
-            port: 0,
+            addr: DEFAULT_IP_CLI.to_string(),
+            port: DEFAULT_PORT_CLI,
             config_path: PathBuf::from("does_not_matter.yaml"), // This will not be used
         };
 
@@ -247,8 +246,9 @@ mod tests {
         };
 
         // "invalid_addr:1234" is not a valid SocketAddr, so should fallback to YAML
-        let base_cfg = create_testing_config();
+        let mut base_cfg = create_testing_config();
         let config = args.overlay_subcommand_args(base_cfg.clone()).unwrap();
+        base_cfg.addr.set_port(1234); // Port is always valid
         assert_eq!(config.addr, base_cfg.addr);
     }
 }
