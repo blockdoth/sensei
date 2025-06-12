@@ -1,0 +1,30 @@
+addr: "127.0.0.1:6969"
+host_id: 1
+sinks:
+  - id: "stdout"
+    config: !File
+      file: "/dev/stdout"
+
+  # Example of a TCP sink if you want to forward data from a TCP source to another TCP destination
+  # - id: "remote_tcp_sink"
+  #   config: !Tcp
+  #     target_addr: "127.0.0.1:7001" # TODO: Update with actual target address
+  #     device_id: 101
+
+device_configs:
+  - device_id: 0
+    stype: TCPSource # Or other appropriate stype for a TCP source
+    
+    source: !Tcp
+      listen_addr: "0.0.0.0:7000" # TODO: Update with the address the TCP source should listen on
+      device_id: 200 # An ID to identify this source's data stream
+
+    # No controller is typically needed for a simple TCP source listening for connections.
+    
+    # An adapter might be needed if the incoming TCP data needs parsing/transformation.
+    # adapter: !YourTcpDataAdapter
+    #   ...
+
+    output_to:
+      - "stdout"
+      # - "remote_tcp_sink" # If you want to forward to another TCP sink
