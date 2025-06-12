@@ -719,12 +719,13 @@ fn generate_chart_from_data(data: Vec<(f64, f64)>, title_str: &str) -> CharmingC
         .series(Line::new().data(y_data))
 }
 
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use lib::csi_types::Complex;
     use std::time::{Duration, Instant};
+
+    use lib::csi_types::Complex;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_graph_type_from_str() {
@@ -764,13 +765,15 @@ mod tests {
         assert!(empty_output.is_empty());
 
         let input: Vec<LibComplex> = vec![
-            Complex::new(1.0, 0.0), Complex::new(1.0, 0.0),
-            Complex::new(1.0, 0.0), Complex::new(1.0, 0.0),
+            Complex::new(1.0, 0.0),
+            Complex::new(1.0, 0.0),
+            Complex::new(1.0, 0.0),
+            Complex::new(1.0, 0.0),
         ];
         let output = Visualiser::perform_ifft(&input);
         assert!((output[0] - FftComplex::new(1.0, 0.0)).norm() < 1e-9);
-        for i in 1..output.len() {
-            assert!(output[i].norm() < 1e-9);
+        for val in output.iter().skip(1) {
+            assert!(val.norm() < 1e-9);
         }
     }
 
@@ -785,7 +788,6 @@ mod tests {
         assert_eq!(data[1], (200.0, 5.0));
         assert_eq!(latest_timestamp, Some(200.0));
     }
-
 
     #[tokio::test]
     async fn test_process_pdp_data() {
@@ -805,7 +807,6 @@ mod tests {
         assert!(data_oob_core.is_empty());
         assert_eq!(ts_oob_core, Some(200.0));
     }
-
 
     #[tokio::test]
     async fn test_process_data() {
@@ -998,7 +999,9 @@ mod tests {
     }
 
     fn setup_visualiser() -> Visualiser {
-        let global_config = GlobalConfig { log_level: simplelog::LevelFilter::Off };
+        let global_config = GlobalConfig {
+            log_level: simplelog::LevelFilter::Off,
+        };
         let visualiser_config = VisualiserConfig {
             target: "127.0.0.1:1234".parse().unwrap(),
             ui_type: "tui".to_string(),
@@ -1010,19 +1013,13 @@ mod tests {
         vec![
             CsiData {
                 timestamp: 100.0,
-                csi: vec![vec![vec![
-                    Complex::new(1.0, 2.0),
-                    Complex::new(3.0, 4.0),
-                ]]],
+                csi: vec![vec![vec![Complex::new(1.0, 2.0), Complex::new(3.0, 4.0)]]],
                 rssi: vec![0],
                 sequence_number: 0,
             },
             CsiData {
                 timestamp: 200.0,
-                csi: vec![vec![vec![
-                    Complex::new(5.0, 6.0),
-                    Complex::new(7.0, 8.0),
-                ]]],
+                csi: vec![vec![vec![Complex::new(5.0, 6.0), Complex::new(7.0, 8.0)]]],
                 rssi: vec![0],
                 sequence_number: 0,
             },
