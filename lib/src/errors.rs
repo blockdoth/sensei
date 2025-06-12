@@ -1,3 +1,5 @@
+use std::sync::PoisonError;
+
 use thiserror::Error;
 
 use crate::adapters::csv::CSVAdapterError;
@@ -46,6 +48,10 @@ pub enum NetworkError {
     /// The response could not be parsed.
     #[error("Message could not be parsed")]
     MessageError,
+
+    /// Registry error
+    #[error("The registry produced an error")]
+    RegistryError(#[from] RegistryError),
 }
 
 /// Generic application-level error for unimplemented functionality.
@@ -361,6 +367,29 @@ pub enum TaskError {
     /// Specifically for the tcp sink
     #[error("Incorrect device_id for sink, according to config")]
     WrongSinkDid,
+}
+
+#[derive(Error, Debug)]
+pub enum RegistryError {
+    /// A generic error only intended to be used in development
+    #[error("A generic error. Should not be used in finalized features")]
+    GenericError,
+
+    /// A poisonerror`
+    #[error("Poisonerror")]
+    PosonError(#[from] PoisonError<()>),
+
+    /// No such host
+    #[error("No such host")]
+    NoSuchHost,
+
+    /// Netowrk Error
+    #[error("Network Error")]
+    NetworkError(#[from] Box<NetworkError>),
+
+    /// No Standalone
+    #[error("The registry cannot be ran as a standalone process.")]
+    NoStandalone,
 }
 
 // Allow conversion from Box<NetworkError> to NetworkError

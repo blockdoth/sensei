@@ -13,6 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use log::{debug, error, info};
+use mockall::automock;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
@@ -20,7 +21,7 @@ use tokio::sync::Mutex;
 
 use crate::errors::NetworkError;
 use crate::network::rpc_message::RpcMessageKind::*;
-use crate::network::rpc_message::{RpcMessage, RpcMessageKind, *};
+use crate::network::rpc_message::{HostCtrl, RpcMessage, RpcMessageKind};
 use crate::network::tcp;
 use crate::network::tcp::MAX_MESSAGE_LENGTH;
 
@@ -48,6 +49,7 @@ impl Default for TcpClient {
     }
 }
 
+#[automock]
 impl TcpClient {
     pub fn new() -> Self {
         Self {
@@ -81,7 +83,7 @@ impl TcpClient {
                 let target_addr = write_stream.peer_addr().unwrap();
                 let src_addr = write_stream.local_addr().unwrap();
 
-                tcp::send_message(&mut write_stream, Ctrl(CtrlMsg::Connect)).await?;
+                tcp::send_message(&mut write_stream, HostCtrl(HostCtrl::Connect)).await?;
 
                 self.connections.lock().await.insert(
                     target_addr,
@@ -120,12 +122,12 @@ impl TcpClient {
             }
             Some(mut connection) => {
                 debug!("Initiating graceful disconnect with {target_addr}");
-                match super::send_message(&mut connection.write_stream, Ctrl(CtrlMsg::Disconnect)).await {
+                match super::send_message(&mut connection.write_stream, HostCtrl(HostCtrl::Disconnect)).await {
                     Ok(_) => {
                         debug!("Waiting for confirm of disconnect from {target_addr}");
                         match super::read_message(&mut connection.read_stream, &mut connection.buffer).await {
                             Ok(Some(RpcMessage {
-                                msg: Ctrl(CtrlMsg::Disconnect),
+                                msg: HostCtrl(HostCtrl::Disconnect),
                                 ..
                             })) => {
                                 info!("Connection with {target_addr} closed gracefully.");

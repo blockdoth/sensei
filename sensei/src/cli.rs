@@ -6,7 +6,7 @@ use lib::handler::device_handler::DeviceHandlerConfig;
 use log::{debug, info};
 use simplelog::LevelFilter;
 
-use crate::services::{EspToolConfig, GlobalConfig, OrchestratorConfig, RegistryConfig, SystemNodeConfig, VisualiserConfig};
+use crate::services::{EspToolConfig, GlobalConfig, OrchestratorConfig, SystemNodeConfig, VisualiserConfig};
 
 /// A trait for overlaying subcommand arguments onto an existing configuration.
 ///
@@ -27,10 +27,14 @@ pub trait OverlaySubcommandArgs<T> {
     fn overlay_subcommand_args(&self, full_config: T) -> Result<T, Box<dyn std::error::Error>>;
 }
 
+pub static DEFAULT_HOST_CONFIG: &str = "resources/example_configs/host/example_full.yaml";
+pub static DEFAULT_ORCHESTRATOR_CONFIG: &str = "resources/example_configs/orchestrator/experiment_config.yaml";
+
 /// A simple app to perform collection from configured sources
 #[derive(FromArgs)]
 pub struct Args {
     /// log level to use for terminal logging
+    /// Possible values: OFF, ERROR, WARN, INFO, DEBUG, TRACE
     #[argh(option, default = "LevelFilter::Info")]
     pub level: LevelFilter,
 
@@ -51,11 +55,10 @@ pub trait ConfigFromCli<Config> {
 #[derive(FromArgs)]
 #[argh(subcommand)]
 pub enum SubCommandsArgs {
-    One(SystemNodeSubcommandArgs),
-    Two(RegistrySubcommandArgs),
-    Three(OrchestratorSubcommandArgs),
-    Four(VisualiserSubcommandArgs),
-    Five(EspToolSubcommandArgs),
+    SystemNode(SystemNodeSubcommandArgs),
+    Orchestrator(OrchestratorSubcommandArgs),
+    Visualiser(VisualiserSubcommandArgs),
+    EspTool(EspToolSubcommandArgs),
 }
 
 const DEFAULT_PORT_CLI: u16 = 6969;
@@ -73,8 +76,8 @@ pub struct SystemNodeSubcommandArgs {
     #[argh(option, default = "DEFAULT_PORT_CLI")]
     pub port: u16,
 
-    /// location of config file (default sensei/src/system_node/example_config.yaml)
-    #[argh(option, default = "PathBuf::from(\"sensei/src/system_node/example_config.yaml\")")]
+    /// location of config file
+    #[argh(option, default = "PathBuf::from(DEFAULT_HOST_CONFIG)")]
     pub config_path: PathBuf,
 }
 
@@ -83,8 +86,10 @@ impl ConfigFromCli<SystemNodeConfig> for SystemNodeSubcommandArgs {
         Ok(SystemNodeConfig {
             addr: format!("{}:{}", self.addr, self.port).parse()?,
             device_configs: DeviceHandlerConfig::from_yaml(self.config_path.clone())?,
-            host_id: 0,
-            registry: todo!(),
+            host_id: 0,                    // Default host_id, might be overwritten by YAML or other logic
+            registries: None,              // Default, might be overwritten by YAML
+            registry_polling_rate_s: None, // Default, might be overwritten by YAML
+            sinks: Vec::new(),             // Initialize with an empty Vec, to be populated from YAML
         })
     }
 }
@@ -105,41 +110,24 @@ impl OverlaySubcommandArgs<SystemNodeConfig> for SystemNodeSubcommandArgs {
     }
 }
 
-fn default_device_configs() -> PathBuf {
-    "sensei/src/system_node/example_config.yaml".parse().unwrap()
-}
-
-/// Registry node commands
-#[derive(FromArgs)]
-#[argh(subcommand, name = "registry")]
-pub struct RegistrySubcommandArgs {}
-
-impl ConfigFromCli<RegistryConfig> for RegistrySubcommandArgs {
-    fn parse(&self) -> Result<RegistryConfig, Error> {
-        Ok(RegistryConfig {
-            addr: "127.0.0.1:8080".parse()?,
-            poll_interval: 5,
-        })
-    }
-}
 /// Orchestrator node commands
 #[derive(FromArgs)]
 #[argh(subcommand, name = "orchestrator")]
 pub struct OrchestratorSubcommandArgs {
-    /// server port (default: 6969)
-    #[argh(option, default = "vec![String::from(\"127.0.0.1:6969\")]")]
-    pub target: Vec<String>,
-
     /// whether to enable tui input
     #[argh(option, default = "true")]
     pub tui: bool,
+
+    /// file path of the experiment config
+    #[argh(option, default = "DEFAULT_ORCHESTRATOR_CONFIG.parse().unwrap()")]
+    pub experiment_config: PathBuf,
 }
 
 impl ConfigFromCli<OrchestratorConfig> for OrchestratorSubcommandArgs {
     fn parse(&self) -> Result<OrchestratorConfig, Error> {
         // TODO input validation
         Ok(OrchestratorConfig {
-            targets: self.target.iter().map(|addr| addr.parse().unwrap()).collect(),
+            experiment_config: self.experiment_config.clone(),
         })
     }
 }
@@ -196,7 +184,7 @@ impl ConfigFromCli<EspToolConfig> for EspToolSubcommandArgs {
 
 #[cfg(test)]
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    use std::net::{IpAddr, SocketAddr};
 
     use super::*;
 
@@ -204,8 +192,10 @@ mod tests {
         SystemNodeConfig {
             addr: SocketAddr::new(IpAddr::V4(DEFAULT_IP_CLI.parse().unwrap()), DEFAULT_PORT_CLI),
             host_id: 1,
-            registry: Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080)),
+            registries: Option::None,
             device_configs: vec![],
+            registry_polling_rate_s: Option::None,
+            sinks: Vec::new(), // Add sinks field
         }
     }
 

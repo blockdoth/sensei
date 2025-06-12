@@ -8,9 +8,8 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::sync::broadcast;
 use tokio::sync::watch::{self};
 
-use super::rpc_message::{DataMsg, DeviceId, RpcMessage, RpcMessageKind};
+use super::rpc_message::{CfgType, DataMsg, DeviceId, RpcMessage, RpcMessageKind};
 use crate::errors::NetworkError;
-use crate::handler::device_handler::CfgType;
 use crate::network::rpc_message::{HostId, make_msg};
 
 pub mod client;
@@ -102,6 +101,13 @@ pub trait SubscribeDataChannel {
 
 #[derive(Debug, Clone, Deserialize)]
 pub enum ChannelMsg {
+    HostChannel(HostChannel),
+    RegChannel(RegChannel),
+    Data { data: DataMsg },
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub enum HostChannel {
     Empty,
     Shutdown,
     Disconnect,
@@ -112,7 +118,22 @@ pub enum ChannelMsg {
     ListenSubscribe { addr: SocketAddr },
     ListenUnsubscribe { addr: SocketAddr },
     Configure { device_id: DeviceId, cfg_type: CfgType },
-    SendHostStatus { reg_addr: SocketAddr, host_id: HostId },
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub enum RegChannel {
+    SendHostStatus { host_id: HostId },
     SendHostStatuses,
-    Data { data: DataMsg },
+}
+
+impl From<HostChannel> for ChannelMsg {
+    fn from(value: HostChannel) -> Self {
+        ChannelMsg::HostChannel(value)
+    }
+}
+
+impl From<RegChannel> for ChannelMsg {
+    fn from(value: RegChannel) -> Self {
+        ChannelMsg::RegChannel(value)
+    }
 }

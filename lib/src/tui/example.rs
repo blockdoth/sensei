@@ -48,7 +48,7 @@ impl TuiState {
 /// Commands that can be sent to background tasks from the UI.
 pub enum Command {
     /// Command indicating some user interaction occurred (e.g., toggle).
-    TouchedBalls,
+    Touched,
 }
 
 /// Updates that can be applied to the TUI state.
@@ -60,7 +60,7 @@ pub enum Update {
     Toggle,
 
     /// A message sent to demonstrate background-to-UI communication.
-    Balls,
+    Foo,
 
     /// A log message to display in the log section of the UI.
     Log(LogEntry),
@@ -125,10 +125,10 @@ impl Tui<Update, Command> for TuiState {
             Update::Toggle => {
                 self.toggled = !self.toggled;
                 info!("Toggled");
-                let _ = command_send.try_send(Command::TouchedBalls);
+                let _ = command_send.try_send(Command::Touched);
             }
-            Update::Balls => {
-                info!("balls")
+            Update::Foo => {
+                info!("Foo")
             }
             Update::Log(entry) => {
                 self.logs.push(entry);
@@ -140,7 +140,7 @@ impl Tui<Update, Command> for TuiState {
 /// Launches and runs the example TUI application.
 ///
 /// This function demonstrates communication between a background task and the TUI.
-/// The background task sends `Update::Balls` periodically, and reacts to `Command::TouchedBalls`.
+/// The background task sends `Update::Foo` periodically, and reacts to `Command::Touched`.
 ///
 /// # Example
 /// ```rust,ignore
@@ -158,9 +158,9 @@ pub async fn run_example() {
     // Showcases messages going both ways
     let other_task = vec![async move {
         loop {
-            update_send_clone.send(Update::Balls).await;
+            update_send_clone.send(Update::Foo).await;
             if command_recv.try_recv().is_ok() {
-                warn!("Balls have been touched");
+                warn!("Foo has been touched");
             }
         }
     }];

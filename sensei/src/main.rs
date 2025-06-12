@@ -15,7 +15,6 @@ use services::{FromYaml, Run, SystemNodeConfig};
 use simplelog::{ColorChoice, CombinedLogger, LevelFilter, TermLogger, TerminalMode, WriteLogger};
 
 use crate::orchestrator::*;
-use crate::registry::*;
 use crate::system_node::*;
 use crate::visualiser::*;
 
@@ -24,8 +23,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Args = argh::from_env();
 
     if args.subcommand.is_some()
-        && !matches!(&args.subcommand, Some(SubCommandsArgs::Five(_)))
-        && !matches!(&args.subcommand, Some(SubCommandsArgs::Three(_)))
+        && !matches!(&args.subcommand, Some(SubCommandsArgs::EspTool(_)))
+        && !matches!(&args.subcommand, Some(SubCommandsArgs::Orchestrator(_)))
     {
         CombinedLogger::init(vec![
             TermLogger::new(
@@ -58,7 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match &args.subcommand {
         None => lib::tui::example::run_example().await,
         Some(subcommand) => match subcommand {
-            SubCommandsArgs::One(args) => {
+            SubCommandsArgs::SystemNode(args) => {
                 SystemNode::new(
                     global_args,
                     args.overlay_subcommand_args(SystemNodeConfig::from_yaml(args.config_path.clone())?)?,
@@ -66,10 +65,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .run()
                 .await?
             }
-            SubCommandsArgs::Two(args) => Registry::new(global_args, args.parse()?).run().await?,
-            SubCommandsArgs::Three(args) => Orchestrator::new(global_args, args.parse()?).run().await?,
-            SubCommandsArgs::Four(args) => Visualiser::new(global_args, args.parse()?).run().await?,
-            SubCommandsArgs::Five(args) => EspTool::new(global_args, args.parse()?).run().await?,
+            SubCommandsArgs::Orchestrator(args) => Orchestrator::new(global_args, args.parse()?).run().await?,
+            SubCommandsArgs::Visualiser(args) => Visualiser::new(global_args, args.parse()?).run().await?,
+            SubCommandsArgs::EspTool(args) => EspTool::new(global_args, args.parse()?).run().await?,
         },
     }
     Ok(())

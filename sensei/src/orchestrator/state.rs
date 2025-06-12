@@ -1,12 +1,9 @@
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::sync::Arc;
 
 use async_trait::async_trait;
 use crossterm::event::{KeyCode, KeyEvent};
-use lib::network::rpc_message::RpcMessageKind::Ctrl;
-use lib::network::rpc_message::{CtrlMsg, HostId, SourceType};
-use lib::network::tcp::ChannelMsg;
-use lib::network::tcp::client::TcpClient;
+use lib::network::rpc_message::{HostId, SourceType};
+use lib::network::tcp::{ChannelMsg, HostChannel};
 use lib::tui::Tui;
 use lib::tui::logs::{FromLog, LogEntry};
 use log::info;
@@ -15,6 +12,7 @@ use tokio::sync::Mutex;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use super::tui::ui;
+use crate::orchestrator::Orchestrator;
 use crate::services::DEFAULT_ADDRESS;
 
 pub struct Host {
@@ -111,8 +109,8 @@ impl FromLog for OrgUpdate {
 
 /// Holds the entire state of the TUI, including configurations, logs, and mode information.
 pub struct OrgTuiState {
+
     pub should_quit: bool,
-    pub client: Arc<Mutex<TcpClient>>,
     pub host_available_from_reg: Vec<SocketAddr>,
     pub registry_addr: Option<SocketAddr>,
     pub registry_status: RegistryStatus,
@@ -125,9 +123,8 @@ pub struct OrgTuiState {
 }
 
 impl OrgTuiState {
-    pub fn new(client: Arc<Mutex<TcpClient>>) -> Self {
+    pub fn new() -> Self {
         OrgTuiState {
-            client,
             should_quit: false,
             host_available_from_reg: vec![DEFAULT_ADDRESS, DEFAULT_ADDRESS, DEFAULT_ADDRESS],
             registry_addr: Some(DEFAULT_ADDRESS),
@@ -324,86 +321,59 @@ impl Tui<OrgUpdate, ChannelMsg> for OrgTuiState {
                 self.logs.push(entry);
             }
             OrgUpdate::Connect(socket_addr) => {
-                if self.client.lock().await.connect(socket_addr).await.is_ok() {
-                    self.known_hosts.iter_mut().find(|a| a.addr == socket_addr).unwrap().status = HostStatus::Connected;
-                }
+              command_send.send(ChannelMsg::HostChannel(HostChannel::Connect(socket_addr)));
             }
             OrgUpdate::Disconnect(socket_addr) => {
-                self.client.lock().await.disconnect(socket_addr).await;
-                self.known_hosts.iter_mut().find(|a| a.addr == socket_addr).unwrap().status = HostStatus::Disconnected;
+              command_send.send(ChannelMsg::HostChannel(HostChannel::Disconnect(socket_addr)));
+              self.known_hosts.iter_mut().find(|a| a.addr == socket_addr).unwrap().status = HostStatus::Disconnected;
             }
             OrgUpdate::Subscribe(target_addr, sub_to_addr, device_id) => {
-                let msg = if let Some(sub_to_addr) = sub_to_addr {
-                    info!("Subscribing host {target_addr} to device {device_id} on host {sub_to_addr:?}");
-                    Ctrl(CtrlMsg::SubscribeTo {
-                        target: sub_to_addr,
-                        device_id,
-                    })
-                } else {
-                    info!("Subscribing to device {device_id} on host {target_addr:?}");
-                    Ctrl(CtrlMsg::Subscribe { device_id })
-                };
-                self.client.lock().await.send_message(target_addr, msg).await;
+              command_send.send(ChannelMsg::HostChannel(HostChannel::Subscribe(socket_addr)));
+              
             }
             OrgUpdate::Unsubscribe(target_addr, sub_to_addr, device_id) => {
-                let msg = if let Some(sub_to_addr) = sub_to_addr {
-                    info!("Unsubscribing host {target_addr} to device {device_id} on host {sub_to_addr:?}");
-                    Ctrl(CtrlMsg::SubscribeTo {
-                        target: sub_to_addr,
-                        device_id,
-                    })
-                } else {
-                    info!("Unsubscribing to device {device_id} on host {target_addr:?}");
-                    Ctrl(CtrlMsg::Subscribe { device_id })
-                };
-                self.client.lock().await.send_message(target_addr, msg).await;
+              command_send.send(ChannelMsg::HostChannel(HostChannel::Unsubscribe(socket_addr)));
+                // let msg = if let Some(sub_to_addr) = sub_to_addr {
+                //     info!("Unsubscribing host {target_addr} to device {device_id} on host {sub_to_addr:?}");
+                //     Ctrl(CtrlMsg::SubscribeTo {
+                //         target: sub_to_addr,
+                //         device_id,
+                //     })
+                // } else {
+                //     info!("Unsubscribing to device {device_id} on host {target_addr:?}");
+                //     Ctrl(CtrlMsg::Subscribe { device_id })
+                // };
             }
             OrgUpdate::SubscribeAll(target_addr, sub_to_addr) => {
-                let mut client = self.client.lock().await;
-
-                if let Some(host) = self.known_hosts.iter().find(|a| a.addr == target_addr) {
-                    if sub_to_addr.is_none() {
-                        info!("Subscribing to {} devices on host {}", host.devices.len(), target_addr);
-                    } else {
-                        info!("Subscribing host {target_addr} to {} devices on host {}", host.devices.len(), target_addr);
-                    }
-                    for device in &host.devices {
-                        let msg = if let Some(sub_to_addr) = sub_to_addr {
-                            Ctrl(CtrlMsg::SubscribeTo {
-                                target: sub_to_addr,
-                                device_id: device.id,
-                            })
-                        } else {
-                            Ctrl(CtrlMsg::Subscribe { device_id: device.id })
-                        };
-                        client.send_message(target_addr, msg).await;
-                    }
-                }
+              command_send.send(ChannelMsg::HostChannel(HostChannel::SubscribeAll(socket_addr)));
             }
             OrgUpdate::UnsubscribeAll(target_addr, sub_to_addr) => {
-                let mut client = self.client.lock().await;
-                if let Some(host) = self.known_hosts.iter().find(|a| a.addr == target_addr) {
-                    if sub_to_addr.is_none() {
-                        info!("Unsubscribing to {} devices on host {}", host.devices.len(), target_addr);
-                    } else {
-                        info!(
-                            "Unsubscribing host {target_addr} to {} devices on host {}",
-                            host.devices.len(),
-                            target_addr
-                        );
-                    }
-                    for device in &host.devices {
-                        let msg = if let Some(sub_to_addr) = sub_to_addr {
-                            Ctrl(CtrlMsg::SubscribeTo {
-                                target: sub_to_addr,
-                                device_id: device.id,
-                            })
-                        } else {
-                            Ctrl(CtrlMsg::Subscribe { device_id: device.id })
-                        };
-                        client.send_message(target_addr, msg).await;
-                    }
-                }
+              command_send.send(ChannelMsg::HostChannel(HostChannel::UnsubscribeAll(socket_addr)));
+                
+                
+                // let mut client = self.client.lock().await;
+                // if let Some(host) = self.known_hosts.iter().find(|a| a.addr == target_addr) {
+                //     if sub_to_addr.is_none() {
+                //         info!("Unsubscribing to {} devices on host {}", host.devices.len(), target_addr);
+                //     } else {
+                //         info!(
+                //             "Unsubscribing host {target_addr} to {} devices on host {}",
+                //             host.devices.len(),
+                //             target_addr
+                //         );
+                //     }
+                //     for device in &host.devices {
+                //         let msg = if let Some(sub_to_addr) = sub_to_addr {
+                //             Ctrl(CtrlMsg::SubscribeTo {
+                //                 target: sub_to_addr,
+                //                 device_id: device.id,
+                //             })
+                //         } else {
+                //             Ctrl(CtrlMsg::Subscribe { device_id: device.id })
+                //         };
+                //         client.send_message(target_addr, msg).await;
+                //     }
+                // }
             }
             OrgUpdate::SelectHost(selected_addr) => {
                 self.selected_host = match self.selected_host {

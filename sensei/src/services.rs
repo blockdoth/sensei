@@ -5,6 +5,8 @@ use lib::handler::device_handler::DeviceHandlerConfig;
 use log::LevelFilter;
 use serde::Deserialize;
 
+use crate::system_node::SinkConfigWithName;
+
 pub const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
 
 /// A trait for parsing a YAML file into a struct using Serde.
@@ -46,20 +48,18 @@ pub trait FromYaml: Sized + for<'de> Deserialize<'de> {
 }
 
 pub struct OrchestratorConfig {
-    pub targets: Vec<SocketAddr>,
+    pub experiment_config: PathBuf,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct SystemNodeConfig {
     pub addr: SocketAddr,
     pub host_id: u64,
-    pub registry: Option<SocketAddr>,
+    pub registries: Option<Vec<SocketAddr>>,
+    pub registry_polling_rate_s: Option<u64>,
     pub device_configs: Vec<DeviceHandlerConfig>,
-}
-
-pub struct RegistryConfig {
-    pub addr: SocketAddr,
-    pub poll_interval: u64,
+    #[serde(default)]
+    pub sinks: Vec<SinkConfigWithName>,
 }
 
 pub struct VisualiserConfig {
@@ -76,11 +76,10 @@ pub struct GlobalConfig {
 }
 
 pub enum ServiceConfig {
-    One(OrchestratorConfig),
-    Two(RegistryConfig),
-    Three(SystemNodeConfig),
-    Four(VisualiserConfig),
-    Five(EspToolConfig),
+    Orchestrator(OrchestratorConfig),
+    SystemNode(SystemNodeConfig),
+    Visualiser(VisualiserConfig),
+    EspTool(EspToolConfig),
 }
 
 pub trait Run<ServiceConfig> {
