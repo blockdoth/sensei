@@ -18,6 +18,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::sync::Mutex;
+use tokio::time::timeout;
 
 use crate::errors::NetworkError;
 use crate::network::rpc_message::RpcMessageKind::*;
@@ -72,10 +73,10 @@ impl TcpClient {
             let target_addr = connection.read_stream.peer_addr().unwrap();
             info!("Already connected to {target_addr}");
             return Ok(());
-        }
-
-        let connection = tokio::time::timeout(Duration::from_secs(CONNECTION_TIME), TcpStream::connect(target_addr)).await;
-
+          }
+          
+        let connection = timeout(Duration::from_secs(CONNECTION_TIME), TcpStream::connect(target_addr)).await;
+        
         match connection {
             Ok(Ok(stream)) => {
                 let (read_stream, mut write_stream) = stream.into_split();
@@ -84,7 +85,6 @@ impl TcpClient {
                 let src_addr = write_stream.local_addr().unwrap();
 
                 tcp::send_message(&mut write_stream, HostCtrl(HostCtrl::Connect)).await?;
-
                 self.connections.lock().await.insert(
                     target_addr,
                     Connection {

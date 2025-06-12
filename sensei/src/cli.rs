@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::Error;
 use argh::FromArgs;
 use lib::handler::device_handler::DeviceHandlerConfig;
-use log::{debug, info};
+use log::debug;
 use simplelog::LevelFilter;
 
 use crate::services::{EspToolConfig, GlobalConfig, OrchestratorConfig, SystemNodeConfig, VisualiserConfig};
@@ -27,7 +27,7 @@ pub trait OverlaySubcommandArgs<T> {
     fn overlay_subcommand_args(&self, full_config: T) -> Result<T, Box<dyn std::error::Error>>;
 }
 
-pub static DEFAULT_HOST_CONFIG: &str = "resources/example_configs/host/example_full.yaml";
+pub static DEFAULT_HOST_CONFIG: &str = "resources/example_configs/host/dummy_node.yaml";
 pub static DEFAULT_ORCHESTRATOR_CONFIG: &str = "resources/example_configs/orchestrator/experiment_config.yaml";
 
 /// A simple app to perform collection from configured sources

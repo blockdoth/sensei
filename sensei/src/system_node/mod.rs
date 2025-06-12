@@ -203,8 +203,6 @@ impl SystemNode {
     ) -> Result<(), NetworkError> {
         match host_msg {
             HostChannel::Disconnect => {
-                send_message(send_stream, RpcMessageKind::HostCtrl(HostCtrl::Disconnect)).await?;
-                debug!("Send close confirmation");
                 return Err(NetworkError::Closed); // Throwing an error here feels weird, but it's also done in the recv_handler
             }
             HostChannel::Subscribe { device_id } => {

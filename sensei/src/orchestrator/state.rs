@@ -3,16 +3,14 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use async_trait::async_trait;
 use crossterm::event::{KeyCode, KeyEvent};
 use lib::network::rpc_message::{HostId, SourceType};
-use lib::network::tcp::{ChannelMsg, HostChannel};
 use lib::tui::Tui;
 use lib::tui::logs::{FromLog, LogEntry};
 use log::info;
 use ratatui::Frame;
-use tokio::sync::Mutex;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use super::tui::ui;
-use crate::orchestrator::Orchestrator;
+use crate::orchestrator::OrgChannelMsg;
 use crate::services::DEFAULT_ADDRESS;
 
 pub struct Host {
@@ -109,7 +107,6 @@ impl FromLog for OrgUpdate {
 
 /// Holds the entire state of the TUI, including configurations, logs, and mode information.
 pub struct OrgTuiState {
-
     pub should_quit: bool,
     pub host_available_from_reg: Vec<SocketAddr>,
     pub registry_addr: Option<SocketAddr>,
@@ -160,45 +157,13 @@ impl OrgTuiState {
                     ],
                     addr: DEFAULT_ADDRESS,
                 },
-                // Host {
-                //     id: 1,
-                //     status: HostStatus::Connected,
-                //     devices: vec![
-                //         Device {
-                //             id: 10,
-                //             dev_type: SourceType::TCP,
-                //             status: DeviceStatus::NotSubscribed,
-                //         },
-                //         Device {
-                //             id: 90,
-                //             dev_type: SourceType::Unknown,
-                //             status: DeviceStatus::Subscribed,
-                //         },
-                //         Device {
-                //             id: 91,
-                //             dev_type: SourceType::CSV,
-                //             status: DeviceStatus::NotSubscribed,
-                //         },
-                //         Device {
-                //             id: 42,
-                //             dev_type: SourceType::TCP,
-                //             status: DeviceStatus::NotSubscribed,
-                //         },
-                //         Device {
-                //             id: 911,
-                //             dev_type: SourceType::AX200,
-                //             status: DeviceStatus::Subscribed,
-                //         },
-                //     ],
-                //     addr: DEFAULT_ADDRESS,
-                // },
             ],
         }
     }
 }
 
 #[async_trait]
-impl Tui<OrgUpdate, ChannelMsg> for OrgTuiState {
+impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
     /// Draws the UI layout and content.
     fn draw_ui(&self, frame: &mut Frame) {
         ui(frame, self);
@@ -311,69 +276,33 @@ impl Tui<OrgUpdate, ChannelMsg> for OrgTuiState {
     }
 
     /// Applies updates and potentially sends commands to background tasks.
-    async fn handle_update(&mut self, update: OrgUpdate, command_send: &Sender<ChannelMsg>, update_recv: &mut Receiver<OrgUpdate>) {
+    async fn handle_update(&mut self, update: OrgUpdate, command_send: &Sender<OrgChannelMsg>, update_recv: &mut Receiver<OrgUpdate>) {
         match update {
             OrgUpdate::Exit => {
                 self.should_quit = true;
-                command_send.send(ChannelMsg::Shutdown).await; // Graceful shutdown
+                command_send.send(OrgChannelMsg::Shutdown).await; // Graceful shutdown
             }
             OrgUpdate::Log(entry) => {
                 self.logs.push(entry);
             }
-            OrgUpdate::Connect(socket_addr) => {
-              command_send.send(ChannelMsg::HostChannel(HostChannel::Connect(socket_addr)));
+            OrgUpdate::Connect(to_addr) => {
+                command_send.send(OrgChannelMsg::Connect(to_addr)).await;
             }
-            OrgUpdate::Disconnect(socket_addr) => {
-              command_send.send(ChannelMsg::HostChannel(HostChannel::Disconnect(socket_addr)));
-              self.known_hosts.iter_mut().find(|a| a.addr == socket_addr).unwrap().status = HostStatus::Disconnected;
+            OrgUpdate::Disconnect(to_addr) => {
+                command_send.send(OrgChannelMsg::Disconnect(to_addr)).await;
+                self.known_hosts.iter_mut().find(|a| a.addr == to_addr).unwrap().status = HostStatus::Disconnected;
             }
-            OrgUpdate::Subscribe(target_addr, sub_to_addr, device_id) => {
-              command_send.send(ChannelMsg::HostChannel(HostChannel::Subscribe(socket_addr)));
-              
+            OrgUpdate::Subscribe(to_addr, msg_origin_addr, device_id) => {
+                command_send.send(OrgChannelMsg::Subscribe(to_addr, msg_origin_addr, device_id)).await;
             }
-            OrgUpdate::Unsubscribe(target_addr, sub_to_addr, device_id) => {
-              command_send.send(ChannelMsg::HostChannel(HostChannel::Unsubscribe(socket_addr)));
-                // let msg = if let Some(sub_to_addr) = sub_to_addr {
-                //     info!("Unsubscribing host {target_addr} to device {device_id} on host {sub_to_addr:?}");
-                //     Ctrl(CtrlMsg::SubscribeTo {
-                //         target: sub_to_addr,
-                //         device_id,
-                //     })
-                // } else {
-                //     info!("Unsubscribing to device {device_id} on host {target_addr:?}");
-                //     Ctrl(CtrlMsg::Subscribe { device_id })
-                // };
+            OrgUpdate::Unsubscribe(to_addr, msg_origin_addr, device_id) => {
+                command_send.send(OrgChannelMsg::Unsubscribe(to_addr, msg_origin_addr, device_id)).await;
             }
-            OrgUpdate::SubscribeAll(target_addr, sub_to_addr) => {
-              command_send.send(ChannelMsg::HostChannel(HostChannel::SubscribeAll(socket_addr)));
+            OrgUpdate::SubscribeAll(to_addr, msg_origin_addr) => {
+                command_send.send(OrgChannelMsg::SubscribeAll(to_addr, msg_origin_addr)).await;
             }
-            OrgUpdate::UnsubscribeAll(target_addr, sub_to_addr) => {
-              command_send.send(ChannelMsg::HostChannel(HostChannel::UnsubscribeAll(socket_addr)));
-                
-                
-                // let mut client = self.client.lock().await;
-                // if let Some(host) = self.known_hosts.iter().find(|a| a.addr == target_addr) {
-                //     if sub_to_addr.is_none() {
-                //         info!("Unsubscribing to {} devices on host {}", host.devices.len(), target_addr);
-                //     } else {
-                //         info!(
-                //             "Unsubscribing host {target_addr} to {} devices on host {}",
-                //             host.devices.len(),
-                //             target_addr
-                //         );
-                //     }
-                //     for device in &host.devices {
-                //         let msg = if let Some(sub_to_addr) = sub_to_addr {
-                //             Ctrl(CtrlMsg::SubscribeTo {
-                //                 target: sub_to_addr,
-                //                 device_id: device.id,
-                //             })
-                //         } else {
-                //             Ctrl(CtrlMsg::Subscribe { device_id: device.id })
-                //         };
-                //         client.send_message(target_addr, msg).await;
-                //     }
-                // }
+            OrgUpdate::UnsubscribeAll(to_addr, msg_origin_addr) => {
+                command_send.send(OrgChannelMsg::UnsubscribeAll(to_addr, msg_origin_addr)).await;
             }
             OrgUpdate::SelectHost(selected_addr) => {
                 self.selected_host = match self.selected_host {

@@ -6,17 +6,18 @@ use std::fs::File;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use std::vec;
 
 use lib::network::rpc_message::RpcMessageKind::Data;
 use lib::network::rpc_message::{CfgType, DataMsg, DeviceId, HostCtrl, HostId, RegCtrl, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
-use lib::network::tcp::{ChannelMsg, HostChannel};
 use lib::tui::TuiRunner;
 use log::*;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::{Mutex, mpsc};
+use tokio::time::sleep;
 
 use crate::orchestrator::IsRecurring::{NotRecurring, Recurring};
 use crate::orchestrator::state::{OrgTuiState, OrgUpdate};
@@ -49,7 +50,7 @@ pub struct Stage {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Block {
-    commands: Vec<Command>,
+    commands: Vec<ExperimentCommand>,
     delays: Delays,
 }
 
@@ -77,7 +78,7 @@ pub enum IsRecurring {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum Command {
+pub enum ExperimentCommand {
     Connect {
         target_addr: SocketAddr,
     },
@@ -116,6 +117,17 @@ pub enum Command {
     },
 }
 
+#[derive(Debug)]
+pub enum OrgChannelMsg {
+    Connect(SocketAddr),
+    Disconnect(SocketAddr),
+    Subscribe(SocketAddr, Option<SocketAddr>, DeviceId),
+    Unsubscribe(SocketAddr, Option<SocketAddr>, DeviceId),
+    SubscribeAll(SocketAddr, Option<SocketAddr>),
+    UnsubscribeAll(SocketAddr, Option<SocketAddr>),
+    Shutdown,
+}
+
 impl Run<OrchestratorConfig> for Orchestrator {
     fn new(global_config: GlobalConfig, config: OrchestratorConfig) -> Self {
         Orchestrator {
@@ -126,16 +138,16 @@ impl Run<OrchestratorConfig> for Orchestrator {
         }
     }
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let (command_send, mut command_recv) = mpsc::channel::<ChannelMsg>(1000);
+        let (command_send, mut command_recv) = mpsc::channel::<OrgChannelMsg>(1000);
         let (update_send, mut update_recv) = mpsc::channel::<OrgUpdate>(1000);
 
         let tasks = vec![Self::listen(command_recv, self.client.clone())];
 
-        let tui = OrgTuiState::new(self.client.clone());
+        let tui = OrgTuiState::new();
 
-        let experiment = Experiment::from_yaml(self.experiment_config.clone())?;
+        // let experiment = Experiment::from_yaml(self.experiment_config.clone())?;
 
-        self.load_experiment(self.client.clone(), experiment).await;
+        // self.load_experiment(self.client.clone(), experiment).await;
 
         let tui_runner = TuiRunner::new(tui, command_send, update_recv, update_send, self.log_level);
         tui_runner.run(tasks).await;
@@ -144,7 +156,7 @@ impl Run<OrchestratorConfig> for Orchestrator {
 }
 
 impl Orchestrator {
-    async fn listen(mut recv_commands_channel: Receiver<ChannelMsg>, client: Arc<Mutex<TcpClient>>) {
+    async fn listen(mut recv_commands_channel: Receiver<OrgChannelMsg>, client: Arc<Mutex<TcpClient>>) {
         info!("Started stream processor task");
         let mut receiving = false;
         let mut targets: Vec<SocketAddr> = vec![];
@@ -152,23 +164,36 @@ impl Orchestrator {
             if !recv_commands_channel.is_empty() {
                 let msg_opt = recv_commands_channel.recv().await;
                 debug!("Received channel message {msg_opt:?}");
-                match msg_opt {
-                    Some(ChannelMsg::HostChannel(HostChannel::Shutdown)) => break,
-                    Some(ChannelMsg::HostChannel(HostChannel::ListenSubscribe { addr })) => {
-                        if !targets.contains(&addr) {
-                            targets.push(addr);
+                if let Some(msg) = msg_opt {
+                    match msg {
+                        OrgChannelMsg::Connect(to_addr) => {
+                          Self::connect(&client, to_addr).await;
                         }
-                        receiving = true;
+                        OrgChannelMsg::Disconnect(to_addr) => {
+                            Self::disconnect(&client, to_addr).await;
+                        }
+                        OrgChannelMsg::Subscribe(to_addr, msg_origin_addr, device_id) => {
+                            if let Some(msg_origin_addr) = msg_origin_addr {
+                                Self::subscribe_to(&client, to_addr, msg_origin_addr, device_id).await;
+                            } else {
+                                Self::subscribe(&client, to_addr, device_id).await;
+                            }
+                        }
+                        OrgChannelMsg::Unsubscribe(to_addr, msg_origin_addr, device_id) => {
+                            if let Some(msg_origin_addr) = msg_origin_addr {
+                                Self::unsubscribe_from(&client, to_addr, msg_origin_addr, device_id).await;
+                            } else {
+                                Self::unsubscribe(&client, to_addr, device_id).await;
+                            }
+                        }
+                        OrgChannelMsg::SubscribeAll(to_addr, msg_origin_addr) => {
+                            todo!()
+                        }
+                        OrgChannelMsg::UnsubscribeAll(to_addr, msg_origin_addr) => {
+                            todo!()
+                        }
+                        OrgChannelMsg::Shutdown => todo!(),
                     }
-                    Some(ChannelMsg::HostChannel(HostChannel::ListenUnsubscribe { addr })) => {
-                        if let Some(pos) = targets.iter().position(|x| *x == addr) {
-                            targets.remove(pos);
-                        }
-                        if targets.is_empty() {
-                            receiving = false;
-                        }
-                    }
-                    _ => (),
                 }
             }
 
@@ -192,7 +217,7 @@ impl Orchestrator {
             }
         }
     }
-    
+
     pub async fn load_experiment(&mut self, client: Arc<Mutex<TcpClient>>, experiment: Experiment) -> Result<(), Box<dyn Error + Send + Sync>> {
         self.output_path = experiment.metadata.output_path;
 
@@ -203,13 +228,13 @@ impl Orchestrator {
         for (i, stage) in experiment.stages.into_iter().enumerate() {
             let name = stage.name.clone();
             info!("Executing stage {name}");
-            Self::execute_stage(client.clone(), stage).await?;
+            Self::execute_stage(&client, stage).await?;
             info!("Finished stage {name}");
         }
 
         Ok(())
     }
-    pub async fn execute_stage(client: Arc<Mutex<TcpClient>>, stage: Stage) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn execute_stage(client: &Arc<Mutex<TcpClient>>, stage: Stage) -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut tasks = vec![];
 
         for block in stage.command_blocks {
@@ -227,7 +252,7 @@ impl Orchestrator {
         Ok(())
     }
     pub async fn execute_command_block(client: Arc<Mutex<TcpClient>>, block: Block) -> Result<(), Box<dyn Error + Send + Sync>> {
-        tokio::time::sleep(std::time::Duration::from_millis(block.delays.init_delay.unwrap_or(0u64))).await;
+        sleep(Duration::from_millis(block.delays.init_delay.unwrap_or(0u64))).await;
         let command_delay = block.delays.command_delay.unwrap_or(0u64);
         let command_types = block.commands;
 
@@ -241,12 +266,12 @@ impl Orchestrator {
                 if n == 0 {
                     loop {
                         Self::match_commands(client.clone(), command_types.clone(), command_delay).await;
-                        tokio::time::sleep(std::time::Duration::from_millis(r_delay)).await;
+                        sleep(Duration::from_millis(r_delay)).await;
                     }
                 } else {
                     for _ in 0..n {
                         Self::match_commands(client.clone(), command_types.clone(), command_delay).await;
-                        tokio::time::sleep(std::time::Duration::from_millis(r_delay)).await;
+                        sleep(Duration::from_millis(r_delay)).await;
                     }
                 }
                 Ok(())
@@ -258,41 +283,40 @@ impl Orchestrator {
         }
     }
 
-    pub async fn match_commands(client: Arc<Mutex<TcpClient>>, commands: Vec<Command>, command_delay: u64) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn match_commands(
+        client: Arc<Mutex<TcpClient>>,
+        commands: Vec<ExperimentCommand>,
+        command_delay: u64,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         for command in commands {
-            Self::match_command(client.clone(), command.clone()).await;
-            tokio::time::sleep(std::time::Duration::from_millis(command_delay)).await;
+            match command {
+                ExperimentCommand::Connect { target_addr } => Self::connect(&client, target_addr).await?,
+                ExperimentCommand::Disconnect { target_addr } => Self::disconnect(&client, target_addr).await?,
+                ExperimentCommand::Subscribe { target_addr, device_id } => Self::subscribe(&client, target_addr, device_id).await?,
+                ExperimentCommand::Unsubscribe { target_addr, device_id } => Self::unsubscribe(&client, target_addr, device_id).await?,
+                ExperimentCommand::SubscribeTo {
+                    target_addr,
+                    source_addr,
+                    device_id,
+                } => Self::subscribe_to(&client, target_addr, source_addr, device_id).await?,
+                ExperimentCommand::UnsubscribeFrom {
+                    target_addr,
+                    source_addr,
+                    device_id,
+                } => Self::unsubscribe_from(&client, target_addr, source_addr, device_id).await?,
+                ExperimentCommand::SendStatus { target_addr, host_id } => Self::send_status(&client, target_addr, host_id).await?,
+                ExperimentCommand::Configure {
+                    target_addr,
+                    device_id,
+                    cfg_type,
+                } => Self::configure(&client, target_addr, device_id, cfg_type).await?,
+                ExperimentCommand::Delay { delay } => {
+                    sleep(Duration::from_millis(delay)).await;
+                }
+            }
+            sleep(Duration::from_millis(command_delay)).await;
         }
         Ok(())
-    }
-
-    pub async fn match_command(client: Arc<Mutex<TcpClient>>, command: Command) -> Result<(), Box<dyn std::error::Error>> {
-        match command {
-            Command::Connect { target_addr } => Ok(Self::connect(&client, target_addr).await?),
-            Command::Disconnect { target_addr } => Ok(Self::disconnect(&client, target_addr).await?),
-            Command::Subscribe { target_addr, device_id } => Ok(Self::subscribe(&client, target_addr, device_id).await?),
-            Command::Unsubscribe { target_addr, device_id } => Ok(Self::unsubscribe(&client, target_addr, device_id).await?),
-            Command::SubscribeTo {
-                target_addr,
-                source_addr,
-                device_id,
-            } => Ok(Self::subscribe_to(&client, target_addr, source_addr, device_id).await?),
-            Command::UnsubscribeFrom {
-                target_addr,
-                source_addr,
-                device_id,
-            } => Ok(Self::unsubscribe_from(&client, target_addr, source_addr, device_id).await?),
-            Command::SendStatus { target_addr, host_id } => Ok(Self::send_status(&client, target_addr, host_id).await?),
-            Command::Configure {
-                target_addr,
-                device_id,
-                cfg_type,
-            } => Ok(Self::configure(&client, target_addr, device_id, cfg_type).await?),
-            Command::Delay { delay } => {
-                tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
-                Ok(())
-            }
-        }
     }
 
     async fn connect(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
@@ -364,55 +388,5 @@ impl Orchestrator {
         info!("Telling {target_addr} to configure the device handler");
 
         Ok(client.lock().await.send_message(target_addr, msg).await?)
-    }
-
-    async fn recv_task(mut recv_commands_channel: Receiver<ChannelMsg>, recv_client: Arc<Mutex<TcpClient>>) {
-        let mut receiving = false;
-        let mut targets: Vec<SocketAddr> = vec![];
-        loop {
-            if !recv_commands_channel.is_empty() {
-                let msg_opt = recv_commands_channel.recv().await.unwrap(); // TODO change
-                match msg_opt {
-                    ChannelMsg::HostChannel(HostChannel::ListenSubscribe { addr }) => {
-                        if !targets.contains(&addr) {
-                            targets.push(addr);
-                        }
-                        receiving = true;
-                    }
-                    ChannelMsg::HostChannel(HostChannel::ListenUnsubscribe { addr }) => {
-                        if let Some(pos) = targets.iter().position(|x| *x == addr) {
-                            targets.remove(pos);
-                        }
-                        if targets.is_empty() {
-                            receiving = false;
-                        }
-                    }
-                    _ => (),
-                }
-            }
-            if receiving {
-                for target_addr in targets.iter() {
-                    let msg = recv_client.lock().await.read_message(*target_addr).await.unwrap();
-                    match msg.msg {
-                        Data {
-                            data_msg: DataMsg::CsiFrame { csi },
-                            device_id: _,
-                        } => {
-                            info!("{}: {}", msg.src_addr, csi.timestamp)
-                        }
-                        Data {
-                            data_msg:
-                                DataMsg::RawFrame {
-                                    ts,
-                                    bytes: _,
-                                    source_type: _,
-                                },
-                            device_id: _,
-                        } => info!("{}: {ts}", msg.src_addr),
-                        _ => (),
-                    }
-                }
-            }
-        }
     }
 }
