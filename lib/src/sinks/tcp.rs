@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 
 use async_trait::async_trait;
 use log::trace;
+#[cfg(test)]
 use mockall_double::double;
 
 use crate::ToConfig;
@@ -123,7 +124,6 @@ impl ToConfig<SinkConfig> for TCPSink {
 #[cfg(test)]
 mod tests {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-    use mockall_double::double;
     use mockall::predicate::*;
 
     use super::*;

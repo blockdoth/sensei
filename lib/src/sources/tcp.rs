@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 
 use log::trace;
+#[cfg(test)]
 use mockall_double::double;
 
 use crate::ToConfig;
@@ -9,6 +10,7 @@ use crate::network::rpc_message::{DataMsg, RpcMessage, RpcMessageKind};
 #[cfg_attr(test, double)]
 use crate::network::tcp::client::TcpClient;
 use crate::sources::{DataSourceConfig, DataSourceT};
+#[cfg(test)]
 use mockall::automock;
 
 /// Configuration for a `TCPSource`.
@@ -34,7 +36,7 @@ pub struct TCPSource {
     config: TCPConfig,
 }
 
-#[automock]
+#[cfg_attr(test, automock)]
 impl TCPSource {
     /// Constructs a new `TCPSource` from the given configuration.
     ///
@@ -147,7 +149,6 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr};
 
     use mockall::predicate::*;
-    use mockall_double::double;
 
     use super::*;
     use crate::errors::DataSourceError;

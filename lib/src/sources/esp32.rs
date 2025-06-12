@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
+#[cfg(test)]
 use mockall::automock;
 
 // Use _ to import extension methods

@@ -2,6 +2,7 @@ use log::trace;
 use netlink_sys::protocols::NETLINK_CONNECTOR;
 use netlink_sys::{Socket, SocketAddr};
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use mockall::automock;
 
 use crate::ToConfig;
@@ -29,7 +30,7 @@ pub struct NetlinkSource {
     buffer: [u8; 8192],
 }
 
-#[automock]
+#[cfg_attr(test, automock)]
 impl NetlinkSource {
     /// Create a new [`NetlinkSource`] from a configuration struct.
     ///

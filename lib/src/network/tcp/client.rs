@@ -13,6 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use log::{debug, error, info};
+#[cfg(test)]
 use mockall::automock;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
