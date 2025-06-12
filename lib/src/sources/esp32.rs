@@ -4,12 +4,12 @@ use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
-#[cfg(test)]
-use mockall::automock;
 
 // Use _ to import extension methods
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, bounded};
 use log::{debug, error, info, trace, warn};
+#[cfg(test)]
+use mockall::automock;
 use serialport::{ClearBuffer, SerialPort};
 
 use crate::ToConfig;
@@ -71,7 +71,6 @@ impl Default for Esp32SourceConfig {
         }
     }
 }
-
 
 pub struct Esp32Source {
     config: Esp32SourceConfig,

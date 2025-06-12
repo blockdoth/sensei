@@ -2,6 +2,8 @@ use std::net::SocketAddr;
 
 use log::trace;
 #[cfg(test)]
+use mockall::automock;
+#[cfg(test)]
 use mockall_double::double;
 
 use crate::ToConfig;
@@ -10,8 +12,6 @@ use crate::network::rpc_message::{DataMsg, RpcMessage, RpcMessageKind};
 #[cfg_attr(test, double)]
 use crate::network::tcp::client::TcpClient;
 use crate::sources::{DataSourceConfig, DataSourceT};
-#[cfg(test)]
-use mockall::automock;
 
 /// Configuration for a `TCPSource`.
 ///
@@ -153,7 +153,6 @@ mod tests {
     use super::*;
     use crate::errors::DataSourceError;
     use crate::network::rpc_message::*;
-    
 
     fn test_addr() -> SocketAddr {
         SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 12345)

@@ -1,9 +1,9 @@
 use log::trace;
+#[cfg(test)]
+use mockall::automock;
 use netlink_sys::protocols::NETLINK_CONNECTOR;
 use netlink_sys::{Socket, SocketAddr};
 use serde::{Deserialize, Serialize};
-#[cfg(test)]
-use mockall::automock;
 
 use crate::ToConfig;
 use crate::errors::DataSourceError;

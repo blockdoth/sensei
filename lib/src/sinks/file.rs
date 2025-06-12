@@ -93,12 +93,12 @@ impl ToConfig<SinkConfig> for FileSink {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use tokio::io::AsyncReadExt;
     use tempfile::NamedTempFile;
     use tokio::fs;
-    use crate::network::rpc_message::SourceType;
+    use tokio::io::AsyncReadExt;
 
+    use super::*;
+    use crate::network::rpc_message::SourceType;
 
     #[tokio::test]
     async fn test_new_and_to_config() {
@@ -168,7 +168,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_file_sink_creation_error() {
-        let config = FileConfig { file: "/invalid/path/file.yaml".to_string() };
+        let config = FileConfig {
+            file: "/invalid/path/file.yaml".to_string(),
+        };
         let result = FileSink::new(config).await;
         assert!(result.is_err());
     }

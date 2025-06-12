@@ -16,7 +16,7 @@ use crate::sinks::{Sink, SinkConfig};
 ///
 /// This structure holds the target address and device ID used for sending data
 /// over a TCP connection.
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone,  PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
 pub struct TCPConfig {
     /// IP address and port of the target server.
     pub target_addr: SocketAddr,
@@ -120,10 +120,10 @@ impl ToConfig<SinkConfig> for TCPSink {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
     use mockall::predicate::*;
 
     use super::*;
@@ -155,14 +155,9 @@ mod tests {
         let config = make_config();
         let mut mock = TcpClient::default();
 
-        mock.expect_connect()
-            .with(eq(config.target_addr))
-            .returning(|_| Ok(()));
+        mock.expect_connect().with(eq(config.target_addr)).returning(|_| Ok(()));
 
-        let mut sink = TCPSink {
-            client: mock,
-            config,
-        };
+        let mut sink = TCPSink { client: mock, config };
 
         let result = sink.open().await;
         assert!(result.is_ok());
@@ -173,14 +168,9 @@ mod tests {
         let config = make_config();
         let mut mock = TcpClient::default();
 
-        mock.expect_disconnect()
-            .with(eq(config.target_addr))
-            .returning(|_| Ok(()));
+        mock.expect_disconnect().with(eq(config.target_addr)).returning(|_| Ok(()));
 
-        let mut sink = TCPSink {
-            client: mock,
-            config,
-        };
+        let mut sink = TCPSink { client: mock, config };
 
         let result = sink.close().await;
         assert!(result.is_ok());
@@ -205,10 +195,7 @@ mod tests {
             .with(eq(config.target_addr), eq(expected_message))
             .returning(|_, _| Ok(()));
 
-        let mut sink = TCPSink {
-            client: mock,
-            config,
-        };
+        let mut sink = TCPSink { client: mock, config };
 
         let result = sink.provide(data_msg).await;
         assert!(result.is_ok());
