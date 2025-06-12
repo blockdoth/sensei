@@ -297,7 +297,7 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
         // Validate controller configuration if present.
         if let Some(controller_cfg) = &cg.controller {
             match (controller_cfg, &cg.source) {
-                (ControllerParams::Esp32(_), DataSourceConfig::Esp32(_)) | (ControllerParams::Tcp(_), DataSourceConfig::Tcp(_)) => {
+                (ControllerParams::Esp32(_), DataSourceConfig::Esp32(_)) => {
                     // These combinations are allowed.
                 }
                 #[cfg(target_os = "linux")]
