@@ -369,11 +369,11 @@ impl Visualiser {
         if min_val.is_infinite() || max_val.is_infinite() {
             // Handle empty data: return default bounds [0.0, 1.0] directly.
             // This fixes the test case for empty_data expecting [0.0, 1.0].
-            return [0.0, 1.0];
+            [0.0, 1.0]
         } else if (max_val - min_val).abs() < f64::EPSILON {
             // Handle data with all same y-values: return [y - 0.5, y + 0.5] directly.
             // This fixes the test case for same_data expecting [y - 0.5, y + 0.5].
-            return [min_val - 0.5, max_val + 0.5]; // min_val can be used as it's same as max_val
+            [min_val - 0.5, max_val + 0.5] // min_val can be used as it's same as max_val
         } else {
             // Normal case: data has a range of y-values.
             // Calculate padding based on the original min_val and max_val from fold.
