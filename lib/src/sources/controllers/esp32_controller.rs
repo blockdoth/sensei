@@ -62,13 +62,13 @@ pub enum Esp32Command {
 }
 
 // --- Controller Parameter Structures (Kept as they are well-defined) ---
-#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
+#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema, PartialEq)]
 pub struct MacFilterPair {
     pub src_mac: [u8; 6],
     pub dst_mac: [u8; 6],
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema, Default, PartialEq)]
 pub struct CustomFrameParams {
     pub src_mac: [u8; 6],
     pub dst_mac: [u8; 6],
@@ -152,7 +152,7 @@ impl Esp32DeviceConfig {
 }
 
 /// Parameters for controlling an ESP32 device.
-#[derive(Serialize, Deserialize, Debug, Clone, Default, JsonSchema)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, JsonSchema, PartialEq)]
 #[serde(default)]
 pub struct Esp32ControllerParams {
     pub device_config: Esp32DeviceConfig,

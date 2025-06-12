@@ -11,7 +11,7 @@ use crate::sources::{BUFSIZE, DataMsg, DataSourceConfig, DataSourceT, TaskError}
 // Configuration structure for a Netlink source.
 ///
 /// This struct is deserializable from YAML config files
-#[derive(Serialize, Debug, Deserialize, Clone)]
+#[derive(Serialize, Debug, Deserialize, Clone, PartialEq)]
 pub struct NetlinkConfig {
     /// Netlink connector group ID to subscribe to.
     pub group: u32,

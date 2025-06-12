@@ -8,7 +8,7 @@ use crate::sources::controllers::{Controller, ControllerParams};
 /// This struct currently carries no parameters, as TCP sources do not require
 /// control configuration. It is included for interface completeness and potential
 /// future extension.
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, schemars::JsonSchema, Default)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, schemars::JsonSchema, Default, PartialEq)]
 #[serde(default)]
 pub struct TCPControllerParams {}
 

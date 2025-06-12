@@ -2,10 +2,12 @@ use std::net::SocketAddr;
 
 use async_trait::async_trait;
 use log::trace;
+use mockall_double::double;
 
 use crate::ToConfig;
 use crate::errors::{SinkError, TaskError};
 use crate::network::rpc_message::{DataMsg, RpcMessageKind};
+#[double]
 use crate::network::tcp::client::TcpClient;
 use crate::sinks::{Sink, SinkConfig};
 
@@ -114,5 +116,112 @@ impl ToConfig<SinkConfig> for TCPSink {
     ///   does not currently produce an error).
     async fn to_config(&self) -> Result<SinkConfig, TaskError> {
         Ok(SinkConfig::Tcp(self.config.clone()))
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    use mockall::predicate::*;
+
+    use super::*;
+    use crate::network::rpc_message::{DataMsg, RpcMessageKind, SourceType};
+
+    fn test_addr() -> SocketAddr {
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 23456)
+    }
+
+    fn make_config() -> TCPConfig {
+        TCPConfig {
+            target_addr: test_addr(),
+            device_id: 42,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_new_sink() {
+        let config = make_config();
+        let ctx = TcpClient::new_context();
+        ctx.expect().returning(TcpClient::default);
+
+        let sink = TCPSink::new(config.clone()).await.unwrap();
+        assert_eq!(sink.config, config);
+    }
+
+    #[tokio::test]
+    async fn test_open_sink() {
+        let config = make_config();
+        let mut mock = TcpClient::default();
+
+        mock.expect_connect()
+            .with(eq(config.target_addr))
+            .returning(|_| Ok(()));
+
+        let mut sink = TCPSink {
+            client: mock,
+            config,
+        };
+
+        let result = sink.open().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_close_sink() {
+        let config = make_config();
+        let mut mock = TcpClient::default();
+
+        mock.expect_disconnect()
+            .with(eq(config.target_addr))
+            .returning(|_| Ok(()));
+
+        let mut sink = TCPSink {
+            client: mock,
+            config,
+        };
+
+        let result = sink.close().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_provide_data() {
+        let config = make_config();
+        let data_msg = DataMsg::RawFrame {
+            ts: 1.0,
+            bytes: vec![1, 2, 3],
+            source_type: SourceType::IWL5300,
+        };
+
+        let expected_message = RpcMessageKind::Data {
+            data_msg: data_msg.clone(),
+            device_id: config.device_id,
+        };
+
+        let mut mock = TcpClient::default();
+        mock.expect_send_message()
+            .with(eq(config.target_addr), eq(expected_message))
+            .returning(|_, _| Ok(()));
+
+        let mut sink = TCPSink {
+            client: mock,
+            config,
+        };
+
+        let result = sink.provide(data_msg).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_to_config() {
+        let config = make_config();
+        let sink = TCPSink {
+            client: TcpClient::default(),
+            config: config.clone(),
+        };
+
+        let conf = sink.to_config().await.unwrap();
+        assert_eq!(conf, SinkConfig::Tcp(config));
     }
 }

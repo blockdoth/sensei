@@ -13,7 +13,7 @@ use crate::sources::{DataSourceConfig, DataSourceT};
 /// Configuration for a `TCPSource`.
 ///
 /// Contains the target TCP address to which the data source will connect.
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, PartialEq)]
 pub struct TCPConfig {
     /// source adress from which to read
     pub target_addr: SocketAddr,

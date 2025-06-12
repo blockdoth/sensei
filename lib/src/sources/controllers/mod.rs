@@ -58,7 +58,7 @@ pub trait Controller: Send + Sync + ToConfig<ControllerParams> {
 ///
 /// Each variant carries the specific parameters needed to construct that
 /// controller implementation. Tagged via Serde as `{ "type": "...", "params": { ... } }`.
-#[derive(serde::Serialize, serde::Deserialize, Debug, schemars::JsonSchema, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, schemars::JsonSchema, Clone, PartialEq)]
 pub enum ControllerParams {
     #[cfg(target_os = "linux")]
     Netlink(netlink_controller::NetlinkControllerParams),
