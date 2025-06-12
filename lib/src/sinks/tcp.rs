@@ -13,7 +13,7 @@ use crate::sinks::{Sink, SinkConfig};
 ///
 /// This structure holds the target address and device ID used for sending data
 /// over a TCP connection.
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone,  PartialEq)]
 pub struct TCPConfig {
     /// IP address and port of the target server.
     pub target_addr: SocketAddr,
