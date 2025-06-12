@@ -365,16 +365,22 @@ impl Visualiser {
             .fold((f64::INFINITY, f64::NEG_INFINITY), |(min_acc, max_acc), &(_, y)| {
                 (min_acc.min(y), max_acc.max(y))
             });
-        let (min_val, max_val) = if min_val.is_infinite() || max_val.is_infinite() {
-            (0.0, 1.0)
+
+        if min_val.is_infinite() || max_val.is_infinite() {
+            // Handle empty data: return default bounds [0.0, 1.0] directly.
+            // This fixes the test case for empty_data expecting [0.0, 1.0].
+            return [0.0, 1.0];
         } else if (max_val - min_val).abs() < f64::EPSILON {
-            (min_val - 0.5, max_val + 0.5)
+            // Handle data with all same y-values: return [y - 0.5, y + 0.5] directly.
+            // This fixes the test case for same_data expecting [y - 0.5, y + 0.5].
+            return [min_val - 0.5, max_val + 0.5]; // min_val can be used as it's same as max_val
         } else {
-            (min_val, max_val)
-        };
-        let data_range = max_val - min_val;
-        let padding = (data_range * 0.05).max(0.1);
-        [min_val - padding, max_val + padding]
+            // Normal case: data has a range of y-values.
+            // Calculate padding based on the original min_val and max_val from fold.
+            let data_range = max_val - min_val;
+            let padding = (data_range * 0.05).max(0.1); // Ensure a minimum padding of 0.1
+            [min_val - padding, max_val + padding]
+        }
     }
 
     fn get_y_axis_config(graph_type: GraphType, data_points: &[(f64, f64)], y_axis_bounds_spec: Option<[f64; 2]>) -> (String, [f64; 2], Vec<Span>) {
