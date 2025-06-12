@@ -106,32 +106,74 @@ impl FromConfig<DataSourceConfig> for dyn DataSourceT {
     }
 }
 
-// Not sure if I need everything after this yet
-//
-//
-/* Fabian's stuff
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
-pub struct RemoteSourceConfig {
-    pub device_id: u64,
-    pub addr: SocketAddr,
-    pub raw: bool,
-}
 
-#[derive(serde::Deserialize, serde::Serialize, Debug, schemars::JsonSchema)]
-pub enum SourceRequest {
-    Subscribe(Subscription),
-    Configure(Configuration),
-}
+/*
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mockall_double::double;
+    use mockall::predicate::*;
 
-#[derive(serde::Deserialize, serde::Serialize, Debug, schemars::JsonSchema)]
-pub struct Subscription {
-    pub device_id: u64,
-    pub raw: bool,
-}
+    #[double]
+    use crate::sources::esp32::Esp32Source;
 
-#[derive(serde::Deserialize, serde::Serialize, Debug, schemars::JsonSchema)]
-pub struct Configuration {
-    pub device_id: u64,
-    pub params: ControllerParams,
+    #[double]
+    #[cfg(target_os = "linux")]
+    use crate::sources::netlink::NetlinkSource;
+
+    #[double]
+    use crate::sources::tcp::TCPSource;
+
+    #[tokio::test]
+    async fn test_from_config_esp32() {
+        let cfg = esp32::Esp32SourceConfig {
+            port_name: "gg".to_string(),
+            baud_rate: 115200,
+            csi_buffer_size: 4096,
+            ack_timeout_ms: 100,
+        };
+
+        Esp32Source::expect_new()
+            .with(eq(cfg.clone()))
+            .returning(|_| Ok(Esp32Source::default()));
+
+        let config = DataSourceConfig::Esp32(cfg);
+        let result = <dyn DataSourceT>::from_config(config).await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_from_config_tcp() {
+        let cfg = tcp::TCPConfig {
+            address: "127.0.0.1:8080".to_string(),
+        };
+
+        TCPSource::expect_new()
+            .with(eq(cfg.clone()))
+            .returning(|_| Ok(TCPSource::default()));
+
+        let config = DataSourceConfig::Tcp(cfg);
+        let result = <dyn DataSourceT>::from_config(config).await;
+
+        assert!(result.is_ok());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn test_from_config_netlink() {
+        let cfg = netlink::NetlinkConfig { group: 42 };
+
+        NetlinkSource::expect_new()
+            .with(eq(cfg.clone()))
+            .returning(|_| Ok(NetlinkSource::default()));
+
+        let config = DataSourceConfig::Netlink(cfg);
+        let result = <dyn DataSourceT>::from_config(config).await;
+
+        assert!(result.is_ok());
+    }
+
 }
 */
+

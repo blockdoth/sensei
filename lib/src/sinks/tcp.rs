@@ -7,7 +7,7 @@ use mockall_double::double;
 use crate::ToConfig;
 use crate::errors::{SinkError, TaskError};
 use crate::network::rpc_message::{DataMsg, RpcMessageKind};
-#[double]
+#[cfg_attr(test, double)]
 use crate::network::tcp::client::TcpClient;
 use crate::sinks::{Sink, SinkConfig};
 
@@ -123,6 +123,7 @@ impl ToConfig<SinkConfig> for TCPSink {
 #[cfg(test)]
 mod tests {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    use mockall_double::double;
     use mockall::predicate::*;
 
     use super::*;

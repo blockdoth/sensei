@@ -49,7 +49,7 @@ impl Default for TcpClient {
     }
 }
 
-#[automock]
+#[cfg_attr(test, automock)]
 impl TcpClient {
     pub fn new() -> Self {
         Self {

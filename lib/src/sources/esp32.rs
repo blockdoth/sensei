@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
+use mockall::automock;
 
 // Use _ to import extension methods
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, bounded};
@@ -70,6 +71,7 @@ impl Default for Esp32SourceConfig {
     }
 }
 
+
 pub struct Esp32Source {
     config: Esp32SourceConfig,
     pub port: Arc<Mutex<Option<Box<dyn SerialPort>>>>,
@@ -80,6 +82,7 @@ pub struct Esp32Source {
     ack_waiters: SharedAckWaiters,
 }
 
+#[cfg_attr(test, automock)]
 impl Esp32Source {
     pub fn new(config: Esp32SourceConfig) -> Result<Self, DataSourceError> {
         let buffer_size = config.csi_buffer_size;
