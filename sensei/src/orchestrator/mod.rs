@@ -114,6 +114,9 @@ pub enum Command {
         device_id: DeviceId,
         cfg_type: CfgType,
     },
+    Ping {
+        target_addr: SocketAddr,
+    },
     Delay {
         delay: u64,
     },
@@ -238,6 +241,12 @@ impl Orchestrator {
                 device_id,
                 cfg_type,
             } => Ok(Self::configure(&client, target_addr, device_id, cfg_type).await?),
+            Command::Ping { target_addr } => {
+                info!("Sending Ping...");
+                Self::send_ping(&client, target_addr).await?;
+                info!("Received Pong.");
+                Ok(())
+            }
             Command::Delay { delay } => {
                 tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
                 Ok(())
@@ -310,6 +319,19 @@ impl Orchestrator {
         let response = client.read_message(target_addr).await?;
         if let RpcMessageKind::RegCtrl(RegCtrl::HostStatuses { host_statuses }) = response.msg {
             Ok(host_statuses)
+        } else {
+            Err("Expected HostStatuses response".into())
+        }
+    }
+
+    /// Send Ping to a host. Expects a Pong as response.
+    async fn send_ping(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
+        let msg = RpcMessageKind::HostCtrl(HostCtrl::Ping);
+        let mut client = client.lock().await;
+        client.send_message(target_addr, msg).await;
+        let response = client.read_message(target_addr).await?;
+        if let RpcMessageKind::HostCtrl(HostCtrl::Pong) = response.msg {
+            Ok(())
         } else {
             Err("Expected HostStatuses response".into())
         }

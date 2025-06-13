@@ -28,7 +28,7 @@ use lib::sources::{DataSourceConfig, DataSourceT}; // Added DataSourceT
 use log::*;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::{Mutex, broadcast, mpsc, watch}; // Added mpsc
-use tokio::task;
+use tokio::task::{self};
 
 use crate::registry::Registry;
 use crate::services::{GlobalConfig, Run, SystemNodeConfig};
@@ -187,6 +187,10 @@ impl SystemNode {
                     }
                 }
             },
+            HostCtrl::Ping => {
+                debug!("Received ping from {:#?}.", request.src_addr);
+                send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Pong))?;
+            }
             m => {
                 warn!("Received unhandled HostCtrl: {m:?}");
             }
@@ -214,6 +218,10 @@ impl SystemNode {
             HostChannel::Unsubscribe { device_id } => {
                 info!("Unsubscribed");
                 subscribed_ids.remove(&device_id);
+            }
+            HostChannel::Pong => {
+                debug!("Sending pong...");
+                send_message(send_stream, RpcMessageKind::HostCtrl(HostCtrl::Pong)).await?;
             }
             _ => {}
         };
@@ -335,7 +343,11 @@ impl ConnectionHandler for SystemNode {
     ) -> Result<(), NetworkError> {
         let mut subscribed_ids: HashSet<HostId> = HashSet::new();
         loop {
-            if recv_command_channel.has_changed().unwrap_or(false) {
+            // This loop continues execution untill a client disconnects.
+            // Since tokio only yiels execution back to the scheduler once a task finishes
+            // or another async task is encountered, a thread can be block by this task
+            // if no yield points are inserted.
+            if recv_command_channel.changed().await? == () {
                 let msg_opt = recv_command_channel.borrow_and_update().clone();
                 debug!("Received message {msg_opt:?} over channel");
                 match msg_opt {
@@ -412,7 +424,8 @@ impl Run<SystemNodeConfig> for SystemNode {
                         None
                     },
                     self.local_data_tx.clone(),
-                ).await?;
+                )
+                .await?;
             handlers_map.insert(cfg.device_id, handler);
         }
         drop(handlers_map); // Release lock
