@@ -10,7 +10,6 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
 
 use log::{debug, error, info};
 use tokio::io::AsyncWriteExt;
@@ -21,10 +20,7 @@ use tokio::sync::Mutex;
 use crate::errors::NetworkError;
 use crate::network::rpc_message::RpcMessageKind::*;
 use crate::network::rpc_message::{HostCtrl, RpcMessage, RpcMessageKind};
-use crate::network::tcp;
-use crate::network::tcp::MAX_MESSAGE_LENGTH;
-
-const CONNECTION_TIME: Duration = Duration::from_secs(5);
+use crate::network::tcp::{self, CONNECTION_TIMEOUT, MAX_MESSAGE_LENGTH};
 
 /// Tcp Client
 pub struct TcpClient {
@@ -56,30 +52,25 @@ impl TcpClient {
         }
     }
 
-    // Might be inefficient, please improve
-    pub async fn get_src_addr(&self, src_addr: SocketAddr) -> SocketAddr {
-        self.connections.lock().await.get(&src_addr).unwrap().addr
-    }
-
     pub async fn get_connections(&self) -> Vec<SocketAddr> {
         self.connections.lock().await.values().map(|conn| conn.addr).collect()
     }
 
     pub async fn connect(&mut self, target_addr: SocketAddr) -> Result<(), NetworkError> {
         if let Some(connection) = self.connections.lock().await.get(&target_addr) {
-            let target_addr = connection.read_stream.peer_addr().unwrap();
+            let target_addr = connection.read_stream.peer_addr()?;
             info!("Already connected to {target_addr}");
             return Ok(());
         }
 
-        let connection = tokio::time::timeout(CONNECTION_TIME, TcpStream::connect(target_addr)).await;
+        let connection = tokio::time::timeout(CONNECTION_TIMEOUT, TcpStream::connect(target_addr)).await?;
 
         match connection {
-            Ok(Ok(stream)) => {
+            Ok(stream) => {
                 let (read_stream, mut write_stream) = stream.into_split();
 
-                let target_addr = write_stream.peer_addr().unwrap();
-                let src_addr = write_stream.local_addr().unwrap();
+                let target_addr = write_stream.peer_addr()?;
+                let src_addr = write_stream.local_addr()?;
 
                 tcp::send_message(&mut write_stream, HostCtrl(HostCtrl::Connect)).await?;
 
@@ -96,19 +87,15 @@ impl TcpClient {
                 self.addr = Some(src_addr);
                 Ok(())
             }
-            Ok(Err(e)) => {
-                error!("Failed to connect to {target_addr}: {e}");
-                Err(NetworkError::UnableToConnect)
-            }
             Err(e) => {
                 error!("Connection attempt to {target_addr} timed out.");
-                Err(NetworkError::Timeout(e))
+                Err(NetworkError::UnableToConnect)
             }
         }
     }
 
     pub async fn disconnect(&mut self, target_addr: SocketAddr) -> Result<(), NetworkError> {
-        tokio::time::timeout(CONNECTION_TIME, async move {
+        tokio::time::timeout(CONNECTION_TIMEOUT, async move {
             let connection = {
                 let mut connections = self.connections.lock().await;
                 connections.remove(&target_addr)
@@ -156,11 +143,12 @@ impl TcpClient {
                     }
                 }
             }
-        }).await?
+        })
+        .await?
     }
 
     pub async fn read_message(&mut self, target_addr: SocketAddr) -> Result<RpcMessage, NetworkError> {
-        tokio::time::timeout(CONNECTION_TIME, async move {
+        tokio::time::timeout(CONNECTION_TIMEOUT, async move {
             match self.connections.lock().await.get_mut(&target_addr) {
                 None => {
                     error!("Connection not found {target_addr}");
@@ -178,11 +166,12 @@ impl TcpClient {
                     }
                 },
             }
-        }).await?
+        })
+        .await?
     }
 
     pub async fn send_message(&mut self, target_addr: SocketAddr, msg: RpcMessageKind) -> Result<(), NetworkError> {
-        tokio::time::timeout(CONNECTION_TIME, async move {
+        tokio::time::timeout(CONNECTION_TIMEOUT, async move {
             match self.connections.lock().await.get_mut(&target_addr) {
                 None => {
                     error!("Connection not found {target_addr}");
@@ -199,6 +188,7 @@ impl TcpClient {
                     }
                 },
             }
-        }).await?
+        })
+        .await?
     }
 }

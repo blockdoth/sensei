@@ -1,7 +1,8 @@
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use async_trait::async_trait;
-use log::{debug, error, info};
+use log::{debug, error, info, trace};
 use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
@@ -16,61 +17,70 @@ pub mod client;
 pub mod server;
 
 pub const MAX_MESSAGE_LENGTH: usize = 4096;
+pub const CONNECTION_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub async fn read_message(read_stream: &mut OwnedReadHalf, buffer: &mut [u8]) -> Result<Option<RpcMessage>, NetworkError> {
-    let mut length_buffer = [0; 4];
+    let res = tokio::time::timeout(CONNECTION_TIMEOUT, async move {
+        let mut length_buffer = [0; 4];
 
-    let msg_length = match read_stream.read_exact(&mut length_buffer).await {
-        Ok(_) => Ok(u32::from_be_bytes(length_buffer) as usize),
-        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-            info!("Stream closed by peer.");
-            Err(NetworkError::Closed)
+        let msg_length = match read_stream.read_exact(&mut length_buffer).await {
+            Ok(_) => Ok(u32::from_be_bytes(length_buffer) as usize),
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                info!("Stream closed by peer.");
+                Err(NetworkError::Closed)
+            }
+            Err(e) => Err(NetworkError::Io(e)), //TODO: better error handling
+        }?;
+
+        debug!("Received message of length {msg_length}");
+
+        if msg_length > MAX_MESSAGE_LENGTH {
+            error!("Message of length {msg_length} is to long, max message length: {MAX_MESSAGE_LENGTH}");
+            return Err(NetworkError::Serialization);
         }
-        Err(_) => todo!("idk"), //TODO: better error handling
-    }?;
-
-    debug!("Received message of length {msg_length}");
-
-    if msg_length > MAX_MESSAGE_LENGTH {
-        error!("Message of length {msg_length} is to long, max message length: {MAX_MESSAGE_LENGTH}");
-        return Err(NetworkError::Serialization);
-    }
-    if msg_length == 0 {
-        // todo!("handle keep alive packets");
-        return Ok(None);
-    }
-
-    let mut bytes_read: usize = 0;
-    while bytes_read < msg_length {
-        let n_read: usize = read_stream.read(&mut buffer[bytes_read..msg_length]).await?;
-        debug!("Read {n_read} bytes from buffer");
-        if n_read == 0 {
-            error!("stream closed before all bytes were read ({bytes_read}/{msg_length})");
-            return Err(NetworkError::Closed);
+        if msg_length == 0 {
+            // todo!("handle keep alive packets");
+            return Ok(None);
         }
-        bytes_read += n_read;
-    }
-    //TODO fix error handling
-    Ok(Some(deserialize_rpc_message(&buffer[..msg_length])?))
+
+        let mut bytes_read: usize = 0;
+        while bytes_read < msg_length {
+            let n_read: usize = read_stream.read(&mut buffer[bytes_read..msg_length]).await?;
+            debug!("Read {n_read} bytes from buffer");
+            if n_read == 0 {
+                error!("stream closed before all bytes were read ({bytes_read}/{msg_length})");
+                return Err(NetworkError::Closed);
+            }
+            bytes_read += n_read;
+        }
+        //TODO fix error handling
+        Ok(Some(deserialize_rpc_message(&buffer[..msg_length])?))
+    })
+    .await?;
+    trace!("{res:#?}");
+    res
 }
 
 pub async fn send_message(stream: &mut OwnedWriteHalf, msg: RpcMessageKind) -> Result<(), NetworkError> {
-    let msg_wrapped = make_msg(&stream, msg);
-    let msg_serialized = serialize_rpc_message(msg_wrapped)?;
-    let msg_length: u32 = msg_serialized.len().try_into().unwrap();
+    tokio::time::timeout(CONNECTION_TIMEOUT, async move {
+        let msg_wrapped = make_msg(&stream, msg);
+        let msg_serialized = serialize_rpc_message(msg_wrapped)?;
+        let msg_length: u32 = msg_serialized.len().try_into().unwrap();
 
-    if msg_length as usize > MAX_MESSAGE_LENGTH {
-        error!("Message of length {msg_length} is to long, max message length: {MAX_MESSAGE_LENGTH}");
-        return Err(NetworkError::Serialization);
-    }
-    let msg_length_serialized = msg_length.to_be_bytes();
+        if msg_length as usize > MAX_MESSAGE_LENGTH {
+            error!("Message of length {msg_length} is to long, max message length: {MAX_MESSAGE_LENGTH}");
+            return Err(NetworkError::Serialization);
+        }
+        let msg_length_serialized = msg_length.to_be_bytes();
 
-    debug!("Sending message of length {msg_length:?}");
+        debug!("Sending message of length {msg_length:?}");
 
-    stream.write_all(&msg_length_serialized).await?;
-    stream.write_all(&msg_serialized).await?;
-    stream.flush().await?;
-    Ok(())
+        stream.write_all(&msg_length_serialized).await?;
+        stream.write_all(&msg_serialized).await?;
+        stream.flush().await?;
+        Ok(())
+    })
+    .await?
 }
 
 // TODO better error handling
