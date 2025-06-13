@@ -232,10 +232,11 @@ impl Orchestrator {
                 device_id,
             } => Ok(Self::unsubscribe_from(&client, target_addr, source_addr, device_id).await?),
             Command::SendStatus { target_addr, host_id } => Ok(Self::send_status(&client, target_addr, host_id).await?),
-            Command::GetHostStatuses { target_addr } => Ok({
+            Command::GetHostStatuses { target_addr } => {
                 let statuses = Self::request_statuses(&client, target_addr).await?;
                 info!("{statuses:#?}");
-            }),
+                Ok(())
+            }
             Command::Configure {
                 target_addr,
                 device_id,

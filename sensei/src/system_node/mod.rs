@@ -347,7 +347,8 @@ impl ConnectionHandler for SystemNode {
             // Since tokio only yiels execution back to the scheduler once a task finishes
             // or another async task is encountered, a thread can be block by this task
             // if no yield points are inserted.
-            if recv_command_channel.changed().await? == () {
+            task::consume_budget().await;
+            if recv_command_channel.has_changed()? {
                 let msg_opt = recv_command_channel.borrow_and_update().clone();
                 debug!("Received message {msg_opt:?} over channel");
                 match msg_opt {
