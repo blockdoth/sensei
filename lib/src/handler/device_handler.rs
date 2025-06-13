@@ -22,7 +22,7 @@ use crate::{FromConfig, ToConfig};
 /// parameters required to build a [`DeviceHandler`]: the device’s ID,
 /// the data source type, optional controller parameters, optional
 /// adapter configuration, and a list of sink configurations.
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
 pub struct DeviceHandlerConfig {
     // Unique identifier for the device.
     pub device_id: u64,
@@ -297,7 +297,7 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
         // Validate controller configuration if present.
         if let Some(controller_cfg) = &cg.controller {
             match (controller_cfg, &cg.source) {
-                (ControllerParams::Esp32(_), DataSourceConfig::Esp32(_)) | (ControllerParams::Tcp(_), DataSourceConfig::Tcp(_)) => {
+                (ControllerParams::Esp32(_), DataSourceConfig::Esp32(_)) => {
                     // These combinations are allowed.
                 }
                 #[cfg(target_os = "linux")]

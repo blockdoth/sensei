@@ -1,19 +1,22 @@
 use std::net::SocketAddr;
 
 use log::trace;
+#[cfg(test)]
+use mockall::automock;
+#[cfg(test)]
 use mockall_double::double;
 
 use crate::ToConfig;
 use crate::errors::{DataSourceError, TaskError};
 use crate::network::rpc_message::{DataMsg, RpcMessage, RpcMessageKind};
-#[double]
+#[cfg_attr(test, double)]
 use crate::network::tcp::client::TcpClient;
 use crate::sources::{DataSourceConfig, DataSourceT};
 
 /// Configuration for a `TCPSource`.
 ///
 /// Contains the target TCP address to which the data source will connect.
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, PartialEq)]
 pub struct TCPConfig {
     /// source adress from which to read
     pub target_addr: SocketAddr,
@@ -33,6 +36,7 @@ pub struct TCPSource {
     config: TCPConfig,
 }
 
+#[cfg_attr(test, automock)]
 impl TCPSource {
     /// Constructs a new `TCPSource` from the given configuration.
     ///

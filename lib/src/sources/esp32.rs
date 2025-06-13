@@ -8,6 +8,8 @@ use std::time::Duration;
 // Use _ to import extension methods
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, bounded};
 use log::{debug, error, info, trace, warn};
+#[cfg(test)]
+use mockall::automock;
 use serialport::{ClearBuffer, SerialPort};
 
 use crate::ToConfig;
@@ -48,7 +50,7 @@ type AckWaiterMap = HashMap<u8, AckSender>;
 type SharedAckWaiters = Arc<Mutex<AckWaiterMap>>;
 // --- End Type Aliases ---
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
 pub struct Esp32SourceConfig {
     pub port_name: String,
     #[serde(default = "default_baud_rate")]
@@ -80,6 +82,7 @@ pub struct Esp32Source {
     ack_waiters: SharedAckWaiters,
 }
 
+#[cfg_attr(test, automock)]
 impl Esp32Source {
     pub fn new(config: Esp32SourceConfig) -> Result<Self, DataSourceError> {
         let buffer_size = config.csi_buffer_size;

@@ -1,4 +1,6 @@
 use log::trace;
+#[cfg(test)]
+use mockall::automock;
 use netlink_sys::protocols::NETLINK_CONNECTOR;
 use netlink_sys::{Socket, SocketAddr};
 use serde::{Deserialize, Serialize};
@@ -11,7 +13,7 @@ use crate::sources::{BUFSIZE, DataMsg, DataSourceConfig, DataSourceT, TaskError}
 // Configuration structure for a Netlink source.
 ///
 /// This struct is deserializable from YAML config files
-#[derive(Serialize, Debug, Deserialize, Clone)]
+#[derive(Serialize, Debug, Deserialize, Clone, PartialEq)]
 pub struct NetlinkConfig {
     /// Netlink connector group ID to subscribe to.
     pub group: u32,
@@ -28,6 +30,7 @@ pub struct NetlinkSource {
     buffer: [u8; 8192],
 }
 
+#[cfg_attr(test, automock)]
 impl NetlinkSource {
     /// Create a new [`NetlinkSource`] from a configuration struct.
     ///
