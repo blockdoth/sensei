@@ -18,7 +18,7 @@ use crate::orchestrator::*;
 use crate::system_node::*;
 use crate::visualiser::*;
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::main(flavor = "multi_thread", worker_threads = 1)]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Args = argh::from_env();
 
