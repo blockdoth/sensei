@@ -47,7 +47,7 @@ pub trait CsiDataAdapter: Send + ToConfig<DataAdapterConfig> {
 ///
 /// This enum allows adapters to be specified via configuration files and deserialized
 /// automatically. Each variant contains options specific to the corresponding adapter.
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq)]
 pub enum DataAdapterConfig {
     Iwl { scale_csi: bool },
     Esp32 { scale_csi: bool },

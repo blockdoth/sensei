@@ -27,7 +27,7 @@ pub trait OverlaySubcommandArgs<T> {
     fn overlay_subcommand_args(&self, full_config: T) -> Result<T, Box<dyn std::error::Error>>;
 }
 
-pub static DEFAULT_HOST_CONFIG: &str = "resources/example_configs/host/minimal.yaml";
+pub static DEFAULT_HOST_CONFIG: &str = "resources/example_configs/host/example_full.yaml";
 pub static DEFAULT_ORCHESTRATOR_CONFIG: &str = "resources/example_configs/orchestrator/experiment_config.yaml";
 
 /// A simple app to perform collection from configured sources
@@ -73,8 +73,8 @@ pub struct SystemNodeSubcommandArgs {
     #[argh(option, default = "0")]
     pub port: u16,
 
-    /// location of config file (default sensei/src/system_node/example_config.yaml)
-    #[argh(option, default = "DEFAULT_HOST_CONFIG.parse().unwrap()")]
+    /// location of config file
+    #[argh(option, default = "PathBuf::from(DEFAULT_HOST_CONFIG)")]
     pub config_path: PathBuf,
 }
 
@@ -83,9 +83,10 @@ impl ConfigFromCli<SystemNodeConfig> for SystemNodeSubcommandArgs {
         Ok(SystemNodeConfig {
             addr: format!("{}:{}", self.addr, self.port).parse()?,
             device_configs: DeviceHandlerConfig::from_yaml(self.config_path.clone())?,
-            host_id: 0,
-            registries: None,
-            registry_polling_rate_s: None,
+            host_id: 0,                    // Default host_id, might be overwritten by YAML or other logic
+            registries: None,              // Default, might be overwritten by YAML
+            registry_polling_rate_s: None, // Default, might be overwritten by YAML
+            sinks: Vec::new(),             // Initialize with an empty Vec, to be populated from YAML
         })
     }
 }
@@ -186,6 +187,7 @@ mod tests {
             registries: Option::None,
             device_configs: vec![],
             registry_polling_rate_s: Option::None,
+            sinks: Vec::new(), // Add sinks field
         }
     }
 

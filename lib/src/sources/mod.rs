@@ -77,7 +77,7 @@ pub trait DataSourceT: Send + Any + ToConfig<DataSourceConfig> {
 /// - `Netlink`: Linux-only netlink-based capture (requires `target_os = "linux"`)
 /// - `Esp32`: ESP32-based data source
 /// - 'Tcp': receiving from another node
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
 pub enum DataSourceConfig {
     /// Linux netlink source (packet capture via netlink sockets).
     #[cfg(target_os = "linux")]
@@ -105,33 +105,3 @@ impl FromConfig<DataSourceConfig> for dyn DataSourceT {
         Ok(source)
     }
 }
-
-// Not sure if I need everything after this yet
-//
-//
-/* Fabian's stuff
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
-pub struct RemoteSourceConfig {
-    pub device_id: u64,
-    pub addr: SocketAddr,
-    pub raw: bool,
-}
-
-#[derive(serde::Deserialize, serde::Serialize, Debug, schemars::JsonSchema)]
-pub enum SourceRequest {
-    Subscribe(Subscription),
-    Configure(Configuration),
-}
-
-#[derive(serde::Deserialize, serde::Serialize, Debug, schemars::JsonSchema)]
-pub struct Subscription {
-    pub device_id: u64,
-    pub raw: bool,
-}
-
-#[derive(serde::Deserialize, serde::Serialize, Debug, schemars::JsonSchema)]
-pub struct Configuration {
-    pub device_id: u64,
-    pub params: ControllerParams,
-}
-*/
