@@ -26,6 +26,8 @@ use std::any::Any;
 use crate::errors::{DataSourceError, TaskError};
 use crate::network::rpc_message::DataMsg;
 use crate::{FromConfig, ToConfig};
+#[cfg(test)]
+use mockall::automock;
 
 pub const BUFSIZE: usize = 65535;
 
@@ -35,6 +37,7 @@ pub const BUFSIZE: usize = 65535;
 /// Sources are anything that provides packetized bytestream data that can be
 /// interpreted by CSI adapters. It is up to the user to correct a source
 /// sensibly with an adapter.
+#[cfg_attr(test, automock)]
 #[async_trait::async_trait]
 pub trait DataSourceT: Send + Any + ToConfig<DataSourceConfig> {
     /// Start collecting data

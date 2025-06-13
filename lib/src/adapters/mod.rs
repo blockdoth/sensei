@@ -13,6 +13,8 @@
 use crate::errors::{CsiAdapterError, TaskError};
 use crate::network::rpc_message::DataMsg;
 use crate::{FromConfig, ToConfig};
+#[cfg(test)]
+use mockall::automock;
 pub mod csv;
 pub mod esp32;
 pub mod iwl;
@@ -29,6 +31,7 @@ pub mod tcp;
 /// be fragmented over multiple packets. To this end, we split the API
 /// the function only starts reutrning data once the CSIData frame has been collected
 /// otherwise returns None
+#[cfg_attr(test, automock)]
 #[async_trait::async_trait]
 pub trait CsiDataAdapter: Send + ToConfig<DataAdapterConfig> {
     /// Attempts to consume a DataMsg and produce a CsiFrame variant.
