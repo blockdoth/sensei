@@ -50,7 +50,10 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
             } else {
                 Style::default()
             })
-            .title(Span::styled(format!(" Log ({current_log_count}) "), header_style)),
+            .title(Span::styled(
+                format!(" Log ({current_log_count} {}) ", tui_state.channel_updates),
+                header_style,
+            )),
     );
 
     f.render_widget(logs_widget, status_area);
@@ -200,7 +203,10 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
     f.render_widget(hosts_tree_view, control_chunks[1]);
 
     let mut exp_lines: Vec<Line> = vec![
-        Line::from("Status: [BALLS]"),
+        Line::from(format!("Name: [{:?}]", tui_state.experiment_metadata.name)),
+        Line::from(format!("Output: [{:?}]", tui_state.experiment_metadata.output_path)),
+        Line::from(format!("Status: [{:?}]", tui_state.experiment_status)),
+        Line::from(format!("Stage: [{:?}]", tui_state.experiment_stage)),
         Line::from("Participating devices:"),
         Line::from(" -[Device ID's]"),
         Line::from("Progress"),

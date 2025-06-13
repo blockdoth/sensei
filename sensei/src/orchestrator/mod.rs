@@ -1,10 +1,10 @@
 mod state;
 mod tui;
 
-use std::error::Error;
 use std::fs::File;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use std::vec;
@@ -15,7 +15,7 @@ use lib::network::tcp::client::TcpClient;
 use lib::tui::TuiRunner;
 use log::*;
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{Mutex, mpsc};
 use tokio::time::sleep;
 
@@ -26,18 +26,17 @@ use crate::services::{GlobalConfig, OrchestratorConfig, Run};
 pub struct Orchestrator {
     client: Arc<Mutex<TcpClient>>,
     log_level: LevelFilter,
-    experiment_config: PathBuf,
-    output_path: Option<PathBuf>,
+    experiment_config_path: Option<PathBuf>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Experiment {
-    metadata: Metadata,
+    metadata: ExperimentMetadata,
     stages: Vec<Stage>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Metadata {
+pub struct ExperimentMetadata {
     name: String,
     output_path: Option<PathBuf>,
 }
@@ -55,7 +54,7 @@ pub struct Block {
 }
 
 impl Experiment {
-    pub fn from_yaml(file: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_yaml(file: PathBuf) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let yaml = std::fs::read_to_string(file.clone()).map_err(|e| format!("Failed to read YAML file: {}\n{}", file.display(), e))?;
         Ok(serde_yaml::from_str(&yaml)?)
     }
@@ -75,6 +74,13 @@ pub enum IsRecurring {
         iterations: Option<u64>, /* 0 is infinite */
     },
     NotRecurring,
+}
+
+#[derive(Debug)]
+pub enum ExperimentStatus {
+    Running,
+    Ready,
+    Done,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -125,7 +131,39 @@ pub enum OrgChannelMsg {
     Unsubscribe(SocketAddr, Option<SocketAddr>, DeviceId),
     SubscribeAll(SocketAddr, Option<SocketAddr>),
     UnsubscribeAll(SocketAddr, Option<SocketAddr>),
+    SendStatus(SocketAddr, HostId),
+    Configure(SocketAddr, DeviceId, CfgType),
+    Delay(u64),
     Shutdown,
+    RunExperiment(Experiment),
+}
+
+impl From<ExperimentCommand> for OrgChannelMsg {
+    fn from(cmd: ExperimentCommand) -> Self {
+        match cmd {
+            ExperimentCommand::Connect { target_addr } => OrgChannelMsg::Connect(target_addr),
+            ExperimentCommand::Disconnect { target_addr } => OrgChannelMsg::Disconnect(target_addr),
+            ExperimentCommand::Subscribe { target_addr, device_id } => OrgChannelMsg::Subscribe(target_addr, None, device_id),
+            ExperimentCommand::Unsubscribe { target_addr, device_id } => OrgChannelMsg::Unsubscribe(target_addr, None, device_id),
+            ExperimentCommand::SubscribeTo {
+                target_addr,
+                source_addr,
+                device_id,
+            } => OrgChannelMsg::Subscribe(target_addr, Some(source_addr), device_id),
+            ExperimentCommand::UnsubscribeFrom {
+                target_addr,
+                source_addr,
+                device_id,
+            } => OrgChannelMsg::Unsubscribe(target_addr, Some(source_addr), device_id),
+            ExperimentCommand::SendStatus { target_addr, host_id } => OrgChannelMsg::SendStatus(target_addr, host_id),
+            ExperimentCommand::Configure {
+                target_addr,
+                device_id,
+                cfg_type,
+            } => OrgChannelMsg::Configure(target_addr, device_id, cfg_type),
+            ExperimentCommand::Delay { delay } => OrgChannelMsg::Delay(delay),
+        }
+    }
 }
 
 impl Run<OrchestratorConfig> for Orchestrator {
@@ -133,125 +171,171 @@ impl Run<OrchestratorConfig> for Orchestrator {
         Orchestrator {
             client: Arc::new(Mutex::new(TcpClient::new())),
             log_level: global_config.log_level,
-            experiment_config: config.experiment_config,
-            output_path: None,
+            experiment_config_path: Some(config.experiment_config),
         }
     }
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let (command_send, mut command_recv) = mpsc::channel::<OrgChannelMsg>(1000);
         let (update_send, mut update_recv) = mpsc::channel::<OrgUpdate>(1000);
 
-        let tasks = vec![Self::listen(command_recv, self.client.clone())];
+        // Tasks needs to be boxed and pinned in order to make the type checker happy
+        let tasks: Vec<Pin<Box<dyn Future<Output = ()> + Send>>> = vec![
+            Box::pin(Self::command_handler(command_recv, update_send.clone(), self.client.clone())),
+            // Box::pin(Self::initial_experiment(command_send.clone(), self.experiment_config_path.clone())),
+        ];
 
         let tui = OrgTuiState::new();
-
-        // let experiment = Experiment::from_yaml(self.experiment_config.clone())?;
-
-        // self.load_experiment(self.client.clone(), experiment).await;
-
         let tui_runner = TuiRunner::new(tui, command_send, update_recv, update_send, self.log_level);
+
         tui_runner.run(tasks).await;
         Ok(())
     }
 }
 
 impl Orchestrator {
-    async fn listen(mut recv_commands_channel: Receiver<OrgChannelMsg>, client: Arc<Mutex<TcpClient>>) {
+    async fn initial_experiment(command_send: Sender<OrgChannelMsg>, experiment_config_path_opt: Option<PathBuf>) {
+        info!("Loading initial experiment");
+
+        if let Some(experiment_config_path) = experiment_config_path_opt {
+            match Experiment::from_yaml(experiment_config_path.clone()) {
+                Ok(experiment) => {
+                    debug!("Successfully parsed config");
+                    command_send.send(OrgChannelMsg::RunExperiment(experiment)).await;
+                }
+                Err(e) => {
+                    error!("Unable to load experiment config {:?} {e}", experiment_config_path);
+                }
+            };
+        } else {
+            debug!("No initial experiment found")
+        }
+    }
+
+    async fn command_handler(mut recv_commands_channel: Receiver<OrgChannelMsg>, update_send: Sender<OrgUpdate>, client: Arc<Mutex<TcpClient>>) {
         info!("Started stream processor task");
         let mut receiving = false;
         let mut targets: Vec<SocketAddr> = vec![];
+
         loop {
-            if !recv_commands_channel.is_empty() {
-                let msg_opt = recv_commands_channel.recv().await;
-                debug!("Received channel message {msg_opt:?}");
-                if let Some(msg) = msg_opt {
-                    match msg {
-                        OrgChannelMsg::Connect(to_addr) => {
-                          Self::connect(&client, to_addr).await;
-                        }
-                        OrgChannelMsg::Disconnect(to_addr) => {
-                            Self::disconnect(&client, to_addr).await;
-                        }
-                        OrgChannelMsg::Subscribe(to_addr, msg_origin_addr, device_id) => {
-                            if let Some(msg_origin_addr) = msg_origin_addr {
-                                Self::subscribe_to(&client, to_addr, msg_origin_addr, device_id).await;
-                            } else {
-                                Self::subscribe(&client, to_addr, device_id).await;
-                            }
-                        }
-                        OrgChannelMsg::Unsubscribe(to_addr, msg_origin_addr, device_id) => {
-                            if let Some(msg_origin_addr) = msg_origin_addr {
-                                Self::unsubscribe_from(&client, to_addr, msg_origin_addr, device_id).await;
-                            } else {
-                                Self::unsubscribe(&client, to_addr, device_id).await;
-                            }
-                        }
-                        OrgChannelMsg::SubscribeAll(to_addr, msg_origin_addr) => {
-                            todo!()
-                        }
-                        OrgChannelMsg::UnsubscribeAll(to_addr, msg_origin_addr) => {
-                            todo!()
-                        }
-                        OrgChannelMsg::Shutdown => todo!(),
+            tokio::select! {
+                // Commands from channel
+                msg_opt = recv_commands_channel.recv() => {
+                    info!("Received channel message {msg_opt:?}");
+                    if let Some(msg) = msg_opt {
+                        Self::handle_msg(client.clone(), update_send.clone(), msg).await;
                     }
+                    info!("Handled");
                 }
-            }
 
-            if receiving {
-                for target_addr in targets.iter() {
-                    let msg = client.lock().await.read_message(*target_addr).await.unwrap();
-                    match msg.msg {
-                        Data {
-                            data_msg: DataMsg::CsiFrame { csi },
-                            device_id,
-                        } => {
-                            info!("{}: {}", msg.src_addr, csi.timestamp)
+                // TCP Client messages if in receiving mode
+                _ = async {
+                    if receiving {
+                        for target_addr in &targets {
+                            if let Ok(msg) = client.lock().await.read_message(*target_addr).await {
+                                match msg.msg {
+                                    Data { data_msg: DataMsg::CsiFrame { csi }, .. } => {
+                                        info!("{}: {}", msg.src_addr, csi.timestamp)
+                                    }
+                                    Data { data_msg: DataMsg::RawFrame { ts, .. }, .. } => {
+                                        info!("{}: {ts}", msg.src_addr)
+                                    }
+                                    _ => (),
+                                }
+                            }
                         }
-                        Data {
-                            data_msg: DataMsg::RawFrame { ts, bytes, source_type },
-                            device_id,
-                        } => info!("{}: {ts}", msg.src_addr),
-                        _ => (),
                     }
-                }
+                } => {}
             }
         }
     }
 
-    pub async fn load_experiment(&mut self, client: Arc<Mutex<TcpClient>>, experiment: Experiment) -> Result<(), Box<dyn Error + Send + Sync>> {
-        self.output_path = experiment.metadata.output_path;
+    pub async fn handle_msg(client: Arc<Mutex<TcpClient>>, update_send: Sender<OrgUpdate>, msg: OrgChannelMsg) {
+        match msg {
+            OrgChannelMsg::Connect(target_addr) => {
+              info!("A");
+              let mut l = client.lock().await;
+              l.connect(target_addr).await;
+              info!("B");
+            }
+            OrgChannelMsg::Disconnect(target_addr) => {
+              info!("C");
+              client.lock().await.disconnect(target_addr).await;
+              info!("D");
+            }
+            OrgChannelMsg::Subscribe(target_addr, msg_origin_addr, device_id) => {
+                if let Some(msg_origin_addr) = msg_origin_addr {
+                    info!("Subscribing to {target_addr} for device id {device_id}");
+                    let msg = HostCtrl::SubscribeTo { target_addr, device_id };
+                    client.lock().await.send_message(msg_origin_addr, RpcMessageKind::HostCtrl(msg)).await;
+                } else {
+                    info!("Subscribing to {target_addr} for device id {device_id}");
+                    let msg = HostCtrl::Subscribe { device_id };
+                    client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await;
+                }
+            }
+            OrgChannelMsg::Unsubscribe(target_addr, msg_origin_addr, device_id) => {
+                if let Some(msg_origin_addr) = msg_origin_addr {
+                    info!("Unubscribing from {target_addr} for device id {device_id}");
+                    let msg = HostCtrl::UnsubscribeFrom { target_addr, device_id };
+                    client.lock().await.send_message(msg_origin_addr, RpcMessageKind::HostCtrl(msg)).await;
+                } else {
+                    info!("Unubscribing from {target_addr} for device id {device_id}");
+                    let msg = HostCtrl::Unsubscribe { device_id };
+                    client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await;
+                }
+            }
+            OrgChannelMsg::SubscribeAll(to_addr, msg_origin_addr) => {
+                todo!()
+            }
+            OrgChannelMsg::UnsubscribeAll(to_addr, msg_origin_addr) => {
+                todo!()
+            }
+            OrgChannelMsg::SendStatus(target_addr, host_id) => {
+                let msg = RpcMessageKind::RegCtrl(RegCtrl::PollHostStatus { host_id });
+                client.lock().await.send_message(target_addr, msg).await;
+            }
+            OrgChannelMsg::Configure(target_addr, device_id, cfg_type) => {
+                let msg = RpcMessageKind::HostCtrl(HostCtrl::Configure { device_id, cfg_type });
 
-        if let Some(path) = &self.output_path {
-            File::create(path)?;
+                info!("Telling {target_addr} to configure the device handler");
+
+                client.lock().await.send_message(target_addr, msg).await;
+            }
+            OrgChannelMsg::Delay(ms_delay) => sleep(Duration::from_millis(ms_delay)).await,
+            OrgChannelMsg::Shutdown => todo!(),
+            OrgChannelMsg::RunExperiment(experiment) => {
+                info!("Starting experiment");
+                if let Some(path) = &experiment.metadata.output_path {
+                    File::create(path);
+                }
+                update_send.send(OrgUpdate::UpdateExperimentStatus(ExperimentStatus::Running)).await;
+                update_send.send(OrgUpdate::UpdateExperimentMetadata(experiment.metadata.clone())).await;
+                for (i, stage) in experiment.stages.clone().into_iter().enumerate() {
+                    let name = stage.name.clone();
+                    info!("Executing stage {name}");
+                    update_send.send(OrgUpdate::UpdateExperimentStage(name.clone())).await;
+                    Self::execute_stage(client.clone(), stage, update_send.clone()).await;
+                    info!("Finished stage {name}");
+                }
+                update_send.send(OrgUpdate::UpdateExperimentStatus(ExperimentStatus::Done)).await;
+            }
         }
-
-        for (i, stage) in experiment.stages.into_iter().enumerate() {
-            let name = stage.name.clone();
-            info!("Executing stage {name}");
-            Self::execute_stage(&client, stage).await?;
-            info!("Finished stage {name}");
-        }
-
-        Ok(())
     }
-    pub async fn execute_stage(client: &Arc<Mutex<TcpClient>>, stage: Stage) -> Result<(), Box<dyn Error + Send + Sync>> {
+
+    pub async fn execute_stage(client: Arc<Mutex<TcpClient>>, stage: Stage, update_send: Sender<OrgUpdate>) {
         let mut tasks = vec![];
 
         for block in stage.command_blocks {
-            let clone_client = client.clone();
-            let task = tokio::spawn(async move { Self::execute_command_block(clone_client, block).await.expect("Failed to execute command") });
+            let client_clone = client.clone();
+            let update_send_clone = update_send.clone();
+            let task = tokio::spawn(async move { Self::execute_command_block(client_clone, block, update_send_clone).await });
             tasks.push(task);
         }
 
-        let results = futures::future::join_all(tasks).await;
-
-        for result in results {
-            result?;
-        }
-
-        Ok(())
+        futures::future::join_all(tasks).await;
     }
-    pub async fn execute_command_block(client: Arc<Mutex<TcpClient>>, block: Block) -> Result<(), Box<dyn Error + Send + Sync>> {
+
+    pub async fn execute_command_block(client: Arc<Mutex<TcpClient>>, block: Block, update_send: Sender<OrgUpdate>) {
         sleep(Duration::from_millis(block.delays.init_delay.unwrap_or(0u64))).await;
         let command_delay = block.delays.command_delay.unwrap_or(0u64);
         let command_types = block.commands;
@@ -263,130 +347,23 @@ impl Orchestrator {
             } => {
                 let r_delay = recurrence_delay.unwrap_or(0u64);
                 let n = iterations.unwrap_or(0u64);
-                if n == 0 {
-                    loop {
-                        Self::match_commands(client.clone(), command_types.clone(), command_delay).await;
-                        sleep(Duration::from_millis(r_delay)).await;
-                    }
-                } else {
-                    for _ in 0..n {
-                        Self::match_commands(client.clone(), command_types.clone(), command_delay).await;
-                        sleep(Duration::from_millis(r_delay)).await;
-                    }
+                let mut i = 0;
+                while n == 0 || i < n {
+                    Self::match_commands(client.clone(), command_types.clone(), command_delay, update_send.clone()).await;
+                    sleep(Duration::from_millis(r_delay)).await;
+                    i += 1;
                 }
-                Ok(())
             }
             NotRecurring => {
-                Self::match_commands(client, command_types, command_delay).await;
-                Ok(())
+                Self::match_commands(client.clone(), command_types, command_delay, update_send).await;
             }
         }
     }
 
-    pub async fn match_commands(
-        client: Arc<Mutex<TcpClient>>,
-        commands: Vec<ExperimentCommand>,
-        command_delay: u64,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn match_commands(client: Arc<Mutex<TcpClient>>, commands: Vec<ExperimentCommand>, command_delay: u64, update_send: Sender<OrgUpdate>) {
         for command in commands {
-            match command {
-                ExperimentCommand::Connect { target_addr } => Self::connect(&client, target_addr).await?,
-                ExperimentCommand::Disconnect { target_addr } => Self::disconnect(&client, target_addr).await?,
-                ExperimentCommand::Subscribe { target_addr, device_id } => Self::subscribe(&client, target_addr, device_id).await?,
-                ExperimentCommand::Unsubscribe { target_addr, device_id } => Self::unsubscribe(&client, target_addr, device_id).await?,
-                ExperimentCommand::SubscribeTo {
-                    target_addr,
-                    source_addr,
-                    device_id,
-                } => Self::subscribe_to(&client, target_addr, source_addr, device_id).await?,
-                ExperimentCommand::UnsubscribeFrom {
-                    target_addr,
-                    source_addr,
-                    device_id,
-                } => Self::unsubscribe_from(&client, target_addr, source_addr, device_id).await?,
-                ExperimentCommand::SendStatus { target_addr, host_id } => Self::send_status(&client, target_addr, host_id).await?,
-                ExperimentCommand::Configure {
-                    target_addr,
-                    device_id,
-                    cfg_type,
-                } => Self::configure(&client, target_addr, device_id, cfg_type).await?,
-                ExperimentCommand::Delay { delay } => {
-                    sleep(Duration::from_millis(delay)).await;
-                }
-            }
+            Self::handle_msg(client.clone(), update_send.clone(), command.into());
             sleep(Duration::from_millis(command_delay)).await;
         }
-        Ok(())
-    }
-
-    async fn connect(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
-        Ok(client.lock().await.connect(target_addr).await?)
-    }
-
-    async fn disconnect(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
-        Ok(client.lock().await.disconnect(target_addr).await?)
-    }
-
-    async fn subscribe(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: u64) -> Result<(), Box<dyn std::error::Error>> {
-        let msg = HostCtrl::Subscribe { device_id };
-        info!("Subscribing to {target_addr} for device id {device_id}");
-        Ok(client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?)
-    }
-
-    async fn unsubscribe(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: u64) -> Result<(), Box<dyn std::error::Error>> {
-        let msg = HostCtrl::Unsubscribe { device_id };
-        info!("Unsubscribing from {target_addr} for device id {device_id}");
-        Ok(client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?)
-    }
-
-    async fn subscribe_to(
-        client: &Arc<Mutex<TcpClient>>,
-        target_addr: SocketAddr,
-        source_addr: SocketAddr,
-        device_id: u64,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let msg = RpcMessageKind::HostCtrl(HostCtrl::SubscribeTo {
-            target: source_addr,
-            device_id,
-        });
-
-        info!("Telling {target_addr} to subscribe to {source_addr} on device id {device_id}");
-
-        Ok(client.lock().await.send_message(target_addr, msg).await?)
-    }
-
-    async fn unsubscribe_from(
-        client: &Arc<Mutex<TcpClient>>,
-        target_addr: SocketAddr,
-        source_addr: SocketAddr,
-        device_id: u64,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let msg = RpcMessageKind::HostCtrl(HostCtrl::UnsubscribeFrom {
-            target: source_addr,
-            device_id,
-        });
-
-        info!("Telling {target_addr} to unsubscribe from device id {device_id} from {source_addr}");
-
-        Ok(client.lock().await.send_message(target_addr, msg).await?)
-    }
-
-    async fn send_status(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, host_id: HostId) -> Result<(), Box<dyn std::error::Error>> {
-        let msg = RpcMessageKind::RegCtrl(RegCtrl::PollHostStatus { host_id });
-
-        Ok(client.lock().await.send_message(target_addr, msg).await?)
-    }
-
-    async fn configure(
-        client: &Arc<Mutex<TcpClient>>,
-        target_addr: SocketAddr,
-        device_id: DeviceId,
-        cfg_type: CfgType,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let msg = RpcMessageKind::HostCtrl(HostCtrl::Configure { device_id, cfg_type });
-
-        info!("Telling {target_addr} to configure the device handler");
-
-        Ok(client.lock().await.send_message(target_addr, msg).await?)
     }
 }

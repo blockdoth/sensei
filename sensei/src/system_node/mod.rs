@@ -28,7 +28,7 @@ use lib::sources::{DataSourceConfig, DataSourceT}; // Added DataSourceT
 use log::*;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::{Mutex, broadcast, mpsc, watch}; // Added mpsc
-use tokio::task;
+use tokio::task::{self, JoinHandle};
 
 use crate::registry::Registry;
 use crate::services::{GlobalConfig, Run, SystemNodeConfig};
@@ -129,14 +129,11 @@ impl SystemNode {
                 send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Unsubscribe { device_id }))?;
                 info!("Client {} unsubscribed from data stream for device_id: {device_id}", request.src_addr);
             }
-            HostCtrl::SubscribeTo { target, device_id } => {
+            HostCtrl::SubscribeTo { target_addr, device_id } => {
                 // Create a device handler with a source that will connect to the node server of the target
                 // The sink will connect to this nodes server
                 // Node servers broadcast all incoming data to all connections, but only relevant sources will process this data
-                let source: DataSourceConfig = lib::sources::DataSourceConfig::Tcp(TCPConfig {
-                    target_addr: target,
-                    device_id,
-                });
+                let source: DataSourceConfig = lib::sources::DataSourceConfig::Tcp(TCPConfig { target_addr, device_id });
                 let controller = None;
                 let adapter = None;
                 // Sinks are now managed by SystemNode, this specific logic for TCP sink might need adjustment
@@ -153,11 +150,11 @@ impl SystemNode {
 
                 let new_handler = DeviceHandler::from_config(new_handler_config).await.unwrap();
 
-                info!("Handler created to subscribe to {target}");
+                info!("Handler created to subscribe to {target_addr}");
 
                 self.handlers.lock().await.insert(device_id, new_handler);
             }
-            HostCtrl::UnsubscribeFrom { target: _, device_id } => {
+            HostCtrl::UnsubscribeFrom { target_addr: _, device_id } => {
                 // TODO: Make it target specific, but for now removing based on device id should be fine.
                 // Would require extracting the source itself from the device handler
                 info!("Removing handler subscribing to {device_id}");
@@ -381,11 +378,10 @@ impl Run<SystemNodeConfig> for SystemNode {
     /// Initializes a hashmap of device handlers and sinks based on the configuration file on startup
     ///
     /// # Arguments
-    ///
+    ///        let connection_handler = Arc::new(self.clone());
+
     /// SystemNodeConfig: Specifies the target address
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let connection_handler = Arc::new(self.clone());
-
         // Initialize Sinks
         let mut sinks_map = self.sinks.lock().await;
         for sink_conf_with_name in &self.sink_configs {
@@ -438,7 +434,7 @@ impl Run<SystemNodeConfig> for SystemNode {
         // Create a TCP host server task
         info!("Starting TCP server on {}...", self.addr);
         let connection_handler = Arc::new(self.clone());
-        let tcp_server_task: tokio::task::JoinHandle<()> = task::spawn(async move {
+        let tcp_server_task: JoinHandle<()> = task::spawn(async move {
             TcpServer::serve(connection_handler.addr, connection_handler).await.unwrap();
         });
 

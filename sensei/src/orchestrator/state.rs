@@ -10,7 +10,7 @@ use ratatui::Frame;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use super::tui::ui;
-use crate::orchestrator::OrgChannelMsg;
+use crate::orchestrator::{ExperimentMetadata, ExperimentStatus, OrgChannelMsg};
 use crate::services::DEFAULT_ADDRESS;
 
 pub struct Host {
@@ -45,7 +45,7 @@ pub enum RegistryStatus {
     NotSpecified,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum Focused {
     Main,
     Registry(FocusedRegistry),
@@ -54,20 +54,20 @@ pub enum Focused {
     Status,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum FocusedRegistry {
     RegistryAddress(usize),
     AvailableHosts(usize),
 }
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum FocusedHosts {
     None,
     HostTree(usize, usize),
     AddHost(usize, FocusedAddHostField),
 }
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum FocusedAddHostField {
     Address,
     ID,
@@ -76,6 +76,8 @@ pub enum FocusedAddHostField {
 pub enum OrgCommand {}
 
 type DeviceID = u64;
+
+#[derive(Debug)]
 pub enum OrgUpdate {
     Log(LogEntry),
     Connect(SocketAddr),
@@ -86,6 +88,9 @@ pub enum OrgUpdate {
     UnsubscribeAll(SocketAddr, Option<SocketAddr>),
     SelectHost(SocketAddr),
     FocusChange(Focused),
+    UpdateExperimentStatus(ExperimentStatus),
+    UpdateExperimentStage(String),
+    UpdateExperimentMetadata(ExperimentMetadata),
     Edit(char),
     Exit,
     Up,
@@ -117,6 +122,10 @@ pub struct OrgTuiState {
     pub add_host_input_socket: [char; 21],
     pub add_host_input_id: [char; 21], // Made to match with the add_host_input_socket, one larger than the max size of an u64
     pub selected_host: Option<SocketAddr>,
+    pub experiment_status: ExperimentStatus,
+    pub experiment_stage: String,
+    pub experiment_metadata: ExperimentMetadata,
+    pub channel_updates: u64,
 }
 
 impl OrgTuiState {
@@ -127,7 +136,14 @@ impl OrgTuiState {
             registry_addr: Some(DEFAULT_ADDRESS),
             registry_status: RegistryStatus::Disconnected,
             logs: vec![],
+            channel_updates: 0,
             focussed_panel: Focused::Main,
+            experiment_status: ExperimentStatus::Ready,
+            experiment_stage: "Unknown".to_owned(),
+            experiment_metadata: ExperimentMetadata {
+                name: "todo!()".to_owned(),
+                output_path: None,
+            },
             add_host_input_socket: [
                 '_', '_', '_', '.', '_', '_', '_', '.', '_', '_', '_', '.', '_', '_', '_', ':', '_', '_', '_', '_', '_',
             ],
@@ -287,10 +303,11 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
             }
             OrgUpdate::Connect(to_addr) => {
                 command_send.send(OrgChannelMsg::Connect(to_addr)).await;
+                self.known_hosts.iter_mut().find(|a| a.addr == to_addr).unwrap().status = HostStatus::Connected;
             }
-            OrgUpdate::Disconnect(to_addr) => {
-                command_send.send(OrgChannelMsg::Disconnect(to_addr)).await;
-                self.known_hosts.iter_mut().find(|a| a.addr == to_addr).unwrap().status = HostStatus::Disconnected;
+            OrgUpdate::Disconnect(from_addr) => {
+                command_send.send(OrgChannelMsg::Disconnect(from_addr)).await;
+                self.known_hosts.iter_mut().find(|a| a.addr == from_addr).unwrap().status = HostStatus::Disconnected;
             }
             OrgUpdate::Subscribe(to_addr, msg_origin_addr, device_id) => {
                 command_send.send(OrgChannelMsg::Subscribe(to_addr, msg_origin_addr, device_id)).await;
@@ -311,7 +328,9 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                     _ => None,
                 }
             }
-
+            OrgUpdate::UpdateExperimentStage(stage) => self.experiment_stage = stage,
+            OrgUpdate::UpdateExperimentStatus(status) => self.experiment_status = status,
+            OrgUpdate::UpdateExperimentMetadata(meta_data) => self.experiment_metadata = meta_data,
             OrgUpdate::ClearLogs => self.logs.clear(),
             OrgUpdate::FocusChange(focused_panel) => self.focussed_panel = focused_panel,
             OrgUpdate::Edit(chr) => match &self.focussed_panel {
