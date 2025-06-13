@@ -45,6 +45,7 @@
                 nixfmt-rfc-style
                 rust-analyzer-unwrapped
                 mprocs
+                valgrind
                 pkg-config
                 pkgs.llvmPackages_latest.llvm # required for coverage tool
                 pkgs.cargo-llvm-cov

@@ -86,7 +86,7 @@
                 "args": [
                     "build",
                     "--bin=sensei",
-                    "--package=sensei"
+                    "--package=sensei",
                 ],
                 "filter": {
                     "name": "sensei",
@@ -94,7 +94,11 @@
                 }
             },
             "args": [
-                "registry"
+                "--level",
+                "TRACE",
+                "node",
+                "--config-path",
+                "resources/example_configs/host/dummy_registry_node.yaml"
             ],
             "cwd": "${workspaceFolder}"
         },
