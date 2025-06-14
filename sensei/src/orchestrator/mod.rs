@@ -36,8 +36,15 @@ pub struct Experiment {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum ExperimentHost {
+    Orchestrator,
+    SystemNode { target_addr: SocketAddr },
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Metadata {
     name: String,
+    experiment_type: ExperimentHost,
     output_path: Option<PathBuf>,
 }
 
@@ -54,7 +61,7 @@ pub struct Block {
 }
 
 impl Experiment {
-    pub fn from_yaml(file: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_yaml(file: PathBuf) -> Result<Vec<Self>, Box<dyn std::error::Error>> {
         let yaml = std::fs::read_to_string(file.clone()).map_err(|e| format!("Failed to read YAML file: {}\n{}", file.display(), e))?;
         Ok(serde_yaml::from_str(&yaml)?)
     }
@@ -128,7 +135,7 @@ impl Run<OrchestratorConfig> for Orchestrator {
     async fn run(&mut self) -> Result<(), Box<dyn Error>> {
         let experiment = Experiment::from_yaml(self.experiment_config.clone())?;
 
-        self.load_experiment(self.client.clone(), experiment).await;
+        self.load_experiments(self.client.clone(), experiment).await;
 
         self.cli_interface().await?;
         Ok(())
@@ -136,6 +143,13 @@ impl Run<OrchestratorConfig> for Orchestrator {
 }
 
 impl Orchestrator {
+    pub async fn load_experiments (&mut self, client: Arc<Mutex<TcpClient>>, experiments: Vec<Experiment>) -> Result<(), Box<dyn Error + Send + Sync>> {
+        for experiment in experiments {
+            self.load_experiment(client.clone(), experiment).await;
+        }
+        
+        Ok(())
+    }
     pub async fn load_experiment(&mut self, client: Arc<Mutex<TcpClient>>, experiment: Experiment) -> Result<(), Box<dyn Error + Send + Sync>> {
         self.output_path = experiment.metadata.output_path;
 
