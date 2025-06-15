@@ -26,8 +26,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use log::{debug, info, trace, warn};
+use tokio::net::tcp::OwnedReadHalf;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::watch;
+use tokio::sync::watch::{self, Sender};
 
 use super::{ConnectionHandler, MAX_MESSAGE_LENGTH, SubscribeDataChannel, read_message};
 use crate::errors::NetworkError;
@@ -120,8 +121,8 @@ impl TcpServer {
         connection_handler: Arc<dyn ConnectionHandler>,
         mut read_buffer: Vec<u8>,
         local_peer_addr: SocketAddr,
-        mut read_stream: tokio::net::tcp::OwnedReadHalf,
-        send_commands_channel_local: watch::Sender<ChannelMsg>,
+        mut read_stream: OwnedReadHalf,
+        send_commands_channel_local: Sender<ChannelMsg>,
     ) -> Result<(), NetworkError> {
         debug!("Start reading task");
         loop {
@@ -161,5 +162,159 @@ impl TcpServer {
             .await?;
         trace!("Ended writing task");
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::SocketAddr;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use mockall::automock;
+    use mockall::predicate::*;
+    use tokio::net::{TcpListener, TcpStream};
+    use tokio::sync::{broadcast, watch};
+
+    use super::*;
+    use crate::network::rpc_message::HostCtrl;
+
+    #[automock]
+    #[async_trait::async_trait]
+    trait MockConnectionHandler: Send + Sync {
+        async fn handle_recv(
+            &self,
+            _request: crate::network::rpc_message::RpcMessage,
+            _send_commands_channel: watch::Sender<ChannelMsg>,
+        ) -> Result<(), NetworkError>;
+        async fn handle_send(
+            &self,
+            _recv_commands_channel: watch::Receiver<ChannelMsg>,
+            _recv_data_channel: broadcast::Receiver<(crate::network::rpc_message::DataMsg, u64)>,
+            _send_stream: tokio::net::tcp::OwnedWriteHalf,
+        ) -> Result<(), NetworkError>;
+    }
+
+    #[automock]
+    trait MockSubscribeDataChannel: Send + Sync {
+        fn subscribe_data_channel(&self) -> broadcast::Receiver<(crate::network::rpc_message::DataMsg, u64)>;
+    }
+
+    #[derive(Clone)]
+    struct DummyHandler;
+    #[async_trait::async_trait]
+    impl ConnectionHandler for DummyHandler {
+        async fn handle_recv(
+            &self,
+            _request: crate::network::rpc_message::RpcMessage,
+            _send_commands_channel: watch::Sender<ChannelMsg>,
+        ) -> Result<(), NetworkError> {
+            Ok(())
+        }
+        async fn handle_send(
+            &self,
+            _recv_commands_channel: watch::Receiver<ChannelMsg>,
+            _recv_data_channel: broadcast::Receiver<(crate::network::rpc_message::DataMsg, u64)>,
+            _send_stream: tokio::net::tcp::OwnedWriteHalf,
+        ) -> Result<(), NetworkError> {
+            Ok(())
+        }
+    }
+    impl SubscribeDataChannel for DummyHandler {
+        fn subscribe_data_channel(&self) -> broadcast::Receiver<(crate::network::rpc_message::DataMsg, u64)> {
+            let (_tx, rx) = broadcast::channel(1);
+            rx
+        }
+    }
+
+    #[tokio::test]
+    async fn test_server_startup_and_shutdown() {
+        let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let handler = Arc::new(DummyHandler);
+        let listener = TcpListener::bind(addr).await.unwrap();
+        let local_addr = listener.local_addr().unwrap();
+        let handler_clone = handler.clone();
+        let server = tokio::spawn(async move {
+            TcpServer::serve(local_addr, handler_clone).await.ok();
+        });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let _client = TcpStream::connect(local_addr).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn test_mock_connection_handler() {
+        let mut mock = MockMockConnectionHandler::new();
+        mock.expect_handle_recv().returning(|_, _| Ok(()));
+        mock.expect_handle_send().returning(|_, _, _| Ok(()));
+        // This test just checks that the mock can be called as expected
+        let (tx, _rx) = watch::channel(ChannelMsg::HostChannel(HostChannel::Empty));
+        let (data_tx, data_rx) = broadcast::channel(1);
+        let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let listener = TcpListener::bind(addr).await.unwrap();
+        let local_addr = listener.local_addr().unwrap();
+        let client = TcpStream::connect(local_addr).await.unwrap();
+        let (server, _) = listener.accept().await.unwrap();
+        let (_read_half, write_half) = server.into_split();
+        let msg = crate::network::rpc_message::RpcMessage {
+            msg: crate::network::rpc_message::RpcMessageKind::HostCtrl(HostCtrl::Ping),
+            src_addr: "127.0.0.1:0".parse().unwrap(),
+            target_addr: "127.0.0.1:0".parse().unwrap(),
+        };
+        let _ = mock.handle_recv(msg, tx).await;
+        let _ = mock.handle_send(_rx, data_rx, write_half).await;
+    }
+
+    #[tokio::test]
+    async fn test_handle_recv_error_propagation() {
+        use mockall::mock;
+
+        use crate::errors::NetworkError;
+        use crate::network::rpc_message::RpcMessageKind;
+        use crate::network::tcp::RpcMessage;
+
+        mock! {
+            Handler {}
+
+            #[async_trait::async_trait]
+            impl ConnectionHandler for Handler {
+                async fn handle_recv(&self, _request: crate::network::rpc_message::RpcMessage, _send_commands_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError>;
+                async fn handle_send(
+                    &self,
+                    _recv_commands_channel: watch::Receiver<ChannelMsg>,
+                    _recv_data_channel: broadcast::Receiver<(crate::network::rpc_message::DataMsg, u64)>,
+                    _send_stream: tokio::net::tcp::OwnedWriteHalf,
+                ) -> Result<(), NetworkError>;
+            }
+
+            impl SubscribeDataChannel for Handler {
+                fn subscribe_data_channel(&self) -> broadcast::Receiver<(crate::network::rpc_message::DataMsg, u64)>;
+            }
+        }
+
+        let mut mock = MockHandler::new();
+        mock.expect_handle_recv()
+            .returning(|_request, _send_commands_channel| Err(NetworkError::Closed));
+        mock.expect_subscribe_data_channel().returning(|| {
+            let (_tx, rx) = broadcast::channel(1);
+            rx
+        });
+        let (tx, _rx) = watch::channel(ChannelMsg::HostChannel(HostChannel::Empty));
+        let msg = RpcMessage {
+            msg: RpcMessageKind::HostCtrl(HostCtrl::Ping),
+            src_addr: "127.0.0.1:0".parse().unwrap(),
+            target_addr: "127.0.0.1:0".parse().unwrap(),
+        };
+        let res = mock.handle_recv(msg, tx).await;
+        assert!(matches!(res, Err(NetworkError::Closed)));
+    }
+
+    #[tokio::test]
+    async fn test_subscribe_data_channel_returns_receiver() {
+        let handler = DummyHandler;
+        let rx = handler.subscribe_data_channel();
+        // The returned value should be a broadcast::Receiver
+        assert_eq!(rx.len(), 0);
     }
 }

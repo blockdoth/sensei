@@ -349,8 +349,7 @@ mod tests {
         // So this test is a placeholder for the logic
 
         // For a proper test, we should mock serialize_rpc_message.
-        // For now, just assert true.
-        assert!(true);
+        // For now, just let the test pass
     }
 
     #[tokio::test]
