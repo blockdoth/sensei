@@ -1,5 +1,5 @@
 use chrono::{DateTime, Local};
-use log::{Level, LevelFilter, Metadata, Record, SetLoggerError};
+use log::{Level, LevelFilter, Metadata, Record, SetLoggerError, set_logger};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use tokio::sync::mpsc::Sender;
@@ -87,8 +87,9 @@ pub fn init_logger(log_level_filter: LevelFilter, sender: Sender<LogEntry>) -> R
         log_sender: sender,
         level: log_level_filter.to_level().unwrap_or(log::Level::Error),
     };
-
-    log::set_boxed_logger(Box::new(logger))?;
+    // Box the logger and leak it to get a 'static reference
+    let logger: &'static TuiLogger = Box::leak(Box::new(logger));
+    set_logger(logger)?;
     log::set_max_level(log_level_filter);
     Ok(())
 }

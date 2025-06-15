@@ -77,7 +77,7 @@ where
         let mut terminal = Self::setup_terminal().unwrap(); //TODO remove unwrap
 
         Self::log_handler_task(self.log_recv, self.update_send).await;
-        init_logger(self.log_level, self.log_send.clone())?;
+        init_logger(self.log_level, self.log_send.clone()).map_err(|op| Box::<dyn Error>::from(op.to_string()))?;
 
         let mut handles: Vec<JoinHandle<()>> = vec![];
         for task in tasks {
