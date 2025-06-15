@@ -230,7 +230,7 @@ mod tests {
 
     use super::*;
     use crate::errors::NetworkError;
-    use crate::network::rpc_message::{HostCtrl, RpcMessageKind};  
+    use crate::network::rpc_message::{HostCtrl, RpcMessageKind};
 
     fn test_addr() -> SocketAddr {
         SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 12345)
@@ -290,10 +290,7 @@ mod tests {
     async fn test_mock_connect() {
         let mut mock = MockTcpClient::default();
         let addr = test_addr();
-        mock.expect_connect()
-            .with(eq(addr))
-            .times(1)
-            .returning(|_| Ok(()));
+        mock.expect_connect().with(eq(addr)).times(1).returning(|_| Ok(()));
         let result = mock.connect(addr).await;
         assert!(result.is_ok());
     }
