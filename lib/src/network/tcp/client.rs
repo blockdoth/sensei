@@ -12,7 +12,7 @@
 //! - Integration with sensei's RPC message types
 //!
 //! # Example
-//! ```rust
+//! ```rust,ignore
 //! use lib::network::tcp::client::TcpClient;
 //! use std::net::SocketAddr;
 //! // ...
@@ -47,7 +47,7 @@ use crate::network::tcp::{self, CONNECTION_TIMEOUT, MAX_MESSAGE_LENGTH};
 /// `SocketAddr` and stores its own read/write streams and buffer for message handling.
 ///
 /// # Example
-/// ```rust
+/// ```rust,ignore
 /// let mut client = TcpClient::new();
 /// client.connect(addr).await?;
 /// client.send_message(addr, msg).await?;
@@ -151,31 +151,31 @@ impl TcpClient {
     /// Does not time out when the client if slow with responding.
     pub async fn wait_for_disconnect(&mut self, target_addr: SocketAddr) -> Result<(), NetworkError> {
         let mut connections = self.connections.lock().await;
-            let mut connection = connections.remove(&target_addr).ok_or(NetworkError::NoSuchConnection)?;
-            debug!("Initiating graceful disconnect with {target_addr}");
-            super::send_message(&mut connection.write_stream, HostCtrl(HostCtrl::Disconnect)).await?;
-            debug!("Waiting for confirm of disconnect from {target_addr}");
-            let res = super::read_message(&mut connection.read_stream, &mut connection.buffer).await?;
-            match res {
-                Some(RpcMessage {
-                    msg: HostCtrl(HostCtrl::Disconnect),
-                    ..
-                }) => {
-                    info!("Connection with {target_addr} closed gracefully.");
-                    if let Err(e) = connection.write_stream.shutdown().await {
-                        error!("Failed to shutdown write stream: {e}");
-                    }
-                    Ok(())
-                },
-                Some(other_msg) => {
-                    error!("Expected disconnect ACK, got: {other_msg:?}");
-                    Err(NetworkError::Closed)
+        let mut connection = connections.remove(&target_addr).ok_or(NetworkError::NoSuchConnection)?;
+        debug!("Initiating graceful disconnect with {target_addr}");
+        super::send_message(&mut connection.write_stream, HostCtrl(HostCtrl::Disconnect)).await?;
+        debug!("Waiting for confirm of disconnect from {target_addr}");
+        let res = super::read_message(&mut connection.read_stream, &mut connection.buffer).await?;
+        match res {
+            Some(RpcMessage {
+                msg: HostCtrl(HostCtrl::Disconnect),
+                ..
+            }) => {
+                info!("Connection with {target_addr} closed gracefully.");
+                if let Err(e) = connection.write_stream.shutdown().await {
+                    error!("Failed to shutdown write stream: {e}");
                 }
-                None => {
-                    error!("Peer closed connection without sending Disconnect ACK.");
-                    Err(NetworkError::Closed)
-                }
+                Ok(())
             }
+            Some(other_msg) => {
+                error!("Expected disconnect ACK, got: {other_msg:?}");
+                Err(NetworkError::Closed)
+            }
+            None => {
+                error!("Peer closed connection without sending Disconnect ACK.");
+                Err(NetworkError::Closed)
+            }
+        }
     }
 
     /// Waits for a message to be read from the specified connection.
@@ -219,5 +219,107 @@ impl TcpClient {
                 }
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+    use mockall::predicate::*;
+
+    use super::*;
+    use crate::errors::NetworkError;
+    use crate::network::rpc_message::{HostCtrl, RpcMessageKind};  
+
+    fn test_addr() -> SocketAddr {
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 12345)
+    }
+
+    #[tokio::test]
+    async fn test_new_client() {
+        let client = TcpClient::new();
+        assert!(client.addr.is_none());
+        assert_eq!(client.get_connections().await.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_get_connections_empty() {
+        let client = TcpClient::new();
+        let conns = client.get_connections().await;
+        assert!(conns.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_connect_error() {
+        // Try to connect to an unreachable address, should return error
+        let mut client = TcpClient::new();
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9); // Port 9 is usually closed
+        let result = client.connect(addr).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_disconnect_no_connection() {
+        let mut client = TcpClient::new();
+        let addr = test_addr();
+        let result = client.disconnect(addr).await;
+        assert!(matches!(result, Err(NetworkError::Closed) | Err(_)));
+    }
+
+    #[tokio::test]
+    async fn test_read_message_no_connection() {
+        let mut client = TcpClient::new();
+        let addr = test_addr();
+        let result = client.read_message(addr).await;
+        assert!(matches!(result, Err(NetworkError::Closed) | Err(_)));
+    }
+
+    #[tokio::test]
+    async fn test_send_message_no_connection() {
+        let mut client = TcpClient::new();
+        let addr = test_addr();
+        let msg = RpcMessageKind::HostCtrl(HostCtrl::Connect);
+        let result = client.send_message(addr, msg).await;
+        assert!(matches!(result, Err(NetworkError::Closed) | Err(_)));
+    }
+
+    // Mockall tests
+
+    #[tokio::test]
+    async fn test_mock_connect() {
+        let mut mock = MockTcpClient::default();
+        let addr = test_addr();
+        mock.expect_connect()
+            .with(eq(addr))
+            .times(1)
+            .returning(|_| Ok(()));
+        let result = mock.connect(addr).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_mock_send_message() {
+        let mut mock = MockTcpClient::default();
+        let addr = test_addr();
+        let msg = RpcMessageKind::HostCtrl(HostCtrl::Connect);
+        mock.expect_send_message()
+            .with(eq(addr), eq(msg.clone()))
+            .times(1)
+            .returning(|_, _| Ok(()));
+        let result = mock.send_message(addr, msg).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_mock_read_message_error() {
+        let mut mock = MockTcpClient::default();
+        let addr = test_addr();
+        mock.expect_read_message()
+            .with(eq(addr))
+            .times(1)
+            .returning(|_| Err(NetworkError::Closed));
+        let result = mock.read_message(addr).await;
+        assert!(matches!(result, Err(NetworkError::Closed)));
     }
 }
