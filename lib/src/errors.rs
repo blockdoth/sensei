@@ -60,6 +60,10 @@ pub enum NetworkError {
     /// Other error type
     #[error("An error occurred")]
     Other(#[from] Box<dyn std::error::Error + Send + Sync>),
+
+    /// Thrown when a connection that does not exist is referenced
+    #[error("That connection does not exist")]
+    NoSuchConnection,
 }
 
 /// Generic application-level error for unimplemented functionality.
