@@ -1,8 +1,32 @@
+//! TCP Networking Primitives for Sensei
+//!
+//! This module provides asynchronous TCP networking utilities for the Sensei system, including message framing, sending/receiving, and connection handling traits for both clients and servers.
+//!
+//! # Submodules
+//!
+//! - [`client`]: Implements the asynchronous TCP client, supporting multiple concurrent connections, message sending/receiving, and integration with Sensei's RPC message types.
+//! - [`server`]: Implements the asynchronous TCP server, handling incoming connections and delegating message processing to user-defined handlers.
+//!
+//! # Features
+//!
+//! - Message framing and serialization for Sensei RPC messages
+//! - Connection handler traits for extensible message processing
+//! - Utilities for reading and sending messages over TCP streams
+//! - Channel-based communication for commands and data
+//!
+//! ## Example Usage
+//!
+//! ```rust,ignore
+//! use lib::network::tcp::client::TcpClient;
+//! use lib::network::tcp::server::TcpServer;
+//! // ...
+//! ```
+
 use std::net::SocketAddr;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use log::{debug, error, info};
+use log::{error, info, trace};
 use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
@@ -19,6 +43,23 @@ pub mod server;
 pub const MAX_MESSAGE_LENGTH: usize = 4096;
 pub const CONNECTION_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Reads a single framed RPC message from the provided TCP read stream.
+///
+///
+/// # Arguments
+/// * `read_stream` - The owned read half of a TCP stream.
+/// * `buffer` - A mutable buffer to store the incoming message bytes.
+///
+/// # Errors
+/// Returns `NetworkError::Closed` if the stream is closed, or `NetworkError::Serialization` for invalid messages.
+///
+/// # Example
+/// ```rust,ignore
+/// let mut buffer = [0u8; MAX_MESSAGE_LENGTH];
+/// if let Some(msg) = read_message(&mut read_half, &mut buffer).await? {
+///     // handle msg
+/// }
+/// ```
 pub async fn read_message(read_stream: &mut OwnedReadHalf, buffer: &mut [u8]) -> Result<Option<RpcMessage>, NetworkError> {
     let mut length_buffer = [0; 4];
 
@@ -31,21 +72,20 @@ pub async fn read_message(read_stream: &mut OwnedReadHalf, buffer: &mut [u8]) ->
         Err(e) => Err(NetworkError::Io(e)), //TODO: better error handling
     }?;
 
-    debug!("Received message of length {msg_length}");
+    trace!("Received message of length {msg_length}");
 
     if msg_length > MAX_MESSAGE_LENGTH {
         error!("Message of length {msg_length} is to long, max message length: {MAX_MESSAGE_LENGTH}");
         return Err(NetworkError::Serialization);
     }
     if msg_length == 0 {
-        // todo!("handle keep alive packets");
         return Ok(None);
     }
 
     let mut bytes_read: usize = 0;
     while bytes_read < msg_length {
         let n_read: usize = read_stream.read(&mut buffer[bytes_read..msg_length]).await?;
-        debug!("Read {n_read} bytes from buffer");
+        trace!("Read {n_read} bytes from buffer");
         if n_read == 0 {
             error!("stream closed before all bytes were read ({bytes_read}/{msg_length})");
             return Err(NetworkError::Closed);
@@ -56,6 +96,21 @@ pub async fn read_message(read_stream: &mut OwnedReadHalf, buffer: &mut [u8]) ->
     Ok(Some(deserialize_rpc_message(&buffer[..msg_length])?))
 }
 
+/// Sends a single framed RPC message over the provided TCP write stream.
+///
+///
+/// # Arguments
+/// * `stream` - The owned write half of a TCP stream.
+/// * `msg` - The `RpcMessageKind` to send.
+///
+/// # Errors
+/// Returns `NetworkError::Serialization` if the message is too large or cannot be serialized,
+/// or an I/O error if writing to the stream fails.
+///
+/// # Example
+/// ```rust,ignore
+/// send_message(&mut write_half, RpcMessageKind::Control(...)).await?;
+/// ```
 pub async fn send_message(stream: &mut OwnedWriteHalf, msg: RpcMessageKind) -> Result<(), NetworkError> {
     let msg_wrapped = make_msg(&stream, msg);
     let msg_serialized = serialize_rpc_message(msg_wrapped)?;
@@ -67,7 +122,7 @@ pub async fn send_message(stream: &mut OwnedWriteHalf, msg: RpcMessageKind) -> R
     }
     let msg_length_serialized = msg_length.to_be_bytes();
 
-    debug!("Sending message of length {msg_length:?}");
+    trace!("Sending message of length {msg_length:?}");
 
     stream.write_all(&msg_length_serialized).await?;
     stream.write_all(&msg_serialized).await?;
