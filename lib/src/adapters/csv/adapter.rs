@@ -188,8 +188,10 @@ impl CsiDataAdapter for CSVAdapter<'_> {
         // Check if the message is a raw frame
         match msg {
             DataMsg::RawFrame { bytes, .. } => {
-                let csi = self.consume(&bytes)?.ok_or(CsiAdapterError::InvalidInput)?;
-                Ok(Some(DataMsg::CsiFrame { csi }))
+                match self.consume(&bytes)? {
+                    None => Ok(None),
+                    Some(csi) => Ok(Some(DataMsg::CsiFrame{csi})),
+                }
             }
             DataMsg::CsiFrame { csi } => Ok(Some(DataMsg::CsiFrame { csi })),
         }
@@ -220,6 +222,92 @@ mod tests {
     use log::error;
 
     use super::*;
+
+    #[tokio::test]
+    async fn test_consume_split_row_in_two_steps() {
+        let mut adapter = CSVAdapter::default();
+        // Split a valid CSV row into two parts
+        let part1 = b"9457616.210305953,45040,1,1,1,97,(";
+        let part2 = b"0.4907193796689-0.684063352438993j)\n";
+
+        // First, send the incomplete part
+        let msg1 = DataMsg::RawFrame {
+            ts: 0.0,
+            bytes: part1.to_vec(),
+            source_type: crate::network::rpc_message::SourceType::ESP32,
+        };
+        let result1 = adapter.produce(msg1).await.unwrap();
+        // Should not yield a complete frame yet
+        assert!(result1.is_none());
+    }
+
+    #[test]
+    fn test_split_rows_single_row() {
+        let mut adapter = CSVAdapter::new(
+            b"row1col1,row1col2\n".to_vec(),
+            None,
+            None,
+            None,
+        );
+        let rows = adapter.split_rows();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0], b"row1col1,row1col2");
+        assert_eq!(adapter.buffer, b"");
+    }
+
+    #[test]
+    fn test_split_rows_multiple_rows() {
+        let mut adapter = CSVAdapter::new(
+            b"row1col1,row1col2\nrow2col1,row2col2\nrow3col1,row3col2\n".to_vec(),
+            None,
+            None,
+            None,
+        );
+        let rows = adapter.split_rows();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0], b"row1col1,row1col2");
+        assert_eq!(rows[1], b"row2col1,row2col2");
+        assert_eq!(rows[2], b"row3col1,row3col2");
+        assert_eq!(adapter.buffer, b"");
+    }
+
+    #[test]
+    fn test_split_rows_partial_row_left_in_buffer() {
+        let mut adapter = CSVAdapter::new(
+            b"row1col1,row1col2\nrow2col1,row2col2".to_vec(),
+            None,
+            None,
+            None,
+        );
+        let rows = adapter.split_rows();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0], b"row1col1,row1col2");
+        assert_eq!(adapter.buffer, b"row2col1,row2col2");
+    }
+
+    #[test]
+    fn test_split_rows_empty_buffer() {
+        let mut adapter = CSVAdapter::new(Vec::new(), None, None, None);
+        let rows = adapter.split_rows();
+        assert!(rows.is_empty());
+        assert_eq!(adapter.buffer, b"");
+    }
+
+    #[test]
+    fn test_split_rows_custom_delimiter() {
+        let custom_line_delim = b';';
+        let mut adapter = CSVAdapter::new(
+            b"row1col1,row1col2;row2col1,row2col2;partialrow".to_vec(),
+            None,
+            None,
+            Some(&custom_line_delim),
+        );
+        let rows = adapter.split_rows();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0], b"row1col1,row1col2");
+        assert_eq!(rows[1], b"row2col1,row2col2");
+        assert_eq!(adapter.buffer, b"partialrow");
+    }
 
     #[tokio::test]
     async fn test_consume_valid_data() {
@@ -257,8 +345,8 @@ mod tests {
             source_type: crate::network::rpc_message::SourceType::ESP32,
         };
         // this should return an InvalidInput error
-        let result = adapter.produce(msg).await;
-        assert!(matches!(result, Err(CsiAdapterError::InvalidInput)));
+        let result = adapter.produce(msg).await.unwrap();
+        assert!(result.is_none());
     }
 
     #[tokio::test]
@@ -282,8 +370,8 @@ mod tests {
             bytes: b"".to_vec(),
             source_type: crate::network::rpc_message::SourceType::ESP32,
         };
-        let result = adapter.produce(msg).await;
-        assert!(matches!(result, Err(CsiAdapterError::InvalidInput)));
+        let result = adapter.produce(msg).await.unwrap();
+        assert!(result.is_none());
     }
 
     #[tokio::test]
