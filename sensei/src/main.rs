@@ -1,3 +1,20 @@
+//! # Sensei Application Main Entry Point
+//!
+//! This module serves as the primary entry point for the Sensei application.
+//! It handles parsing of command-line arguments, initializes logging, and
+//! dispatches execution to the appropriate subcommand handlers (SystemNode,
+//! Orchestrator, Visualiser, or EspTool).
+//!
+//! ## Modules
+//!
+//! - `cli`: Command-line interface parsing and argument handling.
+//! - `esp_tool`: Integration with the ESP tool for firmware flashing and monitoring.
+//! - `orchestrator`: High-level orchestration of system components.
+//! - `registry`: Component registry for managing system nodes and configurations.
+//! - `services`: Various services and utilities for system operation.
+//! - `system_node`: Representation and management of individual system nodes.
+//! - `visualiser`: Visualization tools for representing system status and logs.
+
 mod cli;
 mod esp_tool;
 mod orchestrator;
@@ -43,11 +60,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ])
         .unwrap();
         debug!("Parsed args and initialized CombinedLogger");
-    } else {
-        // For EspTest, logging will be handled by its TuiLogger.
-        // You might want a minimal print or log here indicating EspTest is starting,
-        // but TuiLogger in esp_tool.rs will print its own startup messages.
-        // println!("Starting ESP Test Tool..."); // Simple console feedback before TUI takes over
     }
 
     debug!("Parsed args and initialized CombinedLogger");
