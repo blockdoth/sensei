@@ -12,7 +12,8 @@
 //! - **`FromYaml` Trait**: A utility trait for deserializing configurations from YAML files.
 //!   This promotes a consistent way of loading settings across different components.
 //! - **`Run` Trait**: A fundamental trait that defines the lifecycle of a service.
-//!   Services implementing this trait can be initialized (`new`) and executed (`run`).
+//!   Implementors of this trait can be initialized with global and service-specific
+//!   configurations and then started to perform their designated tasks.
 //!
 //! The module aims to provide a clear and structured way to manage service-specific
 //! settings and their execution flow.
@@ -134,8 +135,6 @@ pub struct GlobalConfig {
 }
 
 /// An enum representing the configuration for any of the available services.
-///
-/// This allows for a unified way to pass around service-specific configurations.
 pub enum ServiceConfig {
     /// Configuration for the Orchestrator service.
     Orchestrator(OrchestratorConfig),
@@ -154,8 +153,7 @@ pub enum ServiceConfig {
 pub trait Run<Config> {
     /// Creates a new instance of the service.
     ///
-    /// This method should initialize any standalone state of the service that
-    /// does not depend on the specific `Config`.
+    /// This method should initialize any standalone state of the service depending on the specific `Config`.
     ///
     /// # Arguments
     ///

@@ -19,7 +19,7 @@
 //! To run the application with a specific subcommand and options:
 //!
 //! ```sh
-//! sensei-cli node --addr 192.168.1.10 --port 7070
+//! cargo run node --addr 192.168.1.10 --port 7070
 //! ```
 //!
 //! This command sets the system node address and port, overriding the defaults.

@@ -10,8 +10,8 @@
 //! - `cli`: Command-line interface parsing and argument handling.
 //! - `esp_tool`: Integration with the ESP tool for firmware flashing and monitoring.
 //! - `orchestrator`: High-level orchestration of system components.
-//! - `registry`: Component registry for managing system nodes and configurations.
-//! - `services`: Various services and utilities for system operation.
+//! - `registry`: Manages the status and discovery of hosts within the Sensei network.
+//! - `services`: Defines configurations and core traits for all Sensei services.
 //! - `system_node`: Representation and management of individual system nodes.
 //! - `visualiser`: Visualization tools for representing system status and logs.
 
