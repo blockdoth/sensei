@@ -1,8 +1,8 @@
+use std::num::{ParseFloatError, ParseIntError};
 use std::sync::PoisonError;
 
 use thiserror::Error;
 
-use crate::adapters::csv::CSVAdapterError;
 use crate::network::rpc_message::{DataMsg, HostId};
 use crate::network::tcp::ChannelMsg;
 
@@ -153,7 +153,23 @@ pub enum CsiAdapterError {
     /// Error from CSV adapter.
     #[error("CSV Adapter Error: {0}")]
     CSV(#[from] CSVAdapterError),
+
+    /// Error whilst parsing to int
+    #[error("Could not convert to int: {0}")]
+    IntConversionError(#[from] ParseIntError),
+
+    /// Error whilst parsing to float
+    #[error("Could not convert to float: {0}")]
+    FloatConversionError(#[from] ParseFloatError),
 }
+
+/// Specific errors of the CSV Adapter
+#[derive(Error, Debug)]
+pub enum CSVAdapterError {
+    #[error("Invalid number of columns in CSV row: {0}")]
+    InvalidData(String),
+}
+
 
 /// Errors specific to the ESP32 CSI adapter.
 #[derive(Error, Debug)]
