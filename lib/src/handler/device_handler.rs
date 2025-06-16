@@ -357,7 +357,7 @@ mod tests {
     use crate::network::rpc_message::{DataMsg, SourceType};
     use crate::sources::{DataSourceConfig, MockDataSourceT};
     use crate::adapters::{ DataAdapterConfig, MockCsiDataAdapter};
-    use crate::sources::controllers::{ ControllerParams, MockController};
+    use crate::sources::controllers::{ ControllerParams};
     use crate::sinks::{SinkConfig, MockSink};
     use crate::errors::TaskError;
     use crate::sinks::tcp::TCPConfig;
@@ -390,12 +390,6 @@ mod tests {
         }
     }
 
-    #[async_trait]
-    impl ToConfig<ControllerParams> for MockController {
-        async fn to_config(&self) -> Result<ControllerParams, TaskError> {
-            Ok(ControllerParams::Esp32(Default::default()))
-        }
-    }
 
 
     fn sample_config() -> DeviceHandlerConfig {
@@ -456,7 +450,6 @@ mod tests {
             .returning(|| Ok(()));
 
         mock_source.expect_read()
-            .times(1)
             .returning({
                 let raw_data_cloned = raw_data.clone();
                 move || Ok(Some(raw_data_cloned.clone()))

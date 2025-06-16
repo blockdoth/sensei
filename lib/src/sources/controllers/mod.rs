@@ -17,8 +17,6 @@ pub mod esp32_controller;
 #[cfg(target_os = "linux")]
 pub mod netlink_controller;
 use crate::ToConfig;
-#[cfg(test)]
-use mockall::automock;
 
 /// Trait that must be implemented by all source controller types.
 ///
@@ -52,7 +50,7 @@ pub trait Controller: Send + Sync + ToConfig<ControllerParams> {
     ///
     /// Returns a [`ControllerError`] if configuration fails (e.g., invalid
     /// parameters, platform restrictions, I/O errors).
-    async fn apply(&self, source: &mut dyn DataSourceT + Send) -> Result<(), ControllerError>;
+    async fn apply(&self, source: &mut dyn DataSourceT) -> Result<(), ControllerError>;
 }
 
 /// Unified configuration for all supported controller types.
