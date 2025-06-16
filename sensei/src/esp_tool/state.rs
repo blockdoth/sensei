@@ -454,9 +454,10 @@ impl TuiState {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use tokio::sync::mpsc;
+
+    use super::*;
 
     fn create_key_event(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
@@ -485,16 +486,43 @@ mod tests {
     fn test_handle_keyboard_event_main_panel() {
         let state = TuiState::new(); // focused_panel is Main by default
 
-        assert_eq!(state.handle_keyboard_event(create_key_event(KeyCode::Char('m'))), Some(EspUpdate::ModeChange));
-        assert_eq!(state.handle_keyboard_event(create_key_event(KeyCode::Char('e'))), Some(EspUpdate::EditSpamConfig));
-        assert_eq!(state.handle_keyboard_event(create_key_event(KeyCode::Char('s'))), Some(EspUpdate::TriggerBurstSpam));
-        assert_eq!(state.handle_keyboard_event(create_key_event(KeyCode::Char('t'))), Some(EspUpdate::ToggleContinuousSpam));
-        assert_eq!(state.handle_keyboard_event(create_key_event(KeyCode::Char('c'))), Some(EspUpdate::IncrementChannel));
-        assert_eq!(state.handle_keyboard_event(create_key_event(KeyCode::Char('l'))), Some(EspUpdate::ChangeCsiMode));
-        assert_eq!(state.handle_keyboard_event(create_key_event(KeyCode::Char('b'))), Some(EspUpdate::ChangeBandwidth));
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Char('m'))),
+            Some(EspUpdate::ModeChange)
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Char('e'))),
+            Some(EspUpdate::EditSpamConfig)
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Char('s'))),
+            Some(EspUpdate::TriggerBurstSpam)
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Char('t'))),
+            Some(EspUpdate::ToggleContinuousSpam)
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Char('c'))),
+            Some(EspUpdate::IncrementChannel)
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Char('l'))),
+            Some(EspUpdate::ChangeCsiMode)
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Char('b'))),
+            Some(EspUpdate::ChangeBandwidth)
+        );
         assert_eq!(state.handle_keyboard_event(create_key_event(KeyCode::Char('q'))), Some(EspUpdate::Exit));
-        assert_eq!(state.handle_keyboard_event(create_key_event(KeyCode::Char(','))), Some(EspUpdate::ClearCSI));
-        assert_eq!(state.handle_keyboard_event(create_key_event(KeyCode::Char('.'))), Some(EspUpdate::ClearLogs));
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Char(','))),
+            Some(EspUpdate::ClearCSI)
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Char('.'))),
+            Some(EspUpdate::ClearLogs)
+        );
         assert_eq!(state.handle_keyboard_event(create_key_event(KeyCode::Char('x'))), None); // Unmapped key
     }
 
@@ -503,23 +531,55 @@ mod tests {
         let mut state = TuiState::new();
         state.focused_panel = FocusedPanel::SpamConfig;
 
-        assert_eq!(state.handle_keyboard_event(create_key_event(KeyCode::Backspace)), Some(EspUpdate::SpamConfig(SpamConfigUpdate::Delete)));
-        assert_eq!(state.handle_keyboard_event(create_key_event(KeyCode::Enter)), Some(EspUpdate::SpamConfig(SpamConfigUpdate::Enter)));
-        assert_eq!(state.handle_keyboard_event(create_key_event(KeyCode::Tab)), Some(EspUpdate::SpamConfig(SpamConfigUpdate::TabRight)));
-        assert_eq!(state.handle_keyboard_event(create_key_event(KeyCode::BackTab)), Some(EspUpdate::SpamConfig(SpamConfigUpdate::TabLeft)));
-        assert_eq!(state.handle_keyboard_event(create_key_event(KeyCode::Right)), Some(EspUpdate::SpamConfig(SpamConfigUpdate::CursorRight)));
-        assert_eq!(state.handle_keyboard_event(create_key_event(KeyCode::Left)), Some(EspUpdate::SpamConfig(SpamConfigUpdate::CursorLeft)));
-        assert_eq!(state.handle_keyboard_event(create_key_event(KeyCode::Esc)), Some(EspUpdate::SpamConfig(SpamConfigUpdate::Escape)));
-        assert_eq!(state.handle_keyboard_event(create_key_event(KeyCode::Up)), Some(EspUpdate::SpamConfig(SpamConfigUpdate::CursorUp)));
-        assert_eq!(state.handle_keyboard_event(create_key_event(KeyCode::Down)), Some(EspUpdate::SpamConfig(SpamConfigUpdate::CursorDown)));
-        assert_eq!(state.handle_keyboard_event(create_key_event(KeyCode::Char('a'))), Some(EspUpdate::SpamConfig(SpamConfigUpdate::Edit('a'))));
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Backspace)),
+            Some(EspUpdate::SpamConfig(SpamConfigUpdate::Delete))
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Enter)),
+            Some(EspUpdate::SpamConfig(SpamConfigUpdate::Enter))
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Tab)),
+            Some(EspUpdate::SpamConfig(SpamConfigUpdate::TabRight))
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::BackTab)),
+            Some(EspUpdate::SpamConfig(SpamConfigUpdate::TabLeft))
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Right)),
+            Some(EspUpdate::SpamConfig(SpamConfigUpdate::CursorRight))
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Left)),
+            Some(EspUpdate::SpamConfig(SpamConfigUpdate::CursorLeft))
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Esc)),
+            Some(EspUpdate::SpamConfig(SpamConfigUpdate::Escape))
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Up)),
+            Some(EspUpdate::SpamConfig(SpamConfigUpdate::CursorUp))
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Down)),
+            Some(EspUpdate::SpamConfig(SpamConfigUpdate::CursorDown))
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Char('a'))),
+            Some(EspUpdate::SpamConfig(SpamConfigUpdate::Edit('a')))
+        );
 
         // Test 'q' for exit when FocussedInput is None
         state.focused_input = FocussedInput::None;
         assert_eq!(state.handle_keyboard_event(create_key_event(KeyCode::Char('q'))), Some(EspUpdate::Exit));
         state.focused_input = FocussedInput::SrcMac(0); // Reset for next potential tests
-        assert_eq!(state.handle_keyboard_event(create_key_event(KeyCode::Char('q'))), Some(EspUpdate::SpamConfig(SpamConfigUpdate::Edit('q'))));
-
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Char('q'))),
+            Some(EspUpdate::SpamConfig(SpamConfigUpdate::Edit('q')))
+        );
 
         assert_eq!(state.handle_keyboard_event(create_key_event(KeyCode::F(1))), None); // Unmapped key
     }
@@ -542,7 +602,6 @@ mod tests {
         assert_eq!(state.logs.front().unwrap().message, "Test log");
         assert_eq!(state.logs.front().unwrap().level, log::Level::Info);
 
-
         // Test log capacity
         for i in 0..LOG_BUFFER_CAPACITY + 5 {
             let entry_ts = chrono::Local::now();
@@ -563,7 +622,9 @@ mod tests {
         let mut state = TuiState::new();
         let (cmd_tx, _) = mpsc::channel(1);
         let (_, mut update_rx) = mpsc::channel(1);
-        state.handle_update(EspUpdate::Status("CONNECTED".to_string()), &cmd_tx, &mut update_rx).await;
+        state
+            .handle_update(EspUpdate::Status("CONNECTED".to_string()), &cmd_tx, &mut update_rx)
+            .await;
         assert_eq!(state.connection_status, "CONNECTED");
     }
 
@@ -574,7 +635,9 @@ mod tests {
         let (cmd_tx, _) = mpsc::channel(1);
         let (_, mut update_rx) = mpsc::channel(1);
 
-        state.handle_update(EspUpdate::CsiData(csi_data_entry.clone()), &cmd_tx, &mut update_rx).await;
+        state
+            .handle_update(EspUpdate::CsiData(csi_data_entry.clone()), &cmd_tx, &mut update_rx)
+            .await;
         assert_eq!(state.csi_data.len(), 1);
 
         // Test CSI data capacity
@@ -596,10 +659,11 @@ mod tests {
         assert_eq!(state.esp_mode, EspMode::SendingPaused);
         assert_eq!(state.unsaved_esp_config.mode, EspOperationMode::Transmit);
         assert!(state.unsaved_changes);
-        if let Some(EspChannelCommand::UpdatedConfig(params)) = cmd_rx.try_recv().ok() {
-             assert_eq!(params.mode, EspMode::SendingPaused);
-        } else { panic!("Command not sent"); }
-
+        if let Ok(EspChannelCommand::UpdatedConfig(params)) = cmd_rx.try_recv() {
+            assert_eq!(params.mode, EspMode::SendingPaused);
+        } else {
+            panic!("Command not sent");
+        }
 
         // Spam -> Listen
         state.handle_update(EspUpdate::ModeChange, &cmd_tx, &mut update_rx).await;
@@ -607,9 +671,11 @@ mod tests {
         assert_eq!(state.esp_mode, EspMode::Listening);
         assert_eq!(state.unsaved_esp_config.mode, EspOperationMode::Receive);
         assert!(state.unsaved_changes);
-        if let Some(EspChannelCommand::UpdatedConfig(params)) = cmd_rx.try_recv().ok() {
+        if let Ok(EspChannelCommand::UpdatedConfig(params)) = cmd_rx.try_recv() {
             assert_eq!(params.mode, EspMode::Listening);
-        } else { panic!("Command not sent"); }
+        } else {
+            panic!("Command not sent");
+        }
     }
 
     #[tokio::test]
@@ -650,7 +716,9 @@ mod tests {
 
         // Edit SrcMac
         state.focused_input = FocussedInput::SrcMac(0);
-        state.handle_update(EspUpdate::SpamConfig(SpamConfigUpdate::Edit('A')), &cmd_tx, &mut update_rx).await;
+        state
+            .handle_update(EspUpdate::SpamConfig(SpamConfigUpdate::Edit('A')), &cmd_tx, &mut update_rx)
+            .await;
         assert_eq!(state.unsaved_spam_settings.src_mac[0], 0xA2); // 'A' replaces high nibble of 0x12, resulting in 0xA2
         assert_eq!(state.focused_input, FocussedInput::SrcMac(1));
         assert!(state.unsaved_changes);
@@ -658,7 +726,9 @@ mod tests {
 
         // Edit DstMac
         state.focused_input = FocussedInput::DstMac(2); // 2nd byte, high nibble
-        state.handle_update(EspUpdate::SpamConfig(SpamConfigUpdate::Edit('B')), &cmd_tx, &mut update_rx).await;
+        state
+            .handle_update(EspUpdate::SpamConfig(SpamConfigUpdate::Edit('B')), &cmd_tx, &mut update_rx)
+            .await;
         assert_eq!(state.unsaved_spam_settings.dst_mac[1], 0xB2); // 'B' replaces high nibble of 0x82, resulting in 0xB2
         assert_eq!(state.focused_input, FocussedInput::DstMac(3));
         assert!(state.unsaved_changes);
@@ -667,7 +737,9 @@ mod tests {
         // Edit Reps
         state.focused_input = FocussedInput::Reps(0);
         state.unsaved_spam_settings.n_reps = 10;
-        state.handle_update(EspUpdate::SpamConfig(SpamConfigUpdate::Edit('2')), &cmd_tx, &mut update_rx).await;
+        state
+            .handle_update(EspUpdate::SpamConfig(SpamConfigUpdate::Edit('2')), &cmd_tx, &mut update_rx)
+            .await;
         assert_eq!(state.unsaved_spam_settings.n_reps, 20); // "2" replaces "1"
         assert_eq!(state.focused_input, FocussedInput::Reps(1));
         assert!(state.unsaved_changes);
@@ -676,7 +748,9 @@ mod tests {
         // Edit PauseMs
         state.focused_input = FocussedInput::PauseMs(1);
         state.unsaved_spam_settings.pause_ms = 53;
-        state.handle_update(EspUpdate::SpamConfig(SpamConfigUpdate::Edit('7')), &cmd_tx, &mut update_rx).await;
+        state
+            .handle_update(EspUpdate::SpamConfig(SpamConfigUpdate::Edit('7')), &cmd_tx, &mut update_rx)
+            .await;
         assert_eq!(state.unsaved_spam_settings.pause_ms, 57); // "7" replaces "3"
         assert_eq!(state.focused_input, FocussedInput::PauseMs(2));
         assert!(state.unsaved_changes);
@@ -692,13 +766,17 @@ mod tests {
         // Delete in SrcMac
         state.focused_input = FocussedInput::SrcMac(0);
         state.unsaved_spam_settings.src_mac[0] = 0xAB;
-        state.handle_update(EspUpdate::SpamConfig(SpamConfigUpdate::Delete), &cmd_tx, &mut update_rx).await;
+        state
+            .handle_update(EspUpdate::SpamConfig(SpamConfigUpdate::Delete), &cmd_tx, &mut update_rx)
+            .await;
         assert_eq!(state.unsaved_spam_settings.src_mac[0], 0);
 
         // Delete in Reps
         state.focused_input = FocussedInput::Reps(0);
         state.unsaved_spam_settings.n_reps = 123;
-        state.handle_update(EspUpdate::SpamConfig(SpamConfigUpdate::Delete), &cmd_tx, &mut update_rx).await;
+        state
+            .handle_update(EspUpdate::SpamConfig(SpamConfigUpdate::Delete), &cmd_tx, &mut update_rx)
+            .await;
         assert_eq!(state.unsaved_spam_settings.n_reps, 23); // "1" is removed
     }
 
@@ -710,7 +788,9 @@ mod tests {
         let (cmd_tx, mut cmd_rx) = mpsc::channel(1);
         let (_, mut update_rx) = mpsc::channel(1);
 
-        state.handle_update(EspUpdate::SpamConfig(SpamConfigUpdate::Enter), &cmd_tx, &mut update_rx).await;
+        state
+            .handle_update(EspUpdate::SpamConfig(SpamConfigUpdate::Enter), &cmd_tx, &mut update_rx)
+            .await;
         assert_eq!(state.focused_input, FocussedInput::None);
         assert_eq!(state.focused_panel, FocusedPanel::Main);
         assert!(cmd_rx.try_recv().is_ok()); // Check if apply_changes was called
@@ -724,11 +804,12 @@ mod tests {
         let (cmd_tx, _) = mpsc::channel(1);
         let (_, mut update_rx) = mpsc::channel(1);
 
-        state.handle_update(EspUpdate::SpamConfig(SpamConfigUpdate::Escape), &cmd_tx, &mut update_rx).await;
+        state
+            .handle_update(EspUpdate::SpamConfig(SpamConfigUpdate::Escape), &cmd_tx, &mut update_rx)
+            .await;
         assert_eq!(state.focused_input, FocussedInput::None);
         assert_eq!(state.focused_panel, FocusedPanel::Main);
     }
-
 
     #[tokio::test]
     async fn test_handle_update_change_bandwidth() {

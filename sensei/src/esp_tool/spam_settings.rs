@@ -340,10 +340,9 @@ mod tests {
 
         // DstMac
         assert_eq!(FocussedInput::DstMac(2).tab_left(), FocussedInput::DstMac(0));
-        assert_eq!(FocussedInput::DstMac(1).tab_left(), FocussedInput::Reps(0));   // Cycle to Reps
-        assert_eq!(FocussedInput::DstMac(0).tab_left(), FocussedInput::Reps(0));   // Cycle to Reps
+        assert_eq!(FocussedInput::DstMac(1).tab_left(), FocussedInput::Reps(0)); // Cycle to Reps
+        assert_eq!(FocussedInput::DstMac(0).tab_left(), FocussedInput::Reps(0)); // Cycle to Reps
         assert_eq!(FocussedInput::DstMac(11).tab_left(), FocussedInput::DstMac(9));
-
 
         // PauseMs
         assert_eq!(FocussedInput::PauseMs(0).tab_left(), FocussedInput::DstMac(11)); // Cycle to end of DstMac
@@ -399,16 +398,15 @@ mod tests {
         assert_eq!(FocussedInput::SrcMac(0).cursor_down(), FocussedInput::DstMac(0)); // SrcMac -> DstMac
 
         // From DstMac
-        assert_eq!(FocussedInput::DstMac(5).cursor_up(), FocussedInput::SrcMac(5));   // DstMac -> SrcMac
+        assert_eq!(FocussedInput::DstMac(5).cursor_up(), FocussedInput::SrcMac(5)); // DstMac -> SrcMac
         assert_eq!(FocussedInput::DstMac(5).cursor_down(), FocussedInput::DstMac(5)); // Stays on DstMac
 
         // From Reps
-        assert_eq!(FocussedInput::Reps(0).cursor_up(), FocussedInput::Reps(0));     // Stays on Reps
+        assert_eq!(FocussedInput::Reps(0).cursor_up(), FocussedInput::Reps(0)); // Stays on Reps
         assert_eq!(FocussedInput::Reps(0).cursor_down(), FocussedInput::PauseMs(0)); // Reps -> PauseMs
 
         // From PauseMs
-        assert_eq!(FocussedInput::PauseMs(0).cursor_up(), FocussedInput::Reps(0));    // PauseMs -> Reps
+        assert_eq!(FocussedInput::PauseMs(0).cursor_up(), FocussedInput::Reps(0)); // PauseMs -> Reps
         assert_eq!(FocussedInput::PauseMs(0).cursor_down(), FocussedInput::PauseMs(0)); // Stays on PauseMs
     }
-
 }
