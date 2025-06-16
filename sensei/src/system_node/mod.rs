@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use lib::FromConfig;
-use lib::adapters::CsiDataAdapter; // Added CsiDataAdapter
+use lib::adapters::CsiDataAdapter;
 use lib::errors::NetworkError;
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
 use lib::network::rpc_message::CfgType::{Create, Delete, Edit};
@@ -24,10 +24,10 @@ use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, HostChannel, RegChannel, SubscribeDataChannel, send_message};
 use lib::sinks::{Sink, SinkConfig};
 use lib::sources::tcp::TCPConfig;
-use lib::sources::{DataSourceConfig, DataSourceT}; // Added DataSourceT
+use lib::sources::{DataSourceConfig, DataSourceT};
 use log::*;
 use tokio::net::tcp::OwnedWriteHalf;
-use tokio::sync::{Mutex, broadcast, mpsc, watch}; // Added mpsc
+use tokio::sync::{Mutex, broadcast, mpsc, watch};
 use tokio::task::{self, JoinHandle};
 
 use crate::registry::Registry;
@@ -56,12 +56,12 @@ pub struct SystemNode {
     local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,               // For local DeviceHandler data
     local_data_rx: Arc<Mutex<mpsc::Receiver<(DataMsg, DeviceId)>>>, // Receiver for local data
     handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
-    sinks: Arc<Mutex<HashMap<String, Box<dyn Sink>>>>, // Added shared sinks
+    sinks: Arc<Mutex<HashMap<String, Box<dyn Sink>>>>,
     addr: SocketAddr,
     host_id: u64,
     registry_addrs: Option<Vec<SocketAddr>>,
     device_configs: Vec<DeviceHandlerConfig>,
-    sink_configs: Vec<SinkConfigWithName>, // Added sink configurations
+    sink_configs: Vec<SinkConfigWithName>,
     registry: Registry,
 }
 
