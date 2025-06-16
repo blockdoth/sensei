@@ -8,9 +8,13 @@ use super::state::FocussedInput;
 /// and pause duration in milliseconds.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SpamSettings {
+    /// Source MAC address for spam packets.
     pub src_mac: [u8; 6],
+    /// Destination MAC address for spam packets.
     pub dst_mac: [u8; 6],
+    /// Number of repetitions of spam bursts.
     pub n_reps: u32,
+    /// Pause duration in milliseconds between spam bursts.
     pub pause_ms: u32,
 }
 

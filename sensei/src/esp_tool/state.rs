@@ -89,11 +89,11 @@ pub enum EspUpdate {
     /// Acknowledge a successful controller update.
     ControllerUpdateSuccess,
     /// Handle ESP device disconnection.
-    ClearLogs,
-    /// Clears the logs
-    ClearCSI,
-    /// Clears CSI log
     EspDisconnected,
+    /// Clears the logs.
+    ClearLogs,
+    /// Clears CSI log.
+    ClearCSI,
     /// Exit the application.
     Exit,
 }
@@ -116,7 +116,9 @@ pub struct TuiState {
     pub focused_panel: FocusedPanel,
     pub focused_input: FocussedInput,
     pub logs: VecDeque<LogEntry>,
+    /// Current operational mode of the tool (Listen or Spam).
     pub tool_mode: ToolMode,
+    /// Current ESP32 operational mode.
     pub esp_mode: EspMode,
     pub last_error_message: Option<String>,
     pub csi_data: VecDeque<CsiData>,
