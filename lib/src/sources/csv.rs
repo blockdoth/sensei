@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::{path, vec};
@@ -59,16 +60,31 @@ impl DataSourceT for CsvSource {
     async fn read_buf(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError> {
         // create str buff
         let line: &mut Vec<u8> = &mut Vec::new();
-        // read line from file
-        let bytes_read = self
+        let mut total_read = 0;
+        while total_read < buf.len() {
+            let mut line = Vec::new();
+            let bytes_read = self
             .reader
-            .read_until(self.config.row_delimiter, line)
+            .read_until(self.config.row_delimiter, &mut line)
             .map_err(|e| DataSourceError::GenericError(format!("Failed to read from CSV file: {}: {}", self.config.path.display(), e)))?;
-        // put the line into the buffer
-        buf[..bytes_read].copy_from_slice(line);
+
+            if bytes_read == 0 {
+                // EOF
+                break;
+            }
+
+            let to_copy = min(buf.len() - total_read, line.len());
+            buf[total_read..total_read + to_copy].copy_from_slice(&line[..to_copy]);
+            total_read += to_copy;
+
+            // If we read a full line, stop after copying it (even if buffer isn't full)
+            if line.ends_with(&[self.config.row_delimiter]) || to_copy < line.len() {
+                break;
+            }
+        }
         // sleep for the delay
         tokio::time::sleep(tokio::time::Duration::from_millis(self.config.delay.into())).await;
-        Ok(bytes_read)
+        Ok(total_read)
     }
 
     /// Start the data source
@@ -123,6 +139,120 @@ mod tests {
     use tempfile::NamedTempFile;
 
     use super::*;
+
+
+    #[tokio::test]
+    async fn test_csv_source_read_buf_partial_line() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "header1,header2\nvalue1,value2\nvalue3,value4").unwrap();
+
+        let config = CsvConfig {
+            path: temp_file.path().to_path_buf(),
+            cell_delimiter: b',',
+            row_delimiter: b'\n',
+            header: true,
+            delay: 1,
+        };
+
+        let mut csv_source = CsvSource::new(config).unwrap();
+
+        // Buffer smaller than a full line ("value1,value2\n" is 13 bytes)
+        let mut buffer = vec![0; 5];
+        let bytes_read = csv_source.read_buf(&mut buffer).await.unwrap();
+        assert_eq!(bytes_read, 5);
+        // Should only contain the first 5 bytes of the first data line
+        assert_eq!(&buffer[..bytes_read], b"value");
+
+        // Read the rest of the line
+        let mut buffer2 = vec![0; 16];
+        let bytes_read2 = csv_source.read_buf(&mut buffer2).await.unwrap();
+        assert!(bytes_read2 > 0);
+        // Should contain the rest of the first line (including delimiter) or start of next line
+        assert!(std::str::from_utf8(&buffer2[..bytes_read2]).unwrap().contains("1,value2\n") || std::str::from_utf8(&buffer2[..bytes_read2]).unwrap().contains("1,value2"));
+    }
+
+    #[tokio::test]
+    async fn test_csv_source_read_buf_exact_line() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "header1,header2\nvalue1,value2\n").unwrap();
+
+        let config = CsvConfig {
+            path: temp_file.path().to_path_buf(),
+            cell_delimiter: b',',
+            row_delimiter: b'\n',
+            header: true,
+            delay: 1,
+        };
+
+        let mut csv_source = CsvSource::new(config).unwrap();
+
+        // "value1,value2\n" is 13 bytes
+        let mut buffer = vec![0; 13];
+        let bytes_read = csv_source.read_buf(&mut buffer).await.unwrap();
+        assert_eq!(bytes_read, 13);
+        assert_eq!(&buffer[..bytes_read], b"value1,value2\n");
+    }
+
+    #[tokio::test]
+    async fn test_csv_source_read_buf_multiple_small_reads() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "header1,header2\nvalue1,value2\nvalue3,value4\n").unwrap();
+
+        let config = CsvConfig {
+            path: temp_file.path().to_path_buf(),
+            cell_delimiter: b',',
+            row_delimiter: b'\n',
+            header: true,
+            delay: 1,
+        };
+
+        let mut csv_source = CsvSource::new(config).unwrap();
+
+        // Read first line in small chunks
+        let mut buffer = vec![0; 4];
+        let bytes_read1 = csv_source.read_buf(&mut buffer).await.unwrap();
+        assert_eq!(bytes_read1, 4);
+
+        let mut buffer2 = vec![0; 4];
+        let bytes_read2 = csv_source.read_buf(&mut buffer2).await.unwrap();
+        assert_eq!(bytes_read2, 4);
+
+        let mut buffer3 = vec![0; 10];
+        let bytes_read3 = csv_source.read_buf(&mut buffer3).await.unwrap();
+        assert!(bytes_read3 > 0);
+
+        // After three reads, we should have consumed at least the first line and started the second
+        let mut collected = Vec::new();
+        collected.extend_from_slice(&buffer[..bytes_read1]);
+        collected.extend_from_slice(&buffer2[..bytes_read2]);
+        collected.extend_from_slice(&buffer3[..bytes_read3]);
+        let collected_str = String::from_utf8_lossy(&collected);
+        assert!(collected_str.contains("value1,value2"));
+    }
+
+    #[tokio::test]
+    async fn test_csv_source_read_buf_eof() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "header1,header2\nvalue1,value2").unwrap();
+
+        let config = CsvConfig {
+            path: temp_file.path().to_path_buf(),
+            cell_delimiter: b',',
+            row_delimiter: b'\n',
+            header: true,
+            delay: 1,
+        };
+
+        let mut csv_source = CsvSource::new(config).unwrap();
+
+        let mut buffer = vec![0; 1024];
+        let bytes_read = csv_source.read_buf(&mut buffer).await.unwrap();
+        assert!(bytes_read > 0);
+
+        // Next read should return 0 (EOF)
+        let bytes_read2 = csv_source.read_buf(&mut buffer).await.unwrap();
+        assert_eq!(bytes_read2, 0);
+    }
 
     #[tokio::test]
     async fn test_csv_source_new_success() {
