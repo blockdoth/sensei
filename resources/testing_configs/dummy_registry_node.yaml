@@ -1,0 +1,5 @@
+addr: "127.0.0.1:8080"
+host_id: 1
+registries:
+registry_polling_rate_s: 3
+device_configs:
