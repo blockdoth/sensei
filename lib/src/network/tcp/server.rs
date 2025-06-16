@@ -27,12 +27,14 @@ use std::sync::Arc;
 
 use log::{debug, info, trace, warn};
 use tokio::net::tcp::OwnedReadHalf;
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpSocket, TcpStream};
 use tokio::sync::watch::{self, Sender};
 
 use super::{ConnectionHandler, MAX_MESSAGE_LENGTH, SubscribeDataChannel, read_message};
 use crate::errors::NetworkError;
 use crate::network::tcp::{ChannelMsg, HostChannel};
+
+const MAX_CONNECTIONS: u32 = 512;
 
 /// Asynchronous TCP server for handling Sensei network connections.
 ///
@@ -60,14 +62,22 @@ impl TcpServer {
         H: ConnectionHandler + SubscribeDataChannel + Clone + 'static,
     {
         info!("Starting node on address {addr}");
-        let listener = TcpListener::bind(addr).await?;
+
+        let socket = match addr {
+            std::net::SocketAddr::V4(_) => TcpSocket::new_v4()?,
+            std::net::SocketAddr::V6(_) => TcpSocket::new_v6()?,
+        };
+        socket.set_reuseaddr(true)?;
+        socket.set_reuseport(true)?;
+        socket.set_keepalive(true)?;
+        socket.bind(addr)?;
+        let listener = socket.listen(MAX_CONNECTIONS)?;
+
         loop {
             match listener.accept().await {
-                Ok((stream, _peer_addr)) => {
+                Ok((stream, peer_addr)) => {
                     let local_handler = connection_handler.clone();
-                    tokio::spawn(async move {
-                        let _ = Self::init_connection(stream, local_handler).await;
-                    });
+                    tokio::spawn(Self::init_connection(stream, local_handler));
                 }
                 Err(e) => {
                     warn!("Failed to accept connection: {e}");
