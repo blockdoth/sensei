@@ -26,8 +26,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use log::{debug, info, trace, warn};
-use tokio::net::tcp::OwnedReadHalf;
+use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpSocket, TcpStream};
+use tokio::sync::broadcast;
 use tokio::sync::watch::{self, Sender};
 
 use super::{ConnectionHandler, MAX_MESSAGE_LENGTH, SubscribeDataChannel, read_message};
@@ -158,10 +159,10 @@ impl TcpServer {
 
     /// The writing task.
     async fn write_task<H>(
-        write_stream: tokio::net::tcp::OwnedWriteHalf,
+        write_stream: OwnedWriteHalf,
         recv_commands_channel: watch::Receiver<ChannelMsg>,
         connection_handler_local: Arc<H>,
-        recv_data_channel_local: tokio::sync::broadcast::Receiver<(crate::network::rpc_message::DataMsg, u64)>,
+        recv_data_channel_local: broadcast::Receiver<(crate::network::rpc_message::DataMsg, u64)>,
     ) -> Result<(), NetworkError>
     where
         H: ConnectionHandler + SubscribeDataChannel + Clone + 'static,
@@ -183,11 +184,15 @@ mod tests {
 
     use mockall::automock;
     use mockall::predicate::*;
+    use tokio::net::tcp::OwnedWriteHalf;
     use tokio::net::{TcpListener, TcpStream};
+    
     use tokio::sync::{broadcast, watch};
+    use tokio::time::sleep;
 
     use super::*;
     use crate::network::rpc_message::HostCtrl;
+    use crate::network::rpc_message::RpcMessage;
 
     #[automock]
     #[async_trait::async_trait]
@@ -201,7 +206,7 @@ mod tests {
             &self,
             _recv_commands_channel: watch::Receiver<ChannelMsg>,
             _recv_data_channel: broadcast::Receiver<(crate::network::rpc_message::DataMsg, u64)>,
-            _send_stream: tokio::net::tcp::OwnedWriteHalf,
+            _send_stream: OwnedWriteHalf,
         ) -> Result<(), NetworkError>;
     }
 
@@ -216,7 +221,7 @@ mod tests {
     impl ConnectionHandler for DummyHandler {
         async fn handle_recv(
             &self,
-            _request: crate::network::rpc_message::RpcMessage,
+            _request: RpcMessage,
             _send_commands_channel: watch::Sender<ChannelMsg>,
         ) -> Result<(), NetworkError> {
             Ok(())
@@ -225,7 +230,7 @@ mod tests {
             &self,
             _recv_commands_channel: watch::Receiver<ChannelMsg>,
             _recv_data_channel: broadcast::Receiver<(crate::network::rpc_message::DataMsg, u64)>,
-            _send_stream: tokio::net::tcp::OwnedWriteHalf,
+            _send_stream: OwnedWriteHalf,
         ) -> Result<(), NetworkError> {
             Ok(())
         }
@@ -247,9 +252,9 @@ mod tests {
         let server = tokio::spawn(async move {
             TcpServer::serve(local_addr, handler_clone).await.ok();
         });
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        sleep(Duration::from_millis(100)).await;
         let _client = TcpStream::connect(local_addr).await.unwrap();
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        sleep(Duration::from_millis(100)).await;
         server.abort();
     }
 

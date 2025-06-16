@@ -35,6 +35,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::sync::Mutex;
+use tokio::time::timeout;
 
 use crate::errors::NetworkError;
 use crate::network::rpc_message::RpcMessageKind::*;
@@ -128,7 +129,7 @@ impl TcpClient {
     /// # Errors
     /// Returns a `NetworkError` if the disconnect fails or times out.
     pub async fn disconnect(&mut self, target_addr: SocketAddr) -> Result<(), NetworkError> {
-        tokio::time::timeout(CONNECTION_TIMEOUT, self.wait_for_disconnect(target_addr)).await?
+        timeout(CONNECTION_TIMEOUT, self.wait_for_disconnect(target_addr)).await?
     }
 
     /// Reads a message from the specified connection, waiting up to the connection timeout.
@@ -136,7 +137,7 @@ impl TcpClient {
     /// # Errors
     /// Returns a `NetworkError` if reading fails or times out.
     pub async fn read_message(&mut self, target_addr: SocketAddr) -> Result<RpcMessage, NetworkError> {
-        tokio::time::timeout(CONNECTION_TIMEOUT, self.wait_for_read_message(target_addr)).await?
+        timeout(CONNECTION_TIMEOUT, self.wait_for_read_message(target_addr)).await?
     }
 
     /// Sends a message to the specified connection, waiting up to the connection timeout.
@@ -144,7 +145,7 @@ impl TcpClient {
     /// # Errors
     /// Returns a `NetworkError` if sending fails or times out.
     pub async fn send_message(&mut self, target_addr: SocketAddr, msg: RpcMessageKind) -> Result<(), NetworkError> {
-        tokio::time::timeout(CONNECTION_TIMEOUT, self.wait_for_send_message(target_addr, msg)).await?
+        timeout(CONNECTION_TIMEOUT, self.wait_for_send_message(target_addr, msg)).await?
     }
 
     /// Waits for a graceful disconnect from the specified connection.

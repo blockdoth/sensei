@@ -28,7 +28,7 @@ use lib::sources::{DataSourceConfig, DataSourceT}; // Added DataSourceT
 use log::*;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::{Mutex, broadcast, mpsc, watch}; // Added mpsc
-use tokio::task::{self};
+use tokio::task::{self, JoinHandle};
 
 use crate::registry::Registry;
 use crate::services::{GlobalConfig, Run, SystemNodeConfig};
@@ -450,8 +450,13 @@ impl Run<SystemNodeConfig> for SystemNode {
         // Create a TCP host server task
         info!("Starting TCP server on {}...", self.addr);
         let connection_handler = Arc::new(self.clone());
-        let tcp_server_task: tokio::task::JoinHandle<()> = task::spawn(async move {
-            TcpServer::serve(connection_handler.addr, connection_handler).await.unwrap();
+        let tcp_server_task: JoinHandle<()> = task::spawn(async move {
+            match TcpServer::serve(connection_handler.addr, connection_handler).await {
+                Ok(_) => (),
+                Err(e) => {
+                    panic!("The TCP server encountered an error: {e}")
+                },
+            };
         });
 
         // Task for processing local data
