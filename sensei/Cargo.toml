@@ -9,7 +9,7 @@ tokio = { version = "1.44.2", features = ["full"] }
 anyhow = "1.0.98"
 async-trait = "0.1.88"
 argh = "0.1.12"
-log = "0.4.27"
+log = { version = "0.4.27", features = ["std"] }
 simplelog = "0.12.2"
 ratatui = "0.29.0"
 charming = "0.4.0"
