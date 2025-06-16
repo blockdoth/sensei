@@ -1266,8 +1266,10 @@ dependencies = [
  "ratatui",
  "rustfft",
  "serde",
+ "serde_json",
  "serde_yaml",
  "simplelog",
+ "tempfile",
  "tokio",
 ]
 
