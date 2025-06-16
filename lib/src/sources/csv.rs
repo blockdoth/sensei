@@ -11,7 +11,7 @@ use crate::network::rpc_message::SourceType;
 use crate::sources::{BUFSIZE, DataMsg, DataSourceConfig, DataSourceT};
 
 /// Config struct which can be parsed from a toml config
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, PartialEq)]
 pub struct CsvConfig {
     /// Path to the CSV file
     pub path: path::PathBuf,

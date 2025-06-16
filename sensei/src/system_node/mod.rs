@@ -275,7 +275,7 @@ impl SystemNode {
         let mut rx = self.local_data_rx.lock().await;
         info!("Starting local data processing task.");
         while let Some((data_msg, device_id)) = rx.recv().await {
-            info!("SystemNode received local data for device_id: {device_id}");
+            trace!("SystemNode received local data for device_id: {device_id}");
             // 1. Broadcast to connected TCP clients
             if self.send_data_channel.receiver_count() > 0 {
                 if let Err(e) = self.send_data_channel.send((data_msg.clone(), device_id)) {
@@ -393,9 +393,7 @@ impl Run<SystemNodeConfig> for SystemNode {
         for sink_conf_with_name in &self.sink_configs {
             info!("Initializing sink: {}", sink_conf_with_name.id);
             let mut sink = <dyn Sink>::from_config(sink_conf_with_name.config.clone()).await?;
-            sink.open()
-                .await
-                .map_err(|e| format!("Failed to open sink {}: {:?}", sink_conf_with_name.id, e))?;
+            sink.open().await?;
             sinks_map.insert(sink_conf_with_name.id.clone(), sink);
         }
         drop(sinks_map); // Release lock
@@ -403,7 +401,7 @@ impl Run<SystemNodeConfig> for SystemNode {
         // Initialize Device Handlers
         let mut handlers_map = self.handlers.lock().await;
         for cfg in &self.device_configs {
-            let mut handler = DeviceHandler::from_config(cfg.clone()).await.unwrap();
+            let mut handler = DeviceHandler::from_config(cfg.clone()).await?;
             // Pass the sender for local data to the handler's start method
             handler
                 .start(
@@ -414,9 +412,7 @@ impl Run<SystemNodeConfig> for SystemNode {
                         None
                     },
                     self.local_data_tx.clone(),
-                )
-                .await
-                .expect("Failed to start device handler");
+                ).await?;
             handlers_map.insert(cfg.device_id, handler);
         }
         drop(handlers_map); // Release lock
