@@ -170,7 +170,6 @@ pub enum CSVAdapterError {
     InvalidData(String),
 }
 
-
 /// Errors specific to the ESP32 CSI adapter.
 #[derive(Error, Debug)]
 pub enum Esp32AdapterError {

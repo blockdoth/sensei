@@ -18,6 +18,21 @@ pub struct CSVAdapter<'a> {
 }
 
 #[allow(clippy::needless_lifetimes)] // TODO: fix this
+/// Implementation of the `CSVAdapter` for parsing CSV-formatted CSI data.
+///
+/// # Methods
+///
+/// - `new(buffer, tmp_data, cell_delimiter, line_delimiter) -> Self`  
+///   Constructs a new `CSVAdapter` with the provided buffer, optional temporary data, and optional cell and line delimiters.
+///
+/// - `split_rows(&mut self) -> Vec<Vec<u8>>`  
+///   Splits the internal buffer into rows using the configured line delimiter, returning a vector of rows as byte vectors. The buffer is updated to contain only the unprocessed remainder.
+///
+/// - `parse_row(&self, row: &[u8]) -> Result<Vec<String>, CsiAdapterError>`  
+///   Parses a single CSV row into a vector of cell strings, handling quoted fields. Returns an error if parsing fails or the row is empty.
+///
+/// - `consume(&mut self, buf: &[u8]) -> Result<Option<CsiData>, CsiAdapterError>`  
+///   Consumes additional bytes into the buffer, splits and parses the last complete row, and attempts to construct a `CsiData` instance from the parsed cells. Handles parsing of numeric fields, RSSI values, and complex CSI values. Returns `Ok(Some(CsiData))` if a row was successfully parsed, `Ok(None)` if no complete row is available, or an error if parsing fails.
 impl<'a> CSVAdapter<'a> {
     pub fn new(buffer: Vec<u8>, tmp_data: Option<CsiData>, cell_delimiter: Option<&'a u8>, line_delimiter: Option<&'a u8>) -> Self {
         Self {
@@ -52,10 +67,7 @@ impl<'a> CSVAdapter<'a> {
         if let Some(result) = rdr.records().next() {
             match result {
                 Ok(rec) => Ok(rec.iter().map(|s| s.to_string()).collect()),
-                Err(e) => Err(CsiAdapterError::CSV(CSVAdapterError::InvalidData(format!(
-                    "CSV parse error: {}",
-                    e
-                )))),
+                Err(e) => Err(CsiAdapterError::CSV(CSVAdapterError::InvalidData(format!("CSV parse error: {e}")))),
             }
         } else {
             Err(CsiAdapterError::CSV(CSVAdapterError::InvalidData("Empty CSV row".to_string())))
@@ -78,9 +90,12 @@ impl<'a> CSVAdapter<'a> {
             ))));
         }
 
-        let mut csi_data = CsiData::default();
-        csi_data.timestamp = cells[0].trim_matches(|c| c == '\n' || c == '\0').parse::<f64>()?;
-        csi_data.sequence_number = cells[1].parse::<u16>()?;
+        let mut csi_data = CsiData {
+            timestamp: cells[0].trim_matches(|c| c == '\n' || c == '\0').parse::<f64>()?,
+            sequence_number: cells[1].parse::<u16>()?,
+            ..Default::default()
+        };
+
         let num_cores = cells[2].parse::<u8>()?;
         let num_streams = cells[3].parse::<u8>()?;
         let num_subcarriers = cells[4].parse::<u8>()?;
@@ -113,11 +128,11 @@ impl<'a> CSVAdapter<'a> {
                 } else {
                     (inner, "")
                 };
-                let real = real.parse::<f64>().map_err(|e| CsiAdapterError::FloatConversionError(e))?;
+                let real = real.parse::<f64>().map_err(CsiAdapterError::FloatConversionError)?;
                 let imag = imag
                     .trim_start_matches('+')
                     .parse::<f64>()
-                    .map_err(|e| CsiAdapterError::FloatConversionError(e))?;
+                    .map_err(CsiAdapterError::FloatConversionError)?;
                 Ok(Complex { re: real, im: imag })
             })
             .collect::<Result<Vec<Complex>, CsiAdapterError>>()?;
@@ -127,7 +142,7 @@ impl<'a> CSVAdapter<'a> {
             .flat_map(|core| core.iter_mut())
             .flat_map(|stream| stream.iter_mut())
             .zip(complex_values.iter())
-            .for_each(|(subcarrier, value)| *subcarrier = value.clone());
+            .for_each(|(subcarrier, value)| *subcarrier = *value);
         csi_data.csi = csi;
 
         self.tmp_data = Some(csi_data);
@@ -202,7 +217,7 @@ impl ToConfig<DataAdapterConfig> for CSVAdapter<'_> {
 
 #[cfg(test)]
 mod tests {
-    use log::{error};
+    use log::error;
 
     use super::*;
 
