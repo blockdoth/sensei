@@ -297,8 +297,6 @@ mod tests {
     fn test_esp_tool_new() {
         let global_config = GlobalConfig {
             log_level: LevelFilter::Debug,
-            // Remove ..Default::default() as GlobalConfig doesn\'t implement Default
-            // Add other necessary fields if any, or ensure they are not needed for this test
         };
         let esp_config = EspToolConfig {
             serial_port: "/dev/ttyUSB0".to_string(),
@@ -313,7 +311,7 @@ mod tests {
         let log_entry = LogEntry {
             level: Level::Info,
             message: "Test log message".to_string(),
-            timestamp: Local::now(), // Use Local::now() for the correct type
+            timestamp: Local::now(),
         };
         let esp_update = EspUpdate::from_log(log_entry.clone());
         match esp_update {
