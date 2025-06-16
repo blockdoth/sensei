@@ -16,6 +16,8 @@
 //! ```
 
 use async_trait::async_trait;
+#[cfg(test)]
+use mockall::automock;
 
 use crate::errors::{SinkError, TaskError};
 use crate::network::rpc_message::DataMsg;
@@ -31,6 +33,7 @@ pub mod tcp;
 /// or storing in a database.
 ///
 /// Implementations must be `Send` to ensure they can be used across asynchronous tasks.
+#[cfg_attr(test, automock)]
 #[async_trait]
 pub trait Sink: Send + ToConfig<SinkConfig> {
     /// Open the connection to the sink

@@ -10,6 +10,9 @@
 //! Mofidied based on: wisense/sensei/lib/src/adapters/mod.rs
 //! Originally authored by: Fabian Portner
 
+#[cfg(test)]
+use mockall::automock;
+
 use crate::errors::{CsiAdapterError, TaskError};
 use crate::network::rpc_message::DataMsg;
 use crate::{FromConfig, ToConfig};
@@ -29,6 +32,7 @@ pub mod tcp;
 /// be fragmented over multiple packets. To this end, we split the API
 /// the function only starts reutrning data once the CSIData frame has been collected
 /// otherwise returns None
+#[cfg_attr(test, automock)]
 #[async_trait::async_trait]
 pub trait CsiDataAdapter: Send + ToConfig<DataAdapterConfig> {
     /// Attempts to consume a DataMsg and produce a CsiFrame variant.
