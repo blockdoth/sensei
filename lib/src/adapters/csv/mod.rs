@@ -6,26 +6,5 @@
 
 pub mod adapter;
 
-use thiserror::Error;
-
-/// Public reexport
+/// Public export
 pub use crate::adapters::csv::adapter::CSVAdapter;
-
-/// Specific errors of the Nexmon Adapter
-#[derive(Error, Debug)]
-pub enum CSVAdapterError {
-    #[error("Insufficient bytes to reconstruct header")]
-    IncompleteHeader,
-
-    #[error("Incomplete packet (missing payload bytes)")]
-    IncompletePacket,
-
-    #[error("Invalid code: {0}")]
-    InvalidCode(u8),
-
-    #[error("Invalid sequence number: {0}")]
-    InvalidSequenceNumber(u16),
-
-    #[error("Invalid number of columns in CSV row: {0}")]
-    InvalidData(String),
-}
