@@ -467,11 +467,11 @@ mod tests {
         let (msg, dev_id) = rx.recv().await.unwrap();
         assert_eq!(dev_id, 42);
 
-        // if let DataMsg::RawFrame { bytes, .. } = msg {
-        //     assert_eq!(bytes, vec![1, 2, 3]);
-        // } else {
-        //     panic!("Expected RawFrame");
-        // }
+        if let DataMsg::RawFrame { ref bytes, .. } = msg {
+            assert_eq!(*bytes, vec![1, 2, 3]);
+        } else {
+            panic!("Expected RawFrame");
+        }
 
         handler.stop().await.unwrap();
     }
