@@ -143,8 +143,30 @@
             },
             "args": [
                 "node",
-                "--config",
-                "sensei/src/system_node/dummy_node.yaml"
+                "--config-path",
+                "resources/example_configs/host/dummy_node.yaml"
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'sensei' - node (minimal)",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=sensei",
+                    "--package=sensei"
+                ],
+                "filter": {
+                    "name": "sensei",
+                    "kind": "bin"
+                }
+            },
+            "args": [
+                "node",
+                "--config-path",
+                "resources/example_configs/host/minimal.yaml"
             ],
             "cwd": "${workspaceFolder}"
         },

@@ -455,7 +455,7 @@ impl Run<SystemNodeConfig> for SystemNode {
                 Ok(_) => (),
                 Err(e) => {
                     panic!("The TCP server encountered an error: {e}")
-                },
+                }
             };
         });
 

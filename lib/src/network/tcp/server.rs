@@ -186,13 +186,11 @@ mod tests {
     use mockall::predicate::*;
     use tokio::net::tcp::OwnedWriteHalf;
     use tokio::net::{TcpListener, TcpStream};
-    
     use tokio::sync::{broadcast, watch};
     use tokio::time::sleep;
 
     use super::*;
-    use crate::network::rpc_message::HostCtrl;
-    use crate::network::rpc_message::RpcMessage;
+    use crate::network::rpc_message::{HostCtrl, RpcMessage};
 
     #[automock]
     #[async_trait::async_trait]
@@ -219,11 +217,7 @@ mod tests {
     struct DummyHandler;
     #[async_trait::async_trait]
     impl ConnectionHandler for DummyHandler {
-        async fn handle_recv(
-            &self,
-            _request: RpcMessage,
-            _send_commands_channel: watch::Sender<ChannelMsg>,
-        ) -> Result<(), NetworkError> {
+        async fn handle_recv(&self, _request: RpcMessage, _send_commands_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
             Ok(())
         }
         async fn handle_send(
