@@ -283,3 +283,46 @@ impl EspTool {
         info!("ESP actor task for port {:?} stopped.", esp.port);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use chrono::Local;
+    use lib::tui::logs::LogEntry;
+    use log::Level;
+
+    use super::*;
+    use crate::services::GlobalConfig; // Import Local for timestamp
+
+    #[test]
+    fn test_esp_tool_new() {
+        let global_config = GlobalConfig {
+            log_level: LevelFilter::Debug,
+            // Remove ..Default::default() as GlobalConfig doesn\'t implement Default
+            // Add other necessary fields if any, or ensure they are not needed for this test
+        };
+        let esp_config = EspToolConfig {
+            serial_port: "/dev/ttyUSB0".to_string(),
+        };
+        let esp_tool = EspTool::new(global_config, esp_config);
+        assert_eq!(esp_tool.serial_port, "/dev/ttyUSB0");
+        assert_eq!(esp_tool.log_level, LevelFilter::Debug);
+    }
+
+    #[test]
+    fn test_from_log_for_esp_update() {
+        let log_entry = LogEntry {
+            level: Level::Info,
+            message: "Test log message".to_string(),
+            timestamp: Local::now(), // Use Local::now() for the correct type
+        };
+        let esp_update = EspUpdate::from_log(log_entry.clone());
+        match esp_update {
+            EspUpdate::Log(received_log_entry) => {
+                assert_eq!(received_log_entry.level, log_entry.level);
+                assert_eq!(received_log_entry.message, log_entry.message);
+                assert_eq!(received_log_entry.timestamp, log_entry.timestamp);
+            }
+            _ => panic!("EspUpdate should be of type Log"),
+        }
+    }
+}
