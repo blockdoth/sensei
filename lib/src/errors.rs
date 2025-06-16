@@ -21,6 +21,10 @@ pub enum NetworkError {
     #[error("Message could not be sent due to a Watch error")]
     TokioWatchSendingError(#[from] tokio::sync::watch::error::SendError<ChannelMsg>),
 
+    /// Tokio was unable to receive a message
+    #[error("Message could not be received due to a Watch error")]
+    TokioWatchRecvError(#[from] tokio::sync::watch::error::RecvError),
+
     /// Communication operation timed out.
     #[error("Communication timed out")]
     Timeout(#[from] tokio::time::error::Elapsed),
@@ -52,6 +56,14 @@ pub enum NetworkError {
     /// Registry error
     #[error("The registry produced an error")]
     RegistryError(#[from] RegistryError),
+
+    /// Other error type
+    #[error("An error occurred")]
+    Other(#[from] Box<dyn std::error::Error + Send + Sync>),
+
+    /// Thrown when a connection that does not exist is referenced
+    #[error("That connection does not exist")]
+    NoSuchConnection,
 }
 
 /// Generic application-level error for unimplemented functionality.

@@ -53,6 +53,10 @@ pub type DeviceId = u64;
 /// Host control commands for managing device connections and subscriptions.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum HostCtrl {
+    /// Simple ping message. Host should respond with Pong.
+    Ping,
+    /// See ping
+    Pong,
     /// Connect to a host.
     Connect,
     /// Disconnect from a host.

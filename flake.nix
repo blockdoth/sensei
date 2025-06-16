@@ -46,6 +46,7 @@
                 nixfmt-rfc-style
                 rust-analyzer-unwrapped
                 mprocs
+                valgrind
                 pkg-config
               ]
               ++ lib.optionals pkgs.stdenv.isLinux [
