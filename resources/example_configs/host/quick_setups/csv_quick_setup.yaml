@@ -11,7 +11,7 @@ device_configs:
     stype: CSV
 
     source: !Csv
-      path: "/path/to/your/csi_data.csv" # TODO: Update with actual path
+      path: "resources/test_data/csv/csi_data.csv" # Change this line to use different input data.
       cell_delimiter: 44
       row_delimiter: 10
       header: true
