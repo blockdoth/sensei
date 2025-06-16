@@ -49,6 +49,7 @@ pub trait FromYaml: Sized + for<'de> Deserialize<'de> {
 
 pub struct OrchestratorConfig {
     pub experiment_config: PathBuf,
+    pub tui: bool,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]

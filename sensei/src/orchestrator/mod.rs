@@ -15,8 +15,10 @@ use lib::network::tcp::client::TcpClient;
 use lib::tui::TuiRunner;
 use log::*;
 use serde::{Deserialize, Serialize};
+use tokio::signal;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{Mutex, mpsc};
+use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
 use crate::orchestrator::IsRecurring::{NotRecurring, Recurring};
@@ -27,6 +29,7 @@ pub struct Orchestrator {
     client: Arc<Mutex<TcpClient>>,
     log_level: LevelFilter,
     experiment_config_path: Option<PathBuf>,
+    tui: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -172,6 +175,7 @@ impl Run<OrchestratorConfig> for Orchestrator {
             client: Arc::new(Mutex::new(TcpClient::new())),
             log_level: global_config.log_level,
             experiment_config_path: Some(config.experiment_config),
+            tui: config.tui,
         }
     }
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -184,10 +188,31 @@ impl Run<OrchestratorConfig> for Orchestrator {
             Box::pin(Self::initial_experiment(command_send.clone(), self.experiment_config_path.clone())),
         ];
 
-        let tui = OrgTuiState::new();
-        let tui_runner = TuiRunner::new(tui, command_send, update_recv, update_send, self.log_level);
+        if self.tui {
+            let tui = OrgTuiState::new();
+            let tui_runner = TuiRunner::new(tui, command_send, update_recv, update_send, self.log_level);
 
-        tui_runner.run(tasks).await;
+            tui_runner.run(tasks).await;
+        } else {
+            let mut handles: Vec<JoinHandle<()>> = vec![];
+            for task in tasks {
+                handles.push(tokio::spawn(task));
+            }
+
+            // Create a future that resolves when Ctrl+C is received
+            let ctrl_c = async {
+                signal::ctrl_c().await.expect("Failed to listen for ctrl + c");
+                println!(" Received Ctrl+c, shutting down...");
+            };
+
+            tokio::select! {
+                _ = ctrl_c => {}
+                _ = futures::future::join_all(handles) => {
+                    println!("All tasks completed");
+                }
+            }
+        }
+
         Ok(())
     }
 }

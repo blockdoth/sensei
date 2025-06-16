@@ -58,7 +58,7 @@ impl log::Log for TuiLogger {
                 level: record.level(),
                 message: format!("{}", record.args()),
             };
-            if self.log_sender.try_send(log_entry.clone()).is_err() {                
+            if self.log_sender.try_send(log_entry.clone()).is_err() {
                 eprintln!(
                     "[TUI_LOG_FALLBACK] {}: {} [{}] - {}",
                     Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),

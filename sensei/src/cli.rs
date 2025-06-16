@@ -128,6 +128,7 @@ impl ConfigFromCli<OrchestratorConfig> for OrchestratorSubcommandArgs {
         // TODO input validation
         Ok(OrchestratorConfig {
             experiment_config: self.experiment_config.clone(),
+            tui: self.tui,
         })
     }
 }

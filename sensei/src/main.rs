@@ -22,34 +22,32 @@ use crate::visualiser::*;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Args = argh::from_env();
 
-    if args.subcommand.is_some()
-        && !matches!(&args.subcommand, Some(SubCommandsArgs::EspTool(_)))
-        && !matches!(&args.subcommand, Some(SubCommandsArgs::Orchestrator(_)))
-    {
-        CombinedLogger::init(vec![
-            TermLogger::new(
-                args.level,
-                simplelog::ConfigBuilder::new()
-                    // .add_filter_allow("sensei".into())
-                    .build(),
-                TerminalMode::Mixed,
-                ColorChoice::Auto,
-            ),
-            WriteLogger::new(
-                LevelFilter::Error,
-                simplelog::ConfigBuilder::new()
-                    // .add_filter_allow("sensei".into())
-                    .set_location_level(LevelFilter::Error)
-                    .build(),
-                File::create("sensei.log").unwrap(),
-            ),
-        ])
-        .unwrap();
-        debug!("Parsed args and initialized CombinedLogger");
-    } else {
-        // For EspTest, logging will be handled by its TuiLogger.
-        // You might want a minimal print or log here indicating EspTest is starting,
-        // but TuiLogger in esp_tool.rs will print its own startup messages.
+    match &args.subcommand {
+        Some(SubCommandsArgs::EspTool(_)) => {}
+        Some(SubCommandsArgs::Orchestrator(org_config)) if org_config.tui == true => {}
+        // Dont init regular logger when using TUI's ^
+        _ => {
+            CombinedLogger::init(vec![
+                TermLogger::new(
+                    args.level,
+                    simplelog::ConfigBuilder::new()
+                        // .add_filter_allow("sensei".into())
+                        .build(),
+                    TerminalMode::Mixed,
+                    ColorChoice::Auto,
+                ),
+                WriteLogger::new(
+                    LevelFilter::Error,
+                    simplelog::ConfigBuilder::new()
+                        // .add_filter_allow("sensei".into())
+                        .set_location_level(LevelFilter::Error)
+                        .build(),
+                    File::create("sensei.log").unwrap(),
+                ),
+            ])
+            .unwrap();
+            debug!("Parsed args and initialized CombinedLogger");
+        }
     }
 
     debug!("Parsed args and initialized CombinedLogger");
@@ -58,12 +56,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => lib::tui::example::run_example().await,
         Some(subcommand) => match subcommand {
             SubCommandsArgs::SystemNode(args) => {
-                SystemNode::new(
-                    global_args,
-                    args.overlay_subcommand_args(SystemNodeConfig::from_yaml(args.config_path.clone())?)?,
-                )
-                .run()
-                .await?
+                let overlayed_config = args.overlay_subcommand_args(SystemNodeConfig::from_yaml(args.config_path.clone())?)?;
+                SystemNode::new(global_args, overlayed_config).run().await?
             }
             SubCommandsArgs::Orchestrator(args) => Orchestrator::new(global_args, args.parse()?).run().await?,
             SubCommandsArgs::Visualiser(args) => Visualiser::new(global_args, args.parse()?).run().await?,
