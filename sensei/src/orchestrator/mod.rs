@@ -181,7 +181,7 @@ impl Run<OrchestratorConfig> for Orchestrator {
         // Tasks needs to be boxed and pinned in order to make the type checker happy
         let tasks: Vec<Pin<Box<dyn Future<Output = ()> + Send>>> = vec![
             Box::pin(Self::command_handler(command_recv, update_send.clone(), self.client.clone())),
-            // Box::pin(Self::initial_experiment(command_send.clone(), self.experiment_config_path.clone())),
+            Box::pin(Self::initial_experiment(command_send.clone(), self.experiment_config_path.clone())),
         ];
 
         let tui = OrgTuiState::new();
@@ -203,7 +203,7 @@ impl Orchestrator {
                     command_send.send(OrgChannelMsg::RunExperiment(experiment)).await;
                 }
                 Err(e) => {
-                    error!("Unable to load experiment config {:?} {e}", experiment_config_path);
+                    error!("Unable to load experiment config {experiment_config_path:?} {e}");
                 }
             };
         } else {
@@ -252,15 +252,15 @@ impl Orchestrator {
     pub async fn handle_msg(client: Arc<Mutex<TcpClient>>, update_send: Sender<OrgUpdate>, msg: OrgChannelMsg) {
         match msg {
             OrgChannelMsg::Connect(target_addr) => {
-              info!("A");
-              let mut l = client.lock().await;
-              l.connect(target_addr).await;
-              info!("B");
+                info!("A");
+                let mut l = client.lock().await;
+                l.connect(target_addr).await;
+                info!("B");
             }
             OrgChannelMsg::Disconnect(target_addr) => {
-              info!("C");
-              client.lock().await.disconnect(target_addr).await;
-              info!("D");
+                info!("C");
+                client.lock().await.disconnect(target_addr).await;
+                info!("D");
             }
             OrgChannelMsg::Subscribe(target_addr, msg_origin_addr, device_id) => {
                 if let Some(msg_origin_addr) = msg_origin_addr {

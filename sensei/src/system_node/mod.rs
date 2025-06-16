@@ -379,7 +379,6 @@ impl Run<SystemNodeConfig> for SystemNode {
     ///
     /// # Arguments
     ///        let connection_handler = Arc::new(self.clone());
-
     /// SystemNodeConfig: Specifies the target address
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         // Initialize Sinks
