@@ -412,7 +412,8 @@ impl Run<SystemNodeConfig> for SystemNode {
                         None
                     },
                     self.local_data_tx.clone(),
-                ).await?;
+                )
+                .await?;
             handlers_map.insert(cfg.device_id, handler);
         }
         drop(handlers_map); // Release lock

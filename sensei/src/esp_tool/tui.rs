@@ -12,8 +12,10 @@ use super::state::TuiState;
 use crate::esp_tool::state::{FocusedPanel, FocussedInput, ToolMode};
 use crate::esp_tool::{CSI_DATA_BUFFER_CAPACITY, LOG_BUFFER_CAPACITY};
 
-const BASE_ESP_CONFIG_LINES: u16 = 6; // General ESP32 config lines
-const SPAM_DETAILS_LINES: u16 = 4; // Lines for spam-specific configuration details
+/// Base number of lines for the ESP32 configuration display area.
+const BASE_ESP_CONFIG_LINES: u16 = 6;
+/// Number of lines dedicated to displaying spam-specific configuration details.
+const SPAM_DETAILS_LINES: u16 = 4;
 
 // Renders the full TUI frame based on the current application state (TuiState).
 // This function is *purely presentational* and does not mutate state.
