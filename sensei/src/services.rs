@@ -91,3 +91,74 @@ pub trait Run<ServiceConfig> {
 }
 
 impl FromYaml for SystemNodeConfig {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use std::io::Write;
+    use tempfile::tempdir;
+
+    #[derive(Deserialize, PartialEq, Debug)]
+    struct TestConfig {
+        field1: String,
+        field2: i32,
+    }
+
+    impl FromYaml for TestConfig {}
+
+    #[test]
+    fn test_from_yaml_success() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test_config.yaml");
+        let mut file = File::create(&file_path).unwrap();
+        writeln!(file, "field1: hello\nfield2: 123").unwrap();
+
+        let config = TestConfig::from_yaml(file_path).unwrap();
+        assert_eq!(
+            config,
+            TestConfig {
+                field1: "hello".to_string(),
+                field2: 123
+            }
+        );
+    }
+
+    #[test]
+    fn test_from_yaml_file_not_found() {
+        let result = TestConfig::from_yaml(PathBuf::from("non_existent_file.yaml"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_yaml_malformed_content() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("malformed_config.yaml");
+        let mut file = File::create(&file_path).unwrap();
+        writeln!(file, "field1: hello\\nfield2: not_an_integer").unwrap();
+
+        let result = TestConfig::from_yaml(file_path);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_system_node_config_from_yaml() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("system_node_config.yaml");
+        let mut file = File::create(&file_path).unwrap();
+        writeln!(
+            file,
+            r#"
+addr: "127.0.0.1:8080"
+host_id: 1
+device_configs: []
+"#
+        )
+        .unwrap();
+
+        let config = SystemNodeConfig::from_yaml(file_path).unwrap();
+        assert_eq!(config.addr, "127.0.0.1:8080".parse().unwrap());
+        assert_eq!(config.host_id, 1);
+        assert!(config.registries.is_none()); // Ensure default is handled
+    }
+}
