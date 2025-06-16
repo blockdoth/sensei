@@ -329,12 +329,12 @@ impl Orchestrator {
     async fn send_ping(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
         let msg = RpcMessageKind::HostCtrl(HostCtrl::Ping);
         let mut client = client.lock().await;
-        client.send_message(target_addr, msg).await;
+        client.send_message(target_addr, msg).await?;
         let response = client.read_message(target_addr).await?;
         if let RpcMessageKind::HostCtrl(HostCtrl::Pong) = response.msg {
             Ok(())
         } else {
-            Err("Expected HostStatuses response".into())
+            Err("Expected Pong response".into())
         }
     }
 
@@ -537,24 +537,214 @@ impl Orchestrator {
                     let msg = recv_client.lock().await.read_message(*target_addr).await.unwrap();
                     match msg.msg {
                         Data {
-                            data_msg: DataMsg::CsiFrame { csi },
-                            device_id: _,
+                          data_msg: DataMsg::CsiFrame { csi },
+                          device_id: _,
                         } => {
-                            info!("{}: {}", msg.src_addr, csi.timestamp)
+                          info!("{}: {}", msg.src_addr, csi.timestamp)
                         }
                         Data {
-                            data_msg:
-                                DataMsg::RawFrame {
-                                    ts,
-                                    bytes: _,
-                                    source_type: _,
-                                },
-                            device_id: _,
+                          data_msg:
+                            DataMsg::RawFrame {
+                              ts,
+                              bytes: _,
+                              source_type: _,
+                            },
+                          device_id: _,
                         } => info!("{}: {ts}", msg.src_addr),
                         _ => (),
                     }
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lib::network::rpc_message::{RpcMessage, RpcMessageKind, HostCtrl};
+    use std::fs::File;
+    use std::io::Write;
+    use tempfile::tempdir;
+    use tokio::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    fn create_dummy_experiment_file(dir_path: &std::path::Path, file_name: &str, content: &str) -> PathBuf {
+        let file_path = dir_path.join(file_name);
+        let mut file = File::create(&file_path).unwrap();
+        writeln!(file, "{}", content).unwrap();
+        file_path
+    }
+
+    #[tokio::test]
+    async fn test_orchestrator_new() {
+        let temp_dir = tempdir().unwrap();
+        let dummy_config_path = create_dummy_experiment_file(temp_dir.path(), "exp.yaml", "metadata:\n  name: test\nstages: []");
+        // OrchestratorConfig does not derive Clone, so we consume it here.
+        let config = OrchestratorConfig { experiment_config: dummy_config_path };
+        let global_config = GlobalConfig { log_level: log::LevelFilter::Debug };
+        let _orchestrator = Orchestrator::new(global_config, config); 
+    }
+
+    #[tokio::test]
+    async fn test_experiment_from_yaml_valid() {
+        let temp_dir = tempdir().unwrap();
+        let yaml_content = r#"
+metadata:
+  name: Test Experiment
+  output_path: /tmp/output.log
+stages:
+  - name: Stage 1
+    command_blocks:
+      - commands:
+          - !Connect
+            target_addr: "127.0.0.1:8080"
+        delays:
+          init_delay: 100
+          command_delay: 50
+          is_recurring: !NotRecurring
+"#;
+        let file_path = create_dummy_experiment_file(temp_dir.path(), "valid_exp.yaml", yaml_content);
+        let experiment = Experiment::from_yaml(file_path).unwrap();
+        assert_eq!(experiment.metadata.name, "Test Experiment");
+        assert_eq!(experiment.metadata.output_path, Some(PathBuf::from("/tmp/output.log")));
+        assert_eq!(experiment.stages.len(), 1);
+        assert_eq!(experiment.stages[0].name, "Stage 1");
+        assert_eq!(experiment.stages[0].command_blocks.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_experiment_from_yaml_invalid_path() {
+        let result = Experiment::from_yaml(PathBuf::from("non_existent.yaml"));
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_experiment_from_yaml_malformed_content() {
+        let temp_dir = tempdir().unwrap();
+        let file_path = create_dummy_experiment_file(temp_dir.path(), "malformed_exp.yaml", "metadata: { name: test, stages: }");
+        let result = Experiment::from_yaml(file_path);
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_execute_command_block_simple_delay() {
+        let client = Arc::new(Mutex::new(TcpClient::new()));
+        let block = Block {
+            commands: vec![Command::Delay { delay: 10 }],
+            delays: Delays { init_delay: Some(5), command_delay: Some(1), is_recurring: IsRecurring::NotRecurring },
+        };
+        let start_time = tokio::time::Instant::now();
+        Orchestrator::execute_command_block(client, block).await.unwrap();
+        let duration = start_time.elapsed();
+        assert!(duration >= Duration::from_millis(15) && duration < Duration::from_millis(100));
+    }
+
+    #[tokio::test]
+    async fn test_load_experiment_and_run_empty_stages() {
+        let client = Arc::new(Mutex::new(TcpClient::new()));
+        // Correctly initialize Metadata based on its actual fields
+        let experiment = Experiment {
+            metadata: super::Metadata { 
+                name: "empty_test".to_string(), 
+                output_path: None 
+            }, 
+            stages: vec![],
+        };
+        let mut orchestrator = Orchestrator {
+            client: client.clone(),
+            experiment_config: PathBuf::new(),
+            output_path: None,
+        };
+        let result = orchestrator.load_experiment(client, experiment).await;
+        assert!(result.is_ok());
+    }
+
+    async fn run_simple_echo_server(addr: SocketAddr) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+            loop {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                tokio::spawn(async move {
+                    let mut buf = [0; 1024];
+                    loop {
+                        match socket.read(&mut buf).await {
+                            Ok(0) => return,
+                            Ok(n) => {
+                                if socket.write_all(&buf[0..n]).await.is_err() {
+                                    return;
+                                }
+                            }
+                            Err(_) => return,
+                        }
+                    }
+                });
+            }
+        })
+    }
+
+    #[tokio::test]
+    async fn test_orchestrator_connect_command() {
+        let server_addr: SocketAddr = "127.0.0.1:34567".parse().unwrap();
+        let server_handle = run_simple_echo_server(server_addr).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let client = Arc::new(Mutex::new(TcpClient::new()));
+        let command = Command::Connect { target_addr: server_addr };
+
+        let result = Orchestrator::match_command(client.clone(), command).await;
+        assert!(result.is_ok());
+
+        server_handle.abort();
+    }
+
+     #[tokio::test]
+    async fn test_orchestrator_ping_command() {
+        let server_addr: SocketAddr = "127.0.0.1:34568".parse().unwrap();
+        let server_handle = tokio::spawn(async move {
+            let listener = tokio::net::TcpListener::bind(server_addr).await.unwrap();
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 1024];
+            loop {
+                match socket.read(&mut buf).await {
+                    Ok(0) => return,
+                    Ok(n) => {
+                        let rpc_message: Result<RpcMessage, _> = serde_json::from_slice(&buf[..n]);
+                        if let Ok(rpc_msg) = rpc_message {
+                            if matches!(rpc_msg.msg, RpcMessageKind::HostCtrl(HostCtrl::Connect)) {
+                                // Respond to Connect first
+                                let connect_response = RpcMessage {
+                                    msg: RpcMessageKind::HostCtrl(HostCtrl::Connect),
+                                    src_addr: server_addr,
+                                    target_addr: rpc_msg.src_addr,
+                                };
+                                let connect_bytes = serde_json::to_vec(&connect_response).unwrap();
+                                socket.write_all(&connect_bytes).await.unwrap();
+                            } else if matches!(rpc_msg.msg, RpcMessageKind::HostCtrl(HostCtrl::Ping)) {
+                                // Construct RpcMessage directly
+                                let pong_msg = RpcMessage {
+                                    msg: RpcMessageKind::HostCtrl(HostCtrl::Pong),
+                                    src_addr: server_addr, // Or appropriate src
+                                    target_addr: rpc_msg.src_addr, // Pong back to original sender
+                                };
+                                let pong_bytes = serde_json::to_vec(&pong_msg).unwrap();
+                                socket.write_all(&pong_bytes).await.unwrap();
+                            }
+                        }
+                    }
+                    Err(_) => return,
+                }
+            }
+        });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let client = Arc::new(Mutex::new(TcpClient::new()));
+        client.lock().await.connect(server_addr).await.unwrap();
+
+        let command = Command::Ping { target_addr: server_addr };
+        let result = Orchestrator::match_command(client.clone(), command).await;
+        assert!(result.is_ok(), "Ping command failed: {:?}", result.err());
+
+        server_handle.abort();
     }
 }
