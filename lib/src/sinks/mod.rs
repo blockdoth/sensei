@@ -16,12 +16,12 @@
 //! ```
 
 use async_trait::async_trait;
+#[cfg(test)]
+use mockall::automock;
 
 use crate::errors::{SinkError, TaskError};
 use crate::network::rpc_message::DataMsg;
 use crate::{FromConfig, ToConfig};
-#[cfg(test)]
-use mockall::automock;
 
 pub mod file;
 pub mod tcp;

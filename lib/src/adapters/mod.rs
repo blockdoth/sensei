@@ -10,11 +10,12 @@
 //! Mofidied based on: wisense/sensei/lib/src/adapters/mod.rs
 //! Originally authored by: Fabian Portner
 
+#[cfg(test)]
+use mockall::automock;
+
 use crate::errors::{CsiAdapterError, TaskError};
 use crate::network::rpc_message::DataMsg;
 use crate::{FromConfig, ToConfig};
-#[cfg(test)]
-use mockall::automock;
 pub mod csv;
 pub mod esp32;
 pub mod iwl;

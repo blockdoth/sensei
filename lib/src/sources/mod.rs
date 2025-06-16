@@ -23,11 +23,12 @@ pub mod tcp;
 
 use std::any::Any;
 
+#[cfg(test)]
+use mockall::automock;
+
 use crate::errors::{DataSourceError, TaskError};
 use crate::network::rpc_message::DataMsg;
 use crate::{FromConfig, ToConfig};
-#[cfg(test)]
-use mockall::automock;
 
 pub const BUFSIZE: usize = 65535;
 
