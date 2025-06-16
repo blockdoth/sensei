@@ -1,6 +1,6 @@
 # sensei/src/system_node/config.yaml
 #
-# Welcome to the System Node configuration file!
+# Welcome to the System Node configuration file for Sensei!
 # This file defines the behavior of a single node in the Sensei network.
 # A node can read data from multiple sources (like hardware devices or files),
 # process that data, and send it to multiple destinations (sinks).
@@ -22,7 +22,7 @@
 # --- SystemNodeConfig Top-Level Fields ---
 
 # `addr`: The IP address and port this System Node will listen on for incoming
-# connections from other nodes or clients (like the Visualiser).
+# connections from other nodes or clients (like a Visualiser).
 addr: "127.0.0.1:6969"
 
 # `host_id`: A unique number to identify this node across the entire Sensei network.
@@ -40,12 +40,13 @@ sinks:
   #     # Parameters are derived from the `FileConfig` struct in `sinks/file.rs`.
   #     file: "yourfile.txt"
 
-  # A second file sink, this time pointing to standard output.
+  # A file sink, this time pointing to standard output. (this is going to print to the console)
   - id: "stdout"
     config: !File
       file: "/dev/stdout"
 
   # EXAMPLE: To add a TCP sink that forwards data to another service.
+  # The TCP sink is useful for sending data outside the Sensei network.
   # This corresponds to `TCPSink` from `sinks/tcp.rs`.
   # The parameters `target_addr` and `device_id` come from the `TCPConfig` struct.
   # - id: "remote_visualiser"
@@ -63,12 +64,13 @@ device_configs:
     # `source`: Defines where the data comes from. This block is REQUIRED.
     # The tag `!Esp32` corresponds to `Esp32Source` and its `Esp32SourceConfig` struct.
     source: !Esp32
-      port_name: "/dev/cu.usbmodem101"
+      port_name: "/dev/cu.usbmodem101"  # The serial port where the ESP32 is connected.
+      # Optional parameters for the ESP32 source.
       # baud_rate: 3000000
       # csi_buffer_size: 100
       # ack_timeout_ms: 2000
 
-    # `controller`: Configures the source hardware/software. This block is OPTIONAL.
+    # `controller`: Configures the source hardware/software. This whole block is OPTIONAL.
     # The tag `!Esp32` corresponds to `Esp32ControllerParams`.
     controller: !Esp32
       # High-level behavioral command. See file comments for details.
@@ -94,7 +96,7 @@ device_configs:
     # This handler will send its data to both "log_file" and "stdout".
     output_to:
       # - "log_file"
-      # - "stdout"
+      - "stdout"
 
   # --- EXAMPLE: How to add another device handler (e.g., for an Intel Wi-Fi card) ---
   # This complete example shows how to combine different components.
