@@ -127,9 +127,10 @@ impl Sink for CSVSink {
 
 #[cfg(test)]
 mod tests {
-    use std::fs::{self, File, remove_file};
-    use std::io::{BufRead, BufReader, Read};
-    use std::path::PathBuf;
+    use std::fs::{File, remove_file};
+    use std::io::{BufRead, BufReader, Read, Seek};
+    use tempfile::NamedTempFile;
+    use crate::test_utils;
 
     use super::*;
     use crate::adapters::CsiDataAdapter;
@@ -137,16 +138,6 @@ mod tests {
     use crate::network::rpc_message::{DataMsg, SourceType};
     use crate::sources::DataSourceT;
     use crate::sources::csv::{CsvConfig, CsvSource};
-
-    fn get_csv_data_path() -> PathBuf {
-        if fs::metadata("../resources/test_data/csv/small_csv.csv").is_ok() {
-            "../resources/test_data/csv/small_csv.csv".parse().unwrap()
-        } else if fs::metadata("resources/test_data/csv/small_csv.csv").is_ok() {
-            "resources/test_data/csv/small_csv.csv".parse().unwrap()
-        } else {
-            panic!("Could not find csi_data file, exiting test...");
-        }
-    }
 
     fn dummy_csi_data() -> CsiData {
         CsiData {
@@ -184,10 +175,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_parse_read_adapt_and_compare() {
-        let mut file = tempfile::NamedTempFile::new().unwrap();
-        let path = self::get_csv_data_path();
+        let mut file = NamedTempFile::new().unwrap();
+        let mut csv_file = test_utils::generate_csv_data_file();
+        let path = csv_file.path();
         let mut source = CsvSource::new(CsvConfig {
-            path,
+            path: (*path).to_path_buf(),
             cell_delimiter: b',',
             row_delimiter: b'\n',
             header: true,
@@ -222,15 +214,15 @@ mod tests {
         let mut written_contents = String::new();
         written_file.read_to_string(&mut written_contents).unwrap();
 
-        let mut original_file = File::open(self::get_csv_data_path()).unwrap();
-        let mut original_contents = String::new();
-        original_file.read_to_string(&mut original_contents).unwrap();
+        csv_file.seek(std::io::SeekFrom::Start(0));
+        let mut csv_contents = String::new();
+        csv_file.read_to_string(&mut csv_contents).unwrap();
 
         // Optionally, normalize line endings for comparison
         let normalize = |s: &str| s.replace("\r\n", "\n");
         let binding = normalize(&written_contents);
         let written_lines: Vec<_> = binding.lines().collect();
-        let binding = normalize(&original_contents);
+        let binding = normalize(&csv_contents);
         let original_lines: Vec<_> = binding.lines().collect();
 
         assert_eq!(

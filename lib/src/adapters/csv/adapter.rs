@@ -227,7 +227,7 @@ impl ToConfig<DataAdapterConfig> for CSVAdapter<'_> {
 
 #[cfg(test)]
 mod tests {
-    use log::error;
+    use crate::{network::rpc_message::SourceType, test_utils};
 
     use super::*;
 
@@ -465,19 +465,12 @@ mod tests {
     async fn test_consume_real_large_csv_file() {
         use std::fs;
         let mut adapter = CSVAdapter::default();
-        // Running the tests from either the project root, or the lib root can mess up the paths.
-        let csv_data = if fs::metadata("../resources/test_data/csv/csi_data_new_format.csv").is_ok() {
-            fs::read("../resources/test_data/csv/csi_data_new_format.csv").expect("Failed to read CSV file")
-        } else if fs::metadata("resources/test_data/csv/csi_data_new_format.csv").is_ok() {
-            fs::read("resources/test_data/csv/csi_data_new_format.csv").expect("Failed to read CSV file")
-        } else {
-            error!("Could not find csi_data file, exiting test...");
-            return;
-        };
+        let csv_file = test_utils::generate_csv_data_file();
+        let csv_data = fs::read(csv_file.path()).unwrap();
         let msg = DataMsg::RawFrame {
             ts: 0.0,
             bytes: csv_data,
-            source_type: crate::network::rpc_message::SourceType::ESP32,
+            source_type: SourceType::ESP32,
         };
         // The adapter should process the last row
         let data = adapter.produce(msg).await.unwrap().unwrap();
