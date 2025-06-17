@@ -4,15 +4,15 @@ metadata:
   output_path: "output.csv"
 stages:
   - name: "init"
-    command_blocks:
+    blocks:
         - commands:
             - !Connect
               target_addr: "127.0.0.1:8080"
           delays:
             init_delay: 2000
-            is_recurring: !NotRecurring
+            delay_type: !NotRecurring
   - name: "main"
-    command_blocks:
+    blocks:
       - commands:
           - !Connect
             target_addr: "127.0.0.1:8000"
@@ -29,7 +29,7 @@ stages:
         delays:
           init_delay: 500
           command_delay: 200
-          is_recurring: !Recurring
+          delay_type: !Recurring
             recurrence_delay: 1000
             iterations: 5
       - commands:
@@ -48,13 +48,13 @@ stages:
         delays:
           init_delay: 500
           command_delay: 200
-          is_recurring: !Recurring
+          delay_type: !Recurring
             recurrence_delay: 1000
             iterations: 5
   - name: "endstage"
-    command_blocks:
+    blocks:
       - commands:
         - !Disconnect
           target_addr: "127.0.0.1:8080"
         delays:
-          is_recurring: !NotRecurring 
+          delay_type: !NotRecurring 

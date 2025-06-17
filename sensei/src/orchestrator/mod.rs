@@ -17,10 +17,10 @@ use log::*;
 use tokio::signal;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{Mutex, mpsc, watch};
-use tokio::task::{yield_now, JoinHandle};
+use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
-use crate::orchestrator::experiment::{ExperimentChannelMsg, ExperimentSession, ExperimentStatus};
+use crate::orchestrator::experiment::{ExperimentChannelMsg, ExperimentSession};
 use crate::orchestrator::state::{OrgTuiState, OrgUpdate};
 use crate::services::{GlobalConfig, OrchestratorConfig, Run};
 
@@ -63,14 +63,18 @@ impl Run<OrchestratorConfig> for Orchestrator {
 
         let client = Arc::new(Mutex::new(TcpClient::new()));
 
+        let (cancel_signal_send, cancel_signal_recv) = watch::channel(false);
+        let session = ExperimentSession::new(client.clone(), update_send.clone(), cancel_signal_recv);
         // Tasks needs to be boxed and pinned in order to make the type checker happy
         let tasks: Vec<Pin<Box<dyn Future<Output = ()> + Send>>> = vec![
             Box::pin(Self::command_handler(command_recv, update_send.clone(), experiment_send, client.clone())),
             Box::pin(Self::experiment_handler(
+                session,
+                self.experiment_config_path.clone(),
                 client.clone(),
                 experiment_recv,
                 update_send.clone(),
-                self.experiment_config_path.clone(),
+                cancel_signal_send,
             )),
         ];
 
@@ -104,33 +108,36 @@ impl Run<OrchestratorConfig> for Orchestrator {
 
 impl Orchestrator {
     async fn experiment_handler(
+        mut session: ExperimentSession,
+        experiment_config_path: Option<PathBuf>,
         client: Arc<Mutex<TcpClient>>,
         mut experiment_recv: Receiver<ExperimentChannelMsg>,
         update_send: Sender<OrgUpdate>,
-        experiment_config_path: Option<PathBuf>,
+        cancel_signal_send: watch::Sender<bool>,
     ) {
-        let (cancel_signal_send, cancel_signal_recv) = watch::channel(false);
-
-        info!("Loading initial experiment");
-        let mut session = ExperimentSession::new(client.clone(), update_send.clone(), cancel_signal_recv);
+        info!("Started experiment handler task");
 
         if let Some(path) = experiment_config_path {
-            session.load_experiment(path);
+            session.load_experiment(path.clone());
+            info!("Loaded experiment from {path:?}");
+            update_send.send(OrgUpdate::UpdateExperimentInfo((&session).into()));
         }
 
+        info!("Waiting for experiment updates");
         while let Some(msg) = experiment_recv.recv().await {
             match msg {
                 ExperimentChannelMsg::Start => {
                     cancel_signal_send.send(true);
-                    update_send.send(OrgUpdate::UpdateExperimentStatus(ExperimentStatus::Done)).await;
                     session.run(client.clone(), update_send.clone());
                 }
                 ExperimentChannelMsg::Stop => {
                     cancel_signal_send.send(false);
-                    update_send.send(OrgUpdate::UpdateExperimentStatus(ExperimentStatus::Stopped)).await;
                 }
-                ExperimentChannelMsg::Select(i) => session.active_experiment_index = i,
+                ExperimentChannelMsg::Select(i) => {
+                    session.active_experiment_index = i;
+                }
             }
+            update_send.send(OrgUpdate::UpdateExperimentInfo((&session).into())).await;
         }
     }
 
@@ -140,7 +147,7 @@ impl Orchestrator {
         experiment_send: Sender<ExperimentChannelMsg>,
         client: Arc<Mutex<TcpClient>>,
     ) {
-        info!("Started stream processor task");
+        info!("Started stream handler task");
         let mut receiving = false;
         let mut targets: Vec<SocketAddr> = vec![];
 
@@ -148,11 +155,11 @@ impl Orchestrator {
             tokio::select! {
                 // Commands from channel
                 msg_opt = recv_commands_channel.recv() => {
-                    info!("Received channel message {msg_opt:?}");
+                    debug!("Received channel message {msg_opt:?}");
                     if let Some(msg) = msg_opt {
                         Self::handle_msg(client.clone(), msg, update_send.clone(), Some(experiment_send.clone())).await;
                     }
-                    info!("Handled");
+                    debug!("Handled");
                 }
 
                 // TCP Client messages if in receiving mode

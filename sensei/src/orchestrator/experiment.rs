@@ -43,7 +43,7 @@ impl Experiment {
 pub struct Delays {
     pub init_delay: Option<u64>,
     pub command_delay: Option<u64>,
-    pub dtype: DelayType,
+    pub delay_type: DelayType,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -55,11 +55,10 @@ pub enum DelayType {
     NotRecurring,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ExperimentStatus {
-    NoActive,
-    Running,
     Ready,
+    Running,
     Done,
     Stopped,
 }
@@ -110,6 +109,7 @@ pub enum ExperimentCommand {
     },
 }
 
+#[derive(Debug)]
 pub enum ExperimentChannelMsg {
     Start,
     Stop,
@@ -152,6 +152,36 @@ pub struct Experiment {
     pub stages: Vec<Stage>,
 }
 
+#[derive(Debug, Clone)]
+pub struct Progression {
+    pub total_stages: usize,
+    pub current_stage: usize,
+}
+
+#[derive(Debug)]
+pub struct ExperimentSessionInfo {
+    pub status: ExperimentStatus,
+    pub progression: Progression,
+    pub metadata: Option<ExperimentMetadata>,
+    pub available_experiments: Vec<ExperimentMetadata>,
+    pub active_idx: Option<usize>,
+}
+
+impl From<&ExperimentSession> for ExperimentSessionInfo {
+    fn from(session: &ExperimentSession) -> Self {
+        ExperimentSessionInfo {
+            status: session.status.clone(),
+            progression: session.progression.clone(),
+            active_idx: session.active_experiment_index,
+            metadata: session
+                .active_experiment_index
+                .and_then(|i| session.experiments.get(i).map(|e| e.metadata.clone())),
+            available_experiments: session.experiments.iter().map(|e| e.metadata.clone()).collect(),
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct ExperimentSession {
     client: Arc<Mutex<TcpClient>>,
     update_send_channel: Sender<OrgUpdate>,
@@ -159,6 +189,7 @@ pub struct ExperimentSession {
     pub experiments: Vec<Experiment>,
     pub active_experiment_index: Option<usize>,
     pub status: ExperimentStatus,
+    pub progression: Progression,
 }
 
 impl ExperimentSession {
@@ -168,8 +199,12 @@ impl ExperimentSession {
             update_send_channel: update_send,
             experiments: vec![],
             active_experiment_index: None,
-            status: ExperimentStatus::NoActive,
+            status: ExperimentStatus::Ready,
             cancel_signal,
+            progression: Progression {
+                total_stages: 0,
+                current_stage: 0,
+            },
         }
     }
 
@@ -188,10 +223,20 @@ impl ExperimentSession {
         }
     }
 
-    pub fn run(&self, client: Arc<Mutex<TcpClient>>, update_send: Sender<OrgUpdate>) {
+    pub fn run(&mut self, client: Arc<Mutex<TcpClient>>, update_send: Sender<OrgUpdate>) {
         if let Some(idx) = self.active_experiment_index {
             let experiment = &self.experiments[idx];
-            experiment.execute(client, update_send, self.cancel_signal.clone());
+
+            self.progression.current_stage = 0;
+
+            for stage in &experiment.stages {
+                if *self.cancel_signal.borrow() {
+                    break;
+                }
+                stage.execute(client.clone(), update_send.clone(), self.cancel_signal.clone());
+                self.progression.current_stage += 1;
+                update_send.send(OrgUpdate::UpdateExperimentInfo((&self.clone()).into())); // Could maybe be done more efficient
+            }
         }
     }
 
@@ -199,17 +244,6 @@ impl ExperimentSession {
         for command in commands {
             Orchestrator::handle_msg(client.clone(), command.into(), update_send.clone(), None);
             sleep(Duration::from_millis(command_delay)).await;
-        }
-    }
-}
-
-impl Experiment {
-    pub async fn execute(&self, client: Arc<Mutex<TcpClient>>, update_send: Sender<OrgUpdate>, cancel_signal: watch::Receiver<bool>) {
-        for stage in &self.stages {
-            if *cancel_signal.borrow() {
-                break;
-            }
-            stage.execute(client.clone(), update_send.clone(), cancel_signal.clone());
         }
     }
 }
@@ -226,7 +260,6 @@ impl Stage {
                 block.execute(client, update_send, cancel_signal).await;
             }));
         }
-
         futures::future::join_all(tasks).await;
     }
 }
@@ -235,7 +268,7 @@ impl Block {
         sleep(Duration::from_millis(self.delays.init_delay.unwrap_or(0u64))).await;
         let command_delay = self.delays.command_delay.unwrap_or(0u64);
 
-        match self.delays.dtype.clone() {
+        match self.delays.delay_type.clone() {
             DelayType::Recurring {
                 recurrence_delay,
                 iterations,

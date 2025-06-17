@@ -45,15 +45,12 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
         Block::default()
             .padding(padding)
             .borders(Borders::ALL)
-            .border_style(if matches!(tui_state.focussed_panel, Focused::Status) {
+            .border_style(if matches!(tui_state.focussed_panel, Focused::Logs) {
                 Style::default().fg(Color::Blue)
             } else {
                 Style::default()
             })
-            .title(Span::styled(
-                format!(" Log ({current_log_count})"),
-                header_style,
-            )),
+            .title(Span::styled(format!(" Log ({current_log_count})"), header_style)),
     );
 
     f.render_widget(logs_widget, status_area);
@@ -67,6 +64,11 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
         ])
         .split(control_area);
 
+    let control_divider = Line::from(Span::styled(
+        "─".repeat(control_chunks[0].width.into()), // horizontal divider
+        Style::default().add_modifier(Modifier::DIM),
+    ));
+
     let registry_addr_text = match tui_state.registry_addr {
         Some(addr) => addr.to_string(),
         None => "".to_owned(),
@@ -79,14 +81,7 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
     };
 
     // First line: registry address + status
-    let mut lines: Vec<Line> = vec![
-        Line::from(vec![Span::raw(registry_addr_text), registry_status]),
-        Line::from(vec![Span::styled(
-            "─".repeat(control_chunks[0].width.into()), // horizontal divider
-            Style::default().add_modifier(Modifier::DIM),
-        )]),
-        // Line::from(Span::raw("Available")),
-    ];
+    let mut lines: Vec<Line> = vec![Line::from(vec![Span::raw(registry_addr_text), registry_status]), control_divider.clone()];
 
     // Append known addresses as Lines
     for addr in &tui_state.host_available_from_reg {
@@ -106,11 +101,6 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
     );
     f.render_widget(registry_widget, control_chunks[0]);
 
-    let hosts_divider = Line::from(Span::styled(
-        "─".repeat(control_chunks[0].width.into()), // horizontal divider
-        Style::default().add_modifier(Modifier::DIM),
-    ));
-
     let current_host = if let Some(selected) = tui_state.selected_host {
         selected.to_string()
     } else {
@@ -119,7 +109,7 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
 
     let mut h_lines: Vec<Line> = vec![];
     h_lines.push(Line::from(format!("ID  Address/Device  Status   Selected Host: [{current_host}]")));
-    h_lines.push(hosts_divider.clone());
+    h_lines.push(control_divider.clone());
     for (host_idx, host) in tui_state.known_hosts.iter().enumerate() {
         // Handles host style
         let host_style = {
@@ -166,9 +156,9 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
         }
     }
 
-    h_lines.push(hosts_divider.clone());
+    h_lines.push(control_divider.clone());
     h_lines.push(Line::from("Manually add Host: "));
-    h_lines.push(hosts_divider.clone());
+    h_lines.push(control_divider.clone());
 
     let ip_input = Line::from(" [IP:Port] ___.___.___.___:______");
 
@@ -186,7 +176,7 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
         FocusedAddHostField::ID,
     ));
     h_lines.push(Line::from(add_id));
-    h_lines.push(hosts_divider);
+    h_lines.push(control_divider.clone());
 
     let hosts_tree_view = Paragraph::new(Text::from(h_lines)).block(
         Block::default()
@@ -202,16 +192,25 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
 
     f.render_widget(hosts_tree_view, control_chunks[1]);
 
-    let mut exp_lines: Vec<Line> = vec![
-        Line::from(format!("Name: [{:?}]", tui_state.experiment_metadata.name)),
-        Line::from(format!("Output: [{:?}]", tui_state.experiment_metadata.output_path)),
-        Line::from(format!("Status: [{:?}]", tui_state.experiment_status)),
-        Line::from(format!("Stage: [{:?}]", tui_state.experiment_stage)),
-        Line::from("Participating devices:"),
-        Line::from(" -[Device ID's]"),
-        Line::from("Progress"),
-        Line::from(" - Status bar / Time"),
-    ];
+    let session = &tui_state.experiment_session;
+    let mut exp_lines: Vec<Line> = if let Some(idx) = session.active_idx {
+        let metadata = session.metadata.clone().unwrap();
+        vec![
+            Line::from(format!("Name:         {}", metadata.name)),
+            Line::from(format!("Status:       {:?}", session.status)),
+            Line::from(format!("Output path:  {:?}", metadata.output_path.unwrap())),
+            Line::from(format!(
+                "Stage:        {:?}/{:?}",
+                session.progression.current_stage, session.progression.total_stages
+            )),
+        ]
+    } else {
+        vec![Line::from("No experiment selected")]
+    };
+
+    exp_lines.push(control_divider.clone());
+    exp_lines.push(Line::from("Select Experiment"));
+    exp_lines.push(control_divider.clone());
 
     let experiment_widget = Paragraph::new(Text::from(exp_lines)).block(
         Block::default()
@@ -240,8 +239,8 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
             FocusedRegistry::AvailableHosts(_) => " [.] Clear Logs | [ESC]ape | [Q]uit",
         },
 
-        Focused::Experiments => "[B]egin experiment | [E]nd Experiment | [P]ause | [.] Clear Logs | [ESC]ape | [Q]uit",
-        Focused::Status => todo!(),
+        Focused::Experiments => "[B]egin experiment | [E]nd Experiment | [S]elect Experiment | [.] Clear Logs | [ESC]ape | [Q]uit",
+        Focused::Logs => todo!(),
     })
     .to_owned();
 

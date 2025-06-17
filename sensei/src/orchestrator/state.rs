@@ -11,7 +11,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 
 use super::tui::ui;
 use crate::orchestrator::OrgChannelMsg;
-use crate::orchestrator::experiment::{ExperimentMetadata, ExperimentStatus};
+use crate::orchestrator::experiment::{ExperimentSessionInfo, ExperimentStatus, Progression};
 use crate::services::DEFAULT_ADDRESS;
 
 pub struct Host {
@@ -52,7 +52,7 @@ pub enum Focused {
     Registry(FocusedRegistry),
     Hosts(FocusedHosts),
     Experiments,
-    Status,
+    Logs,
 }
 
 #[derive(PartialEq, Debug)]
@@ -89,9 +89,10 @@ pub enum OrgUpdate {
     UnsubscribeAll(SocketAddr, Option<SocketAddr>),
     SelectHost(SocketAddr),
     FocusChange(Focused),
-    UpdateExperimentStatus(ExperimentStatus),
-    UpdateExperimentStage(String),
-    UpdateExperimentMetadata(ExperimentMetadata),
+    StartExperiment,
+    StopExperiment,
+    SelectExperiment(Option<usize>),
+    UpdateExperimentInfo(ExperimentSessionInfo),
     Edit(char),
     Exit,
     Up,
@@ -123,9 +124,7 @@ pub struct OrgTuiState {
     pub add_host_input_socket: [char; 21],
     pub add_host_input_id: [char; 21], // Made to match with the add_host_input_socket, one larger than the max size of an u64
     pub selected_host: Option<SocketAddr>,
-    pub experiment_status: ExperimentStatus,
-    pub experiment_stage: String,
-    pub experiment_metadata: ExperimentMetadata,
+    pub experiment_session: ExperimentSessionInfo,
 }
 
 impl OrgTuiState {
@@ -137,11 +136,15 @@ impl OrgTuiState {
             registry_status: RegistryStatus::Disconnected,
             logs: vec![],
             focussed_panel: Focused::Main,
-            experiment_status: ExperimentStatus::Ready,
-            experiment_stage: "Unknown".to_owned(),
-            experiment_metadata: ExperimentMetadata {
-                name: "todo!()".to_owned(),
-                output_path: None,
+            experiment_session: ExperimentSessionInfo {
+                status: ExperimentStatus::Ready,
+                progression: Progression {
+                    total_stages: 0,
+                    current_stage: 0,
+                },
+                metadata: None,
+                available_experiments: vec![],
+                active_idx: None,
             },
             add_host_input_socket: [
                 '_', '_', '_', '.', '_', '_', '_', '.', '_', '_', '_', '.', '_', '_', '_', ':', '_', '_', '_', '_', '_',
@@ -285,8 +288,13 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                     _ => None,
                 },
             },
-            Focused::Status => None,
-            Focused::Experiments => None,
+            Focused::Experiments => match key {
+                KeyCode::Char('b') | KeyCode::Char('B') => Some(OrgUpdate::StartExperiment),
+                KeyCode::Char('e') | KeyCode::Char('E') => Some(OrgUpdate::StopExperiment),
+                KeyCode::Char('s') | KeyCode::Char('S') => Some(OrgUpdate::SelectExperiment(Some(0))),
+                _ => None,
+            },
+            Focused::Logs => None,
         }
     }
 
@@ -327,9 +335,18 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                     _ => None,
                 }
             }
-            OrgUpdate::UpdateExperimentStage(stage) => self.experiment_stage = stage,
-            OrgUpdate::UpdateExperimentStatus(status) => self.experiment_status = status,
-            OrgUpdate::UpdateExperimentMetadata(meta_data) => self.experiment_metadata = meta_data,
+            OrgUpdate::StartExperiment => {
+                command_send.send(OrgChannelMsg::StartExperiment).await;
+            }
+            OrgUpdate::StopExperiment => {
+                command_send.send(OrgChannelMsg::StopExperiment).await;
+            }
+            OrgUpdate::SelectExperiment(idx) => {
+                command_send.send(OrgChannelMsg::SelectExperiment(idx)).await;
+            }
+            OrgUpdate::UpdateExperimentInfo(experiment_session_info) => {
+                self.experiment_session = experiment_session_info;
+            }
             OrgUpdate::ClearLogs => self.logs.clear(),
             OrgUpdate::FocusChange(focused_panel) => self.focussed_panel = focused_panel,
             OrgUpdate::Edit(chr) => match &self.focussed_panel {
