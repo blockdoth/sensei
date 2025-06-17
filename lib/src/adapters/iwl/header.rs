@@ -140,7 +140,7 @@ impl IwlHeader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapters::iwl::test_utils::build_test_packet;
+    use crate::test_utils::build_test_packet;
     use crate::errors::IwlAdapterError;
 
     // Case where everything is alright
