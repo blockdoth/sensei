@@ -185,7 +185,7 @@ impl Run<OrchestratorConfig> for Orchestrator {
         // Tasks needs to be boxed and pinned in order to make the type checker happy
         let tasks: Vec<Pin<Box<dyn Future<Output = ()> + Send>>> = vec![
             Box::pin(Self::command_handler(command_recv, update_send.clone(), self.client.clone())),
-            Box::pin(Self::initial_experiment(command_send.clone(), self.experiment_config_path.clone())),
+            // Box::pin(Self::initial_experiment(command_send.clone(), self.experiment_config_path.clone())),
         ];
 
         if self.tui {
