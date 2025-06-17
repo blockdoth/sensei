@@ -15,7 +15,7 @@
 
 use std::fs::File;
 use std::io::{BufWriter, Write};
-use std::path::{PathBuf};
+use std::path::PathBuf;
 
 use async_trait::async_trait;
 
@@ -54,7 +54,7 @@ impl CSVSink {
         for core in &data.csi {
             for antenna in core {
                 for &Complex { re, im } in antenna {
-                    csi_vec.push(format!("({re}{sign}{im}j)", re = re, sign = if im < 0.0 { "" } else { "+" }, im = im));
+                    csi_vec.push(format!("({re}|{im}j)", re = re, im = im));
                 }
             }
         }
@@ -81,9 +81,7 @@ impl CSVSink {
 impl ToConfig<SinkConfig> for CSVSink {
     async fn to_config(&self) -> Result<SinkConfig, TaskError> {
         // You may need to adjust this depending on your SinkConfig definition
-        Ok(SinkConfig::CSV(CSVConfig {
-            path: todo!(),
-        }))
+        Ok(SinkConfig::CSV(CSVConfig { path: todo!() }))
     }
 }
 
@@ -129,24 +127,22 @@ impl Sink for CSVSink {
 
 #[cfg(test)]
 mod tests {
-    use std::fs::{self, remove_file};
-    use std::io::{BufRead, BufReader};
+    use std::fs::{self, File, remove_file};
+    use std::io::{BufRead, BufReader, Read};
     use std::path::PathBuf;
 
     use super::*;
+    use crate::adapters::CsiDataAdapter;
     use crate::adapters::csv::CSVAdapter;
     use crate::network::rpc_message::{DataMsg, SourceType};
-    use crate::sources::csv::{CsvConfig, CsvSource};
     use crate::sources::DataSourceT;
-    use crate::adapters::CsiDataAdapter;
-    use std::fs::File;
-    use std::io::Read;
+    use crate::sources::csv::{CsvConfig, CsvSource};
 
     fn get_csv_data_path() -> PathBuf {
-        if fs::metadata("../resources/test_data/csv/csi_data_small.csv").is_ok() {
-            "../resources/test_data/csv/csi_data_small.csv".parse().unwrap()
-        } else if fs::metadata("resources/test_data/csv/csi_data_small.csv").is_ok() {
-            "resources/test_data/csv/csi_data_small.csv".parse().unwrap()
+        if fs::metadata("../resources/test_data/csv/small_csv.csv").is_ok() {
+            "../resources/test_data/csv/small_csv.csv".parse().unwrap()
+        } else if fs::metadata("resources/test_data/csv/small_csv.csv").is_ok() {
+            "resources/test_data/csv/small_csv.csv".parse().unwrap()
         } else {
             panic!("Could not find csi_data file, exiting test...");
         }
@@ -181,7 +177,7 @@ mod tests {
 
         // Check data line
         let line = lines.next().unwrap().unwrap();
-        assert!(line.starts_with("1234567.89,42,2,1,2,\"99,100\",\"(1-2j),(3.5+4.5j),(-0.1+0.2j),(0+0j)\""));
+        assert!(line.starts_with("1234567.89,42,2,1,2,\"99,100\",\"(1|-2j),(3.5|4.5j),(-0.1|0.2j),(0|0j)\""));
 
         remove_file(path).unwrap();
     }
@@ -196,17 +192,22 @@ mod tests {
             row_delimiter: b'\n',
             header: true,
             delay: 0,
-        }).unwrap();
+        })
+        .unwrap();
         let mut sink = CSVSink::new(CSVConfig { path: file.path().into() }).await.unwrap();
         let mut adapter = CSVAdapter::default();
         loop {
-            let mut buf = vec![0u8;300];
+            let mut buf = vec![0u8; 128];
             let size = source.read_buf(&mut buf).await.unwrap();
             if size == 0 {
                 break;
             }
 
-            let raw_data_message = DataMsg::RawFrame { ts: 0.0, bytes: buf, source_type: SourceType::CSV };
+            let raw_data_message = DataMsg::RawFrame {
+                ts: 0.0,
+                bytes: buf,
+                source_type: SourceType::CSV,
+            };
             // Might not return a data packet
             if let Some(data) = adapter.produce(raw_data_message).await.unwrap() {
                 sink.provide(data).await;
@@ -232,10 +233,21 @@ mod tests {
         let binding = normalize(&original_contents);
         let original_lines: Vec<_> = binding.lines().collect();
 
-        assert_eq!(written_lines.len(), original_lines.len(), "CSV sink output and original data have different number of lines");
+        assert_eq!(
+            written_lines.len(),
+            original_lines.len(),
+            "CSV sink output and original data have different number of lines"
+        );
 
         for (i, (written, original)) in written_lines.iter().zip(original_lines.iter()).enumerate() {
-            assert_eq!(written, original, "Mismatch at line {}: \nwritten: {}\noriginal: {}", i + 1, written, original);
+            assert_eq!(
+                written,
+                original,
+                "Mismatch at line {}: \nwritten: {}\noriginal: {}",
+                i + 1,
+                written,
+                original
+            );
         }
     }
 }

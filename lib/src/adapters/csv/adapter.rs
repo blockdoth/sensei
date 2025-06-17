@@ -338,7 +338,7 @@ mod tests {
     #[tokio::test]
     async fn test_consume_valid_data() {
         let mut adapter = CSVAdapter::default();
-        let csv_data = b"9457616.210305953,45040,1,1,1,97,(0.4907193796689-0.684063352438993j)\n";
+        let csv_data = b"9457616.210305953,45040,1,1,1,97,(0.4907193796689|-0.684063352438993j)\n";
         let msg = DataMsg::RawFrame {
             ts: 0.0,
             bytes: csv_data.to_vec(),
@@ -364,7 +364,7 @@ mod tests {
     #[tokio::test]
     async fn test_consume_incomplete_data() {
         let mut adapter = CSVAdapter::default();
-        let csv_data = b"1627584000.0,1,2,3,\"10,20\",\"(1+2j),(3+4j),(5+6j),(7+8j)\"";
+        let csv_data = b"1627584000.0,1,2,3,\"10,20\",\"(1|+2j),(3|+4j),(5|+6j),(7|+8j)\"";
         let msg = DataMsg::RawFrame {
             ts: 0.0,
             bytes: csv_data.to_vec(),
@@ -403,7 +403,7 @@ mod tests {
     #[tokio::test]
     async fn test_consume_multiple_rows() {
         let mut adapter = CSVAdapter::default();
-        let csv_data = b"5139255.620319567,13657,2,1,2,\"48,27\",\"(-0.24795687792212684-0.7262670239309299j),(0.8454303851106912+0.7649475667253236j),(-0.8925048482423406+0.35672177778974534j),(0.5601050369340623-0.9757985075283211j)\"\n1627584001.0,51825,2,1,2,\"10,53\",\"(-0.9336763181483387+0.9137239452950752j),(0.04222732682994734+0.4741629187802445j),(-0.24923809791108553-0.6532018904054162j),(-0.13563524299387808+0.8352370739609778j)\"\n";
+        let csv_data = b"5139255.620319567,13657,2,1,2,\"48,27\",\"(-0.24795687792212684|-0.7262670239309299j),(0.8454303851106912|+0.7649475667253236j),(-0.8925048482423406|+0.35672177778974534j),(0.5601050369340623|-0.9757985075283211j)\"\n1627584001.0,51825,2,1,2,\"10,53\",\"(-0.9336763181483387|+0.9137239452950752j),(0.04222732682994734|+0.4741629187802445j),(-0.24923809791108553|-0.6532018904054162j),(-0.13563524299387808|+0.8352370739609778j)\"\n";
         let msg = DataMsg::RawFrame {
             ts: 0.0,
             bytes: csv_data.to_vec(),
@@ -421,7 +421,7 @@ mod tests {
     async fn test_multiple_rows_multiple_consumes() {
         let mut adapter = CSVAdapter::default();
 
-        let csv_data_1 = b"5139255.620319567,13657,2,1,2,\"48,27\",\"(-0.24795687792212684-0.7262670239309299j),(0.8454303851106912+0.7649475667253236j),(-0.8925048482423406+0.35672177778974534j),(0.5601050369340623-0.9757985075283211j)\"\n";
+        let csv_data_1 = b"5139255.620319567,13657,2,1,2,\"48,27\",\"(-0.24795687792212684|-0.7262670239309299j),(0.8454303851106912|+0.7649475667253236j),(-0.8925048482423406|+0.35672177778974534j),(0.5601050369340623|-0.9757985075283211j)\"\n";
         let msg1 = DataMsg::RawFrame {
             ts: 0.0,
             bytes: csv_data_1.to_vec(),
@@ -434,7 +434,7 @@ mod tests {
         assert_eq!(data1.timestamp, 5139255.620319567);
         assert_eq!(data1.sequence_number, 13657);
 
-        let csv_data_2 = b"1627584001.0,51825,2,1,2,\"10,53\",\"(-0.9336763181483387+0.9137239452950752j),(0.04222732682994734+0.4741629187802445j),(-0.24923809791108553-0.6532018904054162j),(-0.13563524299387808+0.8352370739609778j)\"\n";
+        let csv_data_2 = b"1627584001.0,51825,2,1,2,\"10,53\",\"(-0.9336763181483387|+0.9137239452950752j),(0.04222732682994734|+0.4741629187802445j),(-0.24923809791108553|-0.6532018904054162j),(-0.13563524299387808|+0.8352370739609778j)\"\n";
         let msg2 = DataMsg::RawFrame {
             ts: 0.0,
             bytes: csv_data_2.to_vec(),
@@ -447,7 +447,7 @@ mod tests {
         assert_eq!(data2.timestamp, 1627584001.0);
         assert_eq!(data2.sequence_number, 51825);
 
-        let csv_data_3 = b"1627584001.0,51825,2,1,2,\"10,53\",\"(-0.9336763181483387+0.9137239452950752j),(0.04222732682994734+0.4741629187802445j),(-0.24923809791108553-0.6532018904054162j),(-0.13563524299387808+0.8352370739609778j)\"\n";
+        let csv_data_3 = b"1627584001.0,51825,2,1,2,\"10,53\",\"(-0.9336763181483387|+0.9137239452950752j),(0.04222732682994734|+0.4741629187802445j),(-0.24923809791108553|-0.6532018904054162j),(-0.13563524299387808|+0.8352370739609778j)\"\n";
         let msg3 = DataMsg::RawFrame {
             ts: 0.0,
             bytes: csv_data_3.to_vec(),
@@ -466,10 +466,10 @@ mod tests {
         use std::fs;
         let mut adapter = CSVAdapter::default();
         // Running the tests from either the project root, or the lib root can mess up the paths.
-        let csv_data = if fs::metadata("../resources/test_data/csv/csi_data.csv").is_ok() {
-            fs::read("../resources/test_data/csv/csi_data.csv").expect("Failed to read CSV file")
-        } else if fs::metadata("resources/test_data/csv/csi_data.csv").is_ok() {
-            fs::read("resources/test_data/csv/csi_data.csv").expect("Failed to read CSV file")
+        let csv_data = if fs::metadata("../resources/test_data/csv/csi_data_new_format.csv").is_ok() {
+            fs::read("../resources/test_data/csv/csi_data_new_format.csv").expect("Failed to read CSV file")
+        } else if fs::metadata("resources/test_data/csv/csi_data_new_format.csv").is_ok() {
+            fs::read("resources/test_data/csv/csi_data_new_format.csv").expect("Failed to read CSV file")
         } else {
             error!("Could not find csi_data file, exiting test...");
             return;
