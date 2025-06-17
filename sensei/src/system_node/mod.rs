@@ -187,6 +187,7 @@ impl SystemNode {
                     }
                 }
             },
+            HostCtrl::Experiment { experiment } => {},
             m => {
                 warn!("Received unhandled HostCtrl: {m:?}");
             }

@@ -61,7 +61,7 @@ impl Orchestrator {
         if let Some(path) = &self.output_path {
             File::create(path)?;
         }
-        
+
         info!("Running {}", experiment.metadata.name.clone());
 
         match experiment.metadata.experiment_host {
@@ -77,7 +77,7 @@ impl Orchestrator {
                 Self::send_experiment(&client, target_addr, experiment).await;
             }
         }
-        
+
         Ok(())
     }
     pub async fn execute_stage(client: Arc<Mutex<TcpClient>>, stage: Stage) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -236,7 +236,7 @@ impl Orchestrator {
 
         Ok(client.lock().await.send_message(target_addr, msg).await?)
     }
-    
+
     async fn send_experiment(
         client: &Arc<Mutex<TcpClient>>,
         target_addr: SocketAddr,
@@ -244,7 +244,9 @@ impl Orchestrator {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let msg = RpcMessageKind::HostCtrl(HostCtrl::Experiment { experiment });
         
-        info!("Telling {target_addr} to run an experiment");
+        Self::connect(client, target_addr).await?;
+
+        info!("Telling {target_addr} to run an experiment independently of orchestrator");
 
         Ok(client.lock().await.send_message(target_addr, msg).await?)
     }
