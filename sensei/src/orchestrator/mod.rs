@@ -14,113 +14,18 @@ use lib::network::rpc_message::{CfgType, DataMsg, DeviceId, HostCtrl, HostId, Re
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::{ChannelMsg, HostChannel};
 use log::*;
-use serde::{Deserialize, Serialize};
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::{Mutex, watch};
-
+use lib::network::experiment_config::{Block, Command, Experiment, ExperimentHost, Stage};
+use lib::network::experiment_config::IsRecurring::{Recurring, NotRecurring};
 use crate::cli::DEFAULT_ORCHESTRATOR_CONFIG;
-use crate::orchestrator::IsRecurring::{NotRecurring, Recurring};
 use crate::services::{DEFAULT_ADDRESS, GlobalConfig, OrchestratorConfig, Run};
 
 pub struct Orchestrator {
     client: Arc<Mutex<TcpClient>>,
     experiment_config: PathBuf,
     output_path: Option<PathBuf>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Experiment {
-    metadata: Metadata,
-    stages: Vec<Stage>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum ExperimentHost {
-    Orchestrator,
-    SystemNode { target_addr: SocketAddr },
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Metadata {
-    name: String,
-    experiment_type: ExperimentHost,
-    output_path: Option<PathBuf>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Stage {
-    name: String,
-    command_blocks: Vec<Block>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Block {
-    commands: Vec<Command>,
-    delays: Delays,
-}
-
-impl Experiment {
-    pub fn from_yaml(file: PathBuf) -> Result<Vec<Self>, Box<dyn std::error::Error>> {
-        let yaml = std::fs::read_to_string(file.clone()).map_err(|e| format!("Failed to read YAML file: {}\n{}", file.display(), e))?;
-        Ok(serde_yaml::from_str(&yaml)?)
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Delays {
-    init_delay: Option<u64>,
-    command_delay: Option<u64>,
-    is_recurring: IsRecurring,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum IsRecurring {
-    Recurring {
-        recurrence_delay: Option<u64>,
-        iterations: Option<u64>, /* 0 is infinite */
-    },
-    NotRecurring,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum Command {
-    Connect {
-        target_addr: SocketAddr,
-    },
-    Disconnect {
-        target_addr: SocketAddr,
-    },
-    Subscribe {
-        target_addr: SocketAddr,
-        device_id: DeviceId,
-    },
-    Unsubscribe {
-        target_addr: SocketAddr,
-        device_id: DeviceId,
-    },
-    SubscribeTo {
-        target_addr: SocketAddr,
-        source_addr: SocketAddr,
-        device_id: DeviceId,
-    },
-    UnsubscribeFrom {
-        target_addr: SocketAddr,
-        source_addr: SocketAddr,
-        device_id: DeviceId,
-    },
-    SendStatus {
-        target_addr: SocketAddr,
-        host_id: HostId,
-    },
-    Configure {
-        target_addr: SocketAddr,
-        device_id: DeviceId,
-        cfg_type: CfgType,
-    },
-    Delay {
-        delay: u64,
-    },
 }
 
 impl Run<OrchestratorConfig> for Orchestrator {
@@ -151,19 +56,28 @@ impl Orchestrator {
         Ok(())
     }
     pub async fn load_experiment(&mut self, client: Arc<Mutex<TcpClient>>, experiment: Experiment) -> Result<(), Box<dyn Error + Send + Sync>> {
-        self.output_path = experiment.metadata.output_path;
+        self.output_path = experiment.metadata.output_path.clone();
 
         if let Some(path) = &self.output_path {
             File::create(path)?;
         }
+        
+        info!("Running {}", experiment.metadata.name.clone());
 
-        for (i, stage) in experiment.stages.into_iter().enumerate() {
-            let name = stage.name.clone();
-            info!("Executing stage {name}");
-            Self::execute_stage(client.clone(), stage).await?;
-            info!("Finished stage {name}");
+        match experiment.metadata.experiment_host {
+            ExperimentHost::Orchestrator => {
+                for (i, stage) in experiment.stages.into_iter().enumerate() {
+                    let name = stage.name.clone();
+                    info!("Executing stage {name}");
+                    Self::execute_stage(client.clone(), stage).await?;
+                    info!("Finished stage {name}");
+                }
+            }
+            ExperimentHost::SystemNode{ target_addr } => {
+                Self::send_experiment(&client, target_addr, experiment).await;
+            }
         }
-
+        
         Ok(())
     }
     pub async fn execute_stage(client: Arc<Mutex<TcpClient>>, stage: Stage) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -319,6 +233,18 @@ impl Orchestrator {
         let msg = RpcMessageKind::HostCtrl(HostCtrl::Configure { device_id, cfg_type });
 
         info!("Telling {target_addr} to configure the device handler");
+
+        Ok(client.lock().await.send_message(target_addr, msg).await?)
+    }
+    
+    async fn send_experiment(
+        client: &Arc<Mutex<TcpClient>>,
+        target_addr: SocketAddr,
+        experiment: Experiment,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let msg = RpcMessageKind::HostCtrl(HostCtrl::Experiment { experiment });
+        
+        info!("Telling {target_addr} to run an experiment");
 
         Ok(client.lock().await.send_message(target_addr, msg).await?)
     }
