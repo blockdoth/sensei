@@ -118,35 +118,7 @@ impl<'a> CSVAdapter<'a> {
         let complex_values = cells[6]
             .trim_matches('"')
             .split(',')
-            .map(|subcarrier_data| {
-                let inner = subcarrier_data.trim_matches(|c| c == '(' || c == ')' || c == 'j' || c == '"');
-                // Find the last '+' or '-' that is not at position 0
-                let mut split_idx = None;
-                for (i, c) in inner.char_indices().rev() {
-                    if (c == '+' || c == '-') && i != 0 {
-                        split_idx = Some(i);
-                        break;
-                    }
-                }
-                let (real, imag) = if let Some(idx) = split_idx {
-                    let (re, im) = inner.split_at(idx);
-                    (re, im)
-                } else {
-                    (inner, "")
-                };
-                let real = real.parse::<f64>().map_err(|err| CsiAdapterError::FloatConversionError {
-                    err,
-                    input: real.to_string(),
-                })?;
-                let imag = imag
-                    .trim_start_matches('+')
-                    .parse::<f64>()
-                    .map_err(|err| CsiAdapterError::FloatConversionError {
-                        err,
-                        input: imag.to_string(),
-                    })?;
-                Ok(Complex { re: real, im: imag })
-            })
+            .map(|subcarrier_data| CSVAdapter::extract_complex(subcarrier_data))
             .collect::<Result<Vec<Complex>, CsiAdapterError>>()?;
 
         let mut csi = vec![vec![vec![Complex::default(); num_subcarriers as usize]; num_streams as usize]; num_cores as usize];
@@ -165,7 +137,33 @@ impl<'a> CSVAdapter<'a> {
             Ok(None)
         }
     }
+
+    fn extract_complex(subcarrier_data: &str) -> Result<num_complex::Complex<f64>, CsiAdapterError> {
+        let inner = subcarrier_data.trim_matches(|c| c == '(' || c == ')' || c == 'j' || c == '"');
+        let mut split = inner.split('|');
+
+        let real = split.next().ok_or(CsiAdapterError::InvalidInput)?;
+        let imag = split.next().ok_or(CsiAdapterError::InvalidInput)?;
+
+        // Ensure there are no extra parts
+        if split.next().is_some() {
+            return Err(CsiAdapterError::InvalidInput);
+        }
+
+        let real = real.parse::<f64>().map_err(|err| CsiAdapterError::FloatConversionError {
+            err,
+            input: real.to_string(),
+        })?;
+        let imag = imag
+            .parse::<f64>()
+            .map_err(|err| CsiAdapterError::FloatConversionError {
+                err,
+                input: imag.to_string(),
+            })?;
+        Ok(Complex { re: real, im: imag })
+    }
 }
+
 
 impl std::default::Default for CSVAdapter<'_> {
     fn default() -> Self {
@@ -233,12 +231,45 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn test_extract_complex_valid() {
+        // Typical format: "(real|imag)"
+        let input = "(1.23|4.56j)";
+        let result = CSVAdapter::extract_complex(input).unwrap();
+        assert_eq!(result.re, 1.23);
+        assert_eq!(result.im, 4.56);
+
+        // With extra whitespace and quotes
+        let input = "\"(7.89|-0.12j)\"";
+        let result = CSVAdapter::extract_complex(input).unwrap();
+        assert_eq!(result.re, 7.89);
+        assert_eq!(result.im, -0.12);
+    }
+
+    #[test]
+    fn test_extract_complex_invalid() {
+        // Missing imaginary part
+        let input = "(3.14|)";
+        let result = CSVAdapter::extract_complex(input);
+        assert!(result.is_err());
+
+        // Too many parts
+        let input = "(1.0|2.0|3.0)";
+        let result = CSVAdapter::extract_complex(input);
+        assert!(result.is_err());
+
+        // Non-numeric input
+        let input = "(abc|def)";
+        let result = CSVAdapter::extract_complex(input);
+        assert!(result.is_err());
+    }
+
     #[tokio::test]
     async fn test_consume_split_row_in_two_steps() {
         let mut adapter = CSVAdapter::default();
         // Split a valid CSV row into two parts
         let part1 = b"9457616.210305953,45040,1,1,1,97,(";
-        let part2 = b"0.4907193796689-0.684063352438993j)\n";
+        let part2 = b"0.4907193796689|-0.68406335243899j)\n";
 
         // First, send the incomplete part
         let msg1 = DataMsg::RawFrame {
