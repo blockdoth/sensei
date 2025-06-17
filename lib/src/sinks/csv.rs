@@ -2,12 +2,8 @@
 //! but before writing a csi data frame, it converst it to a format that can be interpreted by the CSV adapter.
 //!
 //! The default Csi data format of
-//! pub struct CsiData {
-//!	  pub timestamp       : f64,       // Timestamp (from receival of first packet fragment)
-//!	  pub sequence_number : u16,       // Extracted sequence number
-//!	  pub rssi            : Vec<u16>,  // Antenna (per core)
-//!	  pub csi             : Csi        // A num_cores x num_streams x num_subcarrier array
-//! }
+//! CsiData { timestamp, sequence_numberm, rssi, csi }
+//!
 //! Get converted to :
 //! timestamp,sequence_number,num_cores,num_streams,num_subcarriers,rssi,csi
 //! example:
@@ -54,7 +50,7 @@ impl CSVSink {
         for core in &data.csi {
             for antenna in core {
                 for &Complex { re, im } in antenna {
-                    csi_vec.push(format!("({re}|{im}j)", re = re, im = im));
+                    csi_vec.push(format!("({re}|{im}j)"));
                 }
             }
         }
@@ -129,8 +125,8 @@ impl Sink for CSVSink {
 mod tests {
     use std::fs::{File, remove_file};
     use std::io::{BufRead, BufReader, Read, Seek};
+
     use tempfile::NamedTempFile;
-    use crate::test_utils;
 
     use super::*;
     use crate::adapters::CsiDataAdapter;
@@ -138,6 +134,7 @@ mod tests {
     use crate::network::rpc_message::{DataMsg, SourceType};
     use crate::sources::DataSourceT;
     use crate::sources::csv::{CsvConfig, CsvSource};
+    use crate::test_utils;
 
     fn dummy_csi_data() -> CsiData {
         CsiData {
@@ -214,7 +211,7 @@ mod tests {
         let mut written_contents = String::new();
         written_file.read_to_string(&mut written_contents).unwrap();
 
-        csv_file.seek(std::io::SeekFrom::Start(0));
+        csv_file.rewind();
         let mut csv_contents = String::new();
         csv_file.read_to_string(&mut csv_contents).unwrap();
 

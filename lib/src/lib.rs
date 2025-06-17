@@ -19,9 +19,9 @@ pub mod handler;
 pub mod network;
 pub mod sinks;
 pub mod sources;
-pub mod tui;
 #[cfg(test)]
 pub mod test_utils;
+pub mod tui;
 
 /// Trait to create an instance from a configuration, needs to be implemented for all configurable things
 /// Like sources, controllers, adapters and sinks

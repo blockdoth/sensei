@@ -1,4 +1,7 @@
-use std::{fs::File, io::Read, path::PathBuf, process::Command};
+use std::fs::File;
+use std::io::Read;
+use std::path::PathBuf;
+use std::process::Command;
 
 use log::trace;
 use tempfile::NamedTempFile;
@@ -22,18 +25,15 @@ pub fn generate_csv_data_file() -> NamedTempFile {
     let status = Command::new("python3")
         .arg(script_path)
         .arg(file.path())
-        .arg("10".to_string())
+        .arg("10")
         .status()
         .expect("Failed to execute data generation script");
     assert!(status.success(), "Python script did not run successfully");
 
     // Print the contents of the generated file for debugging
     let mut contents = String::new();
-    File::open(file.path())
-        .unwrap()
-        .read_to_string(&mut contents)
-        .unwrap();
-    trace!("Generated CSV file contents:\n{}", contents);
+    File::open(file.path()).unwrap().read_to_string(&mut contents).unwrap();
+    trace!("Generated CSV file contents:\n{contents}");
 
     file
 }

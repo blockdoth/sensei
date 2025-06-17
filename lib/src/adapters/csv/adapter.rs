@@ -118,7 +118,7 @@ impl<'a> CSVAdapter<'a> {
         let complex_values = cells[6]
             .trim_matches('"')
             .split(',')
-            .map(|subcarrier_data| CSVAdapter::extract_complex(subcarrier_data))
+            .map(CSVAdapter::extract_complex)
             .collect::<Result<Vec<Complex>, CsiAdapterError>>()?;
 
         let mut csi = vec![vec![vec![Complex::default(); num_subcarriers as usize]; num_streams as usize]; num_cores as usize];
@@ -154,16 +154,13 @@ impl<'a> CSVAdapter<'a> {
             err,
             input: real.to_string(),
         })?;
-        let imag = imag
-            .parse::<f64>()
-            .map_err(|err| CsiAdapterError::FloatConversionError {
-                err,
-                input: imag.to_string(),
-            })?;
+        let imag = imag.parse::<f64>().map_err(|err| CsiAdapterError::FloatConversionError {
+            err,
+            input: imag.to_string(),
+        })?;
         Ok(Complex { re: real, im: imag })
     }
 }
-
 
 impl std::default::Default for CSVAdapter<'_> {
     fn default() -> Self {
@@ -227,9 +224,9 @@ impl ToConfig<DataAdapterConfig> for CSVAdapter<'_> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{network::rpc_message::SourceType, test_utils};
-
     use super::*;
+    use crate::network::rpc_message::SourceType;
+    use crate::test_utils;
 
     #[test]
     fn test_extract_complex_valid() {
