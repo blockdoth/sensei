@@ -271,3 +271,146 @@ impl FocussedInput {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_spam_settings_default() {
+        let default_settings = SpamSettings::default();
+        assert_eq!(default_settings.src_mac, [0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC]);
+        assert_eq!(default_settings.dst_mac, [0xB4, 0x82, 0xC5, 0x58, 0xA1, 0xC0]);
+        assert_eq!(default_settings.n_reps, 10);
+        assert_eq!(default_settings.pause_ms, 10);
+    }
+
+    #[test]
+    fn test_update_mac() {
+        // Test updating the upper nibble
+        assert_eq!(SpamSettings::update_mac(0xAB, 'F', 0), 0xFB); // F replaces A
+        // Test updating the lower nibble
+        assert_eq!(SpamSettings::update_mac(0xAB, '0', 1), 0xA0); // 0 replaces B
+        // Test with lowercase hex
+        assert_eq!(SpamSettings::update_mac(0x34, 'c', 0), 0xc4); // c replaces 3
+        // Test with invalid char (should result in 0 for the nibble)
+        assert_eq!(SpamSettings::update_mac(0x56, 'x', 0), 0x06); // x is invalid, 0 replaces 5
+        assert_eq!(SpamSettings::update_mac(0x56, 'x', 1), 0x50); // x is invalid, 0 replaces 6
+    }
+
+    #[test]
+    fn test_modify_digit_at_index() {
+        // Replace digit
+        assert_eq!(SpamSettings::modify_digit_at_index(123, 0, Some('9')), 923);
+        assert_eq!(SpamSettings::modify_digit_at_index(123, 1, Some('9')), 193);
+        assert_eq!(SpamSettings::modify_digit_at_index(123, 2, Some('9')), 129);
+
+        // Remove digit (by replacing with None)
+        assert_eq!(SpamSettings::modify_digit_at_index(123, 0, None), 23);
+        assert_eq!(SpamSettings::modify_digit_at_index(123, 1, None), 13);
+        assert_eq!(SpamSettings::modify_digit_at_index(123, 2, None), 12);
+        assert_eq!(SpamSettings::modify_digit_at_index(7, 0, None), 0); // Removing last digit results in 0
+
+        // Index out of bounds
+        assert_eq!(SpamSettings::modify_digit_at_index(123, 0, Some('a')), 0);
+
+        // Test with 0
+        assert_eq!(SpamSettings::modify_digit_at_index(0, 0, Some('5')), 5);
+        assert_eq!(SpamSettings::modify_digit_at_index(10, 1, None), 1);
+    }
+
+    #[test]
+    fn test_focussed_input_tab_right() {
+        assert_eq!(FocussedInput::None.tab_right(), FocussedInput::SrcMac(0));
+        assert_eq!(FocussedInput::SrcMac(0).tab_right(), FocussedInput::SrcMac(2));
+        assert_eq!(FocussedInput::SrcMac(10).tab_right(), FocussedInput::Reps(0)); // Cycle to Reps
+        assert_eq!(FocussedInput::Reps(0).tab_right(), FocussedInput::DstMac(0));
+        assert_eq!(FocussedInput::DstMac(0).tab_right(), FocussedInput::DstMac(2));
+        assert_eq!(FocussedInput::DstMac(10).tab_right(), FocussedInput::PauseMs(0)); // Cycle to PauseMs
+        assert_eq!(FocussedInput::PauseMs(0).tab_right(), FocussedInput::SrcMac(0)); // Cycle back to SrcMac
+    }
+
+    #[test]
+    fn test_focussed_input_tab_left() {
+        assert_eq!(FocussedInput::None.tab_left(), FocussedInput::SrcMac(0)); // Default to SrcMac
+
+        // SrcMac
+        assert_eq!(FocussedInput::SrcMac(2).tab_left(), FocussedInput::SrcMac(0));
+        assert_eq!(FocussedInput::SrcMac(1).tab_left(), FocussedInput::PauseMs(0)); // Cycle to PauseMs
+        assert_eq!(FocussedInput::SrcMac(0).tab_left(), FocussedInput::PauseMs(0)); // Cycle to PauseMs
+
+        // Reps
+        assert_eq!(FocussedInput::Reps(0).tab_left(), FocussedInput::SrcMac(11)); // Cycle to end of SrcMac
+
+        // DstMac
+        assert_eq!(FocussedInput::DstMac(2).tab_left(), FocussedInput::DstMac(0));
+        assert_eq!(FocussedInput::DstMac(1).tab_left(), FocussedInput::Reps(0)); // Cycle to Reps
+        assert_eq!(FocussedInput::DstMac(0).tab_left(), FocussedInput::Reps(0)); // Cycle to Reps
+        assert_eq!(FocussedInput::DstMac(11).tab_left(), FocussedInput::DstMac(9));
+
+        // PauseMs
+        assert_eq!(FocussedInput::PauseMs(0).tab_left(), FocussedInput::DstMac(11)); // Cycle to end of DstMac
+    }
+
+    #[test]
+    fn test_focussed_input_cursor_left_right() {
+        // --- cursor_left ---
+        assert_eq!(FocussedInput::None.cursor_left(), FocussedInput::SrcMac(0));
+
+        // SrcMac
+        assert_eq!(FocussedInput::SrcMac(1).cursor_left(), FocussedInput::SrcMac(0));
+        assert_eq!(FocussedInput::SrcMac(0).cursor_left(), FocussedInput::SrcMac(0)); // Stays at beginning
+
+        // Reps
+        assert_eq!(FocussedInput::Reps(1).cursor_left(), FocussedInput::Reps(0));
+        assert_eq!(FocussedInput::Reps(0).cursor_left(), FocussedInput::SrcMac(11)); // Jump to end of SrcMac
+
+        // DstMac
+        assert_eq!(FocussedInput::DstMac(1).cursor_left(), FocussedInput::DstMac(0));
+        assert_eq!(FocussedInput::DstMac(0).cursor_left(), FocussedInput::DstMac(0)); // Stays at beginning
+
+        // PauseMs
+        assert_eq!(FocussedInput::PauseMs(1).cursor_left(), FocussedInput::PauseMs(0));
+        assert_eq!(FocussedInput::PauseMs(0).cursor_left(), FocussedInput::DstMac(11)); // Jump to end of DstMac
+
+        // --- cursor_right ---
+        assert_eq!(FocussedInput::None.cursor_right(), FocussedInput::SrcMac(0));
+
+        // SrcMac
+        assert_eq!(FocussedInput::SrcMac(0).cursor_right(), FocussedInput::SrcMac(1));
+        assert_eq!(FocussedInput::SrcMac(11).cursor_right(), FocussedInput::Reps(0)); // Jump to start of Reps
+
+        // Reps
+        assert_eq!(FocussedInput::Reps(0).cursor_right(), FocussedInput::Reps(1));
+        assert_eq!(FocussedInput::Reps(8).cursor_right(), FocussedInput::Reps(9));
+        assert_eq!(FocussedInput::Reps(9).cursor_right(), FocussedInput::Reps(9)); // Stays at index 9 (max for navigation)
+
+        // DstMac
+        assert_eq!(FocussedInput::DstMac(0).cursor_right(), FocussedInput::DstMac(1));
+        assert_eq!(FocussedInput::DstMac(11).cursor_right(), FocussedInput::PauseMs(0)); // Jump to start of PauseMs
+
+        // PauseMs
+        assert_eq!(FocussedInput::PauseMs(0).cursor_right(), FocussedInput::PauseMs(1));
+        assert_eq!(FocussedInput::PauseMs(8).cursor_right(), FocussedInput::PauseMs(9));
+        assert_eq!(FocussedInput::PauseMs(9).cursor_right(), FocussedInput::PauseMs(9)); // Stays at index 9 (max for navigation)
+    }
+
+    #[test]
+    fn test_focussed_input_cursor_up_down() {
+        // From SrcMac
+        assert_eq!(FocussedInput::SrcMac(0).cursor_up(), FocussedInput::SrcMac(0)); // Stays on SrcMac
+        assert_eq!(FocussedInput::SrcMac(0).cursor_down(), FocussedInput::DstMac(0)); // SrcMac -> DstMac
+
+        // From DstMac
+        assert_eq!(FocussedInput::DstMac(5).cursor_up(), FocussedInput::SrcMac(5)); // DstMac -> SrcMac
+        assert_eq!(FocussedInput::DstMac(5).cursor_down(), FocussedInput::DstMac(5)); // Stays on DstMac
+
+        // From Reps
+        assert_eq!(FocussedInput::Reps(0).cursor_up(), FocussedInput::Reps(0)); // Stays on Reps
+        assert_eq!(FocussedInput::Reps(0).cursor_down(), FocussedInput::PauseMs(0)); // Reps -> PauseMs
+
+        // From PauseMs
+        assert_eq!(FocussedInput::PauseMs(0).cursor_up(), FocussedInput::Reps(0)); // PauseMs -> Reps
+        assert_eq!(FocussedInput::PauseMs(0).cursor_down(), FocussedInput::PauseMs(0)); // Stays on PauseMs
+    }
+}

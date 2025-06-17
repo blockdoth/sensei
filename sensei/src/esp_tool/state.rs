@@ -37,7 +37,7 @@ pub enum ToolMode {
 }
 
 /// Represents possible user interactions or changes in the spam configuration panel.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum SpamConfigUpdate {
     /// Insert a character into the focused field.
     Edit(char),
@@ -62,7 +62,7 @@ pub enum SpamConfigUpdate {
 }
 
 /// Represents all possible events or updates handled by the TUI.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum EspUpdate {
     /// A user interaction within the spam configuration panel.
     SpamConfig(SpamConfigUpdate),
@@ -421,17 +421,17 @@ impl TuiState {
             // TODO figure out a more elegant solution
             let spam_settings = if self.esp_mode != EspMode::Listening {
                 Some(CustomFrameParams {
-                    src_mac: self.spam_settings.src_mac,
-                    dst_mac: self.spam_settings.dst_mac,
-                    pause_ms: self.spam_settings.pause_ms,
-                    n_reps: self.spam_settings.n_reps,
+                    src_mac: self.unsaved_spam_settings.src_mac,
+                    dst_mac: self.unsaved_spam_settings.dst_mac,
+                    pause_ms: self.unsaved_spam_settings.pause_ms,
+                    n_reps: self.unsaved_spam_settings.n_reps,
                 })
             } else {
                 None
             };
 
             let new_controller = Esp32ControllerParams {
-                device_config: self.esp_config.clone(),
+                device_config: self.unsaved_esp_config.clone(),
                 mac_filters: vec![], // TODO support mac filtering
                 mode: self.esp_mode.clone(),
                 synchronize_time: false,
@@ -450,6 +450,440 @@ impl TuiState {
                     error!("Failed to apply update")
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use tokio::sync::mpsc;
+
+    use super::*;
+
+    fn create_key_event(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn test_tui_state_new() {
+        let state = TuiState::new();
+        assert_eq!(state.connection_status, "INITIALIZING...");
+        assert!(!state.should_quit);
+        assert_eq!(state.focused_panel, FocusedPanel::Main);
+        assert_eq!(state.focused_input, FocussedInput::None);
+        assert_eq!(state.logs.capacity(), LOG_BUFFER_CAPACITY);
+        assert_eq!(state.csi_data.capacity(), CSI_DATA_BUFFER_CAPACITY);
+        assert_eq!(state.tool_mode, ToolMode::Listen);
+        assert_eq!(state.esp_mode, EspMode::Listening);
+        assert_eq!(state.esp_config, Esp32DeviceConfig::default());
+        assert_eq!(state.unsaved_esp_config, Esp32DeviceConfig::default());
+        assert_eq!(state.spam_settings, SpamSettings::default());
+        assert_eq!(state.unsaved_spam_settings, SpamSettings::default());
+        assert!(!state.unsaved_changes);
+        assert_eq!(state.synced, 1);
+    }
+
+    #[test]
+    fn test_handle_keyboard_event_main_panel() {
+        let state = TuiState::new(); // focused_panel is Main by default
+
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Char('m'))),
+            Some(EspUpdate::ModeChange)
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Char('e'))),
+            Some(EspUpdate::EditSpamConfig)
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Char('s'))),
+            Some(EspUpdate::TriggerBurstSpam)
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Char('t'))),
+            Some(EspUpdate::ToggleContinuousSpam)
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Char('c'))),
+            Some(EspUpdate::IncrementChannel)
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Char('l'))),
+            Some(EspUpdate::ChangeCsiMode)
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Char('b'))),
+            Some(EspUpdate::ChangeBandwidth)
+        );
+        assert_eq!(state.handle_keyboard_event(create_key_event(KeyCode::Char('q'))), Some(EspUpdate::Exit));
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Char(','))),
+            Some(EspUpdate::ClearCSI)
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Char('.'))),
+            Some(EspUpdate::ClearLogs)
+        );
+        assert_eq!(state.handle_keyboard_event(create_key_event(KeyCode::Char('x'))), None); // Unmapped key
+    }
+
+    #[test]
+    fn test_handle_keyboard_event_spam_config_panel() {
+        let mut state = TuiState::new();
+        state.focused_panel = FocusedPanel::SpamConfig;
+
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Backspace)),
+            Some(EspUpdate::SpamConfig(SpamConfigUpdate::Delete))
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Enter)),
+            Some(EspUpdate::SpamConfig(SpamConfigUpdate::Enter))
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Tab)),
+            Some(EspUpdate::SpamConfig(SpamConfigUpdate::TabRight))
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::BackTab)),
+            Some(EspUpdate::SpamConfig(SpamConfigUpdate::TabLeft))
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Right)),
+            Some(EspUpdate::SpamConfig(SpamConfigUpdate::CursorRight))
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Left)),
+            Some(EspUpdate::SpamConfig(SpamConfigUpdate::CursorLeft))
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Esc)),
+            Some(EspUpdate::SpamConfig(SpamConfigUpdate::Escape))
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Up)),
+            Some(EspUpdate::SpamConfig(SpamConfigUpdate::CursorUp))
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Down)),
+            Some(EspUpdate::SpamConfig(SpamConfigUpdate::CursorDown))
+        );
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Char('a'))),
+            Some(EspUpdate::SpamConfig(SpamConfigUpdate::Edit('a')))
+        );
+
+        // Test 'q' for exit when FocussedInput is None
+        state.focused_input = FocussedInput::None;
+        assert_eq!(state.handle_keyboard_event(create_key_event(KeyCode::Char('q'))), Some(EspUpdate::Exit));
+        state.focused_input = FocussedInput::SrcMac(0); // Reset for next potential tests
+        assert_eq!(
+            state.handle_keyboard_event(create_key_event(KeyCode::Char('q'))),
+            Some(EspUpdate::SpamConfig(SpamConfigUpdate::Edit('q')))
+        );
+
+        assert_eq!(state.handle_keyboard_event(create_key_event(KeyCode::F(1))), None); // Unmapped key
+    }
+
+    #[tokio::test]
+    async fn test_handle_update_log() {
+        let mut state = TuiState::new();
+        let timestamp = chrono::Local::now();
+        let log_entry = LogEntry {
+            timestamp,
+            level: log::Level::Info,
+            message: "Test log".to_string(),
+        };
+        let (cmd_tx, _) = mpsc::channel(1);
+        let (_, mut update_rx) = mpsc::channel(1);
+
+        state.handle_update(EspUpdate::Log(log_entry.clone()), &cmd_tx, &mut update_rx).await;
+        assert_eq!(state.logs.len(), 1);
+        // Compare relevant fields, timestamp might be tricky due to exact timing
+        assert_eq!(state.logs.front().unwrap().message, "Test log");
+        assert_eq!(state.logs.front().unwrap().level, log::Level::Info);
+
+        // Test log capacity
+        for i in 0..LOG_BUFFER_CAPACITY + 5 {
+            let entry_ts = chrono::Local::now();
+            let entry = LogEntry {
+                timestamp: entry_ts,
+                level: log::Level::Info,
+                message: format!("Log {i}"),
+            };
+            state.handle_update(EspUpdate::Log(entry), &cmd_tx, &mut update_rx).await;
+        }
+        assert_eq!(state.logs.len(), LOG_BUFFER_CAPACITY);
+        assert_eq!(state.logs.back().unwrap().message, format!("Log {}", LOG_BUFFER_CAPACITY + 4)); // Corrected index
+        assert_eq!(state.logs.front().unwrap().message, format!("Log {}", 5));
+    }
+
+    #[tokio::test]
+    async fn test_handle_update_status() {
+        let mut state = TuiState::new();
+        let (cmd_tx, _) = mpsc::channel(1);
+        let (_, mut update_rx) = mpsc::channel(1);
+        state
+            .handle_update(EspUpdate::Status("CONNECTED".to_string()), &cmd_tx, &mut update_rx)
+            .await;
+        assert_eq!(state.connection_status, "CONNECTED");
+    }
+
+    #[tokio::test]
+    async fn test_handle_update_csi_data() {
+        let mut state = TuiState::new();
+        let csi_data_entry = CsiData::default();
+        let (cmd_tx, _) = mpsc::channel(1);
+        let (_, mut update_rx) = mpsc::channel(1);
+
+        state
+            .handle_update(EspUpdate::CsiData(csi_data_entry.clone()), &cmd_tx, &mut update_rx)
+            .await;
+        assert_eq!(state.csi_data.len(), 1);
+
+        // Test CSI data capacity
+        for _i in 0..CSI_DATA_BUFFER_CAPACITY + 5 {
+            state.handle_update(EspUpdate::CsiData(CsiData::default()), &cmd_tx, &mut update_rx).await;
+        }
+        assert_eq!(state.csi_data.len(), CSI_DATA_BUFFER_CAPACITY);
+    }
+
+    #[tokio::test]
+    async fn test_handle_update_mode_change() {
+        let mut state = TuiState::new();
+        let (cmd_tx, mut cmd_rx) = mpsc::channel(1);
+        let (_, mut update_rx) = mpsc::channel(1);
+
+        // Listen -> Spam
+        state.handle_update(EspUpdate::ModeChange, &cmd_tx, &mut update_rx).await;
+        assert_eq!(state.tool_mode, ToolMode::Spam);
+        assert_eq!(state.esp_mode, EspMode::SendingPaused);
+        assert_eq!(state.unsaved_esp_config.mode, EspOperationMode::Transmit);
+        assert!(state.unsaved_changes);
+        if let Ok(EspChannelCommand::UpdatedConfig(params)) = cmd_rx.try_recv() {
+            assert_eq!(params.mode, EspMode::SendingPaused);
+        } else {
+            panic!("Command not sent");
+        }
+
+        // Spam -> Listen
+        state.handle_update(EspUpdate::ModeChange, &cmd_tx, &mut update_rx).await;
+        assert_eq!(state.tool_mode, ToolMode::Listen);
+        assert_eq!(state.esp_mode, EspMode::Listening);
+        assert_eq!(state.unsaved_esp_config.mode, EspOperationMode::Receive);
+        assert!(state.unsaved_changes);
+        if let Ok(EspChannelCommand::UpdatedConfig(params)) = cmd_rx.try_recv() {
+            assert_eq!(params.mode, EspMode::Listening);
+        } else {
+            panic!("Command not sent");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_handle_update_edit_spam_config() {
+        let mut state = TuiState::new();
+        state.tool_mode = ToolMode::Spam; // Prerequisite
+        let (cmd_tx, _) = mpsc::channel(1);
+        let (_, mut update_rx) = mpsc::channel(1);
+
+        state.handle_update(EspUpdate::EditSpamConfig, &cmd_tx, &mut update_rx).await;
+        assert_eq!(state.focused_panel, FocusedPanel::SpamConfig);
+        assert_eq!(state.focused_input, FocussedInput::SrcMac(0));
+
+        // Should not change if not in Spam mode
+        state.tool_mode = ToolMode::Listen;
+        state.focused_panel = FocusedPanel::Main;
+        state.handle_update(EspUpdate::EditSpamConfig, &cmd_tx, &mut update_rx).await;
+        assert_eq!(state.focused_panel, FocusedPanel::Main);
+    }
+
+    #[tokio::test]
+    async fn test_handle_update_exit() {
+        let mut state = TuiState::new();
+        let (cmd_tx, mut cmd_rx) = mpsc::channel(1);
+        let (_, mut update_rx) = mpsc::channel(1);
+
+        state.handle_update(EspUpdate::Exit, &cmd_tx, &mut update_rx).await;
+        assert!(state.should_quit);
+        assert!(matches!(cmd_rx.try_recv(), Ok(EspChannelCommand::Exit)));
+    }
+
+    #[tokio::test]
+    async fn test_handle_update_spam_config_edit() {
+        let mut state = TuiState::new();
+        state.focused_panel = FocusedPanel::SpamConfig;
+        let (cmd_tx, _) = mpsc::channel(1);
+        let (_, mut update_rx) = mpsc::channel(1);
+
+        // Edit SrcMac
+        state.focused_input = FocussedInput::SrcMac(0);
+        state
+            .handle_update(EspUpdate::SpamConfig(SpamConfigUpdate::Edit('A')), &cmd_tx, &mut update_rx)
+            .await;
+        assert_eq!(state.unsaved_spam_settings.src_mac[0], 0xA2); // 'A' replaces high nibble of 0x12, resulting in 0xA2
+        assert_eq!(state.focused_input, FocussedInput::SrcMac(1));
+        assert!(state.unsaved_changes);
+        state.unsaved_changes = false; // Reset for next
+
+        // Edit DstMac
+        state.focused_input = FocussedInput::DstMac(2); // 2nd byte, high nibble
+        state
+            .handle_update(EspUpdate::SpamConfig(SpamConfigUpdate::Edit('B')), &cmd_tx, &mut update_rx)
+            .await;
+        assert_eq!(state.unsaved_spam_settings.dst_mac[1], 0xB2); // 'B' replaces high nibble of 0x82, resulting in 0xB2
+        assert_eq!(state.focused_input, FocussedInput::DstMac(3));
+        assert!(state.unsaved_changes);
+        state.unsaved_changes = false;
+
+        // Edit Reps
+        state.focused_input = FocussedInput::Reps(0);
+        state.unsaved_spam_settings.n_reps = 10;
+        state
+            .handle_update(EspUpdate::SpamConfig(SpamConfigUpdate::Edit('2')), &cmd_tx, &mut update_rx)
+            .await;
+        assert_eq!(state.unsaved_spam_settings.n_reps, 20); // "2" replaces "1"
+        assert_eq!(state.focused_input, FocussedInput::Reps(1));
+        assert!(state.unsaved_changes);
+        state.unsaved_changes = false;
+
+        // Edit PauseMs
+        state.focused_input = FocussedInput::PauseMs(1);
+        state.unsaved_spam_settings.pause_ms = 53;
+        state
+            .handle_update(EspUpdate::SpamConfig(SpamConfigUpdate::Edit('7')), &cmd_tx, &mut update_rx)
+            .await;
+        assert_eq!(state.unsaved_spam_settings.pause_ms, 57); // "7" replaces "3"
+        assert_eq!(state.focused_input, FocussedInput::PauseMs(2));
+        assert!(state.unsaved_changes);
+    }
+
+    #[tokio::test]
+    async fn test_handle_update_spam_config_delete() {
+        let mut state = TuiState::new();
+        state.focused_panel = FocusedPanel::SpamConfig;
+        let (cmd_tx, _) = mpsc::channel(1);
+        let (_, mut update_rx) = mpsc::channel(1);
+
+        // Delete in SrcMac
+        state.focused_input = FocussedInput::SrcMac(0);
+        state.unsaved_spam_settings.src_mac[0] = 0xAB;
+        state
+            .handle_update(EspUpdate::SpamConfig(SpamConfigUpdate::Delete), &cmd_tx, &mut update_rx)
+            .await;
+        assert_eq!(state.unsaved_spam_settings.src_mac[0], 0);
+
+        // Delete in Reps
+        state.focused_input = FocussedInput::Reps(0);
+        state.unsaved_spam_settings.n_reps = 123;
+        state
+            .handle_update(EspUpdate::SpamConfig(SpamConfigUpdate::Delete), &cmd_tx, &mut update_rx)
+            .await;
+        assert_eq!(state.unsaved_spam_settings.n_reps, 23); // "1" is removed
+    }
+
+    #[tokio::test]
+    async fn test_handle_update_spam_config_enter() {
+        let mut state = TuiState::new();
+        state.focused_panel = FocusedPanel::SpamConfig;
+        state.unsaved_changes = true; // Simulate some changes
+        let (cmd_tx, mut cmd_rx) = mpsc::channel(1);
+        let (_, mut update_rx) = mpsc::channel(1);
+
+        state
+            .handle_update(EspUpdate::SpamConfig(SpamConfigUpdate::Enter), &cmd_tx, &mut update_rx)
+            .await;
+        assert_eq!(state.focused_input, FocussedInput::None);
+        assert_eq!(state.focused_panel, FocusedPanel::Main);
+        assert!(cmd_rx.try_recv().is_ok()); // Check if apply_changes was called
+    }
+
+    #[tokio::test]
+    async fn test_handle_update_spam_config_escape() {
+        let mut state = TuiState::new();
+        state.focused_panel = FocusedPanel::SpamConfig;
+        state.focused_input = FocussedInput::SrcMac(0);
+        let (cmd_tx, _) = mpsc::channel(1);
+        let (_, mut update_rx) = mpsc::channel(1);
+
+        state
+            .handle_update(EspUpdate::SpamConfig(SpamConfigUpdate::Escape), &cmd_tx, &mut update_rx)
+            .await;
+        assert_eq!(state.focused_input, FocussedInput::None);
+        assert_eq!(state.focused_panel, FocusedPanel::Main);
+    }
+
+    #[tokio::test]
+    async fn test_handle_update_change_bandwidth() {
+        let mut state = TuiState::new();
+        let (cmd_tx, mut cmd_rx) = mpsc::channel(1);
+        let (_, mut update_rx) = mpsc::channel(1);
+
+        // Twenty -> Forty
+        state.esp_config.bandwidth = EspBandwidth::Twenty;
+        state.unsaved_esp_config.bandwidth = EspBandwidth::Twenty;
+        state.handle_update(EspUpdate::ChangeBandwidth, &cmd_tx, &mut update_rx).await;
+        assert_eq!(state.unsaved_esp_config.bandwidth, EspBandwidth::Forty);
+        assert_eq!(state.unsaved_esp_config.secondary_channel, EspSecondaryChannel::Above);
+        assert!(state.unsaved_changes);
+        assert!(cmd_rx.try_recv().is_ok());
+
+        // Forty -> Twenty
+        state.esp_config.bandwidth = EspBandwidth::Forty; // Simulate change applied
+        state.unsaved_esp_config.bandwidth = EspBandwidth::Forty;
+        state.handle_update(EspUpdate::ChangeBandwidth, &cmd_tx, &mut update_rx).await;
+        assert_eq!(state.unsaved_esp_config.bandwidth, EspBandwidth::Twenty);
+        assert_eq!(state.unsaved_esp_config.secondary_channel, EspSecondaryChannel::None);
+        assert!(state.unsaved_changes);
+        assert!(cmd_rx.try_recv().is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_handle_update_increment_channel() {
+        let mut state = TuiState::new();
+        let (cmd_tx, mut cmd_rx) = mpsc::channel(1);
+        let (_, mut update_rx) = mpsc::channel(1);
+
+        state.esp_config.channel = 1;
+        state.unsaved_esp_config.channel = 1;
+        state.handle_update(EspUpdate::IncrementChannel, &cmd_tx, &mut update_rx).await;
+        assert_eq!(state.unsaved_esp_config.channel, 2);
+        assert!(state.unsaved_changes);
+        assert!(cmd_rx.try_recv().is_ok());
+
+        state.esp_config.channel = 11; // Simulate change applied
+        state.unsaved_esp_config.channel = 11;
+        state.handle_update(EspUpdate::IncrementChannel, &cmd_tx, &mut update_rx).await;
+        assert_eq!(state.unsaved_esp_config.channel, 1); // Wrap around
+        assert!(state.unsaved_changes);
+        assert!(cmd_rx.try_recv().is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_apply_changes() {
+        let mut state = TuiState::new();
+        let (cmd_tx, mut cmd_rx) = mpsc::channel(1);
+
+        state.unsaved_changes = false;
+        state.apply_changes(&cmd_tx).await;
+        assert!(cmd_rx.try_recv().is_err()); // No command if no changes
+
+        state.unsaved_changes = true;
+        state.unsaved_esp_config.channel = 5;
+        state.unsaved_spam_settings.n_reps = 100;
+        state.esp_mode = EspMode::SendingContinuous; // To include spam settings
+
+        state.apply_changes(&cmd_tx).await;
+
+        if let Ok(EspChannelCommand::UpdatedConfig(params)) = cmd_rx.try_recv() {
+            assert_eq!(params.device_config.channel, 5);
+            assert!(params.transmit_custom_frame.is_some());
+            assert_eq!(params.transmit_custom_frame.unwrap().n_reps, 100);
+            assert_eq!(state.esp_config.channel, 5);
+            assert_eq!(state.spam_settings.n_reps, 100);
+            assert_eq!(state.synced, 2); // Initial 1 + 1 for this change
+        } else {
+            panic!("UpdatedConfig command not received or incorrect type");
         }
     }
 }
