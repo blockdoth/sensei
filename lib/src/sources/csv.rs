@@ -1,6 +1,5 @@
-use std::cmp::min;
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::{path, vec};
 
 use log::trace;
@@ -55,36 +54,23 @@ impl CsvSource {
 impl DataSourceT for CsvSource {
     /// Read data from source
     /// ---------------------
-    /// Copy one "packet" (meaning being source specific) into the buffer and report
-    /// its size.
+    /// This function reads either the full buffer, or until a newline character is detected.
     async fn read_buf(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError> {
-        // create str buff
-        let line: &mut Vec<u8> = &mut Vec::new();
-        let mut total_read = 0;
-        while total_read < buf.len() {
-            let mut line = Vec::new();
-            let bytes_read = self
-            .reader
-            .read_until(self.config.row_delimiter, &mut line)
-            .map_err(|e| DataSourceError::GenericError(format!("Failed to read from CSV file: {}: {}", self.config.path.display(), e)))?;
+        let row_delim = self.config.row_delimiter;
+        let max_read = buf.len();
+        let mut temp_buf = vec![0u8; max_read];
 
-            if bytes_read == 0 {
-                // EOF
-                break;
-            }
+        let bytes_read = self.reader.read(&mut temp_buf)?;
 
-            let to_copy = min(buf.len() - total_read, line.len());
-            buf[total_read..total_read + to_copy].copy_from_slice(&line[..to_copy]);
-            total_read += to_copy;
-
-            // If we read a full line, stop after copying it (even if buffer isn't full)
-            if line.ends_with(&[self.config.row_delimiter]) || to_copy < line.len() {
-                break;
+        for i in (0..bytes_read).rev() {
+            if temp_buf[i] == row_delim {
+                self.reader.seek(SeekFrom::Current(i as i64 - (bytes_read - 1) as i64))?; // rewind until i, account for endl.
+                buf[..(i + 1)].copy_from_slice(&temp_buf[..(i + 1)]); // +1 nonsense because of index/length variance.
+                return Ok(i + 1); // account for index/length difference.
             }
         }
-        // sleep for the delay
-        tokio::time::sleep(tokio::time::Duration::from_millis(self.config.delay.into())).await;
-        Ok(total_read)
+        buf[..bytes_read].copy_from_slice(&temp_buf[..bytes_read]);
+        Ok(bytes_read)
     }
 
     /// Start the data source
@@ -140,7 +126,6 @@ mod tests {
 
     use super::*;
 
-
     #[tokio::test]
     async fn test_csv_source_read_buf_partial_line() {
         let mut temp_file = NamedTempFile::new().unwrap();
@@ -168,7 +153,10 @@ mod tests {
         let bytes_read2 = csv_source.read_buf(&mut buffer2).await.unwrap();
         assert!(bytes_read2 > 0);
         // Should contain the rest of the first line (including delimiter) or start of next line
-        assert!(std::str::from_utf8(&buffer2[..bytes_read2]).unwrap().contains("1,value2\n") || std::str::from_utf8(&buffer2[..bytes_read2]).unwrap().contains("1,value2"));
+        assert!(
+            std::str::from_utf8(&buffer2[..bytes_read2]).unwrap().contains("1,value2\n")
+                || std::str::from_utf8(&buffer2[..bytes_read2]).unwrap().contains("1,value2")
+        );
     }
 
     #[tokio::test]
@@ -187,9 +175,9 @@ mod tests {
         let mut csv_source = CsvSource::new(config).unwrap();
 
         // "value1,value2\n" is 13 bytes
-        let mut buffer = vec![0; 13];
+        let mut buffer = vec![0; 14];
         let bytes_read = csv_source.read_buf(&mut buffer).await.unwrap();
-        assert_eq!(bytes_read, 13);
+        assert_eq!(bytes_read, 14);
         assert_eq!(&buffer[..bytes_read], b"value1,value2\n");
     }
 
@@ -245,7 +233,7 @@ mod tests {
 
         let mut csv_source = CsvSource::new(config).unwrap();
 
-        let mut buffer = vec![0; 1024];
+        let mut buffer = vec![0; 30];
         let bytes_read = csv_source.read_buf(&mut buffer).await.unwrap();
         assert!(bytes_read > 0);
 
