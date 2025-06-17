@@ -124,20 +124,6 @@ impl TcpClient {
         Ok(())
     }
 
-<<<<<<< HEAD
-                tcp::send_message(&mut write_stream, HostCtrl(HostCtrl::Connect)).await?;
-                self.connections.lock().await.insert(
-                    target_addr,
-                    Connection {
-                        addr: write_stream.peer_addr().unwrap(),
-                        buffer: vec![0; MAX_MESSAGE_LENGTH],
-                        write_stream,
-                        read_stream,
-                    },
-                );
-                info!("Connected to {target_addr} from {src_addr}");
-                self.addr = Some(src_addr);
-=======
     /// Gracefully disconnects from the specified `target_addr`.
     ///
     /// # Errors
@@ -180,7 +166,6 @@ impl TcpClient {
                 if let Err(e) = connection.write_stream.shutdown().await {
                     error!("Failed to shutdown write stream: {e}");
                 }
->>>>>>> dev
                 Ok(())
             }
             Some(other_msg) => {

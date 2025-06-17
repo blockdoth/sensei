@@ -271,7 +271,7 @@ mod tests {
     fn test_ui_render() {
         let backend = TestBackend::new(100, 50);
         let mut terminal = Terminal::new(backend).unwrap();
-        let mut tui_state = TuiState::new();
+        let mut tui_state = EspTuiState::new();
 
         // Test with default state (Listen Mode)
         terminal

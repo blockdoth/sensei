@@ -10,7 +10,8 @@ use ratatui::Frame;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use super::tui::ui;
-use crate::orchestrator::{ExperimentMetadata, ExperimentStatus, OrgChannelMsg};
+use crate::orchestrator::OrgChannelMsg;
+use crate::orchestrator::experiment::{ExperimentMetadata, ExperimentStatus};
 use crate::services::DEFAULT_ADDRESS;
 
 pub struct Host {
