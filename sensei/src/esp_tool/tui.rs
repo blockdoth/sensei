@@ -9,7 +9,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Cell, Padding, Paragraph, Row, Table, Wrap};
 
 use super::state::EspTuiState;
-use crate::esp_tool::state::{FocusedPanel, FocussedInput, ToolMode};
+use crate::esp_tool::state::{FocusedPanel, ToolMode};
 use crate::esp_tool::{CSI_DATA_BUFFER_CAPACITY, LOG_BUFFER_CAPACITY};
 
 /// Base number of lines for the ESP32 configuration display area.

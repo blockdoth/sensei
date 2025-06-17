@@ -51,7 +51,7 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
                 Style::default()
             })
             .title(Span::styled(
-                format!(" Log ({current_log_count} {}) ", tui_state.channel_updates),
+                format!(" Log ({current_log_count})"),
                 header_style,
             )),
     );

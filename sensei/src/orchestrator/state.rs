@@ -126,7 +126,6 @@ pub struct OrgTuiState {
     pub experiment_status: ExperimentStatus,
     pub experiment_stage: String,
     pub experiment_metadata: ExperimentMetadata,
-    pub channel_updates: u64,
 }
 
 impl OrgTuiState {
@@ -137,7 +136,6 @@ impl OrgTuiState {
             registry_addr: Some(DEFAULT_ADDRESS),
             registry_status: RegistryStatus::Disconnected,
             logs: vec![],
-            channel_updates: 0,
             focussed_panel: Focused::Main,
             experiment_status: ExperimentStatus::Ready,
             experiment_stage: "Unknown".to_owned(),

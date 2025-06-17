@@ -1,6 +1,5 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::process::id;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -8,13 +7,12 @@ use lib::network::rpc_message::{CfgType, DeviceId, HostId};
 use lib::network::tcp::client::TcpClient;
 use log::{debug, error};
 use serde::{Deserialize, Serialize};
-use tokio::net::unix::pipe::Receiver;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::{Mutex, watch};
 use tokio::time::sleep;
 
 use crate::orchestrator::state::OrgUpdate;
-use crate::orchestrator::{Orchestrator, OrgChannelMsg, experiment};
+use crate::orchestrator::{Orchestrator, OrgChannelMsg};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ExperimentMetadata {
@@ -171,7 +169,7 @@ impl ExperimentSession {
             experiments: vec![],
             active_experiment_index: None,
             status: ExperimentStatus::NoActive,
-            cancel_signal: cancel_signal,
+            cancel_signal,
         }
     }
 

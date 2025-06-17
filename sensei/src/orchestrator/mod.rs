@@ -2,7 +2,6 @@ mod experiment;
 mod state;
 mod tui;
 
-use std::fs::File;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -18,10 +17,10 @@ use log::*;
 use tokio::signal;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{Mutex, mpsc, watch};
-use tokio::task::JoinHandle;
+use tokio::task::{yield_now, JoinHandle};
 use tokio::time::sleep;
 
-use crate::orchestrator::experiment::{Experiment, ExperimentChannelMsg, ExperimentSession, ExperimentStatus};
+use crate::orchestrator::experiment::{ExperimentChannelMsg, ExperimentSession, ExperimentStatus};
 use crate::orchestrator::state::{OrgTuiState, OrgUpdate};
 use crate::services::{GlobalConfig, OrchestratorConfig, Run};
 
@@ -85,7 +84,6 @@ impl Run<OrchestratorConfig> for Orchestrator {
             for task in tasks {
                 handles.push(tokio::spawn(task));
             }
-
             // Create a future that resolves when Ctrl+C is received
             let ctrl_c = async {
                 signal::ctrl_c().await.expect("Failed to listen for ctrl + c");
@@ -120,22 +118,18 @@ impl Orchestrator {
             session.load_experiment(path);
         }
 
-        loop {
-            if let Some(msg) = experiment_recv.recv().await {
-                match msg {
-                    ExperimentChannelMsg::Start => {
-                        cancel_signal_send.send(true);
-                        update_send.send(OrgUpdate::UpdateExperimentStatus(ExperimentStatus::Done)).await;
-                        session.run(client.clone(), update_send.clone());
-                    }
-                    ExperimentChannelMsg::Stop => {
-                        cancel_signal_send.send(false);
-                        update_send.send(OrgUpdate::UpdateExperimentStatus(ExperimentStatus::Stopped)).await;
-                    }
-                    ExperimentChannelMsg::Select(i) => session.active_experiment_index = i,
+        while let Some(msg) = experiment_recv.recv().await {
+            match msg {
+                ExperimentChannelMsg::Start => {
+                    cancel_signal_send.send(true);
+                    update_send.send(OrgUpdate::UpdateExperimentStatus(ExperimentStatus::Done)).await;
+                    session.run(client.clone(), update_send.clone());
                 }
-            } else {
-                break;
+                ExperimentChannelMsg::Stop => {
+                    cancel_signal_send.send(false);
+                    update_send.send(OrgUpdate::UpdateExperimentStatus(ExperimentStatus::Stopped)).await;
+                }
+                ExperimentChannelMsg::Select(i) => session.active_experiment_index = i,
             }
         }
     }
@@ -165,7 +159,7 @@ impl Orchestrator {
                 _ = async {
                     if receiving {
                         for target_addr in &targets {
-                            if let Ok(msg) = client.lock().await.read_message(*target_addr).await {
+                            if let Ok(msg) = client.lock().await.wait_for_read_message(*target_addr).await {
                                 match msg.msg {
                                     Data { data_msg: DataMsg::CsiFrame { csi }, .. } => {
                                         info!("{}: {}", msg.src_addr, csi.timestamp)
@@ -177,6 +171,8 @@ impl Orchestrator {
                                 }
                             }
                         }
+                    } else {
+                      sleep(Duration::from_millis(10)).await; // Prevents this tasks from starving the other one
                     }
                 } => {}
             }
@@ -209,11 +205,11 @@ impl Orchestrator {
             }
             OrgChannelMsg::Unsubscribe(target_addr, msg_origin_addr, device_id) => {
                 if let Some(msg_origin_addr) = msg_origin_addr {
-                    info!("Unubscribing from {target_addr} for device id {device_id}");
+                    info!("Unsubscribing from {target_addr} for device id {device_id}");
                     let msg = HostCtrl::UnsubscribeFrom { target_addr, device_id };
                     client.lock().await.send_message(msg_origin_addr, RpcMessageKind::HostCtrl(msg)).await;
                 } else {
-                    info!("Unubscribing from {target_addr} for device id {device_id}");
+                    info!("Unsubscribing from {target_addr} for device id {device_id}");
                     let msg = HostCtrl::Unsubscribe { device_id };
                     client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await;
                 }

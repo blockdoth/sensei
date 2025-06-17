@@ -41,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match &args.subcommand {
         Some(SubCommandsArgs::EspTool(_)) => {}
-        Some(SubCommandsArgs::Orchestrator(org_config)) if org_config.tui == true => {}
+        Some(SubCommandsArgs::Orchestrator(org_config)) if org_config.tui => {}
         // Dont init regular logger when using TUI's ^
         _ => {
             CombinedLogger::init(vec![
