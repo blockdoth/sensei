@@ -70,6 +70,10 @@ impl DataSourceT for CsvSource {
             }
         }
         buf[..bytes_read].copy_from_slice(&temp_buf[..bytes_read]);
+        // sleep to simulate a delay between arriving packets.
+        if self.config.delay > 0 {
+            tokio::time::sleep(tokio::time::Duration::from_millis(self.config.delay.into())).await;
+        }
         Ok(bytes_read)
     }
 
