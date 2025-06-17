@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span};
 use tokio::sync::mpsc::Sender;
 
 /// Represents a single log entry captured for display in the TUI.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LogEntry {
     /// Local timestamp when the log was generated.
     pub timestamp: DateTime<Local>,

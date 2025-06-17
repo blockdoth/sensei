@@ -9,7 +9,7 @@ use crate::sources::DataSourceT;
 use crate::sources::controllers::{Controller, ControllerParams};
 
 /// Parameters for the Netlink controller, typically parsed from yaml file
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, schemars::JsonSchema)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, schemars::JsonSchema, PartialEq)]
 #[serde(default)]
 pub struct NetlinkControllerParams {
     /// Name of the wireless interface to configure (e.g., "wlp1s0").

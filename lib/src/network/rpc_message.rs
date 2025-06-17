@@ -24,7 +24,7 @@ pub enum Responsiveness {
 }
 
 /// Represents a full RPC message, including its kind and source/target addresses.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct RpcMessage {
     /// The kind of RPC message (control, registration, or data).
     pub msg: RpcMessageKind,
@@ -35,7 +35,7 @@ pub struct RpcMessage {
 }
 
 /// The different kinds of RPC messages that can be sent over the network.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum RpcMessageKind {
     /// Host control message (e.g., connect, disconnect, configure).
     HostCtrl(HostCtrl),
@@ -51,8 +51,12 @@ pub type HostId = u64;
 pub type DeviceId = u64;
 
 /// Host control commands for managing device connections and subscriptions.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum HostCtrl {
+    /// Simple ping message. Host should respond with Pong.
+    Ping,
+    /// See ping
+    Pong,
     /// Connect to a host.
     Connect,
     /// Disconnect from a host.
@@ -70,7 +74,7 @@ pub enum HostCtrl {
 }
 
 /// Registration and control messages for orchestrator and node communication.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum RegCtrl {
     /// Poll the status of a specific host.
     PollHostStatus { host_id: HostId },
@@ -85,7 +89,7 @@ pub enum RegCtrl {
 }
 
 /// Status information for a host, including its devices.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct HostStatus {
     /// The unique ID of the host.
     pub host_id: HostId,
@@ -169,7 +173,7 @@ pub enum AdapterMode {
 }
 
 /// Types of configuration operations for device handlers.
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
 pub enum CfgType {
     /// Create a new device handler with the given config.
     Create { cfg: DeviceHandlerConfig },

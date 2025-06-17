@@ -23,10 +23,16 @@ use tokio::sync::mpsc::{self, Receiver, Sender};
 
 use crate::services::{EspToolConfig, GlobalConfig, Run};
 
+/// Capacity of the TUI log buffer.
 const LOG_BUFFER_CAPACITY: usize = 200;
+/// Capacity of the TUI CSI data buffer.
 const CSI_DATA_BUFFER_CAPACITY: usize = 50000;
+/// Refresh interval for the TUI in milliseconds.
 const UI_REFRESH_INTERVAL_MS: u64 = 20;
+/// Capacity of the actor channel for ESP commands.
+/// This channel is used to send commands from the TUI to the ESP32 actor task.
 const ACTOR_CHANNEL_CAPACITY: usize = 10;
+/// Size of the read buffer for ESP32 serial communication.
 const ESP_READ_BUFFER_SIZE: usize = 4096;
 
 /// Commands that can be sent to the ESP32 actor task.
@@ -52,11 +58,18 @@ impl FromLog for EspUpdate {
 /// This tool sets up a TUI to visualize CSI data, manages the ESP32 connection,
 /// and handles configuration commands for the ESP device.
 pub struct EspTool {
+    /// The serial port to connect to the ESP32 device.
     serial_port: String,
+    /// The logging level for the tool.
     log_level: LevelFilter,
 }
 
 impl Run<EspToolConfig> for EspTool {
+    /// Creates a new `EspTool` instance.
+    ///
+    /// # Arguments
+    /// * `global_config` - Global application configuration.
+    /// * `esp_config` - ESP32 tool specific configuration.
     fn new(global_config: GlobalConfig, esp_config: EspToolConfig) -> Self {
         EspTool {
             serial_port: esp_config.serial_port,
@@ -68,8 +81,7 @@ impl Run<EspToolConfig> for EspTool {
     /// Spawns the ESP32 actor task and starts the TUI.
     ///
     /// # Arguments
-    /// * `global_config` - Global logging and system config.
-    /// * `esp_config` - Configuration specific to ESP32 source (e.g., serial port).
+    /// * `self` - The `EspTool` instance.
     ///
     /// # Errors
     /// Returns a boxed `Error` if initialization or runtime encounters a failure.
@@ -123,29 +135,6 @@ impl EspTool {
                 return;
             }
         };
-        // let app_state_log_clone = Arc::clone(&app_state);
-        // let log_listener_handle: JoinHandle<()> = tokio::spawn(async move {
-        // Changed variable name to avoid conflict
-        // loop {
-        //     tokio::task::yield_now().await;
-        //     match tokio::task::block_in_place(|| log_rx.recv_timeout(Duration::from_secs(1))) {
-        //         Ok(log_msg) => match app_state_log_clone.try_lock() {
-        //             Ok(mut state_guard) => {
-        //                 state_guard.add_log_message(log_msg);
-        //             }
-        //             Err(std::sync::TryLockError::Poisoned(_)) => {
-        //                 break;
-        //             }
-        //             Err(std::sync::TryLockError::WouldBlock) => {}
-        //         },
-        //         Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
-        //             continue;
-        //         }
-        //         Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
-        //             break;
-        //         }
-        //     }
-        // };)
         if let Err(e) = esp.start().await {
             update_send_channel.send(EspUpdate::Status("DISCONNECTED (Start Fail)".to_string())).await;
             warn!("Shutting down ESP task");
@@ -280,5 +269,46 @@ impl EspTool {
             .send(EspUpdate::Status("DISCONNECTED (Actor Stopped)".to_string()))
             .await;
         info!("ESP actor task for port {:?} stopped.", esp.port);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Local;
+    use lib::tui::logs::LogEntry;
+    use log::Level;
+
+    use super::*;
+    use crate::services::GlobalConfig; // Import Local for timestamp
+
+    #[test]
+    fn test_esp_tool_new() {
+        let global_config = GlobalConfig {
+            log_level: LevelFilter::Debug,
+        };
+        let esp_config = EspToolConfig {
+            serial_port: "/dev/ttyUSB0".to_string(),
+        };
+        let esp_tool = EspTool::new(global_config, esp_config);
+        assert_eq!(esp_tool.serial_port, "/dev/ttyUSB0");
+        assert_eq!(esp_tool.log_level, LevelFilter::Debug);
+    }
+
+    #[test]
+    fn test_from_log_for_esp_update() {
+        let log_entry = LogEntry {
+            level: Level::Info,
+            message: "Test log message".to_string(),
+            timestamp: Local::now(),
+        };
+        let esp_update = EspUpdate::from_log(log_entry.clone());
+        match esp_update {
+            EspUpdate::Log(received_log_entry) => {
+                assert_eq!(received_log_entry.level, log_entry.level);
+                assert_eq!(received_log_entry.message, log_entry.message);
+                assert_eq!(received_log_entry.timestamp, log_entry.timestamp);
+            }
+            _ => panic!("EspUpdate should be of type Log"),
+        }
     }
 }
