@@ -122,13 +122,14 @@ def generate_csi_data_csv(
     ]
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python generate_data.py <output_csv_file>")
+    if len(sys.argv) != 3:
+        print("Usage: python generate_data.py <output_csv_file> <num_rows>")
         sys.exit(1)
     output_file = sys.argv[1]
+    num_rows = int(sys.argv[2])
     generate_csi_data_csv(
         output_file,
-        num_rows=10000,
+        num_rows,
         max_cores=2,
         max_streams=2,
         max_subcarriers=2,
