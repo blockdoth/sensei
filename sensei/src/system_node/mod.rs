@@ -18,7 +18,7 @@ use lib::errors::NetworkError;
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
 use lib::network::rpc_message::CfgType::{Create, Delete, Edit};
 use lib::network::rpc_message::SourceType::*;
-use lib::network::rpc_message::{DataMsg, DeviceId, DeviceStatus, HostCtrl, HostId, HostStatus, RegCtrl, Responsiveness, RpcMessage, RpcMessageKind};
+use lib::network::rpc_message::{CfgType, DataMsg, DeviceId, DeviceStatus, HostCtrl, HostId, HostStatus, RegCtrl, Responsiveness, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, HostChannel, RegChannel, SubscribeDataChannel, send_message};
@@ -88,6 +88,132 @@ impl SystemNode {
             responsiveness: Responsiveness::Connected,
         }
     }
+    
+    async fn connect(
+        src_addr: SocketAddr,
+    ) -> Result<(), NetworkError> {
+        info!("Started connection with {src_addr}");
+        
+        Ok(())
+    }
+    
+    async fn disconnect(
+        src_addr: SocketAddr,
+        send_channel_msg_channel: watch::Sender<ChannelMsg>,
+    ) -> Result<(), NetworkError> {
+        send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Disconnect))?;
+        
+        info!("Disconnecting from the connection with {src_addr}");
+        
+        Ok(())
+    }
+    
+    async fn subscribe(
+        src_addr: SocketAddr,
+        device_id: DeviceId,
+        send_channel_msg_channel: watch::Sender<ChannelMsg>,
+    ) -> Result<(), NetworkError> {
+        send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Subscribe { device_id }))?;
+        info!("Client {} subscribed to data stream for device_id: {device_id}", src_addr);
+        
+        Ok(())
+    }
+
+    async fn unsubscribe(
+        src_addr: SocketAddr,
+        device_id: DeviceId,
+        send_channel_msg_channel: watch::Sender<ChannelMsg>,
+    ) -> Result<(), NetworkError> {
+        send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Unsubscribe { device_id }))?;
+        info!("Client {} unsubscribed from data stream for device_id: {device_id}", src_addr);
+
+        Ok(())
+    }
+    
+    async fn subscribe_to(
+        target_addr: SocketAddr,
+        device_id: DeviceId,
+        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>
+    ) -> Result<(), NetworkError> {
+        // Create a device handler with a source that will connect to the node server of the target
+        // The sink will connect to this nodes server
+        // Node servers broadcast all incoming data to all connections, but only relevant sources will process this data
+        let source: DataSourceConfig = lib::sources::DataSourceConfig::Tcp(TCPConfig {
+            target_addr,
+            device_id,
+        });
+        let controller = None;
+        let adapter = None;
+        // Sinks are now managed by SystemNode, this specific logic for TCP sink might need adjustment
+        // based on how `output_to` is handled for such dynamically created handlers.
+        // For now, we assume it might output to a default or pre-configured sink if necessary.
+        let new_handler_config = DeviceHandlerConfig {
+            device_id,
+            stype: TCP,
+            source,
+            controller,
+            adapter,
+            output_to: vec![],
+        };
+
+        // This can be allowed to unwrap, as it will literally always succeed
+        let new_handler = DeviceHandler::from_config(new_handler_config).await.unwrap();
+
+        info!("Handler created to subscribe to {target_addr}");
+
+        handlers.lock().await.insert(device_id, new_handler);
+        
+        Ok(())
+    }
+    
+    async fn unsubscribe_from(
+        device_id: DeviceId,
+        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>
+    ) -> Result<(), NetworkError> {
+        // TODO: Make it target specific, but for now removing based on device id should be fine.
+        // Would require extracting the source itself from the device handler
+        info!("Removing handler subscribing to {device_id}");
+        match handlers.lock().await.remove(&device_id) {
+            Some(mut handler) => { handler.stop().await; },
+            _ => info!("This handler does not exist."),
+        }
+        
+        Ok(())
+    }
+    
+    async fn configure(
+        device_id: DeviceId,
+        cfg_type: CfgType,
+        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+    ) -> Result<(), NetworkError> {
+        match cfg_type {
+            Create { cfg } => {
+                info!("Creating a new device handler for device id {device_id}");
+                let handler = DeviceHandler::from_config(cfg).await;
+                match handler {
+                    Ok(handler) => { handlers.lock().await.insert(device_id, handler); }
+                    Err(e) => { info!("Creating device handler went wrong: {e}") }
+                }
+                
+            }
+            Edit { cfg } => {
+                info!("Editing existing device handler for device id {device_id}");
+                match handlers.lock().await.get_mut(&device_id) {
+                    Some(handler) => handler.reconfigure(cfg).await.expect("Whoopsy"),
+                    _ => info!("This handler does not exist."),
+                }
+            }
+            Delete => {
+                info!("Deleting device handler for device id {device_id}");
+                match handlers.lock().await.remove(&device_id) {
+                    Some(mut handler) => handler.stop().await.expect("Whoopsy"),
+                    _ => info!("This handler does not exist."),
+                }
+            }
+        }
+        
+        Ok(())
+    }
 
     /// Handles incoming host control messages and performs the corresponding actions.
     ///
@@ -113,79 +239,25 @@ impl SystemNode {
         match message {
             // regular Host commands
             HostCtrl::Connect => {
-                let src = request.src_addr;
-                info!("Started connection with {src}");
+                Self::connect(request.src_addr).await?;
             }
             HostCtrl::Disconnect => {
-                // Correct way to signal disconnect to the sending task for this connection
-                send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Disconnect))?;
-                return Err(NetworkError::Closed); // Indicate connection should close
+                Self::disconnect(request.src_addr, send_channel_msg_channel).await?;
             }
             HostCtrl::Subscribe { device_id } => {
-                send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Subscribe { device_id }))?;
-                info!("Client {} subscribed to data stream for device_id: {device_id}", request.src_addr);
+                Self::subscribe(request.src_addr, device_id, send_channel_msg_channel).await?;
             }
             HostCtrl::Unsubscribe { device_id } => {
-                send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Unsubscribe { device_id }))?;
-                info!("Client {} unsubscribed from data stream for device_id: {device_id}", request.src_addr);
+                Self::unsubscribe(request.src_addr, device_id, send_channel_msg_channel).await?;
             }
             HostCtrl::SubscribeTo { target, device_id } => {
-                // Create a device handler with a source that will connect to the node server of the target
-                // The sink will connect to this nodes server
-                // Node servers broadcast all incoming data to all connections, but only relevant sources will process this data
-                let source: DataSourceConfig = lib::sources::DataSourceConfig::Tcp(TCPConfig {
-                    target_addr: target,
-                    device_id,
-                });
-                let controller = None;
-                let adapter = None;
-                // Sinks are now managed by SystemNode, this specific logic for TCP sink might need adjustment
-                // based on how `output_to` is handled for such dynamically created handlers.
-                // For now, we assume it might output to a default or pre-configured sink if necessary.
-                let new_handler_config = DeviceHandlerConfig {
-                    device_id,
-                    stype: TCP,
-                    source,
-                    controller,
-                    adapter,
-                    output_to: vec![],
-                };
-
-                let new_handler = DeviceHandler::from_config(new_handler_config).await.unwrap();
-
-                info!("Handler created to subscribe to {target}");
-
-                self.handlers.lock().await.insert(device_id, new_handler);
+                Self::subscribe_to(target, device_id, self.handlers.clone()).await?;
             }
             HostCtrl::UnsubscribeFrom { target: _, device_id } => {
-                // TODO: Make it target specific, but for now removing based on device id should be fine.
-                // Would require extracting the source itself from the device handler
-                info!("Removing handler subscribing to {device_id}");
-                match self.handlers.lock().await.remove(&device_id) {
-                    Some(mut handler) => handler.stop().await.expect("Whoopsy"),
-                    _ => warn!("This handler does not exist."),
-                }
+                Self::unsubscribe(request.src_addr, device_id, send_channel_msg_channel).await?;
             }
-            HostCtrl::Configure { device_id, cfg_type } => match cfg_type {
-                Create { cfg } => {
-                    info!("Creating a new device handler for device id {device_id}");
-                    let handler = DeviceHandler::from_config(cfg).await.unwrap();
-                    self.handlers.lock().await.insert(device_id, handler);
-                }
-                Edit { cfg } => {
-                    info!("Editing existing device handler for device id {device_id}");
-                    match self.handlers.lock().await.get_mut(&device_id) {
-                        Some(handler) => handler.reconfigure(cfg).await.expect("Whoopsy"),
-                        _ => warn!("This handler does not exist."),
-                    }
-                }
-                Delete => {
-                    info!("Deleting device handler for device id {device_id}");
-                    match self.handlers.lock().await.remove(&device_id) {
-                        Some(mut handler) => handler.stop().await.expect("Whoopsy"),
-                        _ => warn!("This handler does not exist."),
-                    }
-                }
+            HostCtrl::Configure { device_id, cfg_type } => {
+                Self::configure(device_id, cfg_type, self.handlers.clone()).await?;
             },
             HostCtrl::Experiment { experiment } => {},
             m => {
@@ -209,11 +281,9 @@ impl SystemNode {
                 return Err(NetworkError::Closed); // Throwing an error here feels weird, but it's also done in the recv_handler
             }
             HostChannel::Subscribe { device_id } => {
-                info!("Subscribed");
                 subscribed_ids.insert(device_id);
             }
             HostChannel::Unsubscribe { device_id } => {
-                info!("Unsubscribed");
                 subscribed_ids.remove(&device_id);
             }
             _ => {}
