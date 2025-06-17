@@ -87,11 +87,11 @@ impl FromConfig<SinkConfig> for dyn Sink {
             SinkConfig::File(cfg) => {
                 let sink = file::FileSink::new(cfg).await?;
                 Ok(Box::new(sink))
-            },
+            }
             SinkConfig::Tcp(cfg) => {
                 let sink = tcp::TCPSink::new(cfg).await?;
                 Ok(Box::new(sink))
-            },
+            }
             SinkConfig::CSV(cfg) => {
                 let sink = csv::CSVSink::new(cfg).await?;
                 Ok(Box::new(sink))

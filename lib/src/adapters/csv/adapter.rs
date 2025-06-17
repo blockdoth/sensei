@@ -91,7 +91,13 @@ impl<'a> CSVAdapter<'a> {
         }
 
         let mut csi_data = CsiData {
-            timestamp: cells[0].trim_matches(|c| c == '\n' || c == '\0').parse::<f64>()?,
+            timestamp: cells[0]
+                .trim_matches(|c| c == '\n' || c == '\0')
+                .parse::<f64>()
+                .map_err(|err| CsiAdapterError::FloatConversionError {
+                    err,
+                    input: cells[0].to_string(),
+                })?,
             sequence_number: cells[1].parse::<u16>()?,
             ..Default::default()
         };
@@ -128,11 +134,17 @@ impl<'a> CSVAdapter<'a> {
                 } else {
                     (inner, "")
                 };
-                let real = real.parse::<f64>().map_err(CsiAdapterError::FloatConversionError)?;
+                let real = real.parse::<f64>().map_err(|err| CsiAdapterError::FloatConversionError {
+                    err,
+                    input: real.to_string(),
+                })?;
                 let imag = imag
                     .trim_start_matches('+')
                     .parse::<f64>()
-                    .map_err(CsiAdapterError::FloatConversionError)?;
+                    .map_err(|err| CsiAdapterError::FloatConversionError {
+                        err,
+                        input: imag.to_string(),
+                    })?;
                 Ok(Complex { re: real, im: imag })
             })
             .collect::<Result<Vec<Complex>, CsiAdapterError>>()?;
@@ -187,12 +199,10 @@ impl CsiDataAdapter for CSVAdapter<'_> {
     async fn produce(&mut self, msg: DataMsg) -> Result<Option<DataMsg>, CsiAdapterError> {
         // Check if the message is a raw frame
         match msg {
-            DataMsg::RawFrame { bytes, .. } => {
-                match self.consume(&bytes)? {
-                    None => Ok(None),
-                    Some(csi) => Ok(Some(DataMsg::CsiFrame{csi})),
-                }
-            }
+            DataMsg::RawFrame { bytes, .. } => match self.consume(&bytes)? {
+                None => Ok(None),
+                Some(csi) => Ok(Some(DataMsg::CsiFrame { csi })),
+            },
             DataMsg::CsiFrame { csi } => Ok(Some(DataMsg::CsiFrame { csi })),
         }
     }
@@ -243,12 +253,7 @@ mod tests {
 
     #[test]
     fn test_split_rows_single_row() {
-        let mut adapter = CSVAdapter::new(
-            b"row1col1,row1col2\n".to_vec(),
-            None,
-            None,
-            None,
-        );
+        let mut adapter = CSVAdapter::new(b"row1col1,row1col2\n".to_vec(), None, None, None);
         let rows = adapter.split_rows();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0], b"row1col1,row1col2");
@@ -257,12 +262,7 @@ mod tests {
 
     #[test]
     fn test_split_rows_multiple_rows() {
-        let mut adapter = CSVAdapter::new(
-            b"row1col1,row1col2\nrow2col1,row2col2\nrow3col1,row3col2\n".to_vec(),
-            None,
-            None,
-            None,
-        );
+        let mut adapter = CSVAdapter::new(b"row1col1,row1col2\nrow2col1,row2col2\nrow3col1,row3col2\n".to_vec(), None, None, None);
         let rows = adapter.split_rows();
         assert_eq!(rows.len(), 3);
         assert_eq!(rows[0], b"row1col1,row1col2");
@@ -273,12 +273,7 @@ mod tests {
 
     #[test]
     fn test_split_rows_partial_row_left_in_buffer() {
-        let mut adapter = CSVAdapter::new(
-            b"row1col1,row1col2\nrow2col1,row2col2".to_vec(),
-            None,
-            None,
-            None,
-        );
+        let mut adapter = CSVAdapter::new(b"row1col1,row1col2\nrow2col1,row2col2".to_vec(), None, None, None);
         let rows = adapter.split_rows();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0], b"row1col1,row1col2");
