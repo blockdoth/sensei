@@ -8,6 +8,7 @@
 //! The System Node also interacts with registries to announce its presence and can periodically poll other nodes when functioning as a registry.
 
 use std::collections::{HashMap, HashSet};
+use std::fs::File;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -29,7 +30,7 @@ use log::*;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::{Mutex, broadcast, mpsc, watch}; // Added mpsc
 use tokio::task;
-use lib::network::experiment_config::{Block, Command, Experiment, Stage};
+use lib::network::experiment_config::{Block, Command, Experiment, ExperimentHost, Stage};
 use lib::network::experiment_config::IsRecurring::{NotRecurring, Recurring};
 use crate::registry::Registry;
 use crate::services::{GlobalConfig, Run, SystemNodeConfig};
@@ -220,9 +221,15 @@ impl SystemNode {
         experiment: Experiment,
         handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-
-
-
+        info!("Running {}", experiment.metadata.name.clone());
+        
+        for (i, stage) in experiment.stages.into_iter().enumerate() {
+            let name = stage.name.clone();
+            info!("Executing stage {name}");
+            Self::execute_stage(stage, handlers.clone()).await?;
+            info!("Finished stage {name}");
+        }
+        
         Ok(())
     }
 
@@ -362,7 +369,9 @@ impl SystemNode {
             HostCtrl::Configure { device_id, cfg_type } => {
                 Self::configure(device_id, cfg_type, self.handlers.clone()).await?;
             },
-            HostCtrl::Experiment { experiment } => {},
+            HostCtrl::Experiment { experiment } => {
+                Self::load_experiment(experiment, self.handlers.clone()).await?;
+            },
             m => {
                 warn!("Received unhandled HostCtrl: {m:?}");
             }

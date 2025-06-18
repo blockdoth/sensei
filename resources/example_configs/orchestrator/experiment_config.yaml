@@ -1,6 +1,7 @@
 - metadata:
     name: Experiment1
-    experiment_host: !Orchestrator
+    experiment_host: !SystemNode
+      target_addr: "127.0.0.1:8000"
     output_path: "output.csv"
   stages:
     - name: "init"
