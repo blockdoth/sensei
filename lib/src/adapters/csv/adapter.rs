@@ -59,7 +59,11 @@ impl<'a> CSVAdapter<'a> {
     }
 
     /// Parses a single CSV row into a vector of cells, handling quoted fields.
-    fn parse_row(&self, row: &[u8]) -> Result<Vec<String>, CsiAdapterError> {
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the innput data is inproperly quoted, or contains the wrong nubmer of fields.
+    pub fn parse_row(&self, row: &[u8]) -> Result<Vec<String>, CsiAdapterError> {
         let mut rdr = csv::ReaderBuilder::new()
             .has_headers(false)
             .delimiter(*self.cell_delimiter)
@@ -83,51 +87,7 @@ impl<'a> CSVAdapter<'a> {
         let row = &rows[rows.len() - 1];
         let cells = self.parse_row(row)?;
 
-        if cells.len() != ROW_SIZE {
-            return Err(CsiAdapterError::CSV(CSVAdapterError::InvalidData(format!(
-                "Invalid number of columns in CSV row: {}",
-                cells.len()
-            ))));
-        }
-
-        let mut csi_data = CsiData {
-            timestamp: cells[0]
-                .trim_matches(|c| c == '\n' || c == '\0')
-                .parse::<f64>()
-                .map_err(|err| CsiAdapterError::FloatConversionError {
-                    err,
-                    input: cells[0].to_string(),
-                })?,
-            sequence_number: cells[1].parse::<u16>()?,
-            ..Default::default()
-        };
-
-        let num_cores = cells[2].parse::<u8>()?;
-        let num_streams = cells[3].parse::<u8>()?;
-        let num_subcarriers = cells[4].parse::<u8>()?;
-        csi_data.rssi = if cells[5].starts_with('(') {
-            cells[5]
-                .trim_matches(|c| c == '"' || c == '(' || c == ')')
-                .split(',')
-                .map(|rssi| rssi.parse::<u16>())
-                .collect::<Result<Vec<_>, _>>()?
-        } else {
-            cells[5].split(',').map(|rssi| rssi.parse::<u16>()).collect::<Result<Vec<_>, _>>()?
-        };
-
-        let complex_values = cells[6]
-            .trim_matches('"')
-            .split(',')
-            .map(CSVAdapter::extract_complex)
-            .collect::<Result<Vec<Complex>, CsiAdapterError>>()?;
-
-        let mut csi = vec![vec![vec![Complex::default(); num_subcarriers as usize]; num_streams as usize]; num_cores as usize];
-        csi.iter_mut()
-            .flat_map(|core| core.iter_mut())
-            .flat_map(|stream| stream.iter_mut())
-            .zip(complex_values.iter())
-            .for_each(|(subcarrier, value)| *subcarrier = *value);
-        csi_data.csi = csi;
+        let csi_data = CSVAdapter::row_to_csi(cells)?;
 
         self.tmp_data = Some(csi_data);
 
@@ -160,6 +120,57 @@ impl<'a> CSVAdapter<'a> {
         })?;
         Ok(Complex { re: real, im: imag })
     }
+
+    /// Parses a CSV row (split into a vector) into CSI data.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the data is malformed.
+    pub fn row_to_csi(cells: Vec<String>) -> Result<CsiData, CsiAdapterError> {
+        if cells.len() != ROW_SIZE {
+            return Err(CsiAdapterError::CSV(CSVAdapterError::InvalidData(format!(
+                "Invalid number of columns in CSV row: {}",
+                cells.len()
+            ))));
+        }
+        let mut csi_data = CsiData {
+            timestamp: cells[0]
+                .trim_matches(|c| c == '\n' || c == '\0')
+                .parse::<f64>()
+                .map_err(|err| CsiAdapterError::FloatConversionError {
+                    err,
+                    input: cells[0].to_string(),
+                })?,
+            sequence_number: cells[1].parse::<u16>()?,
+            ..Default::default()
+        };
+        let num_cores = cells[2].parse::<u8>()?;
+        let num_streams = cells[3].parse::<u8>()?;
+        let num_subcarriers = cells[4].parse::<u8>()?;
+        csi_data.rssi = if cells[5].starts_with('(') {
+            cells[5]
+                .trim_matches(|c| c == '"' || c == '(' || c == ')')
+                .split(',')
+                .map(|rssi| rssi.parse::<u16>())
+                .collect::<Result<Vec<_>, _>>()?
+        } else {
+            cells[5].split(',').map(|rssi| rssi.parse::<u16>()).collect::<Result<Vec<_>, _>>()?
+        };
+        let complex_values = cells[6]
+            .trim_matches('"')
+            .split(',')
+            .map(CSVAdapter::extract_complex)
+            .collect::<Result<Vec<Complex>, CsiAdapterError>>()?;
+        let mut csi = vec![vec![vec![Complex::default(); num_subcarriers as usize]; num_streams as usize]; num_cores as usize];
+        csi.iter_mut()
+            .flat_map(|core| core.iter_mut())
+            .flat_map(|stream| stream.iter_mut())
+            .zip(complex_values.iter())
+            .for_each(|(subcarrier, value)| *subcarrier = *value);
+        csi_data.csi = csi;
+        Ok(csi_data)
+    }
+
 }
 
 impl std::default::Default for CSVAdapter<'_> {
