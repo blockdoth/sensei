@@ -16,8 +16,11 @@ use mockall::automock;
 use crate::errors::{CsiAdapterError, TaskError};
 use crate::network::rpc_message::DataMsg;
 use crate::{FromConfig, ToConfig};
+#[cfg(feature = "csv")]
 pub mod csv;
+#[cfg(feature = "esp_tool")]
 pub mod esp32;
+#[cfg(feature = "iwl5300")]
 pub mod iwl;
 pub mod tcp;
 
@@ -53,9 +56,12 @@ pub trait CsiDataAdapter: Send + ToConfig<DataAdapterConfig> {
 /// automatically. Each variant contains options specific to the corresponding adapter.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq)]
 pub enum DataAdapterConfig {
+    #[cfg(feature = "iwl5300")]
     Iwl { scale_csi: bool },
+    #[cfg(feature = "esp_tool")]
     Esp32 { scale_csi: bool },
     Tcp { scale_csi: bool },
+    #[cfg(feature = "csv")]
     CSV {},
 }
 
@@ -69,9 +75,12 @@ pub enum DataAdapterConfig {
 impl FromConfig<DataAdapterConfig> for dyn CsiDataAdapter {
     async fn from_config(tag: DataAdapterConfig) -> Result<Box<Self>, TaskError> {
         let adapter: Box<dyn CsiDataAdapter> = match tag {
+            #[cfg(feature = "iwl5300")]
             DataAdapterConfig::Iwl { scale_csi } => Box::new(iwl::IwlAdapter::new(scale_csi)),
+            #[cfg(feature = "esp_tool")]
             DataAdapterConfig::Esp32 { scale_csi } => Box::new(esp32::ESP32Adapter::new(scale_csi)),
             DataAdapterConfig::Tcp { scale_csi } => Box::new(tcp::TCPAdapter::new(scale_csi)),
+            #[cfg(feature = "csv")]
             DataAdapterConfig::CSV {} => Box::new(csv::CSVAdapter::default()),
         };
         Ok(adapter)

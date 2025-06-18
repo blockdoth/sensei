@@ -23,6 +23,7 @@ use crate::errors::{SinkError, TaskError};
 use crate::network::rpc_message::DataMsg;
 use crate::{FromConfig, ToConfig};
 
+#[cfg(feature = "file_sink")]
 pub mod file;
 pub mod tcp;
 
@@ -85,6 +86,7 @@ pub enum SinkConfig {
 impl FromConfig<SinkConfig> for dyn Sink {
     async fn from_config(config: SinkConfig) -> Result<Box<Self>, TaskError> {
         match config {
+            #[cfg(feature = "file_sink")]
             SinkConfig::File(cfg) => {
                 let sink = file::FileSink::new(cfg).await?;
                 Ok(Box::new(sink))
