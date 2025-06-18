@@ -3,24 +3,32 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::process::Command;
 
-use log::trace;
+use log::{error, trace};
 use tempfile::NamedTempFile;
 
 const DEFAULT_SCRIPTS_PATH: &str = "./scripts";
 const BACKUP_SCRIPTS_PATH: &str = "../scripts";
 
-pub fn generate_csv_data_file() -> NamedTempFile {
+pub fn generate_csv_data_file() -> Option<NamedTempFile> {
     let scripts_path = if PathBuf::from(DEFAULT_SCRIPTS_PATH).exists() {
         PathBuf::from(DEFAULT_SCRIPTS_PATH)
     } else if PathBuf::from(BACKUP_SCRIPTS_PATH).exists() {
         PathBuf::from(BACKUP_SCRIPTS_PATH)
     } else {
-        panic!("Could not find a resource path")
+        error!("Could not find a resource path");
+        return None;
     };
     let file = NamedTempFile::new().unwrap();
 
     // Since the nix environment specifies that we have access to python3, we can use it in a test :)
     // Execute the Python script to generate random data
+    // Just to be sure, we do check if it exists
+    let python_status = Command::new("python3").arg("--version").status();
+
+    if python_status.is_err() || !python_status.unwrap().success() {
+        error!("python3 is not accessible in the environment");
+        return None;
+    }
     let script_path = scripts_path.join("generate_data.py");
     let status = Command::new("python3")
         .arg(script_path)
@@ -35,7 +43,7 @@ pub fn generate_csv_data_file() -> NamedTempFile {
     File::open(file.path()).unwrap().read_to_string(&mut contents).unwrap();
     trace!("Generated CSV file contents:\n{contents}");
 
-    file
+    Some(file)
 }
 
 // Dummy packet, used for testing the iwl5300

@@ -234,6 +234,8 @@ impl ToConfig<DataAdapterConfig> for CSVAdapter<'_> {
 
 #[cfg(test)]
 mod tests {
+    use log::error;
+
     use super::*;
     use crate::network::rpc_message::SourceType;
     use crate::test_utils;
@@ -472,7 +474,12 @@ mod tests {
     async fn test_consume_real_large_csv_file() {
         use std::fs;
         let mut adapter = CSVAdapter::default();
-        let csv_file = test_utils::generate_csv_data_file();
+        let csv_file_option = test_utils::generate_csv_data_file();
+        if csv_file_option.is_none() {
+            error!("Skipped test, could not generate a CSV file");
+            return;
+        }
+        let csv_file = csv_file_option.unwrap();
         let csv_data = fs::read(csv_file.path()).unwrap();
         let msg = DataMsg::RawFrame {
             ts: 0.0,

@@ -126,6 +126,7 @@ mod tests {
     use std::fs::{File, remove_file};
     use std::io::{BufRead, BufReader, Read, Seek};
 
+    use log::error;
     use tempfile::NamedTempFile;
 
     use super::*;
@@ -173,7 +174,12 @@ mod tests {
     #[tokio::test]
     async fn test_parse_read_adapt_and_compare() {
         let mut file = NamedTempFile::new().unwrap();
-        let mut csv_file = test_utils::generate_csv_data_file();
+        let csv_file_option = test_utils::generate_csv_data_file();
+        if csv_file_option.is_none() {
+            error!("Skipped test, could not generate a CSV file");
+            return;
+        }
+        let mut csv_file = csv_file_option.unwrap();
         let path = csv_file.path();
         let mut source = CsvSource::new(CsvConfig {
             path: (*path).to_path_buf(),
