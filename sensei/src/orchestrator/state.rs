@@ -11,7 +11,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 
 use super::tui::ui;
 use crate::orchestrator::OrgChannelMsg;
-use crate::orchestrator::experiment::{ExperimentSessionInfo, ExperimentStatus, Progression};
+use crate::orchestrator::experiment::{ActiveExperiment, ExperimentMetadata, ExperimentStatus};
 use crate::services::DEFAULT_ADDRESS;
 
 pub struct Host {
@@ -51,8 +51,13 @@ pub enum Focused {
     Main,
     Registry(FocusedRegistry),
     Hosts(FocusedHosts),
-    Experiments,
+    Experiments(FocusedExperiments),
     Logs,
+}
+
+#[derive(PartialEq, Debug, Clone)]
+pub enum FocusedExperiments {
+    Select(usize),
 }
 
 #[derive(PartialEq, Debug)]
@@ -91,8 +96,9 @@ pub enum OrgUpdate {
     FocusChange(Focused),
     StartExperiment,
     StopExperiment,
-    SelectExperiment(Option<usize>),
-    UpdateExperimentInfo(ExperimentSessionInfo),
+    SelectExperiment(usize),
+    ActiveExperiment(ActiveExperiment),
+    UpdateExperimentList(Vec<ExperimentMetadata>),
     Edit(char),
     Exit,
     Up,
@@ -124,7 +130,8 @@ pub struct OrgTuiState {
     pub add_host_input_socket: [char; 21],
     pub add_host_input_id: [char; 21], // Made to match with the add_host_input_socket, one larger than the max size of an u64
     pub selected_host: Option<SocketAddr>,
-    pub experiment_session: ExperimentSessionInfo,
+    pub active_experiment: Option<ActiveExperiment>,
+    pub experiments: Vec<ExperimentMetadata>,
 }
 
 impl OrgTuiState {
@@ -136,16 +143,8 @@ impl OrgTuiState {
             registry_status: RegistryStatus::Disconnected,
             logs: vec![],
             focussed_panel: Focused::Main,
-            experiment_session: ExperimentSessionInfo {
-                status: ExperimentStatus::Ready,
-                progression: Progression {
-                    total_stages: 0,
-                    current_stage: 0,
-                },
-                metadata: None,
-                available_experiments: vec![],
-                active_idx: None,
-            },
+            active_experiment: None,
+            experiments: vec![],
             add_host_input_socket: [
                 '_', '_', '_', '.', '_', '_', '_', '.', '_', '_', '_', '.', '_', '_', '_', ':', '_', '_', '_', '_', '_',
             ],
@@ -200,7 +199,7 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
         match &self.focussed_panel {
             Focused::Main => match key {
                 KeyCode::Char('r') | KeyCode::Char('R') => Some(OrgUpdate::FocusChange(Focused::Registry(FocusedRegistry::RegistryAddress(0)))),
-                KeyCode::Char('e') | KeyCode::Char('E') => Some(OrgUpdate::FocusChange(Focused::Experiments)),
+                KeyCode::Char('e') | KeyCode::Char('E') => Some(OrgUpdate::FocusChange(Focused::Experiments(FocusedExperiments::Select(0)))),
                 KeyCode::Char('h') | KeyCode::Char('H') => {
                     if !self.known_hosts.is_empty() {
                         Some(OrgUpdate::FocusChange(Focused::Hosts(FocusedHosts::HostTree(0, 0))))
@@ -288,10 +287,39 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                     _ => None,
                 },
             },
-            Focused::Experiments => match key {
-                KeyCode::Char('b') | KeyCode::Char('B') => Some(OrgUpdate::StartExperiment),
-                KeyCode::Char('e') | KeyCode::Char('E') => Some(OrgUpdate::StopExperiment),
-                KeyCode::Char('s') | KeyCode::Char('S') => Some(OrgUpdate::SelectExperiment(Some(0))),
+            Focused::Experiments(FocusedExperiments::Select(i)) => match key {
+                KeyCode::Up => Some(OrgUpdate::Up),
+                KeyCode::Down => Some(OrgUpdate::Down),
+                KeyCode::Char('e') | KeyCode::Char('E') => {
+                    if let Some(exp) = &self.active_experiment {
+                        match exp.status {
+                            ExperimentStatus::Running => Some(OrgUpdate::StopExperiment),
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    }
+                }
+                KeyCode::Char('b') | KeyCode::Char('B') => {
+                    if let Some(exp) = &self.active_experiment {
+                        match exp.status {
+                            ExperimentStatus::Done | ExperimentStatus::Ready | ExperimentStatus::Stopped => Some(OrgUpdate::StartExperiment),
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    }
+                }
+                KeyCode::Char('s') | KeyCode::Char('S') => {
+                    if let Some(exp) = &self.active_experiment {
+                        match exp.status {
+                            ExperimentStatus::Done | ExperimentStatus::Ready | ExperimentStatus::Stopped => Some(OrgUpdate::SelectExperiment(*i)),
+                            _ => None,
+                        }
+                    } else {
+                        Some(OrgUpdate::SelectExperiment(*i))
+                    }
+                }
                 _ => None,
             },
             Focused::Logs => None,
@@ -344,43 +372,44 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
             OrgUpdate::SelectExperiment(idx) => {
                 command_send.send(OrgChannelMsg::SelectExperiment(idx)).await;
             }
-            OrgUpdate::UpdateExperimentInfo(experiment_session_info) => {
-                self.experiment_session = experiment_session_info;
+            OrgUpdate::ActiveExperiment(active_experiment) => {
+                // info!("Received experiment with status {:?}", active_experiment.status);
+                self.active_experiment = Some(active_experiment);
+            }
+            OrgUpdate::UpdateExperimentList(experiments) => {
+                self.experiments.extend(experiments);
             }
             OrgUpdate::ClearLogs => self.logs.clear(),
             OrgUpdate::FocusChange(focused_panel) => self.focussed_panel = focused_panel,
-            OrgUpdate::Edit(chr) => match &self.focussed_panel {
-                Focused::Hosts(host_focus) if chr.is_numeric() => match host_focus {
+
+            // Handles key updates, which are highly dependant on which panel is focussed
+            key_update => match (key_update, &self.focussed_panel) {
+                // Key logic for the host panel
+                (OrgUpdate::Edit(chr), Focused::Hosts(focus)) if chr.is_numeric() => match focus {
                     FocusedHosts::AddHost(idx, FocusedAddHostField::Address) => {
                         self.add_host_input_socket[*idx] = chr;
-                        self.focussed_panel = Focused::Hosts(host_focus.cursor_right());
+                        self.focussed_panel = Focused::Hosts(focus.cursor_right());
                     }
                     FocusedHosts::AddHost(idx, FocusedAddHostField::ID) => {
                         self.add_host_input_id[*idx] = chr;
-                        self.focussed_panel = Focused::Hosts(host_focus.cursor_right());
+                        self.focussed_panel = Focused::Hosts(focus.cursor_right());
                     }
                     _ => {}
                 },
-                Focused::Registry(focused_registry) => todo!(),
-                _ => {}
-            },
-            OrgUpdate::Backspace => {
-                if let Focused::Hosts(host_focus) = &self.focussed_panel {
-                    match host_focus {
-                        FocusedHosts::AddHost(idx, FocusedAddHostField::Address) => {
-                            self.add_host_input_socket[*idx] = '_';
-                            self.focussed_panel = Focused::Hosts(host_focus.cursor_left());
-                        }
-                        FocusedHosts::AddHost(idx, FocusedAddHostField::ID) => {
-                            self.add_host_input_id[*idx] = '_';
-                            self.focussed_panel = Focused::Hosts(host_focus.cursor_left());
-                        }
-                        _ => {}
+
+                (OrgUpdate::Backspace, Focused::Hosts(focus)) => match focus {
+                    FocusedHosts::AddHost(idx, FocusedAddHostField::Address) => {
+                        self.add_host_input_socket[*idx] = '_';
+                        self.focussed_panel = Focused::Hosts(focus.cursor_left());
                     }
-                }
-            }
-            OrgUpdate::Enter => {
-                if let Focused::Hosts(FocusedHosts::AddHost(_, _)) = &self.focussed_panel {
+                    FocusedHosts::AddHost(idx, FocusedAddHostField::ID) => {
+                        self.add_host_input_id[*idx] = '_';
+                        self.focussed_panel = Focused::Hosts(focus.cursor_left());
+                    }
+                    _ => {}
+                },
+
+                (OrgUpdate::Enter, Focused::Hosts(focus)) => {
                     let ip_string = self.add_host_input_socket.iter().collect::<String>().replace("_", "");
                     if let Ok(socket_addr) = ip_string.parse::<SocketAddr>() {
                         let id = self
@@ -407,37 +436,18 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                         info!("Failed to parse socket address {ip_string}");
                     }
                 }
-            }
-            OrgUpdate::Up => {
-                if let Focused::Hosts(host_focus) = &self.focussed_panel {
-                    self.focussed_panel = Focused::Hosts(host_focus.cursor_up(&self.known_hosts));
-                }
-            }
-            OrgUpdate::Down => {
-                if let Focused::Hosts(host_focus) = &self.focussed_panel {
-                    self.focussed_panel = Focused::Hosts(host_focus.cursor_down(&self.known_hosts));
-                }
-            }
-            OrgUpdate::Tab => {
-                if let Focused::Hosts(host_focus) = &self.focussed_panel {
-                    self.focussed_panel = Focused::Hosts(host_focus.tab(&self.known_hosts));
-                }
-            }
-            OrgUpdate::BackTab => {
-                if let Focused::Hosts(host_focus) = &self.focussed_panel {
-                    self.focussed_panel = Focused::Hosts(host_focus.back_tab(&self.known_hosts));
-                }
-            }
-            OrgUpdate::Left => {
-                if let Focused::Hosts(host_focus) = &self.focussed_panel {
-                    self.focussed_panel = Focused::Hosts(host_focus.cursor_left());
-                }
-            }
-            OrgUpdate::Right => {
-                if let Focused::Hosts(host_focus) = &self.focussed_panel {
-                    self.focussed_panel = Focused::Hosts(host_focus.cursor_right());
-                }
-            }
+                (OrgUpdate::Up, Focused::Hosts(focus)) => self.focussed_panel = Focused::Hosts(focus.cursor_up(&self.known_hosts)),
+                (OrgUpdate::Down, Focused::Hosts(focus)) => self.focussed_panel = Focused::Hosts(focus.cursor_down(&self.known_hosts)),
+                (OrgUpdate::Tab, Focused::Hosts(focus)) => self.focussed_panel = Focused::Hosts(focus.tab(&self.known_hosts)),
+                (OrgUpdate::BackTab, Focused::Hosts(focus)) => self.focussed_panel = Focused::Hosts(focus.back_tab(&self.known_hosts)),
+                (OrgUpdate::Left, Focused::Hosts(focus)) => self.focussed_panel = Focused::Hosts(focus.cursor_left()),
+                (OrgUpdate::Right, Focused::Hosts(focus)) => self.focussed_panel = Focused::Hosts(focus.cursor_right()),
+
+                // Key logic for the experiment panel
+                (OrgUpdate::Up, Focused::Experiments(focus)) => self.focussed_panel = Focused::Experiments(focus.up()),
+                (OrgUpdate::Down, Focused::Experiments(focus)) => self.focussed_panel = Focused::Experiments(focus.down(self.experiments.len())),
+                _ => {}
+            },
         }
     }
     fn should_quit(&self) -> bool {
@@ -541,6 +551,22 @@ impl FocusedHosts {
             FocusedHosts::AddHost(i, FocusedAddHostField::Address) if *i > 2 => FocusedHosts::AddHost(4 * (i / 4) - 4, FocusedAddHostField::Address),
             FocusedHosts::AddHost(_, FocusedAddHostField::ID) => FocusedHosts::AddHost(0, FocusedAddHostField::Address),
             other => other.clone(),
+        }
+    }
+}
+
+impl FocusedExperiments {
+    fn up(&self) -> Self {
+        match self {
+            FocusedExperiments::Select(i) if *i > 0 => FocusedExperiments::Select(i - 1),
+            FocusedExperiments::Select(i) => FocusedExperiments::Select(*i),
+        }
+    }
+
+    fn down(&self, limit: usize) -> Self {
+        match self {
+            FocusedExperiments::Select(i) if i + 1 < limit => FocusedExperiments::Select(i + 1),
+            FocusedExperiments::Select(i) => FocusedExperiments::Select(*i),
         }
     }
 }

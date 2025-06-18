@@ -20,13 +20,13 @@ use tokio::sync::{Mutex, mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
-use crate::orchestrator::experiment::{ExperimentChannelMsg, ExperimentSession};
+use crate::orchestrator::experiment::{ActiveExperiment, ExperimentChannelMsg, ExperimentSession, ExperimentStatus};
 use crate::orchestrator::state::{OrgTuiState, OrgUpdate};
 use crate::services::{GlobalConfig, OrchestratorConfig, Run};
 
 pub struct Orchestrator {
     log_level: LevelFilter,
-    experiment_config_path: Option<PathBuf>,
+    experiments_folder: PathBuf,
     tui: bool,
 }
 
@@ -40,10 +40,11 @@ pub enum OrgChannelMsg {
     UnsubscribeAll(SocketAddr, Option<SocketAddr>),
     SendStatus(SocketAddr, HostId),
     Configure(SocketAddr, DeviceId, CfgType),
+    GetHostStatuses(SocketAddr),
     Delay(u64),
     Shutdown,
     Ping(SocketAddr),
-    SelectExperiment(Option<usize>),
+    SelectExperiment(usize),
     StartExperiment,
     StopExperiment,
 }
@@ -52,7 +53,7 @@ impl Run<OrchestratorConfig> for Orchestrator {
     fn new(global_config: GlobalConfig, config: OrchestratorConfig) -> Self {
         Orchestrator {
             log_level: global_config.log_level,
-            experiment_config_path: Some(config.experiment_config),
+            experiments_folder: config.experiments_folder,
             tui: config.tui,
         }
     }
@@ -70,7 +71,7 @@ impl Run<OrchestratorConfig> for Orchestrator {
             Box::pin(Self::command_handler(command_recv, update_send.clone(), experiment_send, client.clone())),
             Box::pin(Self::experiment_handler(
                 session,
-                self.experiment_config_path.clone(),
+                self.experiments_folder.clone(),
                 client.clone(),
                 experiment_recv,
                 update_send.clone(),
@@ -109,7 +110,7 @@ impl Run<OrchestratorConfig> for Orchestrator {
 impl Orchestrator {
     async fn experiment_handler(
         mut session: ExperimentSession,
-        experiment_config_path: Option<PathBuf>,
+        experiment_config_path: PathBuf,
         client: Arc<Mutex<TcpClient>>,
         mut experiment_recv: Receiver<ExperimentChannelMsg>,
         update_send: Sender<OrgUpdate>,
@@ -117,27 +118,57 @@ impl Orchestrator {
     ) {
         info!("Started experiment handler task");
 
-        if let Some(path) = experiment_config_path {
-            session.load_experiment(path.clone());
-            info!("Loaded experiment from {path:?}");
-            update_send.send(OrgUpdate::UpdateExperimentInfo((&session).into()));
-        }
+        session.load_experiments(experiment_config_path.clone());
+        info!("Loaded {} experiments from {experiment_config_path:?}", session.experiments.len());
+        update_send
+            .send(OrgUpdate::UpdateExperimentList(
+                session.experiments.iter().map(|f| f.metadata.clone()).collect(),
+            ))
+            .await;
 
         info!("Waiting for experiment updates");
         while let Some(msg) = experiment_recv.recv().await {
             match msg {
                 ExperimentChannelMsg::Start => {
-                    cancel_signal_send.send(true);
-                    session.run(client.clone(), update_send.clone());
+                    if let Some(active) = &session.active_experiment {
+                        match active.status {
+                            ExperimentStatus::Running => {
+                                debug!("Can't start experiment while another is running");
+                            }
+                            _ => {
+                                cancel_signal_send.send(false);
+                                let mut session = session.clone();
+                                let client = client.clone();
+                                let update_send = update_send.clone();
+                                tokio::spawn(async move {
+                                    session.run(client, update_send).await;
+                                });
+                            }
+                        }
+                    }
                 }
+
                 ExperimentChannelMsg::Stop => {
-                    cancel_signal_send.send(false);
+                    if let Some(active) = &mut session.active_experiment {
+                        active.status = ExperimentStatus::Stopped;
+                        cancel_signal_send.send(true);
+                    }
                 }
+
                 ExperimentChannelMsg::Select(i) => {
-                    session.active_experiment_index = i;
+                    if let Some(exp) = session.experiments.get(i) {
+                        session.active_experiment = Some(ActiveExperiment {
+                            experiment: exp.clone(),
+                            status: ExperimentStatus::Ready,
+                            current_stage: 0,
+                        })
+                    }
                 }
             }
-            update_send.send(OrgUpdate::UpdateExperimentInfo((&session).into())).await;
+
+            update_send
+                .send(OrgUpdate::ActiveExperiment(session.active_experiment.clone().unwrap()))
+                .await;
         }
     }
 
@@ -247,7 +278,7 @@ impl Orchestrator {
             }
             OrgChannelMsg::StartExperiment => {
                 if let Some(experiment_send) = experiment_send {
-                    experiment_send.send(ExperimentChannelMsg::Stop).await;
+                    experiment_send.send(ExperimentChannelMsg::Start).await;
                 }
             }
             OrgChannelMsg::StopExperiment => {
@@ -255,6 +286,17 @@ impl Orchestrator {
                     experiment_send.send(ExperimentChannelMsg::Stop).await;
                 }
             }
+            OrgChannelMsg::GetHostStatuses(target_addr) => {
+                let msg = RpcMessageKind::RegCtrl(RegCtrl::PollHostStatuses);
+                let mut client = client.lock().await;
+                client.send_message(target_addr, msg).await;
+                if let Ok(response) = client.wait_for_read_message(target_addr).await {
+                    if let RpcMessageKind::RegCtrl(RegCtrl::HostStatuses { host_statuses }) = response.msg {
+                        info!("{host_statuses:?}");
+                    }
+                }
+            }
+
             OrgChannelMsg::Ping(target_addr) => {
                 let msg = RpcMessageKind::HostCtrl(HostCtrl::Ping);
                 let mut client = client.lock().await;

@@ -57,7 +57,7 @@ pub trait OverlaySubcommandArgs<T> {
 }
 
 pub static DEFAULT_HOST_CONFIG: &str = "resources/example_configs/host/dummy_node.yaml";
-pub static DEFAULT_ORCHESTRATOR_CONFIG: &str = "resources/example_configs/orchestrator/experiment_config.yaml";
+pub static DEFAULT_ORCHESTRATOR_CONFIG_FOLDER: &str = "resources/example_configs/orchestrator";
 
 /// A simple app to perform collection from configured sources
 #[derive(FromArgs)]
@@ -162,8 +162,8 @@ pub struct OrchestratorSubcommandArgs {
     pub tui: bool,
 
     /// file path of the experiment config
-    #[argh(option, default = "DEFAULT_ORCHESTRATOR_CONFIG.parse().unwrap()")]
-    pub experiment_config: PathBuf,
+    #[argh(option, default = "DEFAULT_ORCHESTRATOR_CONFIG_FOLDER.parse().unwrap()")]
+    pub experiments_folder: PathBuf,
 }
 
 impl ConfigFromCli<OrchestratorConfig> for OrchestratorSubcommandArgs {
@@ -173,7 +173,7 @@ impl ConfigFromCli<OrchestratorConfig> for OrchestratorSubcommandArgs {
     fn parse(&self) -> Result<OrchestratorConfig, Error> {
         // TODO input validation
         Ok(OrchestratorConfig {
-            experiment_config: self.experiment_config.clone(),
+            experiments_folder: self.experiments_folder.clone(),
             tui: self.tui,
         })
     }

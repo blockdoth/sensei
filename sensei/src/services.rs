@@ -90,7 +90,7 @@ pub trait FromYaml: Sized + for<'de> Deserialize<'de> {
 /// Configuration for the Orchestrator service.
 pub struct OrchestratorConfig {
     /// Path to the experiment configuration file.
-    pub experiment_config: PathBuf,
+    pub experiments_folder: PathBuf,
     pub tui: bool,
 }
 

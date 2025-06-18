@@ -5,7 +5,10 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Padding, Paragraph, Wrap};
 
 use super::state::OrgTuiState;
-use crate::orchestrator::state::{DeviceStatus, Focused, FocusedAddHostField, FocusedHosts, FocusedRegistry, HostStatus, RegistryStatus};
+use crate::orchestrator::experiment::ExperimentStatus;
+use crate::orchestrator::state::{
+    DeviceStatus, Focused, FocusedAddHostField, FocusedExperiments, FocusedHosts, FocusedRegistry, HostStatus, RegistryStatus,
+};
 
 pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
     let screen_chunks = Layout::default()
@@ -192,18 +195,46 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
 
     f.render_widget(hosts_tree_view, control_chunks[1]);
 
-    let session = &tui_state.experiment_session;
-    let mut exp_lines: Vec<Line> = if let Some(idx) = session.active_idx {
-        let metadata = session.metadata.clone().unwrap();
-        vec![
-            Line::from(format!("Name:         {}", metadata.name)),
-            Line::from(format!("Status:       {:?}", session.status)),
-            Line::from(format!("Output path:  {:?}", metadata.output_path.unwrap())),
-            Line::from(format!(
-                "Stage:        {:?}/{:?}",
-                session.progression.current_stage, session.progression.total_stages
-            )),
-        ]
+    let mut exp_lines = if let Some(active_exp) = &tui_state.active_experiment {
+        let status_color = match active_exp.status {
+            ExperimentStatus::Running => Color::Yellow,
+            ExperimentStatus::Stopped => Color::Red,
+            ExperimentStatus::Done => Color::Green,
+            _ => Color::White,
+        };
+        let stage_names: Vec<String> = active_exp.experiment.stages.iter().map(|f| f.name.clone()).collect();
+
+        let mut lines = vec![
+            Line::from(vec![Span::raw("Name:         "), Span::raw(&active_exp.experiment.metadata.name)]),
+            Line::from(vec![
+                Span::raw("Output path:  "),
+                Span::styled(
+                    active_exp.experiment.metadata.output_path.display().to_string(),
+                    Style::default().add_modifier(Modifier::ITALIC),
+                ),
+            ]),
+            Line::from(vec![
+                Span::raw("Status:       "),
+                Span::styled(format!("{:?}", active_exp.status), Style::default().fg(status_color)),
+            ]),
+            Line::from(vec![
+                Span::raw("Stages:       "),
+                Span::raw(format!("{}/{}", active_exp.current_stage, active_exp.experiment.stages.len())),
+            ]),
+        ];
+        for (idx, stage) in active_exp.experiment.stages.iter().enumerate() {
+            let style = if idx < active_exp.current_stage {
+                Style::default().fg(Color::Green)
+            } else if idx == active_exp.current_stage {
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+
+            lines.push(Line::from(vec![Span::raw("  - "), Span::styled(stage.name.clone(), style)]));
+        }
+
+        lines
     } else {
         vec![Line::from("No experiment selected")]
     };
@@ -212,11 +243,24 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
     exp_lines.push(Line::from("Select Experiment"));
     exp_lines.push(control_divider.clone());
 
+    for (i, metadata) in tui_state.experiments.iter().enumerate() {
+        let line_text = format!("  [{}] {}", i + 1, metadata.name);
+
+        if matches!( tui_state.focussed_panel, Focused::Experiments(FocusedExperiments::Select(idx)) if idx == i) {
+            exp_lines.push(Line::from(vec![Span::styled(
+                line_text,
+                Style::default().bg(Color::White).fg(Color::Black),
+            )]));
+        } else {
+            exp_lines.push(Line::from(line_text));
+        }
+    }
+
     let experiment_widget = Paragraph::new(Text::from(exp_lines)).block(
         Block::default()
             .padding(padding)
             .borders(Borders::ALL)
-            .border_style(if matches!(tui_state.focussed_panel, Focused::Experiments) {
+            .border_style(if matches!(tui_state.focussed_panel, Focused::Experiments(_)) {
                 Style::default().fg(Color::Blue)
             } else {
                 Style::default()
@@ -239,7 +283,21 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
             FocusedRegistry::AvailableHosts(_) => " [.] Clear Logs | [ESC]ape | [Q]uit",
         },
 
-        Focused::Experiments => "[B]egin experiment | [E]nd Experiment | [S]elect Experiment | [.] Clear Logs | [ESC]ape | [Q]uit",
+        Focused::Experiments(focused_experiment_panel) => match focused_experiment_panel {
+          FocusedExperiments::Select(_) => match &tui_state.active_experiment {
+            Some(experiment) => {
+              match experiment.status {
+                ExperimentStatus::Running => {
+                  "[E]nd Experiment | [Tab] Next | [Shft+Tab] Prev | [↑↓] Move | [.] Clear Logs | [ESC]ape | [Q]uit"
+                },
+                _ => {
+                  "[B]egin experiment | [S]elect Experiment | [Tab] Next | [Shft+Tab] Prev | [↑↓] Move | [.] Clear Logs | [ESC]ape | [Q]uit"
+                }
+              }
+            },
+            None => "[S]elect Experiment | [Tab] Next | [Shft+Tab] Prev | [↑↓] Move | [.] Clear Logs | [ESC]ape | [Q]uit"
+          }
+        },
         Focused::Logs => todo!(),
     })
     .to_owned();

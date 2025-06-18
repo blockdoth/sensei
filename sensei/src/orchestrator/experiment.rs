@@ -1,3 +1,4 @@
+use std::fs;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -5,7 +6,7 @@ use std::time::Duration;
 
 use lib::network::rpc_message::{CfgType, DeviceId, HostId};
 use lib::network::tcp::client::TcpClient;
-use log::{debug, error};
+use log::{debug, info};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::Sender;
 use tokio::sync::{Mutex, watch};
@@ -17,7 +18,7 @@ use crate::orchestrator::{Orchestrator, OrgChannelMsg};
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ExperimentMetadata {
     pub name: String,
-    pub output_path: Option<PathBuf>,
+    pub output_path: PathBuf,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -55,7 +56,7 @@ pub enum DelayType {
     NotRecurring,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ExperimentStatus {
     Ready,
     Running,
@@ -113,7 +114,7 @@ pub enum ExperimentCommand {
 pub enum ExperimentChannelMsg {
     Start,
     Stop,
-    Select(Option<usize>),
+    Select(usize),
 }
 
 impl From<ExperimentCommand> for OrgChannelMsg {
@@ -140,8 +141,8 @@ impl From<ExperimentCommand> for OrgChannelMsg {
                 cfg_type,
             } => OrgChannelMsg::Configure(target_addr, device_id, cfg_type),
             ExperimentCommand::Delay { delay } => OrgChannelMsg::Delay(delay),
-            ExperimentCommand::GetHostStatuses { target_addr } => todo!(),
-            ExperimentCommand::Ping { target_addr } => todo!(),
+            ExperimentCommand::GetHostStatuses { target_addr } => OrgChannelMsg::GetHostStatuses(target_addr),
+            ExperimentCommand::Ping { target_addr } => OrgChannelMsg::Ping(target_addr),
         }
     }
 }
@@ -152,33 +153,12 @@ pub struct Experiment {
     pub stages: Vec<Stage>,
 }
 
-#[derive(Debug, Clone)]
-pub struct Progression {
-    pub total_stages: usize,
-    pub current_stage: usize,
-}
-
-#[derive(Debug)]
-pub struct ExperimentSessionInfo {
+// Ugly wrapper to allow from yaml to work
+#[derive(Clone, Debug)]
+pub struct ActiveExperiment {
+    pub experiment: Experiment,
     pub status: ExperimentStatus,
-    pub progression: Progression,
-    pub metadata: Option<ExperimentMetadata>,
-    pub available_experiments: Vec<ExperimentMetadata>,
-    pub active_idx: Option<usize>,
-}
-
-impl From<&ExperimentSession> for ExperimentSessionInfo {
-    fn from(session: &ExperimentSession) -> Self {
-        ExperimentSessionInfo {
-            status: session.status.clone(),
-            progression: session.progression.clone(),
-            active_idx: session.active_experiment_index,
-            metadata: session
-                .active_experiment_index
-                .and_then(|i| session.experiments.get(i).map(|e| e.metadata.clone())),
-            available_experiments: session.experiments.iter().map(|e| e.metadata.clone()).collect(),
-        }
-    }
+    pub current_stage: usize,
 }
 
 #[derive(Clone)]
@@ -187,9 +167,7 @@ pub struct ExperimentSession {
     update_send_channel: Sender<OrgUpdate>,
     pub cancel_signal: watch::Receiver<bool>,
     pub experiments: Vec<Experiment>,
-    pub active_experiment_index: Option<usize>,
-    pub status: ExperimentStatus,
-    pub progression: Progression,
+    pub active_experiment: Option<ActiveExperiment>,
 }
 
 impl ExperimentSession {
@@ -198,44 +176,77 @@ impl ExperimentSession {
             client,
             update_send_channel: update_send,
             experiments: vec![],
-            active_experiment_index: None,
-            status: ExperimentStatus::Ready,
+            active_experiment: None,
             cancel_signal,
-            progression: Progression {
-                total_stages: 0,
-                current_stage: 0,
-            },
         }
     }
 
-    pub fn load_experiment(&mut self, path: PathBuf) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // TODO better error
-        match Experiment::from_yaml(path.clone()) {
-            Ok(experiment) => {
-                debug!("Successfully parsed config");
-                self.experiments.push(experiment);
-                Ok(())
-            }
-            Err(e) => {
-                error!("Unable to load experiment config {path:?} {e}");
-                Err(e)
-            }
-        }
-    }
+    pub fn load_experiments(&mut self, folder: PathBuf) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        for entry in fs::read_dir(&folder)? {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
 
-    pub fn run(&mut self, client: Arc<Mutex<TcpClient>>, update_send: Sender<OrgUpdate>) {
-        if let Some(idx) = self.active_experiment_index {
-            let experiment = &self.experiments[idx];
+            let path = entry.path();
 
-            self.progression.current_stage = 0;
-
-            for stage in &experiment.stages {
-                if *self.cancel_signal.borrow() {
-                    break;
+            if path.is_file() && (path.extension().is_some_and(|ext| ext == "yaml" || ext == "yml")) {
+                match Experiment::from_yaml(path.clone()) {
+                    Ok(experiment) => {
+                        debug!("Successfully parsed config from {path:?}");
+                        self.experiments.push(experiment);
+                    }
+                    Err(e) => {
+                        debug!("Unable to load experiment config {path:?}: {e}");
+                    }
                 }
-                stage.execute(client.clone(), update_send.clone(), self.cancel_signal.clone());
-                self.progression.current_stage += 1;
-                update_send.send(OrgUpdate::UpdateExperimentInfo((&self.clone()).into())); // Could maybe be done more efficient
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn run(&mut self, client: Arc<Mutex<TcpClient>>, update_send: Sender<OrgUpdate>) {
+        if let Some(mut active_exp) = self.active_experiment.clone() {
+            active_exp.status = ExperimentStatus::Running;
+            active_exp.current_stage = 0;
+            update_send.send(OrgUpdate::ActiveExperiment(active_exp.clone())).await;
+            info!("Running experiment {}", active_exp.experiment.metadata.name);
+
+            // active_exp.status = ExperimentStatus::Stopped;
+            // update_send.send(OrgUpdate::ActiveExperiment(active_exp.clone())).await;
+            //       self.active_experiment = Some(active_exp);
+            //       debug!("Finished experiment");
+            //       return;
+            //   }
+            self.cancel_signal.changed().await;
+            let cancel_signal_task = self.cancel_signal.clone();
+            let mut cancel_signal_cancel = self.cancel_signal.clone();
+            let client = client.clone();
+            let update_send = update_send.clone();
+
+            let task = async {
+                for stage in &active_exp.experiment.stages {
+                    stage.execute(client.clone(), update_send.clone(), cancel_signal_task.clone()).await;
+                    active_exp.current_stage += 1;
+                    let _ = update_send.send(OrgUpdate::ActiveExperiment(active_exp.clone())).await;
+                    debug!("Completed stage {}", active_exp.current_stage);
+                }
+            };
+            tokio::select! {
+              _ = task => {
+                active_exp.status = ExperimentStatus::Done;
+                let _ = update_send.send(OrgUpdate::ActiveExperiment(active_exp.clone())).await;
+                self.active_experiment = Some(active_exp);
+                debug!("Finished experiment");
+              }
+              _ = cancel_signal_cancel.changed() => {
+                  if *cancel_signal_cancel.borrow() {
+                      active_exp.status = ExperimentStatus::Stopped;
+                      let _ = update_send.send(OrgUpdate::ActiveExperiment(active_exp.clone())).await;
+                      debug!("Experiment cancelled during stage {}", active_exp.current_stage);
+                      self.active_experiment = Some(active_exp);
+                  }
+              }
             }
         }
     }
