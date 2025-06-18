@@ -20,18 +20,22 @@ use serde::{Deserialize, Serialize};
 
 use crate::network::rpc_message::{CfgType, DeviceId, HostId};
 
+/// Represents a full experiment composed of multiple sequential stages.
+/// Includes `Metadata`.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Experiment {
     pub metadata: Metadata,
     pub stages: Vec<Stage>,
 }
 
+/// Represents the host on which the experiment is executed.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ExperimentHost {
     Orchestrator,
     SystemNode { target_addr: SocketAddr },
 }
 
+/// Metadata about the experiment such as `name`, `experiment_host`, and `output_path`.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Metadata {
     pub name: String,
@@ -39,12 +43,14 @@ pub struct Metadata {
     pub output_path: Option<PathBuf>,
 }
 
+/// Represents a stage in the experiment, which contains multiple command blocks.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Stage {
     pub name: String,
     pub command_blocks: Vec<Block>,
 }
 
+/// A block of commands to be executed sequentially, with associated delays.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Block {
     pub commands: Vec<Command>,
@@ -52,12 +58,23 @@ pub struct Block {
 }
 
 impl Experiment {
+    /// Loads one or more experiments from a YAML file.
+    ///
+    /// # Arguments
+    ///
+    /// * `file` - Path to the YAML file containing experiment definitions.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be read or parsed.
     pub fn from_yaml(file: PathBuf) -> Result<Vec<Self>, Box<dyn std::error::Error>> {
         let yaml = std::fs::read_to_string(file.clone()).map_err(|e| format!("Failed to read YAML file: {}\n{}", file.display(), e))?;
         Ok(serde_yaml::from_str(&yaml)?)
     }
 }
 
+
+/// Delay configuration for a command block.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Delays {
     pub init_delay: Option<u64>,
@@ -65,11 +82,13 @@ pub struct Delays {
     pub is_recurring: IsRecurring,
 }
 
+
+/// Indicates whether a block is recurring and its recurrence configuration.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum IsRecurring {
     Recurring {
         recurrence_delay: Option<u64>,
-        iterations: Option<u64>, /* 0 is infinite */
+        iterations: Option<u64>, /* 0 or None is infinite */
     },
     NotRecurring,
 }
