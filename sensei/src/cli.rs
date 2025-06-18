@@ -57,7 +57,7 @@ pub trait OverlaySubcommandArgs<T> {
 }
 
 /// Default path to the host configuration YAML file.
-pub static DEFAULT_HOST_CONFIG: &str = "resources/example_configs/host/example_full.yaml";
+pub static DEFAULT_HOST_CONFIG: &str = "resources/testing_configs/minimal.yaml";
 /// Default path to the orchestrator configuration YAML file.
 pub static DEFAULT_ORCHESTRATOR_CONFIG: &str = "resources/example_configs/orchestrator/experiment_config.yaml";
 
