@@ -22,3 +22,15 @@ rustfft = "6.3.0"
 
 [lints]
 workspace = true
+
+[features]
+default = ["sys_node", "orchestrator", "visualiser", "esp_tool", "iwl5300", "csv", "file_sink"]
+sys_node = []
+orchestrator = []
+visualiser = []
+
+# Optional: forward features to lib
+esp_tool = ["lib/esp_tool"]
+iwl5300 = ["lib/iwl5300", "sys_node"]
+csv = ["lib/csv", "sys_node"]
+file_sink = ["lib/file_sink", "sys_node"]
