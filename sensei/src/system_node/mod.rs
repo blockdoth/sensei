@@ -8,7 +8,6 @@
 //! The System Node also interacts with registries to announce its presence and can periodically poll other nodes when functioning as a registry.
 
 use std::collections::{HashMap, HashSet};
-use std::fs::File;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -17,9 +16,13 @@ use lib::FromConfig;
 use lib::adapters::CsiDataAdapter; // Added CsiDataAdapter
 use lib::errors::NetworkError;
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
+use lib::network::experiment_config::IsRecurring::{NotRecurring, Recurring};
+use lib::network::experiment_config::{Block, Command, Experiment, Stage};
 use lib::network::rpc_message::CfgType::{Create, Delete, Edit};
 use lib::network::rpc_message::SourceType::*;
-use lib::network::rpc_message::{CfgType, DataMsg, DeviceId, DeviceStatus, HostCtrl, HostId, HostStatus, RegCtrl, Responsiveness, RpcMessage, RpcMessageKind};
+use lib::network::rpc_message::{
+    CfgType, DataMsg, DeviceId, DeviceStatus, HostCtrl, HostId, HostStatus, RegCtrl, Responsiveness, RpcMessage, RpcMessageKind,
+};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, HostChannel, RegChannel, SubscribeDataChannel, send_message};
@@ -30,8 +33,7 @@ use log::*;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::{Mutex, broadcast, mpsc, watch}; // Added mpsc
 use tokio::task;
-use lib::network::experiment_config::{Block, Command, Experiment, ExperimentHost, Stage};
-use lib::network::experiment_config::IsRecurring::{NotRecurring, Recurring};
+
 use crate::registry::Registry;
 use crate::services::{GlobalConfig, Run, SystemNodeConfig};
 
@@ -91,18 +93,13 @@ impl SystemNode {
         }
     }
 
-    async fn connect(
-        src_addr: SocketAddr,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn connect(src_addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
         info!("Started connection with {src_addr}");
 
         Ok(())
     }
 
-    async fn disconnect(
-        src_addr: SocketAddr,
-        send_channel_msg_channel: watch::Sender<ChannelMsg>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn disconnect(src_addr: SocketAddr, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), Box<dyn std::error::Error>> {
         send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Disconnect))?;
 
         info!("Disconnecting from the connection with {src_addr}");
@@ -116,7 +113,7 @@ impl SystemNode {
         send_channel_msg_channel: watch::Sender<ChannelMsg>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Subscribe { device_id }))?;
-        info!("Client {} subscribed to data stream for device_id: {device_id}", src_addr);
+        info!("Client {src_addr} subscribed to data stream for device_id: {device_id}");
 
         Ok(())
     }
@@ -127,7 +124,7 @@ impl SystemNode {
         send_channel_msg_channel: watch::Sender<ChannelMsg>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Unsubscribe { device_id }))?;
-        info!("Client {} unsubscribed from data stream for device_id: {device_id}", src_addr);
+        info!("Client {src_addr} unsubscribed from data stream for device_id: {device_id}");
 
         Ok(())
     }
@@ -135,15 +132,12 @@ impl SystemNode {
     async fn subscribe_to(
         target_addr: SocketAddr,
         device_id: DeviceId,
-        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>
+        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Create a device handler with a source that will connect to the node server of the target
         // The sink will connect to this nodes server
         // Node servers broadcast all incoming data to all connections, but only relevant sources will process this data
-        let source: DataSourceConfig = lib::sources::DataSourceConfig::Tcp(TCPConfig {
-            target_addr,
-            device_id,
-        });
+        let source: DataSourceConfig = lib::sources::DataSourceConfig::Tcp(TCPConfig { target_addr, device_id });
         let controller = None;
         let adapter = None;
         // Sinks are now managed by SystemNode, this specific logic for TCP sink might need adjustment
@@ -168,15 +162,14 @@ impl SystemNode {
         Ok(())
     }
 
-    async fn unsubscribe_from(
-        device_id: DeviceId,
-        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn unsubscribe_from(device_id: DeviceId, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), Box<dyn std::error::Error>> {
         // TODO: Make it target specific, but for now removing based on device id should be fine.
         // Would require extracting the source itself from the device handler
         info!("Removing handler subscribing to {device_id}");
         match handlers.lock().await.remove(&device_id) {
-            Some(mut handler) => { handler.stop().await; },
+            Some(mut handler) => {
+                handler.stop().await;
+            }
             _ => info!("This handler does not exist."),
         }
 
@@ -193,10 +186,13 @@ impl SystemNode {
                 info!("Creating a new device handler for device id {device_id}");
                 let handler = DeviceHandler::from_config(cfg).await;
                 match handler {
-                    Ok(handler) => { handlers.lock().await.insert(device_id, handler); }
-                    Err(e) => { info!("Creating device handler went wrong: {e}") }
+                    Ok(handler) => {
+                        handlers.lock().await.insert(device_id, handler);
+                    }
+                    Err(e) => {
+                        info!("Creating device handler went wrong: {e}")
+                    }
                 }
-
             }
             Edit { cfg } => {
                 info!("Editing existing device handler for device id {device_id}");
@@ -222,27 +218,26 @@ impl SystemNode {
         handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         info!("Running {}", experiment.metadata.name.clone());
-        
+
         for (i, stage) in experiment.stages.into_iter().enumerate() {
             let name = stage.name.clone();
             info!("Executing stage {name}");
             Self::execute_stage(stage, handlers.clone()).await?;
             info!("Finished stage {name}");
         }
-        
+
         Ok(())
     }
 
-    async fn execute_stage(
-        stage: Stage,
-        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn execute_stage(stage: Stage, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), Box<dyn std::error::Error>> {
         let mut tasks = vec![];
 
         for block in stage.command_blocks {
             // Have to define the clone outside the tokio task and then move the clone, rather than create the clone inside the tokio task
             let handlers_clone = handlers.clone();
-            let task = tokio::spawn(async move { Self::execute_command_block(block, handlers_clone).await; });
+            let task = tokio::spawn(async move {
+                Self::execute_command_block(block, handlers_clone).await;
+            });
             tasks.push(task);
         }
 
@@ -255,10 +250,7 @@ impl SystemNode {
         Ok(())
     }
 
-    async fn execute_command_block(
-        block: Block,
-        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn execute_command_block(block: Block, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), Box<dyn std::error::Error>> {
         tokio::time::sleep(std::time::Duration::from_millis(block.delays.init_delay.unwrap_or(0u64))).await;
         let command_delay = block.delays.command_delay.unwrap_or(0u64);
         let command_types = block.commands;
@@ -293,7 +285,7 @@ impl SystemNode {
     pub async fn match_commands(
         commands: Vec<Command>,
         handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
-        command_delay: u64
+        command_delay: u64,
     ) -> Result<(), Box<dyn std::error::Error>> {
         for command in commands {
             Self::match_command(command.clone(), handlers.clone()).await?;
@@ -302,25 +294,22 @@ impl SystemNode {
         Ok(())
     }
 
-    async fn match_command(
-        command: Command,
-        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn match_command(command: Command, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), Box<dyn std::error::Error>> {
         match command {
-            Command::Subscribe { target_addr, device_id } => {
-                Ok(Self::subscribe_to(target_addr, device_id, handlers).await?)
-            }
-            Command::Unsubscribe { target_addr, device_id } => {
-                Ok(Self::unsubscribe_from(device_id, handlers).await?)
-            }
-            Command::Configure { target_addr, device_id, cfg_type } => {
-                Ok(Self::configure(device_id, cfg_type, handlers).await?)
-            }
+            Command::Subscribe { target_addr, device_id } => Ok(Self::subscribe_to(target_addr, device_id, handlers).await?),
+            Command::Unsubscribe { target_addr, device_id } => Ok(Self::unsubscribe_from(device_id, handlers).await?),
+            Command::Configure {
+                target_addr,
+                device_id,
+                cfg_type,
+            } => Ok(Self::configure(device_id, cfg_type, handlers).await?),
             Command::Delay { delay } => {
-                Ok(tokio::time::sleep(std::time::Duration::from_millis(delay)).await)
+                tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                Ok(())
             }
             c => {
-                Ok(info!("The system node does not support this command {c:?}"))
+                info!("The system node does not support this command {c:?}");
+                Ok(())
             }
         }
     }
@@ -368,10 +357,10 @@ impl SystemNode {
             }
             HostCtrl::Configure { device_id, cfg_type } => {
                 Self::configure(device_id, cfg_type, self.handlers.clone()).await?;
-            },
+            }
             HostCtrl::Experiment { experiment } => {
                 Self::load_experiment(experiment, self.handlers.clone()).await?;
-            },
+            }
             m => {
                 warn!("Received unhandled HostCtrl: {m:?}");
             }
@@ -485,7 +474,10 @@ impl ConnectionHandler for SystemNode {
     async fn handle_recv(&self, request: RpcMessage, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
         debug!("Received message {:?} from {:?}", request.msg, request.src_addr);
         match &request.msg {
-            RpcMessageKind::HostCtrl(command) => self.handle_host_ctrl(request.clone(), command.clone(), send_channel_msg_channel).await.unwrap_or(()),
+            RpcMessageKind::HostCtrl(command) => self
+                .handle_host_ctrl(request.clone(), command.clone(), send_channel_msg_channel)
+                .await
+                .unwrap_or(()),
             RpcMessageKind::RegCtrl(command) => {
                 self.registry
                     .handle_reg_ctrl(request.clone(), command.clone(), send_channel_msg_channel)
@@ -522,7 +514,10 @@ impl ConnectionHandler for SystemNode {
                 let msg_opt = recv_command_channel.borrow_and_update().clone();
                 debug!("Received message {msg_opt:?} over channel");
                 match msg_opt {
-                    ChannelMsg::HostChannel(host_msg) => self.handle_host_channel(host_msg, &mut send_stream, &mut subscribed_ids).await.unwrap_or(()),
+                    ChannelMsg::HostChannel(host_msg) => self
+                        .handle_host_channel(host_msg, &mut send_stream, &mut subscribed_ids)
+                        .await
+                        .unwrap_or(()),
                     ChannelMsg::RegChannel(reg_msg) => self.handle_reg_channel(reg_msg, &mut send_stream).await?,
                     _ => (),
                 }

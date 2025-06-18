@@ -7,6 +7,8 @@ use std::vec;
 
 use futures::future::pending;
 use lib::handler::device_handler::DeviceHandlerConfig;
+use lib::network::experiment_config::IsRecurring::{NotRecurring, Recurring};
+use lib::network::experiment_config::{Block, Command, Experiment, ExperimentHost, Stage};
 use lib::network::rpc_message::DataMsg::RawFrame;
 use lib::network::rpc_message::RpcMessageKind::Data;
 use lib::network::rpc_message::SourceType::ESP32;
@@ -17,8 +19,7 @@ use log::*;
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::{Mutex, watch};
-use lib::network::experiment_config::{Block, Command, Experiment, ExperimentHost, Stage};
-use lib::network::experiment_config::IsRecurring::{Recurring, NotRecurring};
+
 use crate::cli::DEFAULT_ORCHESTRATOR_CONFIG;
 use crate::services::{DEFAULT_ADDRESS, GlobalConfig, OrchestratorConfig, Run};
 
@@ -48,11 +49,15 @@ impl Run<OrchestratorConfig> for Orchestrator {
 }
 
 impl Orchestrator {
-    pub async fn load_experiments (&mut self, client: Arc<Mutex<TcpClient>>, experiments: Vec<Experiment>) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn load_experiments(
+        &mut self,
+        client: Arc<Mutex<TcpClient>>,
+        experiments: Vec<Experiment>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         for experiment in experiments {
             self.load_experiment(client.clone(), experiment).await;
         }
-        
+
         Ok(())
     }
     pub async fn load_experiment(&mut self, client: Arc<Mutex<TcpClient>>, experiment: Experiment) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -73,7 +78,7 @@ impl Orchestrator {
                     info!("Finished stage {name}");
                 }
             }
-            ExperimentHost::SystemNode{ target_addr } => {
+            ExperimentHost::SystemNode { target_addr } => {
                 Self::send_experiment(&client, target_addr, experiment).await;
             }
         }
@@ -243,7 +248,7 @@ impl Orchestrator {
         experiment: Experiment,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let msg = RpcMessageKind::HostCtrl(HostCtrl::Experiment { experiment });
-        
+
         Self::connect(client, target_addr).await?;
 
         info!("Telling {target_addr} to run an experiment independently of orchestrator");

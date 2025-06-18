@@ -1,21 +1,23 @@
 //! # Experiment data structures
-//! 
+//!
 //! Experiments are how independently running processes are defined in Sensei!
-//! 
+//!
 //! To allow for customizable experiments, they are highly modular.
 //! An `Experiment` consists of `Stages`, which are run sequentially (in order).
-//! 
-//! A `Stage` consists of command `Blocks`, which are run at the same time (using tokio tasks). 
+//!
+//! A `Stage` consists of command `Blocks`, which are run at the same time (using tokio tasks).
 //! All `Blocks` in a `Stage` must finish before the next `Stage` starts.
-//! 
+//!
 //! A command `Block` consists of `Commands`, which are run sequentially, and it has `Delays` associated with them.
 //! A `Delay` is also a command in itself.
-//! 
+//!
 //! This structure is useful for deciding which commands to run at which times.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
+
 use serde::{Deserialize, Serialize};
+
 use crate::network::rpc_message::{CfgType, DeviceId, HostId};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -73,12 +75,12 @@ pub enum IsRecurring {
 }
 
 /// `Commands` are the actions that the orchestrator or system node can undertake in an experiment
-/// 
+///
 /// These commands are `Connect`, `Disconnect`, `Subscribe`, `Unsubscribe`, `SubscribeTo`, `UnsubscribeFrom`, `SendStatus`, `Configure` and `Delay`
-/// 
+///
 /// The orchestrator executes these commands by sending messages to system nodes and telling them to run the commands
-/// 
-/// The system node executes these commands by running them locally. 
+///
+/// The system node executes these commands by running them locally.
 /// System nodes can only run the `Subscribe`, `Unsubscribe`, `Configure` and `Delay` commands,
 /// as connecting and disconnecting are not relevant concepts to a system node,
 /// and it is not necessary for a system node to tell another system node to subscribe to a third system node.

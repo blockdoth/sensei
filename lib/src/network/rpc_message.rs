@@ -69,7 +69,7 @@ pub enum HostCtrl {
     /// Unsubscribe from another node's device stream.
     UnsubscribeFrom { target: SocketAddr, device_id: DeviceId },
     /// Sends an experiment configuration
-    Experiment { experiment: Experiment }
+    Experiment { experiment: Experiment },
 }
 
 /// Registration and control messages for orchestrator and node communication.
