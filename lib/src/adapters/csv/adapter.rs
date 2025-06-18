@@ -59,7 +59,11 @@ impl<'a> CSVAdapter<'a> {
     }
 
     /// Parses a single CSV row into a vector of cells, handling quoted fields.
-    fn parse_row(&self, row: &[u8]) -> Result<Vec<String>, CsiAdapterError> {
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the innput data is inproperly quoted, or contains the wrong nubmer of fields.
+    pub fn parse_row(&self, row: &[u8]) -> Result<Vec<String>, CsiAdapterError> {
         let mut rdr = csv::ReaderBuilder::new()
             .has_headers(false)
             .delimiter(*self.cell_delimiter)
@@ -83,19 +87,63 @@ impl<'a> CSVAdapter<'a> {
         let row = &rows[rows.len() - 1];
         let cells = self.parse_row(row)?;
 
+        let csi_data = CSVAdapter::row_to_csi(cells)?;
+
+        self.tmp_data = Some(csi_data);
+
+        if let Some(data) = self.tmp_data.take() {
+            Ok(Some(data))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn extract_complex(subcarrier_data: &str) -> Result<num_complex::Complex<f64>, CsiAdapterError> {
+        let inner = subcarrier_data.trim_matches(|c| c == '(' || c == ')' || c == 'j' || c == '"');
+        let mut split = inner.split('|');
+
+        let real = split.next().ok_or(CsiAdapterError::InvalidInput)?;
+        let imag = split.next().ok_or(CsiAdapterError::InvalidInput)?;
+
+        // Ensure there are no extra parts
+        if split.next().is_some() {
+            return Err(CsiAdapterError::InvalidInput);
+        }
+
+        let real = real.parse::<f64>().map_err(|err| CsiAdapterError::FloatConversionError {
+            err,
+            input: real.to_string(),
+        })?;
+        let imag = imag.parse::<f64>().map_err(|err| CsiAdapterError::FloatConversionError {
+            err,
+            input: imag.to_string(),
+        })?;
+        Ok(Complex { re: real, im: imag })
+    }
+
+    /// Parses a CSV row (split into a vector) into CSI data.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the data is malformed.
+    pub fn row_to_csi(cells: Vec<String>) -> Result<CsiData, CsiAdapterError> {
         if cells.len() != ROW_SIZE {
             return Err(CsiAdapterError::CSV(CSVAdapterError::InvalidData(format!(
                 "Invalid number of columns in CSV row: {}",
                 cells.len()
             ))));
         }
-
         let mut csi_data = CsiData {
-            timestamp: cells[0].trim_matches(|c| c == '\n' || c == '\0').parse::<f64>()?,
+            timestamp: cells[0]
+                .trim_matches(|c| c == '\n' || c == '\0')
+                .parse::<f64>()
+                .map_err(|err| CsiAdapterError::FloatConversionError {
+                    err,
+                    input: cells[0].to_string(),
+                })?,
             sequence_number: cells[1].parse::<u16>()?,
             ..Default::default()
         };
-
         let num_cores = cells[2].parse::<u8>()?;
         let num_streams = cells[3].parse::<u8>()?;
         let num_subcarriers = cells[4].parse::<u8>()?;
@@ -108,35 +156,11 @@ impl<'a> CSVAdapter<'a> {
         } else {
             cells[5].split(',').map(|rssi| rssi.parse::<u16>()).collect::<Result<Vec<_>, _>>()?
         };
-
         let complex_values = cells[6]
             .trim_matches('"')
             .split(',')
-            .map(|subcarrier_data| {
-                let inner = subcarrier_data.trim_matches(|c| c == '(' || c == ')' || c == 'j' || c == '"');
-                // Find the last '+' or '-' that is not at position 0
-                let mut split_idx = None;
-                for (i, c) in inner.char_indices().rev() {
-                    if (c == '+' || c == '-') && i != 0 {
-                        split_idx = Some(i);
-                        break;
-                    }
-                }
-                let (real, imag) = if let Some(idx) = split_idx {
-                    let (re, im) = inner.split_at(idx);
-                    (re, im)
-                } else {
-                    (inner, "")
-                };
-                let real = real.parse::<f64>().map_err(CsiAdapterError::FloatConversionError)?;
-                let imag = imag
-                    .trim_start_matches('+')
-                    .parse::<f64>()
-                    .map_err(CsiAdapterError::FloatConversionError)?;
-                Ok(Complex { re: real, im: imag })
-            })
+            .map(CSVAdapter::extract_complex)
             .collect::<Result<Vec<Complex>, CsiAdapterError>>()?;
-
         let mut csi = vec![vec![vec![Complex::default(); num_subcarriers as usize]; num_streams as usize]; num_cores as usize];
         csi.iter_mut()
             .flat_map(|core| core.iter_mut())
@@ -144,14 +168,7 @@ impl<'a> CSVAdapter<'a> {
             .zip(complex_values.iter())
             .for_each(|(subcarrier, value)| *subcarrier = *value);
         csi_data.csi = csi;
-
-        self.tmp_data = Some(csi_data);
-
-        if let Some(data) = self.tmp_data.take() {
-            Ok(Some(data))
-        } else {
-            Ok(None)
-        }
+        Ok(csi_data)
     }
 }
 
@@ -187,10 +204,10 @@ impl CsiDataAdapter for CSVAdapter<'_> {
     async fn produce(&mut self, msg: DataMsg) -> Result<Option<DataMsg>, CsiAdapterError> {
         // Check if the message is a raw frame
         match msg {
-            DataMsg::RawFrame { bytes, .. } => {
-                let csi = self.consume(&bytes)?.ok_or(CsiAdapterError::InvalidInput)?;
-                Ok(Some(DataMsg::CsiFrame { csi }))
-            }
+            DataMsg::RawFrame { bytes, .. } => match self.consume(&bytes)? {
+                None => Ok(None),
+                Some(csi) => Ok(Some(DataMsg::CsiFrame { csi })),
+            },
             DataMsg::CsiFrame { csi } => Ok(Some(DataMsg::CsiFrame { csi })),
         }
     }
@@ -220,11 +237,117 @@ mod tests {
     use log::error;
 
     use super::*;
+    use crate::network::rpc_message::SourceType;
+    use crate::test_utils;
+
+    #[test]
+    fn test_extract_complex_valid() {
+        // Typical format: "(real|imag)"
+        let input = "(1.23|4.56j)";
+        let result = CSVAdapter::extract_complex(input).unwrap();
+        assert_eq!(result.re, 1.23);
+        assert_eq!(result.im, 4.56);
+
+        // With extra whitespace and quotes
+        let input = "\"(7.89|-0.12j)\"";
+        let result = CSVAdapter::extract_complex(input).unwrap();
+        assert_eq!(result.re, 7.89);
+        assert_eq!(result.im, -0.12);
+    }
+
+    #[test]
+    fn test_extract_complex_invalid() {
+        // Missing imaginary part
+        let input = "(3.14|)";
+        let result = CSVAdapter::extract_complex(input);
+        assert!(result.is_err());
+
+        // Too many parts
+        let input = "(1.0|2.0|3.0)";
+        let result = CSVAdapter::extract_complex(input);
+        assert!(result.is_err());
+
+        // Non-numeric input
+        let input = "(abc|def)";
+        let result = CSVAdapter::extract_complex(input);
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_consume_split_row_in_two_steps() {
+        let mut adapter = CSVAdapter::default();
+        // Split a valid CSV row into two parts
+        let part1 = b"9457616.210305953,45040,1,1,1,97,(";
+        let part2 = b"0.4907193796689|-0.68406335243899j)\n";
+
+        // First, send the incomplete part
+        let msg1 = DataMsg::RawFrame {
+            ts: 0.0,
+            bytes: part1.to_vec(),
+            source_type: crate::network::rpc_message::SourceType::ESP32,
+        };
+        let result1 = adapter.produce(msg1).await.unwrap();
+        // Should not yield a complete frame yet
+        assert!(result1.is_none());
+    }
+
+    #[test]
+    fn test_split_rows_single_row() {
+        let mut adapter = CSVAdapter::new(b"row1col1,row1col2\n".to_vec(), None, None, None);
+        let rows = adapter.split_rows();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0], b"row1col1,row1col2");
+        assert_eq!(adapter.buffer, b"");
+    }
+
+    #[test]
+    fn test_split_rows_multiple_rows() {
+        let mut adapter = CSVAdapter::new(b"row1col1,row1col2\nrow2col1,row2col2\nrow3col1,row3col2\n".to_vec(), None, None, None);
+        let rows = adapter.split_rows();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0], b"row1col1,row1col2");
+        assert_eq!(rows[1], b"row2col1,row2col2");
+        assert_eq!(rows[2], b"row3col1,row3col2");
+        assert_eq!(adapter.buffer, b"");
+    }
+
+    #[test]
+    fn test_split_rows_partial_row_left_in_buffer() {
+        let mut adapter = CSVAdapter::new(b"row1col1,row1col2\nrow2col1,row2col2".to_vec(), None, None, None);
+        let rows = adapter.split_rows();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0], b"row1col1,row1col2");
+        assert_eq!(adapter.buffer, b"row2col1,row2col2");
+    }
+
+    #[test]
+    fn test_split_rows_empty_buffer() {
+        let mut adapter = CSVAdapter::new(Vec::new(), None, None, None);
+        let rows = adapter.split_rows();
+        assert!(rows.is_empty());
+        assert_eq!(adapter.buffer, b"");
+    }
+
+    #[test]
+    fn test_split_rows_custom_delimiter() {
+        let custom_line_delim = b';';
+        let mut adapter = CSVAdapter::new(
+            b"row1col1,row1col2;row2col1,row2col2;partialrow".to_vec(),
+            None,
+            None,
+            Some(&custom_line_delim),
+        );
+        let rows = adapter.split_rows();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0], b"row1col1,row1col2");
+        assert_eq!(rows[1], b"row2col1,row2col2");
+        assert_eq!(adapter.buffer, b"partialrow");
+    }
 
     #[tokio::test]
     async fn test_consume_valid_data() {
         let mut adapter = CSVAdapter::default();
-        let csv_data = b"9457616.210305953,45040,1,1,1,97,(0.4907193796689-0.684063352438993j)\n";
+        let csv_data = b"9457616.210305953,45040,1,1,1,97,(0.4907193796689|-0.684063352438993j)\n";
         let msg = DataMsg::RawFrame {
             ts: 0.0,
             bytes: csv_data.to_vec(),
@@ -250,15 +373,15 @@ mod tests {
     #[tokio::test]
     async fn test_consume_incomplete_data() {
         let mut adapter = CSVAdapter::default();
-        let csv_data = b"1627584000.0,1,2,3,\"10,20\",\"(1+2j),(3+4j),(5+6j),(7+8j)\"";
+        let csv_data = b"1627584000.0,1,2,3,\"10,20\",\"(1|+2j),(3|+4j),(5|+6j),(7|+8j)\"";
         let msg = DataMsg::RawFrame {
             ts: 0.0,
             bytes: csv_data.to_vec(),
             source_type: crate::network::rpc_message::SourceType::ESP32,
         };
         // this should return an InvalidInput error
-        let result = adapter.produce(msg).await;
-        assert!(matches!(result, Err(CsiAdapterError::InvalidInput)));
+        let result = adapter.produce(msg).await.unwrap();
+        assert!(result.is_none());
     }
 
     #[tokio::test]
@@ -282,14 +405,14 @@ mod tests {
             bytes: b"".to_vec(),
             source_type: crate::network::rpc_message::SourceType::ESP32,
         };
-        let result = adapter.produce(msg).await;
-        assert!(matches!(result, Err(CsiAdapterError::InvalidInput)));
+        let result = adapter.produce(msg).await.unwrap();
+        assert!(result.is_none());
     }
 
     #[tokio::test]
     async fn test_consume_multiple_rows() {
         let mut adapter = CSVAdapter::default();
-        let csv_data = b"5139255.620319567,13657,2,1,2,\"48,27\",\"(-0.24795687792212684-0.7262670239309299j),(0.8454303851106912+0.7649475667253236j),(-0.8925048482423406+0.35672177778974534j),(0.5601050369340623-0.9757985075283211j)\"\n1627584001.0,51825,2,1,2,\"10,53\",\"(-0.9336763181483387+0.9137239452950752j),(0.04222732682994734+0.4741629187802445j),(-0.24923809791108553-0.6532018904054162j),(-0.13563524299387808+0.8352370739609778j)\"\n";
+        let csv_data = b"5139255.620319567,13657,2,1,2,\"48,27\",\"(-0.24795687792212684|-0.7262670239309299j),(0.8454303851106912|+0.7649475667253236j),(-0.8925048482423406|+0.35672177778974534j),(0.5601050369340623|-0.9757985075283211j)\"\n1627584001.0,51825,2,1,2,\"10,53\",\"(-0.9336763181483387|+0.9137239452950752j),(0.04222732682994734|+0.4741629187802445j),(-0.24923809791108553|-0.6532018904054162j),(-0.13563524299387808|+0.8352370739609778j)\"\n";
         let msg = DataMsg::RawFrame {
             ts: 0.0,
             bytes: csv_data.to_vec(),
@@ -307,7 +430,7 @@ mod tests {
     async fn test_multiple_rows_multiple_consumes() {
         let mut adapter = CSVAdapter::default();
 
-        let csv_data_1 = b"5139255.620319567,13657,2,1,2,\"48,27\",\"(-0.24795687792212684-0.7262670239309299j),(0.8454303851106912+0.7649475667253236j),(-0.8925048482423406+0.35672177778974534j),(0.5601050369340623-0.9757985075283211j)\"\n";
+        let csv_data_1 = b"5139255.620319567,13657,2,1,2,\"48,27\",\"(-0.24795687792212684|-0.7262670239309299j),(0.8454303851106912|+0.7649475667253236j),(-0.8925048482423406|+0.35672177778974534j),(0.5601050369340623|-0.9757985075283211j)\"\n";
         let msg1 = DataMsg::RawFrame {
             ts: 0.0,
             bytes: csv_data_1.to_vec(),
@@ -320,7 +443,7 @@ mod tests {
         assert_eq!(data1.timestamp, 5139255.620319567);
         assert_eq!(data1.sequence_number, 13657);
 
-        let csv_data_2 = b"1627584001.0,51825,2,1,2,\"10,53\",\"(-0.9336763181483387+0.9137239452950752j),(0.04222732682994734+0.4741629187802445j),(-0.24923809791108553-0.6532018904054162j),(-0.13563524299387808+0.8352370739609778j)\"\n";
+        let csv_data_2 = b"1627584001.0,51825,2,1,2,\"10,53\",\"(-0.9336763181483387|+0.9137239452950752j),(0.04222732682994734|+0.4741629187802445j),(-0.24923809791108553|-0.6532018904054162j),(-0.13563524299387808|+0.8352370739609778j)\"\n";
         let msg2 = DataMsg::RawFrame {
             ts: 0.0,
             bytes: csv_data_2.to_vec(),
@@ -333,7 +456,7 @@ mod tests {
         assert_eq!(data2.timestamp, 1627584001.0);
         assert_eq!(data2.sequence_number, 51825);
 
-        let csv_data_3 = b"1627584001.0,51825,2,1,2,\"10,53\",\"(-0.9336763181483387+0.9137239452950752j),(0.04222732682994734+0.4741629187802445j),(-0.24923809791108553-0.6532018904054162j),(-0.13563524299387808+0.8352370739609778j)\"\n";
+        let csv_data_3 = b"1627584001.0,51825,2,1,2,\"10,53\",\"(-0.9336763181483387|+0.9137239452950752j),(0.04222732682994734|+0.4741629187802445j),(-0.24923809791108553|-0.6532018904054162j),(-0.13563524299387808|+0.8352370739609778j)\"\n";
         let msg3 = DataMsg::RawFrame {
             ts: 0.0,
             bytes: csv_data_3.to_vec(),
@@ -351,19 +474,17 @@ mod tests {
     async fn test_consume_real_large_csv_file() {
         use std::fs;
         let mut adapter = CSVAdapter::default();
-        // Running the tests from either the project root, or the lib root can mess up the paths.
-        let csv_data = if fs::metadata("../resources/test_data/csv/csi_data.csv").is_ok() {
-            fs::read("../resources/test_data/csv/csi_data.csv").expect("Failed to read CSV file")
-        } else if fs::metadata("resources/test_data/csv/csi_data.csv").is_ok() {
-            fs::read("resources/test_data/csv/csi_data.csv").expect("Failed to read CSV file")
-        } else {
-            error!("Could not find csi_data file, exiting test...");
+        let csv_file_option = test_utils::generate_csv_data_file();
+        if csv_file_option.is_none() {
+            error!("Skipped test, could not generate a CSV file");
             return;
-        };
+        }
+        let csv_file = csv_file_option.unwrap();
+        let csv_data = fs::read(csv_file.path()).unwrap();
         let msg = DataMsg::RawFrame {
             ts: 0.0,
             bytes: csv_data,
-            source_type: crate::network::rpc_message::SourceType::ESP32,
+            source_type: SourceType::ESP32,
         };
         // The adapter should process the last row
         let data = adapter.produce(msg).await.unwrap().unwrap();

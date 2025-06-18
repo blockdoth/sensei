@@ -7,8 +7,6 @@
 //! - `header`: Structures and parsers for interpreting IWL-specific packet headers.
 pub mod adapter;
 mod header;
-#[cfg(test)]
-pub mod test_utils;
 
 /// Re-export of the main adapter interface for IWL devices.
 ///

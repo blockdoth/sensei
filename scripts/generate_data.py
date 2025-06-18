@@ -1,5 +1,6 @@
 import csv
 import random
+import sys
 
 # This script generates a CSV file with random CSI data.
 # The rust structs:
@@ -54,7 +55,7 @@ def generate_csi_row(
             for _ in range(1):  # Assuming 1 stream per antenna
                 csi.extend(
                     [
-                        complex(random.uniform(-1, 1), random.uniform(-1, 1))
+                        f"({random.uniform(-1, 1)}|{random.uniform(-1, 1)}j)"
                         for _ in range(num_subcarriers)
                     ]
                 )
@@ -121,11 +122,17 @@ def generate_csi_data_csv(
     ]
 
 
-generate_csi_data_csv(
-    "csi_data.csv",
-    num_rows=10000,
-    max_cores=2,
-    max_streams=2,
-    max_subcarriers=2,
-    always_generate_max=True,
-)
+if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        print("Usage: python generate_data.py <output_csv_file> <num_rows>")
+        sys.exit(1)
+    output_file = sys.argv[1]
+    num_rows = int(sys.argv[2])
+    generate_csi_data_csv(
+        output_file,
+        num_rows,
+        max_cores=2,
+        max_streams=2,
+        max_subcarriers=2,
+        always_generate_max=True,
+    )
