@@ -25,7 +25,7 @@ pub fn generate_csv_data_file() -> NamedTempFile {
     let status = Command::new("python3")
         .arg(script_path)
         .arg(file.path())
-        .arg("10")
+        .arg("10000")
         .status()
         .expect("Failed to execute data generation script");
     assert!(status.success(), "Python script did not run successfully");

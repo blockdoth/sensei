@@ -170,7 +170,6 @@ impl<'a> CSVAdapter<'a> {
         csi_data.csi = csi;
         Ok(csi_data)
     }
-
 }
 
 impl std::default::Default for CSVAdapter<'_> {

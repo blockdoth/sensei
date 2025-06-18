@@ -229,14 +229,17 @@ mod tests {
         );
 
         for (i, (written, original)) in written_lines.iter().zip(original_lines.iter()).enumerate() {
-            assert_eq!(
-                written,
-                original,
-                "Mismatch at line {}: \nwritten: {}\noriginal: {}",
-                i + 1,
-                written,
-                original
-            );
+            // Sometimes the flp to string conversion yields slightly different strings. Especially once scientific notation is used.
+            // Therefore this test is kinda weird and tires to see if the contents of the string at the very least mean the same things.
+            // Since comparing String to String is faster than parsing every string, that's checked first.
+            if written != original {
+                let split_written = adapter.parse_row(written.as_bytes()).unwrap();
+                let split_original = adapter.parse_row(original.as_bytes()).unwrap();
+
+                let written_csi = CSVAdapter::row_to_csi(split_written).unwrap();
+                let original_csi = CSVAdapter::row_to_csi(split_original).unwrap();
+                assert_eq!(written_csi, original_csi);
+            }
         }
     }
 }
