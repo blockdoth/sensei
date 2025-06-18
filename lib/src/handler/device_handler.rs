@@ -359,6 +359,7 @@ mod tests {
     use crate::network::rpc_message::{DataMsg, SourceType};
     use crate::sinks::tcp::TCPConfig;
     use crate::sinks::{MockSink, SinkConfig};
+    #[cfg(target_os = "linux")]
     use crate::sources::controllers::ControllerParams;
     use crate::sources::{DataSourceConfig, MockDataSourceT};
 
@@ -417,6 +418,7 @@ mod tests {
         assert_eq!(handler.config(), config);
     }
 
+    #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn test_from_config_invalid_controller_combo() {
         let config = DeviceHandlerConfig {
