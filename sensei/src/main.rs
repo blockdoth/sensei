@@ -33,9 +33,9 @@ use cli::*;
 #[cfg(feature = "esp_tool")]
 use esp_tool::EspTool;
 use log::*;
-use services::Run;
 #[cfg(feature = "sys_node")]
 use services::FromYaml;
+use services::Run;
 #[cfg(feature = "sys_node")]
 use services::SystemNodeConfig;
 use simplelog::{ColorChoice, CombinedLogger, LevelFilter, TermLogger, TerminalMode, WriteLogger};
@@ -62,8 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-
-    if args.subcommand.is_some() && !esp_tool {
+    if args.subcommand.is_some() && !is_esp_tool {
         CombinedLogger::init(vec![
             TermLogger::new(
                 args.level,

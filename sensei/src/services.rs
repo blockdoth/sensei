@@ -26,7 +26,7 @@ use lib::handler::device_handler::DeviceHandlerConfig;
 use log::LevelFilter;
 use serde::Deserialize;
 
-#[cfg(feature = "sys_node")] 
+#[cfg(feature = "sys_node")]
 use crate::system_node::SinkConfigWithName;
 
 pub const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));

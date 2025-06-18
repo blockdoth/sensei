@@ -57,10 +57,16 @@ pub trait CsiDataAdapter: Send + ToConfig<DataAdapterConfig> {
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq)]
 pub enum DataAdapterConfig {
     #[cfg(feature = "iwl5300")]
-    Iwl { scale_csi: bool },
+    Iwl {
+        scale_csi: bool,
+    },
     #[cfg(feature = "esp_tool")]
-    Esp32 { scale_csi: bool },
-    Tcp { scale_csi: bool },
+    Esp32 {
+        scale_csi: bool,
+    },
+    Tcp {
+        scale_csi: bool,
+    },
     #[cfg(feature = "csv")]
     CSV {},
 }

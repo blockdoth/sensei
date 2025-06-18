@@ -49,11 +49,7 @@ impl Run<OrchestratorConfig> for Orchestrator {
 }
 
 impl Orchestrator {
-    pub async fn load_experiments(
-        &mut self,
-        client: Arc<Mutex<TcpClient>>,
-        experiments: Vec<Experiment>,
-    ) -> Result<(), Box<dyn Error>> {
+    pub async fn load_experiments(&mut self, client: Arc<Mutex<TcpClient>>, experiments: Vec<Experiment>) -> Result<(), Box<dyn Error>> {
         for experiment in experiments {
             self.load_experiment(client.clone(), experiment).await?;
         }

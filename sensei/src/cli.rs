@@ -23,7 +23,7 @@
 //! ```
 //!
 //! This command sets the system node address and port, overriding the defaults.
-
+#[cfg(feature = "sys_node")]
 use std::path::PathBuf;
 
 use anyhow::Error;
@@ -34,15 +34,15 @@ use lib::handler::device_handler::DeviceHandlerConfig;
 use log::debug;
 use simplelog::LevelFilter;
 
-use crate::services::GlobalConfig;
 #[cfg(feature = "esp_tool")]
 use crate::services::EspToolConfig;
-#[cfg(feature = "visualiser")]
-use crate::services::{VisualiserConfig};
+use crate::services::GlobalConfig;
 #[cfg(feature = "orchestrator")]
 use crate::services::OrchestratorConfig;
 #[cfg(feature = "sys_node")]
 use crate::services::SystemNodeConfig;
+#[cfg(feature = "visualiser")]
+use crate::services::VisualiserConfig;
 
 /// A trait for overlaying subcommand arguments onto an existing configuration.
 ///
@@ -152,7 +152,6 @@ impl ConfigFromCli<SystemNodeConfig> for SystemNodeSubcommandArgs {
     }
 }
 
-
 #[cfg(feature = "sys_node")]
 /// Overlays subcommand arguments onto a SystemNodeConfig, overriding fields if provided.
 impl OverlaySubcommandArgs<SystemNodeConfig> for SystemNodeSubcommandArgs {
@@ -166,8 +165,6 @@ impl OverlaySubcommandArgs<SystemNodeConfig> for SystemNodeSubcommandArgs {
         Ok(config)
     }
 }
-
-
 
 #[cfg(feature = "orchestrator")]
 /// Orchestrator node commands
@@ -183,7 +180,6 @@ pub struct OrchestratorSubcommandArgs {
     pub experiment_config: PathBuf,
 }
 
-
 #[cfg(feature = "orchestrator")]
 impl ConfigFromCli<OrchestratorConfig> for OrchestratorSubcommandArgs {
     /// Parses orchestrator subcommand arguments into an `OrchestratorConfig`.
@@ -196,7 +192,6 @@ impl ConfigFromCli<OrchestratorConfig> for OrchestratorSubcommandArgs {
         })
     }
 }
-
 
 /// Visualiser commands
 #[cfg(feature = "visualiser")]
@@ -243,7 +238,6 @@ pub struct EspToolSubcommandArgs {
     #[argh(option, default = "String::from(\"/dev/ttyUSB0\")")]
     pub serial_port: String,
 }
-
 
 #[cfg(feature = "esp_tool")]
 impl ConfigFromCli<EspToolConfig> for EspToolSubcommandArgs {

@@ -75,16 +75,16 @@ impl ToConfig<DataAdapterConfig> for TCPAdapter {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
+    use chrono::Utc;
+    use num_complex::Complex;
+
     use super::*;
-    use crate::network::rpc_message::{DataMsg, SourceType};
-    use crate::errors::{CsiAdapterError};
     use crate::adapters::{CsiDataAdapter, DataAdapterConfig, ToConfig};
     use crate::csi_types::CsiData;
-    use num_complex::Complex;
-    use chrono::Utc;
+    use crate::errors::CsiAdapterError;
+    use crate::network::rpc_message::{DataMsg, SourceType};
 
     const NUM_SUBCARRIER: usize = 64;
 
