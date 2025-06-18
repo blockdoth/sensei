@@ -41,7 +41,7 @@ impl Run<OrchestratorConfig> for Orchestrator {
     async fn run(&mut self) -> Result<(), Box<dyn Error>> {
         let experiment = Experiment::from_yaml(self.experiment_config.clone())?;
 
-        self.load_experiments(self.client.clone(), experiment).await;
+        self.load_experiments(self.client.clone(), experiment).await?;
 
         self.cli_interface().await?;
         Ok(())
@@ -53,14 +53,14 @@ impl Orchestrator {
         &mut self,
         client: Arc<Mutex<TcpClient>>,
         experiments: Vec<Experiment>,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    ) -> Result<(), Box<dyn Error>> {
         for experiment in experiments {
-            self.load_experiment(client.clone(), experiment).await;
+            self.load_experiment(client.clone(), experiment).await?;
         }
 
         Ok(())
     }
-    pub async fn load_experiment(&mut self, client: Arc<Mutex<TcpClient>>, experiment: Experiment) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn load_experiment(&mut self, client: Arc<Mutex<TcpClient>>, experiment: Experiment) -> Result<(), Box<dyn Error>> {
         self.output_path = experiment.metadata.output_path.clone();
 
         if let Some(path) = &self.output_path {
@@ -79,13 +79,13 @@ impl Orchestrator {
                 }
             }
             ExperimentHost::SystemNode { target_addr } => {
-                Self::send_experiment(&client, target_addr, experiment).await;
+                Self::send_experiment(&client, target_addr, experiment).await?;
             }
         }
 
         Ok(())
     }
-    pub async fn execute_stage(client: Arc<Mutex<TcpClient>>, stage: Stage) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn execute_stage(client: Arc<Mutex<TcpClient>>, stage: Stage) -> Result<(), Box<dyn Error>> {
         let mut tasks = vec![];
 
         for block in stage.command_blocks {
@@ -102,7 +102,7 @@ impl Orchestrator {
 
         Ok(())
     }
-    pub async fn execute_command_block(client: Arc<Mutex<TcpClient>>, block: Block) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn execute_command_block(client: Arc<Mutex<TcpClient>>, block: Block) -> Result<(), Box<dyn Error>> {
         tokio::time::sleep(std::time::Duration::from_millis(block.delays.init_delay.unwrap_or(0u64))).await;
         let command_delay = block.delays.command_delay.unwrap_or(0u64);
         let command_types = block.commands;
@@ -116,19 +116,19 @@ impl Orchestrator {
                 let n = iterations.unwrap_or(0u64);
                 if n == 0 {
                     loop {
-                        Self::match_commands(client.clone(), command_types.clone(), command_delay).await;
+                        Self::match_commands(client.clone(), command_types.clone(), command_delay).await?;
                         tokio::time::sleep(std::time::Duration::from_millis(r_delay)).await;
                     }
                 } else {
                     for _ in 0..n {
-                        Self::match_commands(client.clone(), command_types.clone(), command_delay).await;
+                        Self::match_commands(client.clone(), command_types.clone(), command_delay).await?;
                         tokio::time::sleep(std::time::Duration::from_millis(r_delay)).await;
                     }
                 }
                 Ok(())
             }
             NotRecurring => {
-                Self::match_commands(client, command_types, command_delay).await;
+                Self::match_commands(client, command_types, command_delay).await?;
                 Ok(())
             }
         }
@@ -136,7 +136,7 @@ impl Orchestrator {
 
     pub async fn match_commands(client: Arc<Mutex<TcpClient>>, commands: Vec<Command>, command_delay: u64) -> Result<(), Box<dyn std::error::Error>> {
         for command in commands {
-            Self::match_command(client.clone(), command.clone()).await;
+            Self::match_command(client.clone(), command.clone()).await?;
             tokio::time::sleep(std::time::Duration::from_millis(command_delay)).await;
         }
         Ok(())
