@@ -23,6 +23,7 @@ use crate::errors::{SinkError, TaskError};
 use crate::network::rpc_message::DataMsg;
 use crate::{FromConfig, ToConfig};
 
+pub mod csv;
 pub mod file;
 pub mod tcp;
 
@@ -71,6 +72,7 @@ pub enum SinkConfig {
     /// Tcp configuration
     Tcp(tcp::TCPConfig),
     // add other sink types here
+    CSV(csv::CSVConfig),
 }
 
 /// Constructs a [`Sink`] implementation from a [`SinkConfig`] using the [`FromConfig`] trait.
@@ -91,6 +93,10 @@ impl FromConfig<SinkConfig> for dyn Sink {
             }
             SinkConfig::Tcp(cfg) => {
                 let sink = tcp::TCPSink::new(cfg).await?;
+                Ok(Box::new(sink))
+            }
+            SinkConfig::CSV(cfg) => {
+                let sink = csv::CSVSink::new(cfg).await?;
                 Ok(Box::new(sink))
             }
         }
