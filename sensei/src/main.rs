@@ -73,11 +73,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::path::PathBuf;
-    use tempfile::tempdir;
     use std::fs as std_fs;
-    use simplelog::LevelFilter; // Import LevelFilter directly
+    use std::path::PathBuf;
+
+    use simplelog::LevelFilter;
+    use tempfile::tempdir;
+
+    use super::*; // Import LevelFilter directly
 
     // Helper to create a dummy config file
     fn create_dummy_config_file(dir: &std::path::Path, file_name: &str, content: &str) -> PathBuf {
@@ -100,7 +102,7 @@ device_configs: []
             subcommand: Some(SubCommandsArgs::SystemNode(SystemNodeSubcommandArgs {
                 config_path: config_path.clone(),
                 addr: String::from("127.0.0.1"), // Default addr for test case
-                port: 9090, // Default port for test case
+                port: 9090,                      // Default port for test case
             })),
             level: LevelFilter::Error,
         };

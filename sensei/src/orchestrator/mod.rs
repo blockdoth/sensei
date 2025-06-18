@@ -537,19 +537,19 @@ impl Orchestrator {
                     let msg = recv_client.lock().await.read_message(*target_addr).await.unwrap();
                     match msg.msg {
                         Data {
-                          data_msg: DataMsg::CsiFrame { csi },
-                          device_id: _,
+                            data_msg: DataMsg::CsiFrame { csi },
+                            device_id: _,
                         } => {
-                          info!("{}: {}", msg.src_addr, csi.timestamp)
+                            info!("{}: {}", msg.src_addr, csi.timestamp)
                         }
                         Data {
-                          data_msg:
-                            DataMsg::RawFrame {
-                              ts,
-                              bytes: _,
-                              source_type: _,
-                            },
-                          device_id: _,
+                            data_msg:
+                                DataMsg::RawFrame {
+                                    ts,
+                                    bytes: _,
+                                    source_type: _,
+                                },
+                            device_id: _,
                         } => info!("{}: {ts}", msg.src_addr),
                         _ => (),
                     }
@@ -561,18 +561,20 @@ impl Orchestrator {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use lib::network::rpc_message::{RpcMessage, RpcMessageKind, HostCtrl};
     use std::fs::File;
     use std::io::Write;
+
+    use lib::network::rpc_message::{HostCtrl, RpcMessage, RpcMessageKind};
     use tempfile::tempdir;
-    use tokio::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::time::Duration;
+
+    use super::*;
 
     fn create_dummy_experiment_file(dir_path: &std::path::Path, file_name: &str, content: &str) -> PathBuf {
         let file_path = dir_path.join(file_name);
         let mut file = File::create(&file_path).unwrap();
-        writeln!(file, "{}", content).unwrap();
+        writeln!(file, "{content}").unwrap();
         file_path
     }
 
@@ -581,9 +583,13 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let dummy_config_path = create_dummy_experiment_file(temp_dir.path(), "exp.yaml", "metadata:\n  name: test\nstages: []");
         // OrchestratorConfig does not derive Clone, so we consume it here.
-        let config = OrchestratorConfig { experiment_config: dummy_config_path };
-        let global_config = GlobalConfig { log_level: log::LevelFilter::Debug };
-        let _orchestrator = Orchestrator::new(global_config, config); 
+        let config = OrchestratorConfig {
+            experiment_config: dummy_config_path,
+        };
+        let global_config = GlobalConfig {
+            log_level: log::LevelFilter::Debug,
+        };
+        let _orchestrator = Orchestrator::new(global_config, config);
     }
 
     #[tokio::test]
@@ -632,7 +638,11 @@ stages:
         let client = Arc::new(Mutex::new(TcpClient::new()));
         let block = Block {
             commands: vec![Command::Delay { delay: 10 }],
-            delays: Delays { init_delay: Some(5), command_delay: Some(1), is_recurring: IsRecurring::NotRecurring },
+            delays: Delays {
+                init_delay: Some(5),
+                command_delay: Some(1),
+                is_recurring: IsRecurring::NotRecurring,
+            },
         };
         let start_time = tokio::time::Instant::now();
         Orchestrator::execute_command_block(client, block).await.unwrap();
@@ -645,10 +655,10 @@ stages:
         let client = Arc::new(Mutex::new(TcpClient::new()));
         // Correctly initialize Metadata based on its actual fields
         let experiment = Experiment {
-            metadata: super::Metadata { 
-                name: "empty_test".to_string(), 
-                output_path: None 
-            }, 
+            metadata: super::Metadata {
+                name: "empty_test".to_string(),
+                output_path: None,
+            },
             stages: vec![],
         };
         let mut orchestrator = Orchestrator {
@@ -698,41 +708,59 @@ stages:
         server_handle.abort();
     }
 
-     #[tokio::test]
+    #[tokio::test]
     async fn test_orchestrator_ping_command() {
         let server_addr: SocketAddr = "127.0.0.1:34568".parse().unwrap();
         let server_handle = tokio::spawn(async move {
             let listener = tokio::net::TcpListener::bind(server_addr).await.unwrap();
             let (mut socket, _) = listener.accept().await.unwrap();
-            let mut buf = vec![0u8; 1024];
+            let mut buf = [0u8; 4096];
             loop {
-                match socket.read(&mut buf).await {
-                    Ok(0) => return,
-                    Ok(n) => {
-                        let rpc_message: Result<RpcMessage, _> = serde_json::from_slice(&buf[..n]);
-                        if let Ok(rpc_msg) = rpc_message {
-                            if matches!(rpc_msg.msg, RpcMessageKind::HostCtrl(HostCtrl::Connect)) {
-                                // Respond to Connect first
-                                let connect_response = RpcMessage {
-                                    msg: RpcMessageKind::HostCtrl(HostCtrl::Connect),
-                                    src_addr: server_addr,
-                                    target_addr: rpc_msg.src_addr,
-                                };
-                                let connect_bytes = serde_json::to_vec(&connect_response).unwrap();
-                                socket.write_all(&connect_bytes).await.unwrap();
-                            } else if matches!(rpc_msg.msg, RpcMessageKind::HostCtrl(HostCtrl::Ping)) {
-                                // Construct RpcMessage directly
-                                let pong_msg = RpcMessage {
-                                    msg: RpcMessageKind::HostCtrl(HostCtrl::Pong),
-                                    src_addr: server_addr, // Or appropriate src
-                                    target_addr: rpc_msg.src_addr, // Pong back to original sender
-                                };
-                                let pong_bytes = serde_json::to_vec(&pong_msg).unwrap();
-                                socket.write_all(&pong_bytes).await.unwrap();
-                            }
-                        }
-                    }
+                // Read the 4-byte length prefix
+                let mut length_buf = [0u8; 4];
+                match socket.read_exact(&mut length_buf).await {
+                    Ok(_) => {}
                     Err(_) => return,
+                }
+                let msg_length = u32::from_be_bytes(length_buf) as usize;
+
+                if msg_length == 0 || msg_length > 4096 {
+                    return;
+                }
+
+                // Read the message payload
+                match socket.read_exact(&mut buf[..msg_length]).await {
+                    Ok(_) => {}
+                    Err(_) => return,
+                }
+
+                // Deserialize using bincode
+                if let Ok(rpc_msg) = bincode::deserialize::<RpcMessage>(&buf[..msg_length]) {
+                    if matches!(rpc_msg.msg, RpcMessageKind::HostCtrl(HostCtrl::Connect)) {
+                        // Respond to Connect first
+                        let connect_response = RpcMessage {
+                            msg: RpcMessageKind::HostCtrl(HostCtrl::Connect),
+                            src_addr: server_addr,
+                            target_addr: rpc_msg.src_addr,
+                        };
+                        let response_bytes = bincode::serialize(&connect_response).unwrap();
+                        let length_prefix = (response_bytes.len() as u32).to_be_bytes();
+                        socket.write_all(&length_prefix).await.unwrap();
+                        socket.write_all(&response_bytes).await.unwrap();
+                        socket.flush().await.unwrap();
+                    } else if matches!(rpc_msg.msg, RpcMessageKind::HostCtrl(HostCtrl::Ping)) {
+                        // Construct RpcMessage directly
+                        let pong_msg = RpcMessage {
+                            msg: RpcMessageKind::HostCtrl(HostCtrl::Pong),
+                            src_addr: server_addr,
+                            target_addr: rpc_msg.src_addr,
+                        };
+                        let response_bytes = bincode::serialize(&pong_msg).unwrap();
+                        let length_prefix = (response_bytes.len() as u32).to_be_bytes();
+                        socket.write_all(&length_prefix).await.unwrap();
+                        socket.write_all(&response_bytes).await.unwrap();
+                        socket.flush().await.unwrap();
+                    }
                 }
             }
         });
@@ -740,6 +768,9 @@ stages:
 
         let client = Arc::new(Mutex::new(TcpClient::new()));
         client.lock().await.connect(server_addr).await.unwrap();
+
+        // Consume the Connect response from the server
+        let _connect_response = client.lock().await.read_message(server_addr).await.unwrap();
 
         let command = Command::Ping { target_addr: server_addr };
         let result = Orchestrator::match_command(client.clone(), command).await;

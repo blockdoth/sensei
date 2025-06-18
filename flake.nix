@@ -46,11 +46,11 @@
                 nixfmt-rfc-style
                 rust-analyzer-unwrapped
                 mprocs
-                valgrind
                 pkg-config
               ]
               ++ lib.optionals pkgs.stdenv.isLinux [
                 pkgs.udev
+                valgrind
                 pkgs.llvmPackages_latest.llvm
                 pkgs.cargo-llvm-cov
               ];

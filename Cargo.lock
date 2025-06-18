@@ -1257,6 +1257,7 @@ dependencies = [
  "anyhow",
  "argh",
  "async-trait",
+ "bincode",
  "charming",
  "chrono",
  "crossterm 0.29.0",

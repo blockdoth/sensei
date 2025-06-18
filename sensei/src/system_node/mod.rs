@@ -475,11 +475,13 @@ impl Run<SystemNodeConfig> for SystemNode {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use tokio::sync::{broadcast, watch};
     use std::net::SocketAddr;
-    use tokio::net::tcp::OwnedWriteHalf;
+
     use async_trait::async_trait;
+    use tokio::net::tcp::OwnedWriteHalf;
+    use tokio::sync::{broadcast, watch};
+
+    use super::*;
 
     #[derive(Clone)]
     struct MockConnectionHandler {
@@ -493,11 +495,7 @@ mod tests {
     }
     #[async_trait]
     impl ConnectionHandler for MockConnectionHandler {
-        async fn handle_recv(
-            &self,
-            _msg: RpcMessage,
-            _send_commands_channel: watch::Sender<ChannelMsg>,
-        ) -> Result<(), NetworkError> {
+        async fn handle_recv(&self, _msg: RpcMessage, _send_commands_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
             Ok(())
         }
         async fn handle_send(
@@ -529,7 +527,9 @@ mod tests {
     #[tokio::test]
     async fn test_system_node_new() {
         let config = create_system_node_config("127.0.0.1:12345".parse().unwrap(), 1);
-        let global_config = GlobalConfig { log_level: log::LevelFilter::Debug };
+        let global_config = GlobalConfig {
+            log_level: log::LevelFilter::Debug,
+        };
         let _system_node = SystemNode::new(global_config, config);
         // Can't check private fields, but construction should succeed
     }

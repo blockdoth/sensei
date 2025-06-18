@@ -5,8 +5,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
-use tokio::sync::mpsc;
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::adapters::*;
