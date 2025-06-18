@@ -29,7 +29,7 @@ use log::*;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::{Mutex, broadcast, mpsc, watch}; // Added mpsc
 use tokio::task;
-
+use lib::network::experiment_config::{Command, Experiment, Stage};
 use crate::registry::Registry;
 use crate::services::{GlobalConfig, Run, SystemNodeConfig};
 
@@ -214,6 +214,50 @@ impl SystemNode {
         
         Ok(())
     }
+    
+    async fn load_experiment(
+        experiment: Experiment,
+        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+    ) -> Result<(), NetworkError> {
+        
+        
+        
+        Ok(())
+    }
+    
+    async fn execute_stage(
+        stage: Stage,
+        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+    ) -> Result<(), NetworkError> {
+        
+        
+        Ok(())
+    }
+    
+    async fn match_command(
+        command: Command,
+        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+    ) -> Result<(), NetworkError> {
+        match command {
+            Command::Subscribe { target_addr, device_id } => {
+                Self::subscribe_to(target_addr, device_id, handlers).await?;
+            }
+            Command::Unsubscribe { target_addr, device_id } => {
+                Self::unsubscribe_from(device_id, handlers).await?;
+            }
+            Command::Configure { target_addr, device_id, cfg_type } => {
+                Self::configure(device_id, cfg_type, handlers).await?;
+            }
+            Command::Delay { delay } => {
+                tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+            }
+            c => {
+                info!("The system node does not support this command {c:?}");
+            }
+        }
+        
+        Ok(())
+    }
 
     /// Handles incoming host control messages and performs the corresponding actions.
     ///
@@ -226,7 +270,7 @@ impl SystemNode {
     /// * `Result<(), NetworkError>` - Returns `Ok(())` if the command was handled successfully, or a `NetworkError` if an error occurred.
     ///
     /// # Behavior
-    /// - Handles various `HostCtrl` commands such as `Connect`, `Disconnect`, `Subscribe`, `Unsubscribe`, `SubscribeTo`, `UnsubscribeFrom`, and `Configure`.
+    /// - Handles various `HostCtrl` commands such as `Connect`, `Disconnect`, `Subscribe`, `Unsubscribe`, `SubscribeTo`, `UnsubscribeFrom`, `Configure`.and `Experiment`
     /// - For `Disconnect`, signals the sending task to disconnect and returns an error to indicate the connection should close.
     /// - For subscription commands, updates the relevant handlers and logs the actions.
     /// - For configuration commands, creates, edits, or deletes device handlers as specified.
