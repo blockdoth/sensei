@@ -32,7 +32,7 @@ use lib::sources::{DataSourceConfig, DataSourceT}; // Added DataSourceT
 use log::*;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::{Mutex, broadcast, mpsc, watch}; // Added mpsc
-use tokio::task;
+use tokio::task::{self, JoinHandle};
 
 use crate::registry::Registry;
 use crate::services::{GlobalConfig, Run, SystemNodeConfig};
@@ -361,6 +361,10 @@ impl SystemNode {
             HostCtrl::Experiment { experiment } => {
                 Self::load_experiment(experiment, self.handlers.clone()).await?;
             }
+            HostCtrl::Ping => {
+                debug!("Received ping from {:#?}.", request.src_addr);
+                send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Pong))?;
+            }
             m => {
                 warn!("Received unhandled HostCtrl: {m:?}");
             }
@@ -386,6 +390,10 @@ impl SystemNode {
             }
             HostChannel::Unsubscribe { device_id } => {
                 subscribed_ids.remove(&device_id);
+            }
+            HostChannel::Pong => {
+                debug!("Sending pong...");
+                send_message(send_stream, RpcMessageKind::HostCtrl(HostCtrl::Pong)).await?;
             }
             _ => {}
         };
@@ -447,7 +455,7 @@ impl SystemNode {
         let mut rx = self.local_data_rx.lock().await;
         info!("Starting local data processing task.");
         while let Some((data_msg, device_id)) = rx.recv().await {
-            info!("SystemNode received local data for device_id: {device_id}");
+            trace!("SystemNode received local data for device_id: {device_id}");
             // 1. Broadcast to connected TCP clients
             if self.send_data_channel.receiver_count() > 0 {
                 if let Err(e) = self.send_data_channel.send((data_msg.clone(), device_id)) {
@@ -510,7 +518,12 @@ impl ConnectionHandler for SystemNode {
     ) -> Result<(), NetworkError> {
         let mut subscribed_ids: HashSet<HostId> = HashSet::new();
         loop {
-            if recv_command_channel.has_changed().unwrap_or(false) {
+            // This loop continues execution untill a client disconnects.
+            // Since tokio only yiels execution back to the scheduler once a task finishes
+            // or another async task is encountered, a thread can be block by this task
+            // if no yield points are inserted.
+            task::consume_budget().await;
+            if recv_command_channel.has_changed()? {
                 let msg_opt = recv_command_channel.borrow_and_update().clone();
                 debug!("Received message {msg_opt:?} over channel");
                 match msg_opt {
@@ -571,9 +584,7 @@ impl Run<SystemNodeConfig> for SystemNode {
         for sink_conf_with_name in &self.sink_configs {
             info!("Initializing sink: {}", sink_conf_with_name.id);
             let mut sink = <dyn Sink>::from_config(sink_conf_with_name.config.clone()).await?;
-            sink.open()
-                .await
-                .map_err(|e| format!("Failed to open sink {}: {:?}", sink_conf_with_name.id, e))?;
+            sink.open().await?;
             sinks_map.insert(sink_conf_with_name.id.clone(), sink);
         }
         drop(sinks_map); // Release lock
@@ -581,7 +592,7 @@ impl Run<SystemNodeConfig> for SystemNode {
         // Initialize Device Handlers
         let mut handlers_map = self.handlers.lock().await;
         for cfg in &self.device_configs {
-            let mut handler = DeviceHandler::from_config(cfg.clone()).await.unwrap();
+            let mut handler = DeviceHandler::from_config(cfg.clone()).await?;
             // Pass the sender for local data to the handler's start method
             handler
                 .start(
@@ -593,8 +604,7 @@ impl Run<SystemNodeConfig> for SystemNode {
                     },
                     self.local_data_tx.clone(),
                 )
-                .await
-                .expect("Failed to start device handler");
+                .await?;
             handlers_map.insert(cfg.device_id, handler);
         }
         drop(handlers_map); // Release lock
@@ -618,8 +628,13 @@ impl Run<SystemNodeConfig> for SystemNode {
         // Create a TCP host server task
         info!("Starting TCP server on {}...", self.addr);
         let connection_handler = Arc::new(self.clone());
-        let tcp_server_task: tokio::task::JoinHandle<()> = task::spawn(async move {
-            TcpServer::serve(connection_handler.addr, connection_handler).await.unwrap();
+        let tcp_server_task: JoinHandle<()> = task::spawn(async move {
+            match TcpServer::serve(connection_handler.addr, connection_handler).await {
+                Ok(_) => (),
+                Err(e) => {
+                    panic!("The TCP server encountered an error: {e}")
+                }
+            };
         });
 
         // Task for processing local data

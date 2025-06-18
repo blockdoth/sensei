@@ -16,6 +16,8 @@
 //! ```
 
 use async_trait::async_trait;
+#[cfg(test)]
+use mockall::automock;
 
 use crate::errors::{SinkError, TaskError};
 use crate::network::rpc_message::DataMsg;
@@ -31,6 +33,7 @@ pub mod tcp;
 /// or storing in a database.
 ///
 /// Implementations must be `Send` to ensure they can be used across asynchronous tasks.
+#[cfg_attr(test, automock)]
 #[async_trait]
 pub trait Sink: Send + ToConfig<SinkConfig> {
     /// Open the connection to the sink
@@ -61,7 +64,7 @@ pub trait Sink: Send + ToConfig<SinkConfig> {
 /// This enum is tagged using Serde's `tag`  meaning the configuration must specify
 /// a `type` field (e.g., `{ "type": "File", ... }`). Each variant corresponds to a different
 /// kind of sink implementation.
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
 pub enum SinkConfig {
     /// File sink configuration
     File(file::FileConfig),

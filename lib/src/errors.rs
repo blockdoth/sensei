@@ -1,8 +1,8 @@
+use std::num::{ParseFloatError, ParseIntError};
 use std::sync::PoisonError;
 
 use thiserror::Error;
 
-use crate::adapters::csv::CSVAdapterError;
 use crate::network::rpc_message::{DataMsg, HostId};
 use crate::network::tcp::ChannelMsg;
 
@@ -20,6 +20,10 @@ pub enum NetworkError {
     /// Tokio was unable to send the message
     #[error("Message could not be sent due to a Watch error")]
     TokioWatchSendingError(#[from] tokio::sync::watch::error::SendError<ChannelMsg>),
+
+    /// Tokio was unable to receive a message
+    #[error("Message could not be received due to a Watch error")]
+    TokioWatchRecvError(#[from] tokio::sync::watch::error::RecvError),
 
     /// Communication operation timed out.
     #[error("Communication timed out")]
@@ -52,6 +56,14 @@ pub enum NetworkError {
     /// Registry error
     #[error("The registry produced an error")]
     RegistryError(#[from] RegistryError),
+
+    /// Other error type
+    #[error("An error occurred")]
+    Other(#[from] Box<dyn std::error::Error + Send + Sync>),
+
+    /// Thrown when a connection that does not exist is referenced
+    #[error("That connection does not exist")]
+    NoSuchConnection,
 }
 
 /// Generic application-level error for unimplemented functionality.
@@ -153,6 +165,21 @@ pub enum CsiAdapterError {
     /// Error from CSV adapter.
     #[error("CSV Adapter Error: {0}")]
     CSV(#[from] CSVAdapterError),
+
+    /// Error whilst parsing to int
+    #[error("Could not convert to int: {0}")]
+    IntConversionError(#[from] ParseIntError),
+
+    /// Error whilst parsing to float
+    #[error("Could not convert to float: {0}")]
+    FloatConversionError(#[from] ParseFloatError),
+}
+
+/// Specific errors of the CSV Adapter
+#[derive(Error, Debug)]
+pub enum CSVAdapterError {
+    #[error("Invalid number of columns in CSV row: {0}")]
+    InvalidData(String),
 }
 
 /// Errors specific to the ESP32 CSI adapter.

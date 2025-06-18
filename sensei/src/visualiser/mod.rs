@@ -7,11 +7,10 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use charming::Chart as CharmingChart; // Alias for charming::Chart
 use charming::HtmlRenderer;
-use charming::component::Title;
-use charming::element::AxisType;
-use charming::series::Line;
 use charming::theme::Theme;
+use lib::csi_types::Complex as LibComplex; // Alias to avoid confusion
 use lib::csi_types::CsiData;
 use lib::network::rpc_message::DataMsg::*;
 use lib::network::rpc_message::RpcMessageKind::Data;
@@ -29,6 +28,8 @@ use ratatui::prelude::Direction;
 use ratatui::style::{Color, Style};
 use ratatui::text::Span;
 use ratatui::widgets::{Axis, Block, Borders, Chart, Dataset};
+use rustfft::FftPlanner;
+use rustfft::num_complex::Complex as FftComplex;
 use tokio::io;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::Mutex;
@@ -36,9 +37,8 @@ use tokio::sync::Mutex;
 use crate::services::{GlobalConfig, Run, VisualiserConfig};
 
 pub struct Visualiser {
-    // This seemed to me the best way to structure the data, as the socketaddr is a primary key for each node, and each device has a unique id only within a node
     #[allow(clippy::type_complexity)]
-    data: Arc<Mutex<HashMap<SocketAddr, HashMap<u64, Vec<CsiData>>>>>, // Nodes x Devices x CsiData over time
+    data: Arc<Mutex<HashMap<SocketAddr, HashMap<u64, Vec<CsiData>>>>>,
     target: SocketAddr,
     ui_type: String,
 }
@@ -80,7 +80,8 @@ struct Graph {
     core: usize,
     stream: usize,
     subcarrier: usize,
-    time_interval: usize,
+    time_interval: usize,            // For Amplitude plots: x-axis time window in ms
+    y_axis_bounds: Option<[f64; 2]>, // For PDP plots: fixed y-axis bounds [min, max]
 }
 
 impl PartialEq for Graph {
@@ -91,12 +92,23 @@ impl PartialEq for Graph {
             && self.core == other.core
             && self.stream == other.stream
             && self.subcarrier == other.subcarrier
+        // time_interval is intentionally omitted for robust state tracking against graph spec changes
+        // y_axis_bounds is also omitted for the same reason
     }
+}
+
+#[derive(Clone, Debug)]
+struct GraphDisplayState {
+    data_points: Vec<(f64, f64)>,
+    csi_timestamp: f64,             // Timestamp of the CsiData this state is based on
+    last_loop_update_time: Instant, // When this state was last updated or checked in the tui_loop
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum GraphType {
     Amplitude,
+    #[allow(clippy::upper_case_acronyms)]
+    PDP,
 }
 
 impl FromStr for GraphType {
@@ -106,6 +118,7 @@ impl FromStr for GraphType {
         match s.to_lowercase().as_str() {
             "amp" => Ok(GraphType::Amplitude),
             "amplitude" => Ok(GraphType::Amplitude),
+            "pdp" => Ok(GraphType::PDP),
             _ => Err(()),
         }
     }
@@ -169,29 +182,80 @@ impl Visualiser {
         self.data.lock().await.clone()
     }
 
-    /// Data is divided into:
-    /// Nodes in outer hashmap, devices in inner hashmap.
-    /// Then you get to the vec of csi data from that device.
-    /// There is a timestamp for each csi data, and that data can be reduced by core, stream and subcarrier.
-    ///
-    /// Processing data turns each data point into a vec of tuples (timestamp, datapoint), such that it can be charted easily.
-    async fn process_data(&self, graph: Graph) -> Vec<(f64, f64)> {
-        // TODO: More processing types
-        let target_addr = graph.target_addr;
-        let device = graph.device;
-        let core = graph.core;
-        let stream = graph.stream;
-        let subcarrier = graph.subcarrier;
+    async fn process_amplitude_data(&self, device_data: &[CsiData], core: usize, stream: usize, subcarrier: usize) -> (Vec<(f64, f64)>, Option<f64>) {
+        let latest_timestamp = device_data.last().map(|x| x.timestamp);
+        let data = device_data.iter().map(|x| (x.timestamp, x.csi[core][stream][subcarrier].re)).collect();
+        (data, latest_timestamp)
+    }
 
-        let data = match self.data.lock().await.get(&target_addr) {
-            Some(data) => match data.get(&device) {
-                Some(data) => data.clone(),
-                None => return vec![],
-            },
-            None => return vec![],
+    async fn process_pdp_data(&self, device_data: &[CsiData], core: usize, stream: usize) -> (Vec<(f64, f64)>, Option<f64>) {
+        if let Some(latest_csi_data) = device_data.last() {
+            let csi_timestamp = latest_csi_data.timestamp;
+            if core < latest_csi_data.csi.len() && stream < latest_csi_data.csi[core].len() {
+                let csi_for_ifft: Vec<LibComplex> = latest_csi_data.csi[core][stream].clone();
+                if csi_for_ifft.is_empty() {
+                    return (vec![], Some(csi_timestamp));
+                }
+                let ifft_result = Self::perform_ifft(&csi_for_ifft);
+                let mut power_profile: Vec<f64> = ifft_result.iter().map(|c| c.norm_sqr()).collect();
+
+                let n = power_profile.len();
+                if n > 0 {
+                    power_profile.rotate_left(n / 2);
+                }
+
+                (
+                    power_profile.into_iter().enumerate().map(|(idx, p)| (idx as f64, p)).collect(),
+                    Some(csi_timestamp),
+                )
+            } else {
+                (vec![], Some(csi_timestamp))
+            }
+        } else {
+            (vec![], None)
+        }
+    }
+
+    /// Processing data turns each data point into a vec of tuples (timestamp, datapoint), such that it can be charted easily.
+    /// For PDP, it returns (delay_bin, power) for the latest CSI packet.
+    /// Returns the processed data and an Option containing the timestamp of the CSI data used.
+    async fn process_data(&self, graph: Graph) -> (Vec<(f64, f64)>, Option<f64>) {
+        let data_map = self.data.lock().await;
+        let device_data_map = match data_map.get(&graph.target_addr).and_then(|node_data| node_data.get(&graph.device)) {
+            Some(data) => data.clone(),
+            None => return (vec![], None),
         };
 
-        data.iter().map(|x| (x.timestamp, x.csi[core][stream][subcarrier].re)).collect()
+        if device_data_map.is_empty() {
+            return (vec![], None);
+        }
+
+        match graph.graph_type {
+            GraphType::Amplitude => {
+                self.process_amplitude_data(&device_data_map, graph.core, graph.stream, graph.subcarrier)
+                    .await
+            }
+            GraphType::PDP => self.process_pdp_data(&device_data_map, graph.core, graph.stream).await,
+        }
+    }
+
+    fn perform_ifft(csi_subcarriers: &[LibComplex]) -> Vec<FftComplex<f64>> {
+        if csi_subcarriers.is_empty() {
+            return vec![];
+        }
+        let mut planner = FftPlanner::<f64>::new();
+        let fft = planner.plan_fft_inverse(csi_subcarriers.len());
+
+        let mut buffer: Vec<FftComplex<f64>> = csi_subcarriers.iter().map(|c| FftComplex::new(c.re, c.im)).collect();
+
+        fft.process(&mut buffer);
+
+        // Normalize IFFT output
+        let norm_factor = 1.0 / (buffer.len() as f64);
+        for val in buffer.iter_mut() {
+            *val *= norm_factor;
+        }
+        buffer
     }
 
     async fn plot_data_tui(&self) -> Result<(), Box<dyn std::error::Error>> {
@@ -201,7 +265,9 @@ impl Visualiser {
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
-        self.tui_loop(&mut terminal).await?;
+        let graph_display_states: Arc<Mutex<Vec<Option<GraphDisplayState>>>> = Arc::new(Mutex::new(Vec::new()));
+
+        self.tui_loop(&mut terminal, graph_display_states.clone()).await?;
 
         // Shutdown process
         disable_raw_mode()?;
@@ -211,8 +277,143 @@ impl Visualiser {
         Ok(())
     }
 
-    async fn tui_loop<B: Backend>(&self, terminal: &mut Terminal<B>) -> io::Result<()> {
-        let tick_rate = Duration::from_millis(100);
+    fn update_pdp_display_state(
+        current_display_state_slot: &mut Option<GraphDisplayState>,
+        points_from_processor: Vec<(f64, f64)>,
+        opt_timestamp_from_processor: Option<f64>,
+        now: Instant,
+    ) -> Vec<(f64, f64)> {
+        const DECAY_RATE: f64 = 0.9;
+        const STALE_THRESHOLD: Duration = Duration::from_millis(200);
+        const MIN_POWER_THRESHOLD: f64 = 0.015;
+
+        match (opt_timestamp_from_processor, current_display_state_slot.as_mut()) {
+            (Some(timestamp_proc), Some(state)) => {
+                if timestamp_proc > state.csi_timestamp || points_from_processor.len() != state.data_points.len() {
+                    state.data_points = points_from_processor.clone();
+                    state.csi_timestamp = timestamp_proc;
+                    state.last_loop_update_time = now;
+                    points_from_processor
+                } else {
+                    if now.duration_since(state.last_loop_update_time) > STALE_THRESHOLD {
+                        state.data_points = state
+                            .data_points
+                            .iter()
+                            .map(|(x, y)| {
+                                let new_y = *y * DECAY_RATE;
+                                if new_y.abs() < MIN_POWER_THRESHOLD { (*x, 0.0) } else { (*x, new_y) }
+                            })
+                            .collect();
+                        state.last_loop_update_time = now;
+                    }
+                    state.data_points.clone()
+                }
+            }
+            (Some(timestamp_proc), None) => {
+                *current_display_state_slot = Some(GraphDisplayState {
+                    data_points: points_from_processor.clone(),
+                    csi_timestamp: timestamp_proc,
+                    last_loop_update_time: now,
+                });
+                points_from_processor
+            }
+            (None, Some(state)) => {
+                if now.duration_since(state.last_loop_update_time) > STALE_THRESHOLD {
+                    state.data_points = state
+                        .data_points
+                        .iter()
+                        .map(|(x, y)| {
+                            let new_y = *y * DECAY_RATE;
+                            if new_y.abs() < MIN_POWER_THRESHOLD { (*x, 0.0) } else { (*x, new_y) }
+                        })
+                        .collect();
+                    state.last_loop_update_time = now;
+                }
+                state.data_points.clone()
+            }
+            (None, None) => {
+                vec![]
+            }
+        }
+    }
+
+    fn get_x_axis_config(graph_type: GraphType, data_points: &[(f64, f64)], time_interval: usize) -> (String, [f64; 2], Vec<Span>) {
+        match graph_type {
+            GraphType::Amplitude => {
+                let time_max = data_points.iter().max_by(|x, y| x.0.total_cmp(&y.0)).unwrap_or(&(0f64, 0f64)).0;
+                let bounds = [(time_max - time_interval as f64 - 1f64).round(), (time_max + 1f64).round()];
+                let labels = bounds.iter().map(|n| Span::from(n.to_string())).collect();
+                ("Time".to_string(), bounds, labels)
+            }
+            GraphType::PDP => {
+                let num_delay_bins = data_points.len();
+                let max_delay_bin_idx = if num_delay_bins == 0 { 0.0 } else { (num_delay_bins - 1) as f64 };
+                let bounds = [0.0, max_delay_bin_idx.max(0.0)];
+                let mut labels = vec![Span::from(bounds[0].floor().to_string()), Span::from(bounds[1].floor().to_string())];
+                labels.dedup_by(|a, b| a.content == b.content);
+                if labels.is_empty() {
+                    labels.push(Span::from("0"));
+                }
+                ("Delay Bin".to_string(), bounds, labels)
+            }
+        }
+    }
+
+    fn calculate_dynamic_bounds(data_points: &[(f64, f64)]) -> [f64; 2] {
+        let (min_val, max_val) = data_points
+            .iter()
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(min_acc, max_acc), &(_, y)| {
+                (min_acc.min(y), max_acc.max(y))
+            });
+
+        if min_val.is_infinite() || max_val.is_infinite() {
+            // Handle empty data: return default bounds [0.0, 1.0] directly.
+            // This fixes the test case for empty_data expecting [0.0, 1.0].
+            [0.0, 1.0]
+        } else if (max_val - min_val).abs() < f64::EPSILON {
+            // Handle data with all same y-values: return [y - 0.5, y + 0.5] directly.
+            // This fixes the test case for same_data expecting [y - 0.5, y + 0.5].
+            [min_val - 0.5, max_val + 0.5] // min_val can be used as it's same as max_val
+        } else {
+            // Normal case: data has a range of y-values.
+            // Calculate padding based on the original min_val and max_val from fold.
+            let data_range = max_val - min_val;
+            let padding = (data_range * 0.05).max(0.1); // Ensure a minimum padding of 0.1
+            [min_val - padding, max_val + padding]
+        }
+    }
+
+    fn get_y_axis_config(graph_type: GraphType, data_points: &[(f64, f64)], y_axis_bounds_spec: Option<[f64; 2]>) -> (String, [f64; 2], Vec<Span>) {
+        let y_bounds_to_use = if graph_type == GraphType::PDP {
+            if let Some(bounds) = y_axis_bounds_spec {
+                bounds
+            } else {
+                // Default behavior for PDP if y_axis_bounds_spec is None
+                Self::calculate_dynamic_bounds(data_points)
+            }
+        } else {
+            Self::calculate_dynamic_bounds(data_points)
+        };
+
+        let data_labels: Vec<Span> = vec![
+            Span::from(format!("{:.2}", y_bounds_to_use[0])),
+            Span::from(format!("{:.2}", y_bounds_to_use[1])),
+        ];
+
+        let y_axis_title_str = match graph_type {
+            GraphType::Amplitude => graph_type.to_string(),
+            GraphType::PDP => "Power".to_string(),
+        };
+
+        (y_axis_title_str, y_bounds_to_use, data_labels)
+    }
+
+    async fn tui_loop<B: Backend>(
+        &self,
+        terminal: &mut Terminal<B>,
+        graph_display_states: Arc<Mutex<Vec<Option<GraphDisplayState>>>>,
+    ) -> io::Result<()> {
+        let tick_rate = Duration::from_millis(10);
         let mut last_tick = Instant::now();
         let mut text_input: String = String::new();
 
@@ -242,15 +443,35 @@ impl Visualiser {
             }
 
             if last_tick.elapsed() >= tick_rate {
-                let mut current_data = Vec::new();
-                let mut types = Vec::new();
-                let mut intervals = Vec::new();
+                let graphs_snapshot: Vec<Graph> = graphs.lock().await.iter().cloned().collect();
+                let mut display_states_locked = graph_display_states.lock().await;
 
-                for graph in graphs.lock().await.iter() {
-                    current_data.push(self.process_data(*graph).await);
-                    types.push(graph.graph_type.clone().to_string());
-                    intervals.push(graph.time_interval);
+                // Reconcile display_states_locked length with graphs_snapshot length
+                if display_states_locked.len() > graphs_snapshot.len() {
+                    display_states_locked.truncate(graphs_snapshot.len());
+                } else if display_states_locked.len() < graphs_snapshot.len() {
+                    display_states_locked.resize_with(graphs_snapshot.len(), || None);
                 }
+
+                let mut data_to_render_this_frame = Vec::new();
+                let now = Instant::now();
+
+                for (i, graph_spec) in graphs_snapshot.iter().enumerate() {
+                    let (points_from_processor, opt_timestamp_from_processor) = self.process_data(*graph_spec).await;
+
+                    if graph_spec.graph_type == GraphType::PDP {
+                        let processed_points_for_render =
+                            Self::update_pdp_display_state(&mut display_states_locked[i], points_from_processor, opt_timestamp_from_processor, now);
+                        data_to_render_this_frame.push(processed_points_for_render);
+                    } else {
+                        data_to_render_this_frame.push(points_from_processor);
+                        if display_states_locked[i].is_some() {
+                            display_states_locked[i] = None;
+                        }
+                    }
+                }
+                // Drop the lock before drawing, as drawing slow slow slow
+                drop(display_states_locked);
 
                 terminal.draw(|f| {
                     let size = f.area();
@@ -261,7 +482,8 @@ impl Visualiser {
                         .constraints([Constraint::Percentage(80), Constraint::Length(3)].as_ref())
                         .split(size);
 
-                    let graph_count = if current_data.is_empty() { 1 } else { current_data.len() };
+                    // Use data_to_render_this_frame for graph_count and iteration
+                    let graph_count = if data_to_render_this_frame.is_empty() { 1 } else { data_to_render_this_frame.len() };
                     let constraints = vec![Constraint::Percentage(100 / graph_count as u16); graph_count];
                     let chart_area = Layout::default()
                         .direction(Direction::Horizontal)
@@ -269,37 +491,50 @@ impl Visualiser {
                         .constraints(constraints)
                         .split(chunks[0]);
 
-                    for (i, data) in current_data.iter().enumerate() {
+                    for (i, data_points) in data_to_render_this_frame.iter().enumerate() { // Iterate over data_to_render_this_frame
+                        // graphs_snapshot still provides the spec (title, type, etc.)
+                        let current_graph_spec = &graphs_snapshot[i];
+
                         let dataset = Dataset::default()
                             .name(format!("Graph #{i}"))
                             .marker(ratatui::symbols::Marker::Braille)
                             .graph_type(ratatui::widgets::GraphType::Line)
                             .style(Style::default().fg(Color::Cyan))
-                            .data(data);
+                            .data(data_points);
 
-                        let time_max = data.iter().max_by(|x, y| x.0.total_cmp(&y.0)).unwrap_or(&(0f64, 10000f64)).0;
+                        let (x_axis_title_str, x_bounds_arr, x_labels_vec) = Self::get_x_axis_config(
+                            current_graph_spec.graph_type,
+                            data_points,
+                            current_graph_spec.time_interval,
+                        );
 
-                        let time_bounds = [(time_max - intervals[i] as f64 - 1f64).round(), (time_max + 1f64).round()];
-                        let time_labels: Vec<Span> = time_bounds.iter().map(|n| Span::from(n.to_string())).collect();
-
-                        let data_bounds = [
-                            (data.iter().min_by(|x, y| x.1.total_cmp(&y.1)).unwrap_or(&(0f64, 10000f64)).1 - 1f64).round(),
-                            (data.iter().max_by(|x, y| x.1.total_cmp(&y.1)).unwrap_or(&(0f64, 10000f64)).1 + 1f64).round(),
-                        ];
-                        let data_labels: Vec<Span> = data_bounds.iter().map(|n| Span::from(n.to_string())).collect();
+                        let (y_axis_title_str, y_bounds_to_use, y_labels_vec) = Self::get_y_axis_config(
+                            current_graph_spec.graph_type,
+                            data_points,
+                            current_graph_spec.y_axis_bounds,
+                        );
+                        let chart_block_title = format!(
+                            "Chart {} - {} @ {} dev {} C{} S{}",
+                            i,
+                            current_graph_spec.graph_type,
+                            current_graph_spec.target_addr,
+                            current_graph_spec.device,
+                            current_graph_spec.core,
+                            current_graph_spec.stream
+                        );
 
                         let chart = Chart::new(vec![dataset])
                             .block(
                                 Block::default()
-                                    .title(format!("Chart {i}")) // TODO: Add descriptive title to chart
-                                    .borders(Borders::ALL),
+                                    .title(chart_block_title)
+                                    .borders(Borders::ALL)
                             )
-                            .x_axis(Axis::default().title("Time").bounds(time_bounds).labels(time_labels))
-                            .y_axis(Axis::default().title(types[i].clone()).bounds(data_bounds).labels(data_labels));
+                            .x_axis(Axis::default().title(x_axis_title_str).bounds(x_bounds_arr).labels(x_labels_vec))
+                            .y_axis(Axis::default().title(y_axis_title_str).bounds(y_bounds_to_use).labels(y_labels_vec));
                         f.render_widget(chart, chart_area[i]);
                     }
 
-                    let input = ratatui::widgets::Paragraph::new(text_input.as_str()).block(Block::default().title("Command").borders(Borders::ALL));
+                    let input = ratatui::widgets::Paragraph::new(text_input.as_str()).block(Block::default().title("Command (add <type> <addr> <dev_id> <core> <stream> <subcarrier_or_ignored_for_pdp> | remove <idx> | interval <idx> <value> | clear)").borders(Borders::ALL));
                     f.render_widget(input, chunks[1]);
                 })?;
                 last_tick = Instant::now();
@@ -329,9 +564,17 @@ impl Visualiser {
             Ok(addr) => addr,
             Err(_) => return None, // Exit on invalid input
         };
-        let subcarrier: usize = match parts[6].parse() {
-            Ok(addr) => addr,
-            Err(_) => return None, // Exit on invalid input
+        // For PDP, subcarrier is not strictly needed as we use all of them.
+        // We'll parse it but it will be ignored in process_data for PDP.
+        // If not provided for PDP, we can default it or handle the shorter command.
+        // For now, assume it's always provided for simplicity of command structure.
+        let subcarrier: usize = if parts.len() > 6 {
+            match parts[6].parse() {
+                Ok(addr) => addr,
+                Err(_) => return None, // Exit on invalid input
+            }
+        } else {
+            0 // Default or indicate all subcarriers for PDP if not provided
         };
 
         Some(Graph {
@@ -342,6 +585,7 @@ impl Visualiser {
             stream,
             subcarrier,
             time_interval: 1000,
+            y_axis_bounds: None, // Initialize y_axis_bounds
         })
     }
 
@@ -367,7 +611,26 @@ impl Visualiser {
                 graphs.lock().await.remove(entry);
             }
             "interval" if parts.len() == 3 => {
-                graphs.lock().await[parts[1].parse::<usize>().unwrap()].time_interval = parts[2].parse::<usize>().unwrap();
+                let graph_idx: usize = match parts[1].parse::<usize>() {
+                    Ok(number) => number,
+                    Err(_) => return,
+                };
+                let value: f64 = match parts[2].parse::<f64>() {
+                    Ok(val) => val,
+                    Err(_) => return,
+                };
+
+                let mut graphs_locked = graphs.lock().await;
+                if let Some(graph_to_modify) = graphs_locked.get_mut(graph_idx) {
+                    match graph_to_modify.graph_type {
+                        GraphType::PDP => {
+                            graph_to_modify.y_axis_bounds = Some([0.0, value]);
+                        }
+                        GraphType::Amplitude => {
+                            graph_to_modify.time_interval = value as usize;
+                        }
+                    }
+                }
             }
             "clear" => {
                 graphs.lock().await.clear();
@@ -387,39 +650,46 @@ impl Visualiser {
         tokio::spawn(async move {
             let stdin: BufReader<io::Stdin> = BufReader::new(io::stdin());
             let mut lines = stdin.lines();
+            info!("GUI command listener started. Enter commands like: add pdp <addr> <dev_id> <core> <stream> 0");
 
             while let Ok(Some(line)) = lines.next_line().await {
                 let line = line.trim();
                 if line.is_empty() {
                     continue;
                 }
-
+                info!("GUI Command received: {line}");
                 Self::execute_command(line.parse().unwrap(), graphs.clone()).await;
             }
         });
 
         loop {
             if last_tick.elapsed() >= tick_rate {
-                for (i, graph) in graphs_2.lock().await.clone().into_iter().enumerate() {
-                    let chart = Self::generate_chart_from_data(self.process_data(graph).await);
-                    HtmlRenderer::new("Example Chart", 800, 600)
+                for (i, graph_spec) in graphs_2.lock().await.clone().into_iter().enumerate() {
+                    let processed_data = self.process_data(graph_spec).await;
+                    if processed_data.0.is_empty() {
+                        info!("No data to plot for graph {i}");
+                        continue;
+                    }
+                    let chart = generate_chart_from_data(processed_data.0, &graph_spec.graph_type.to_string());
+                    let filename = format!(
+                        "{}_{}_{}_{}_c{}_s{}_chart.html",
+                        i,
+                        graph_spec.graph_type.to_string().to_lowercase(),
+                        graph_spec.target_addr.to_string().replace(':', "-"),
+                        graph_spec.device,
+                        graph_spec.core,
+                        graph_spec.stream
+                    );
+                    HtmlRenderer::new(format!("{} Plot", graph_spec.graph_type), 800, 600)
                         .theme(Theme::Default)
-                        .save(&chart, format!("{i}chart.html"))
-                        .expect("TODO: panic message");
+                        .save(&chart, &filename)
+                        .expect("Failed to save chart");
+                    info!("Saved chart to {filename}");
                 }
 
                 last_tick = Instant::now();
             }
         }
-    }
-
-    fn generate_chart_from_data(data: Vec<(f64, f64)>) -> charming::Chart {
-        let data = data.into_iter().map(|(x, y)| vec![x, y]).collect();
-        charming::Chart::new()
-            .title(Title::new().text("Data plot"))
-            .x_axis(charming::component::Axis::new().type_(AxisType::Value))
-            .y_axis(charming::component::Axis::new().type_(AxisType::Value))
-            .series(Line::new().data(data))
     }
 
     async fn client_task(&self, client: Arc<Mutex<TcpClient>>, target_addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
@@ -437,5 +707,328 @@ impl Visualiser {
             info!("Subscribed to node {target_addr}");
             Ok(())
         }
+    }
+}
+
+fn generate_chart_from_data(data: Vec<(f64, f64)>, title_str: &str) -> CharmingChart {
+    use charming::component::Title;
+    use charming::element::AxisType;
+    use charming::series::Line;
+
+    let x_data: Vec<String> = data.iter().map(|(x, _)| x.to_string()).collect(); // Convert f64 to String for x_axis data
+    let y_data: Vec<f64> = data.iter().map(|(_, y)| *y).collect();
+
+    CharmingChart::new()
+        .title(Title::new().text(title_str))
+        .x_axis(charming::component::Axis::new().type_(AxisType::Category).data(x_data))
+        .y_axis(charming::component::Axis::new().type_(AxisType::Value))
+        .series(Line::new().data(y_data))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use lib::csi_types::Complex;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_graph_type_from_str() {
+        assert_eq!(GraphType::from_str("amp").unwrap(), GraphType::Amplitude);
+        assert_eq!(GraphType::from_str("amplitude").unwrap(), GraphType::Amplitude);
+        assert_eq!(GraphType::from_str("pdp").unwrap(), GraphType::PDP);
+        assert!(GraphType::from_str("invalid").is_err());
+    }
+
+    #[tokio::test]
+    async fn test_graph_partial_eq() {
+        let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+        let graph1 = Graph {
+            graph_type: GraphType::Amplitude,
+            target_addr: addr,
+            device: 1,
+            core: 2,
+            stream: 3,
+            subcarrier: 4,
+            time_interval: 1000,
+            y_axis_bounds: None,
+        };
+
+        let graph2 = Graph {
+            time_interval: 2000,
+            y_axis_bounds: Some([0.0, 1.0]),
+            ..graph1
+        };
+
+        assert_eq!(graph1, graph2);
+    }
+
+    #[tokio::test]
+    async fn test_perform_ifft() {
+        let empty_input: Vec<LibComplex> = vec![];
+        let empty_output = Visualiser::perform_ifft(&empty_input);
+        assert!(empty_output.is_empty());
+
+        let input: Vec<LibComplex> = vec![
+            Complex::new(1.0, 0.0),
+            Complex::new(1.0, 0.0),
+            Complex::new(1.0, 0.0),
+            Complex::new(1.0, 0.0),
+        ];
+        let output = Visualiser::perform_ifft(&input);
+        assert!((output[0] - FftComplex::new(1.0, 0.0)).norm() < 1e-9);
+        for val in output.iter().skip(1) {
+            assert!(val.norm() < 1e-9);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_process_amplitude_data() {
+        let visualiser = setup_visualiser();
+        let device_data = setup_csi_data();
+        let (data, latest_timestamp) = visualiser.process_amplitude_data(&device_data, 0, 0, 0).await;
+
+        assert_eq!(data.len(), 2);
+        assert_eq!(data[0], (100.0, 1.0));
+        assert_eq!(data[1], (200.0, 5.0));
+        assert_eq!(latest_timestamp, Some(200.0));
+    }
+
+    #[tokio::test]
+    async fn test_process_pdp_data() {
+        let visualiser = setup_visualiser();
+        let device_data = setup_csi_data();
+
+        let (data, latest_timestamp) = visualiser.process_pdp_data(&device_data, 0, 0).await;
+        assert!(!data.is_empty());
+        assert_eq!(data.len(), 2);
+        assert_eq!(latest_timestamp, Some(200.0));
+
+        let (empty_data, empty_timestamp) = visualiser.process_pdp_data(&[], 0, 0).await;
+        assert!(empty_data.is_empty());
+        assert!(empty_timestamp.is_none());
+
+        let (data_oob_core, ts_oob_core) = visualiser.process_pdp_data(&device_data, 99, 0).await;
+        assert!(data_oob_core.is_empty());
+        assert_eq!(ts_oob_core, Some(200.0));
+    }
+
+    #[tokio::test]
+    async fn test_process_data() {
+        let visualiser = setup_visualiser();
+        let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+        let device_data = setup_csi_data();
+
+        let mut data_guard = visualiser.data.lock().await;
+        let mut device_map = HashMap::new();
+        device_map.insert(1, device_data);
+        data_guard.insert(addr, device_map);
+        drop(data_guard);
+
+        let pdp_graph = Graph {
+            graph_type: GraphType::PDP,
+            target_addr: addr,
+            device: 1,
+            core: 0,
+            stream: 0,
+            subcarrier: 0,
+            time_interval: 1000,
+            y_axis_bounds: None,
+        };
+        let (pdp_data, _) = visualiser.process_data(pdp_graph).await;
+        assert_eq!(pdp_data.len(), 2);
+
+        let amp_graph = Graph {
+            graph_type: GraphType::Amplitude,
+            target_addr: addr,
+            device: 1,
+            core: 0,
+            stream: 0,
+            subcarrier: 0,
+            time_interval: 1000,
+            y_axis_bounds: None,
+        };
+        let (amp_data, _) = visualiser.process_data(amp_graph).await;
+        assert_eq!(amp_data.len(), 2);
+        assert_eq!(amp_data[0].1, 1.0);
+    }
+
+    #[tokio::test]
+    async fn test_update_pdp_display_state() {
+        let now = Instant::now();
+        let points = vec![(0.0, 10.0), (1.0, 20.0)];
+        let timestamp = 100.0;
+
+        let mut state_slot = Some(GraphDisplayState {
+            data_points: vec![(0.0, 5.0)],
+            csi_timestamp: 90.0,
+            last_loop_update_time: now,
+        });
+        let updated_points = Visualiser::update_pdp_display_state(&mut state_slot, points.clone(), Some(timestamp), now);
+        assert_eq!(updated_points, points);
+        assert_eq!(state_slot.as_ref().unwrap().csi_timestamp, timestamp);
+
+        let mut empty_state_slot = None;
+        let initial_points = Visualiser::update_pdp_display_state(&mut empty_state_slot, points.clone(), Some(timestamp), now);
+        assert_eq!(initial_points, points);
+        assert!(empty_state_slot.is_some());
+
+        let stale_time = now - Duration::from_millis(300);
+        let mut stale_state_slot = Some(GraphDisplayState {
+            data_points: points.clone(),
+            csi_timestamp: timestamp,
+            last_loop_update_time: stale_time,
+        });
+        let decayed_points = Visualiser::update_pdp_display_state(&mut stale_state_slot, vec![], None, now);
+        assert_eq!(decayed_points[0].1, 10.0 * 0.9);
+        assert_eq!(decayed_points[1].1, 20.0 * 0.9);
+
+        let mut none_state_slot = None;
+        let no_points = Visualiser::update_pdp_display_state(&mut none_state_slot, vec![], None, now);
+        assert!(no_points.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_x_axis_config() {
+        let amp_data = vec![(990.0, 1.0), (1000.0, 2.0)];
+        let (title, bounds, labels) = Visualiser::get_x_axis_config(GraphType::Amplitude, &amp_data, 50);
+        assert_eq!(labels.len(), 2);
+        assert_eq!(bounds, [949.0, 1001.0]);
+        assert_eq!(title, "Time");
+
+        let pdp_data = vec![(0.0, 1.0), (1.0, 2.0), (2.0, 1.5)];
+        let (title_pdp, bounds_pdp, labels_pdp) = Visualiser::get_x_axis_config(GraphType::PDP, &pdp_data, 0);
+        assert_eq!(title_pdp, "Delay Bin");
+        assert_eq!(bounds_pdp, [0.0, 2.0]);
+        assert_eq!(labels_pdp.len(), 2);
+
+        let (title_empty, bounds_empty, labels_empty) = Visualiser::get_x_axis_config(GraphType::PDP, &[], 0);
+        assert_eq!(title_empty, "Delay Bin");
+        assert_eq!(bounds_empty, [0.0, 0.0]);
+        assert_eq!(labels_empty.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_calculate_dynamic_bounds() {
+        let data = vec![(0.0, 10.0), (1.0, 90.0)];
+        let bounds = Visualiser::calculate_dynamic_bounds(&data);
+        let range = 90.0 - 10.0;
+        let padding = range * 0.05;
+        assert_eq!(bounds, [10.0 - padding, 90.0 + padding]);
+
+        let empty_data: Vec<(f64, f64)> = vec![];
+        let bounds_empty = Visualiser::calculate_dynamic_bounds(&empty_data);
+        assert_eq!(bounds_empty, [0.0, 1.0]);
+
+        let same_data = vec![(0.0, 5.0), (1.0, 5.0)];
+        let bounds_same = Visualiser::calculate_dynamic_bounds(&same_data);
+        assert_eq!(bounds_same, [4.5, 5.5]);
+    }
+
+    #[tokio::test]
+    async fn test_get_y_axis_config() {
+        let data = vec![(0.0, 10.0), (1.0, 90.0)];
+
+        let (title_amp, _, _) = Visualiser::get_y_axis_config(GraphType::Amplitude, &data, None);
+        assert_eq!(title_amp, "Amplitude");
+
+        let y_bounds_spec = Some([0.0, 100.0]);
+        let (title_pdp, bounds_pdp, _) = Visualiser::get_y_axis_config(GraphType::PDP, &data, y_bounds_spec);
+        assert_eq!(title_pdp, "Power");
+        assert_eq!(bounds_pdp, [0.0, 100.0]);
+
+        let (_, bounds_pdp_dynamic, _) = Visualiser::get_y_axis_config(GraphType::PDP, &data, None);
+        let expected_bounds = Visualiser::calculate_dynamic_bounds(&data);
+        assert_eq!(bounds_pdp_dynamic, expected_bounds);
+    }
+
+    #[tokio::test]
+    async fn test_entry_from_command() {
+        let parts_amp = vec!["add", "amp", "127.0.0.1:8080", "1", "2", "3", "4"];
+        let graph_amp = Visualiser::entry_from_command(parts_amp).unwrap();
+        assert_eq!(graph_amp.graph_type, GraphType::Amplitude);
+        assert_eq!(graph_amp.device, 1);
+        assert_eq!(graph_amp.subcarrier, 4);
+
+        let parts_pdp = vec!["add", "pdp", "192.168.1.1:1234", "10", "0", "1", "0"];
+        let graph_pdp = Visualiser::entry_from_command(parts_pdp).unwrap();
+        assert_eq!(graph_pdp.graph_type, GraphType::PDP);
+        assert_eq!(graph_pdp.target_addr, "192.168.1.1:1234".parse().unwrap());
+    }
+
+    #[tokio::test]
+    #[should_panic]
+    async fn test_entry_from_command_invalid_parts() {
+        let parts_invalid = vec!["add", "amp", "127.0.0.1:8080"];
+        Visualiser::entry_from_command(parts_invalid).unwrap();
+    }
+
+    #[tokio::test]
+    #[should_panic]
+    async fn test_entry_from_command_bad_addr() {
+        let parts_bad_addr = vec!["add", "amp", "127.0.0.1:bad", "1", "2", "3", "4"];
+        Visualiser::entry_from_command(parts_bad_addr).unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_execute_command() {
+        let graphs = Arc::new(Mutex::new(Vec::new()));
+
+        let cmd_add = "add amp 127.0.0.1:8080 1 2 3 4".to_string();
+        Visualiser::execute_command(cmd_add, graphs.clone()).await;
+        assert_eq!(graphs.lock().await.len(), 1);
+
+        let cmd_add_2 = "add pdp 127.0.0.1:8080 1 2 3 4".to_string();
+        Visualiser::execute_command(cmd_add_2, graphs.clone()).await;
+        assert_eq!(graphs.lock().await.len(), 2);
+
+        let cmd_interval = "interval 0 500".to_string();
+        Visualiser::execute_command(cmd_interval, graphs.clone()).await;
+        assert_eq!(graphs.lock().await[0].time_interval, 500);
+
+        let cmd_interval_pdp = "interval 1 1.5".to_string();
+        Visualiser::execute_command(cmd_interval_pdp, graphs.clone()).await;
+        assert_eq!(graphs.lock().await[1].y_axis_bounds, Some([0.0, 1.5]));
+
+        Visualiser::execute_command("remove 0".to_string(), graphs.clone()).await;
+        assert_eq!(graphs.lock().await.len(), 1);
+        assert_eq!(graphs.lock().await[0].graph_type, GraphType::PDP);
+
+        let cmd_clear = "clear".to_string();
+        Visualiser::execute_command(cmd_clear, graphs.clone()).await;
+        assert!(graphs.lock().await.is_empty());
+
+        let cmd_invalid = "this is not a command".to_string();
+        Visualiser::execute_command(cmd_invalid, graphs.clone()).await;
+        assert!(graphs.lock().await.is_empty());
+    }
+
+    fn setup_visualiser() -> Visualiser {
+        let global_config = GlobalConfig {
+            log_level: simplelog::LevelFilter::Off,
+        };
+        let visualiser_config = VisualiserConfig {
+            target: "127.0.0.1:1234".parse().unwrap(),
+            ui_type: "tui".to_string(),
+        };
+        Visualiser::new(global_config, visualiser_config)
+    }
+
+    fn setup_csi_data() -> Vec<CsiData> {
+        vec![
+            CsiData {
+                timestamp: 100.0,
+                csi: vec![vec![vec![Complex::new(1.0, 2.0), Complex::new(3.0, 4.0)]]],
+                rssi: vec![0],
+                sequence_number: 0,
+            },
+            CsiData {
+                timestamp: 200.0,
+                csi: vec![vec![vec![Complex::new(5.0, 6.0), Complex::new(7.0, 8.0)]]],
+                rssi: vec![0],
+                sequence_number: 0,
+            },
+        ]
     }
 }

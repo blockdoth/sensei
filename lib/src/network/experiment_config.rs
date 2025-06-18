@@ -22,21 +22,21 @@ use crate::network::rpc_message::{CfgType, DeviceId, HostId};
 
 /// Represents a full experiment composed of multiple sequential stages.
 /// Includes `Metadata`.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Experiment {
     pub metadata: Metadata,
     pub stages: Vec<Stage>,
 }
 
 /// Represents the host on which the experiment is executed.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum ExperimentHost {
     Orchestrator,
     SystemNode { target_addr: SocketAddr },
 }
 
 /// Metadata about the experiment such as `name`, `experiment_host`, and `output_path`.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Metadata {
     pub name: String,
     pub experiment_host: ExperimentHost,
@@ -44,14 +44,14 @@ pub struct Metadata {
 }
 
 /// Represents a stage in the experiment, which contains multiple command blocks.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Stage {
     pub name: String,
     pub command_blocks: Vec<Block>,
 }
 
 /// A block of commands to be executed sequentially, with associated delays.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Block {
     pub commands: Vec<Command>,
     pub delays: Delays,
@@ -73,18 +73,16 @@ impl Experiment {
     }
 }
 
-
 /// Delay configuration for a command block.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Delays {
     pub init_delay: Option<u64>,
     pub command_delay: Option<u64>,
     pub is_recurring: IsRecurring,
 }
 
-
 /// Indicates whether a block is recurring and its recurrence configuration.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum IsRecurring {
     Recurring {
         recurrence_delay: Option<u64>,
@@ -103,7 +101,7 @@ pub enum IsRecurring {
 /// System nodes can only run the `Subscribe`, `Unsubscribe`, `Configure` and `Delay` commands,
 /// as connecting and disconnecting are not relevant concepts to a system node,
 /// and it is not necessary for a system node to tell another system node to subscribe to a third system node.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum Command {
     Connect {
         target_addr: SocketAddr,
@@ -133,10 +131,16 @@ pub enum Command {
         target_addr: SocketAddr,
         host_id: HostId,
     },
+    GetHostStatuses {
+        target_addr: SocketAddr,
+    },
     Configure {
         target_addr: SocketAddr,
         device_id: DeviceId,
         cfg_type: CfgType,
+    },
+    Ping {
+        target_addr: SocketAddr,
     },
     Delay {
         delay: u64,

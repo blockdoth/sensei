@@ -12,7 +12,7 @@ use lib::network::experiment_config::{Block, Command, Experiment, ExperimentHost
 use lib::network::rpc_message::DataMsg::RawFrame;
 use lib::network::rpc_message::RpcMessageKind::Data;
 use lib::network::rpc_message::SourceType::ESP32;
-use lib::network::rpc_message::{CfgType, DataMsg, DeviceId, HostCtrl, HostId, RegCtrl, RpcMessageKind};
+use lib::network::rpc_message::{CfgType, DataMsg, DeviceId, HostCtrl, HostId, HostStatus, RegCtrl, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::{ChannelMsg, HostChannel};
 use log::*;
@@ -159,11 +159,22 @@ impl Orchestrator {
                 device_id,
             } => Ok(Self::unsubscribe_from(&client, target_addr, source_addr, device_id).await?),
             Command::SendStatus { target_addr, host_id } => Ok(Self::send_status(&client, target_addr, host_id).await?),
+            Command::GetHostStatuses { target_addr } => {
+                let statuses = Self::request_statuses(&client, target_addr).await?;
+                info!("{statuses:#?}");
+                Ok(())
+            }
             Command::Configure {
                 target_addr,
                 device_id,
                 cfg_type,
             } => Ok(Self::configure(&client, target_addr, device_id, cfg_type).await?),
+            Command::Ping { target_addr } => {
+                info!("Sending Ping...");
+                Self::send_ping(&client, target_addr).await?;
+                info!("Received Pong.");
+                Ok(())
+            }
             Command::Delay { delay } => {
                 tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
                 Ok(())
@@ -227,6 +238,31 @@ impl Orchestrator {
         let msg = RpcMessageKind::RegCtrl(RegCtrl::PollHostStatus { host_id });
 
         Ok(client.lock().await.send_message(target_addr, msg).await?)
+    }
+
+    async fn request_statuses(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr) -> Result<Vec<HostStatus>, Box<dyn std::error::Error>> {
+        let msg = RpcMessageKind::RegCtrl(RegCtrl::PollHostStatuses);
+        let mut client = client.lock().await;
+        client.send_message(target_addr, msg).await;
+        let response = client.read_message(target_addr).await?;
+        if let RpcMessageKind::RegCtrl(RegCtrl::HostStatuses { host_statuses }) = response.msg {
+            Ok(host_statuses)
+        } else {
+            Err("Expected HostStatuses response".into())
+        }
+    }
+
+    /// Send Ping to a host. Expects a Pong as response.
+    async fn send_ping(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
+        let msg = RpcMessageKind::HostCtrl(HostCtrl::Ping);
+        let mut client = client.lock().await;
+        client.send_message(target_addr, msg).await;
+        let response = client.read_message(target_addr).await?;
+        if let RpcMessageKind::HostCtrl(HostCtrl::Pong) = response.msg {
+            Ok(())
+        } else {
+            Err("Expected HostStatuses response".into())
+        }
     }
 
     async fn configure(
