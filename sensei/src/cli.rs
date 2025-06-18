@@ -28,11 +28,21 @@ use std::path::PathBuf;
 
 use anyhow::Error;
 use argh::FromArgs;
+#[cfg(feature = "sys_node")]
 use lib::handler::device_handler::DeviceHandlerConfig;
+#[cfg(feature = "sys_node")]
 use log::debug;
 use simplelog::LevelFilter;
 
-use crate::services::{EspToolConfig, GlobalConfig, OrchestratorConfig, SystemNodeConfig, VisualiserConfig};
+use crate::services::GlobalConfig;
+#[cfg(feature = "esp_tool")]
+use crate::services::EspToolConfig;
+#[cfg(feature = "visualiser")]
+use crate::services::{VisualiserConfig};
+#[cfg(feature = "orchestrator")]
+use crate::services::OrchestratorConfig;
+#[cfg(feature = "sys_node")]
+use crate::services::SystemNodeConfig;
 
 /// A trait for overlaying subcommand arguments onto an existing configuration.
 ///
@@ -95,13 +105,18 @@ pub trait ConfigFromCli<Config> {
 #[derive(FromArgs)]
 #[argh(subcommand)]
 pub enum SubCommandsArgs {
+    #[cfg(feature = "sys_node")]
     SystemNode(SystemNodeSubcommandArgs),
+    #[cfg(feature = "orchestrator")]
     Orchestrator(OrchestratorSubcommandArgs),
+    #[cfg(feature = "visualiser")]
     Visualiser(VisualiserSubcommandArgs),
+    #[cfg(feature = "esp_tool")]
     EspTool(EspToolSubcommandArgs),
 }
 
 /// System node commands
+#[cfg(feature = "sys_node")]
 #[derive(FromArgs)]
 #[argh(subcommand, name = "node")]
 pub struct SystemNodeSubcommandArgs {
@@ -118,6 +133,7 @@ pub struct SystemNodeSubcommandArgs {
     pub config_path: PathBuf,
 }
 
+#[cfg(feature = "sys_node")]
 impl ConfigFromCli<SystemNodeConfig> for SystemNodeSubcommandArgs {
     /// Parses system node subcommand arguments into a `SystemNodeConfig`.
     ///
@@ -136,6 +152,8 @@ impl ConfigFromCli<SystemNodeConfig> for SystemNodeSubcommandArgs {
     }
 }
 
+
+#[cfg(feature = "sys_node")]
 /// Overlays subcommand arguments onto a SystemNodeConfig, overriding fields if provided.
 impl OverlaySubcommandArgs<SystemNodeConfig> for SystemNodeSubcommandArgs {
     fn overlay_subcommand_args(&self, full_config: SystemNodeConfig) -> Result<SystemNodeConfig, Box<dyn std::error::Error>> {
@@ -149,6 +167,9 @@ impl OverlaySubcommandArgs<SystemNodeConfig> for SystemNodeSubcommandArgs {
     }
 }
 
+
+
+#[cfg(feature = "orchestrator")]
 /// Orchestrator node commands
 #[derive(FromArgs)]
 #[argh(subcommand, name = "orchestrator")]
@@ -162,6 +183,8 @@ pub struct OrchestratorSubcommandArgs {
     pub experiment_config: PathBuf,
 }
 
+
+#[cfg(feature = "orchestrator")]
 impl ConfigFromCli<OrchestratorConfig> for OrchestratorSubcommandArgs {
     /// Parses orchestrator subcommand arguments into an `OrchestratorConfig`.
     ///
@@ -174,7 +197,9 @@ impl ConfigFromCli<OrchestratorConfig> for OrchestratorSubcommandArgs {
     }
 }
 
+
 /// Visualiser commands
+#[cfg(feature = "visualiser")]
 #[derive(FromArgs)]
 #[argh(subcommand, name = "visualiser")]
 pub struct VisualiserSubcommandArgs {
@@ -195,6 +220,7 @@ pub struct VisualiserSubcommandArgs {
     pub ui_type: String,
 }
 
+#[cfg(feature = "visualiser")]
 impl ConfigFromCli<VisualiserConfig> for VisualiserSubcommandArgs {
     /// Parses visualiser subcommand arguments into a `VisualiserConfig`.
     ///
@@ -209,6 +235,7 @@ impl ConfigFromCli<VisualiserConfig> for VisualiserSubcommandArgs {
 }
 
 /// Arguments for the ESP Test Tool subcommand
+#[cfg(feature = "esp_tool")]
 #[derive(FromArgs, Debug, Clone)]
 #[argh(subcommand, name = "esp-tool")]
 pub struct EspToolSubcommandArgs {
@@ -217,6 +244,8 @@ pub struct EspToolSubcommandArgs {
     pub serial_port: String,
 }
 
+
+#[cfg(feature = "esp_tool")]
 impl ConfigFromCli<EspToolConfig> for EspToolSubcommandArgs {
     /// Parses ESP tool subcommand arguments into an `EspToolConfig`.
     ///

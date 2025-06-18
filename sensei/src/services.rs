@@ -21,10 +21,12 @@
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
 
+#[cfg(feature = "sys_node")]
 use lib::handler::device_handler::DeviceHandlerConfig;
 use log::LevelFilter;
 use serde::Deserialize;
 
+#[cfg(feature = "sys_node")] 
 use crate::system_node::SinkConfigWithName;
 
 pub const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
@@ -88,6 +90,7 @@ pub trait FromYaml: Sized + for<'de> Deserialize<'de> {
 }
 
 /// Configuration for the Orchestrator service.
+#[cfg(feature = "orchestrator")]
 pub struct OrchestratorConfig {
     /// Path to the experiment configuration file.
     pub experiment_config: PathBuf,
@@ -98,6 +101,7 @@ pub struct OrchestratorConfig {
 /// This struct holds all necessary settings for a system node,
 /// including its network address, unique ID, registry information,
 /// device configurations, and sink configurations.
+#[cfg(feature = "sys_node")]
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct SystemNodeConfig {
     pub addr: SocketAddr,
@@ -110,6 +114,7 @@ pub struct SystemNodeConfig {
 }
 
 /// Configuration for the Visualiser service.
+#[cfg(feature = "visualiser")]
 pub struct VisualiserConfig {
     /// The network address of the target service (e.g., a System Node or Orchestrator)
     /// from which the visualiser will fetch data.
@@ -122,6 +127,7 @@ pub struct VisualiserConfig {
 ///
 /// Contains settings related to interacting with ESP-based devices,
 /// primarily the serial port for communication.
+#[cfg(feature = "esp_tool")]
 pub struct EspToolConfig {
     /// The serial port path (e.g., "/dev/ttyUSB0" or "COM3") to use for communicating
     /// with the ESP device.
@@ -137,12 +143,16 @@ pub struct GlobalConfig {
 /// An enum representing the configuration for any of the available services.
 pub enum ServiceConfig {
     /// Configuration for the Orchestrator service.
+    #[cfg(feature = "orchestrator")]
     Orchestrator(OrchestratorConfig),
     /// Configuration for a System Node service.
+    #[cfg(feature = "sys_node")]
     SystemNode(SystemNodeConfig),
     /// Configuration for the Visualiser service.
+    #[cfg(feature = "visualiser")]
     Visualiser(VisualiserConfig),
     /// Configuration for the ESP Tool service.
+    #[cfg(feature = "esp_tool")]
     EspTool(EspToolConfig),
 }
 
@@ -174,4 +184,5 @@ pub trait Run<Config> {
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>>;
 }
 
+#[cfg(feature = "sys_node")]
 impl FromYaml for SystemNodeConfig {}
