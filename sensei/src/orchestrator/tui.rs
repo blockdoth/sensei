@@ -84,11 +84,36 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
     };
 
     // First line: registry address + status
-    let mut lines: Vec<Line> = vec![Line::from(vec![Span::raw(registry_addr_text), registry_status]), control_divider.clone()];
+    let mut lines: Vec<Line> = vec![];
 
-    // Append known addresses as Lines
-    for addr in &tui_state.host_available_from_reg {
-        lines.push(Line::from(Span::raw(addr.to_string())));
+    let reg_addr = match &tui_state.focussed_panel {
+        Focused::Registry(FocusedRegistry::RegistryAddress) => Line::from(vec![
+            Span::styled(registry_addr_text, Style::default().bg(Color::White).fg(Color::Black)),
+            registry_status,
+        ]),
+        _ => Line::from(vec![Span::raw(registry_addr_text), registry_status]),
+    };
+
+    lines.push(reg_addr);
+    lines.push(control_divider.clone());
+
+    for (i, host) in tui_state.hosts_from_reg.iter().enumerate() {
+        let line_text = format!(" [{}] {} [{:?}]", host.id, host.addr, host.status);
+
+        let status_style = match host.status {
+            HostStatus::Available => Style::default().fg(Color::Green),
+            HostStatus::Unresponsive => Style::default().fg(Color::Red),
+            _ => Style::default(),
+        };
+
+        let final_style = if matches!(tui_state.focussed_panel,Focused::Registry(FocusedRegistry::AvailableHosts(idx)) if idx == i) {
+            status_style.bg(Color::White).fg(Color::Black)
+        } else {
+            status_style
+        };
+
+        lines.push(Line::from(vec![Span::styled(line_text, final_style)]));
+        lines.push(Line::from(format!("  └─ Devices Count: {} ", host.devices.len())));
     }
 
     let registry_widget = Paragraph::new(Text::from(lines)).block(
@@ -270,17 +295,39 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
 
     f.render_widget(experiment_widget, control_chunks[2]);
 
-    let footer_text = (match &tui_state.focussed_panel {
+    let footer = Block::default().title("Info").borders(Borders::ALL);
+
+    let footer = Paragraph::new(footer_text(tui_state)).wrap(Wrap { trim: true }).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .padding(padding)
+            .title(Span::styled("Info / Errors", header_style)), // .style(footer_style),
+    );
+
+    f.render_widget(footer, footer_area);
+}
+
+/// Renders the footer text
+fn footer_text(tui_state: &OrgTuiState) -> String {
+    match &tui_state.focussed_panel {
         Focused::Main => "[R]egistry | [H]osts  | [E]xperiment | [.] Clear Logs | [Q]uit",
         Focused::Hosts(focused_hosts_panel) => match focused_hosts_panel {
             FocusedHosts::None => "[A]dd host |  [.] Clear Logs | [ESC]ape | [Q]uit",
-            FocusedHosts::AddHost(_,_) => "| [Tab]/[Ent] Next | [Shft+Tab] Prev | [←→↑↓] Move | [Enter] | [.] Clear Logs | [ESC]ape | [Q]uit",
+            FocusedHosts::AddHost(_,_) => "[Tab]/[Ent] Next | [Shft+Tab] Prev | [←→↑↓] Move | [Enter] | [.] Clear Logs | [ESC]ape | [Q]uit",
             FocusedHosts::HostTree(_, 0) => "[A]dd host | S[E]lect Host | [C]onnect | [D]isconnect | [S]ubscribe to all | [U]nsubscribe to all | [Tab] Next | [Shft+Tab] Prev | [←→↑↓] Move |  [.] Clear Logs | [ESC]ape | [Q]uit",
             FocusedHosts::HostTree(_, _) => "[A]dd host | S[E]lect Host | [S]ubscribe | [U]nsubscribe | [Tab] Next | [Shft+Tab] Prev | [←→↑↓] Move | [.] Clear Logs | [ESC]ape | [Q]uit",
         },
         Focused::Registry(focused_registry_panel) => match focused_registry_panel {
-            FocusedRegistry::RegistryAddress(_) => "[.] Clear Logs | [ESC]ape | [Q]uit",
-            FocusedRegistry::AvailableHosts(_) => " [.] Clear Logs | [ESC]ape | [Q]uit",
+          FocusedRegistry::RegistryAddress => match &tui_state.registry_status {
+                RegistryStatus::Disconnected | RegistryStatus::NotSpecified=> {
+                  "[C]onnect | [E]dit | [Tab] Next | [↓] Move | [.] Clear Logs | [ESC]ape | [Q]uit"
+                },
+                RegistryStatus::Connected => {
+                  "[D]isconnect | [P]ing Statuses | [.] Clear Logs | [ESC]ape | [Q]uit"
+                },
+            },
+            FocusedRegistry::AvailableHosts(_) => "[A]dd host| [Tab] Next | [Shft+Tab] Prev | [↑↓] Move | [.] Clear Logs | [ESC]ape | [Q]uit",
+            FocusedRegistry::EditRegistryAddress(_) => "[Tab] Next | [Shft+Tab] Prev | [←→↑↓] Move | [Enter] | [.] Clear Logs | [ESC]ape | [Q]uit"
         },
 
         Focused::Experiments(focused_experiment_panel) => match focused_experiment_panel {
@@ -299,19 +346,8 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
           }
         },
         Focused::Logs => todo!(),
-    })
-    .to_owned();
-
-    let footer = Block::default().title("Info").borders(Borders::ALL);
-
-    let footer = Paragraph::new(footer_text).wrap(Wrap { trim: true }).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .padding(padding)
-            .title(Span::styled("Info / Errors", header_style)), // .style(footer_style),
-    );
-
-    f.render_widget(footer, footer_area);
+    }
+    .to_owned()
 }
 
 /// Reusable edit IP function

@@ -14,6 +14,7 @@ use crate::orchestrator::OrgChannelMsg;
 use crate::orchestrator::experiment::{ActiveExperiment, ExperimentMetadata, ExperimentStatus};
 use crate::services::DEFAULT_ADDRESS;
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct Host {
     pub id: HostId,
     pub addr: SocketAddr,
@@ -21,7 +22,7 @@ pub struct Host {
     pub status: HostStatus,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum HostStatus {
     Available,
     Connected,
@@ -30,12 +31,13 @@ pub enum HostStatus {
     Unresponsive,
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct Device {
     pub id: DeviceID,
     pub dev_type: SourceType,
     pub status: DeviceStatus,
 }
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum DeviceStatus {
     Subscribed,
     NotSubscribed,
@@ -60,9 +62,10 @@ pub enum FocusedExperiments {
     Select(usize),
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum FocusedRegistry {
-    RegistryAddress(usize),
+    RegistryAddress,
+    EditRegistryAddress(usize),
     AvailableHosts(usize),
 }
 
@@ -94,12 +97,16 @@ pub enum OrgUpdate {
     UnsubscribeAll(SocketAddr, Option<SocketAddr>),
     SelectHost(SocketAddr),
     FocusChange(Focused),
-    StartExperiment,
-    StopExperiment,
+    AddHost(Host),
     SelectExperiment(usize),
     ActiveExperiment(ActiveExperiment),
     UpdateExperimentList(Vec<ExperimentMetadata>),
     Edit(char),
+    ConnectRegistry,
+    DisconnectRegistry,
+    StatusUpdate,
+    StartExperiment,
+    StopExperiment,
     Exit,
     Up,
     Down,
@@ -121,9 +128,10 @@ impl FromLog for OrgUpdate {
 /// Holds the entire state of the TUI, including configurations, logs, and mode information.
 pub struct OrgTuiState {
     pub should_quit: bool,
-    pub host_available_from_reg: Vec<SocketAddr>,
+    pub hosts_from_reg: Vec<Host>,
     pub registry_addr: Option<SocketAddr>,
     pub registry_status: RegistryStatus,
+    pub add_registry_input_socket: [char; 21],
     pub known_hosts: Vec<Host>,
     pub logs: Vec<LogEntry>,
     pub focussed_panel: Focused,
@@ -138,7 +146,20 @@ impl OrgTuiState {
     pub fn new() -> Self {
         OrgTuiState {
             should_quit: false,
-            host_available_from_reg: vec![DEFAULT_ADDRESS, DEFAULT_ADDRESS, DEFAULT_ADDRESS],
+            hosts_from_reg: vec![
+                Host {
+                    id: 100,
+                    addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 4242)),
+                    devices: vec![],
+                    status: HostStatus::Available,
+                },
+                Host {
+                    id: 101,
+                    addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 2121)),
+                    devices: vec![],
+                    status: HostStatus::Unresponsive,
+                },
+            ],
             registry_addr: Some(DEFAULT_ADDRESS),
             registry_status: RegistryStatus::Disconnected,
             logs: vec![],
@@ -146,6 +167,9 @@ impl OrgTuiState {
             active_experiment: None,
             experiments: vec![],
             add_host_input_socket: [
+                '_', '_', '_', '.', '_', '_', '_', '.', '_', '_', '_', '.', '_', '_', '_', ':', '_', '_', '_', '_', '_',
+            ],
+            add_registry_input_socket: [
                 '_', '_', '_', '.', '_', '_', '_', '.', '_', '_', '_', '.', '_', '_', '_', ':', '_', '_', '_', '_', '_',
             ],
             add_host_input_id: ['_'; 21],
@@ -198,7 +222,7 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
 
         match &self.focussed_panel {
             Focused::Main => match key {
-                KeyCode::Char('r') | KeyCode::Char('R') => Some(OrgUpdate::FocusChange(Focused::Registry(FocusedRegistry::RegistryAddress(0)))),
+                KeyCode::Char('r') | KeyCode::Char('R') => Some(OrgUpdate::FocusChange(Focused::Registry(FocusedRegistry::RegistryAddress))),
                 KeyCode::Char('e') | KeyCode::Char('E') => Some(OrgUpdate::FocusChange(Focused::Experiments(FocusedExperiments::Select(0)))),
                 KeyCode::Char('h') | KeyCode::Char('H') => {
                     if !self.known_hosts.is_empty() {
@@ -211,8 +235,37 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
             },
 
             Focused::Registry(focused_registry_panel) => match focused_registry_panel {
-                FocusedRegistry::RegistryAddress(_) => None,
-                FocusedRegistry::AvailableHosts(_) => None,
+                FocusedRegistry::RegistryAddress => match key {
+                    KeyCode::Tab => Some(OrgUpdate::Tab),
+                    KeyCode::Down => Some(OrgUpdate::Down),
+                    KeyCode::Char('c') | KeyCode::Char('C') => Some(OrgUpdate::ConnectRegistry),
+                    KeyCode::Char('d') | KeyCode::Char('D') => Some(OrgUpdate::DisconnectRegistry),
+                    KeyCode::Char('s') | KeyCode::Char('S') => Some(OrgUpdate::StatusUpdate),
+                    KeyCode::Char('e') | KeyCode::Char('E') => {
+                        Some(OrgUpdate::FocusChange(Focused::Registry(FocusedRegistry::EditRegistryAddress(0))))
+                    }
+                    _ => None,
+                },
+                FocusedRegistry::AvailableHosts(host_idx) => match key {
+                    KeyCode::Up => Some(OrgUpdate::Up),
+                    KeyCode::Down => Some(OrgUpdate::Down),
+                    KeyCode::Tab => Some(OrgUpdate::Tab),
+                    KeyCode::BackTab => Some(OrgUpdate::BackTab),
+                    KeyCode::Char('a') | KeyCode::Char('A') => self.hosts_from_reg.get(*host_idx).map(|host| OrgUpdate::AddHost((*host).clone())),
+                    _ => None,
+                },
+                FocusedRegistry::EditRegistryAddress(idx) => match key {
+                    KeyCode::Up => Some(OrgUpdate::Up),
+                    KeyCode::Down => Some(OrgUpdate::Down),
+                    KeyCode::Right => Some(OrgUpdate::Right),
+                    KeyCode::Left => Some(OrgUpdate::Left),
+                    KeyCode::Tab => Some(OrgUpdate::Tab),
+                    KeyCode::BackTab => Some(OrgUpdate::BackTab),
+                    KeyCode::Backspace => Some(OrgUpdate::Backspace),
+                    KeyCode::Enter => Some(OrgUpdate::Enter),
+                    KeyCode::Char(chr) => Some(OrgUpdate::Edit(chr)),
+                    _ => None,
+                },
             },
             Focused::Hosts(focused_hosts_panel) => match focused_hosts_panel {
                 FocusedHosts::None => match key {
@@ -381,7 +434,26 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
             }
             OrgUpdate::ClearLogs => self.logs.clear(),
             OrgUpdate::FocusChange(focused_panel) => self.focussed_panel = focused_panel,
+            OrgUpdate::AddHost(host) => {
+                if !self.known_hosts.iter().any(|h| h.id == host.id || h.addr == host.addr) {
+                    info!("Adding new host from registry");
+                    self.known_hosts.push(host)
+                } else {
+                    info!("Host already known");
+                }
+            }
 
+            OrgUpdate::ConnectRegistry => {
+                // todo!()
+                self.registry_status = RegistryStatus::Connected
+            }
+            OrgUpdate::DisconnectRegistry => {
+                // todo!()
+                self.registry_status = RegistryStatus::Disconnected
+            }
+            OrgUpdate::StatusUpdate => {
+                todo!()
+            }
             // Handles key updates, which are highly dependant on which panel is focussed
             key_update => match (key_update, &self.focussed_panel) {
                 // Key logic for the host panel
@@ -446,6 +518,14 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                 // Key logic for the experiment panel
                 (OrgUpdate::Up, Focused::Experiments(focus)) => self.focussed_panel = Focused::Experiments(focus.up()),
                 (OrgUpdate::Down, Focused::Experiments(focus)) => self.focussed_panel = Focused::Experiments(focus.down(self.experiments.len())),
+
+                // Key logic for the registry panel
+                (OrgUpdate::Up, Focused::Registry(focus)) => self.focussed_panel = Focused::Registry(focus.cursor_up()),
+                (OrgUpdate::Down, Focused::Registry(focus)) => self.focussed_panel = Focused::Registry(focus.cursor_down(self.hosts_from_reg.len())),
+                (OrgUpdate::Tab, Focused::Registry(focus)) => self.focussed_panel = Focused::Registry(focus.tab(self.hosts_from_reg.len())),
+                (OrgUpdate::BackTab, Focused::Registry(focus)) => self.focussed_panel = Focused::Registry(focus.back_tab()),
+                (OrgUpdate::Left, Focused::Registry(focus)) => self.focussed_panel = Focused::Registry(focus.cursor_left()),
+                (OrgUpdate::Right, Focused::Registry(focus)) => self.focussed_panel = Focused::Registry(focus.cursor_right()),
                 _ => {}
             },
         }
@@ -567,6 +647,51 @@ impl FocusedExperiments {
         match self {
             FocusedExperiments::Select(i) if i + 1 < limit => FocusedExperiments::Select(i + 1),
             FocusedExperiments::Select(i) => FocusedExperiments::Select(*i),
+        }
+    }
+}
+
+impl FocusedRegistry {
+    fn cursor_up(&self) -> FocusedRegistry {
+        match self {
+            FocusedRegistry::AvailableHosts(0) => FocusedRegistry::RegistryAddress,
+            FocusedRegistry::AvailableHosts(i) if *i > 0 => FocusedRegistry::AvailableHosts(i - 1),
+            other => other.clone(),
+        }
+    }
+
+    fn cursor_down(&self, limit: usize) -> FocusedRegistry {
+        match self {
+            FocusedRegistry::AvailableHosts(i) if i + 1 < limit => FocusedRegistry::AvailableHosts(i + 1),
+            FocusedRegistry::RegistryAddress => FocusedRegistry::AvailableHosts(0),
+            other => other.clone(),
+        }
+    }
+    fn cursor_left(&self) -> FocusedRegistry {
+        match self {
+            FocusedRegistry::EditRegistryAddress(i) if *i > 0 => FocusedRegistry::EditRegistryAddress(i - 1),
+            other => other.clone(),
+        }
+    }
+    fn cursor_right(&self) -> FocusedRegistry {
+        match self {
+            FocusedRegistry::EditRegistryAddress(i) => FocusedRegistry::EditRegistryAddress(i + 1),
+            other => other.clone(),
+        }
+    }
+
+    fn tab(&self, limit: usize) -> FocusedRegistry {
+        match self {
+            FocusedRegistry::AvailableHosts(i) if i + 1 < limit => FocusedRegistry::AvailableHosts(i + 1),
+            FocusedRegistry::RegistryAddress => FocusedRegistry::AvailableHosts(0),
+            other => other.clone(),
+        }
+    }
+    fn back_tab(&self) -> FocusedRegistry {
+        match self {
+            FocusedRegistry::AvailableHosts(0) => FocusedRegistry::RegistryAddress,
+            FocusedRegistry::AvailableHosts(i) if *i > 0 => FocusedRegistry::AvailableHosts(i - 1),
+            other => other.clone(),
         }
     }
 }
