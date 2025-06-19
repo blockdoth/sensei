@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use lib::FromConfig;
-use lib::adapters::CsiDataAdapter; // Added CsiDataAdapter
+use lib::adapters::CsiDataAdapter;
 use lib::errors::NetworkError;
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
 use lib::network::experiment_config::IsRecurring::{NotRecurring, Recurring};
@@ -28,10 +28,10 @@ use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, HostChannel, RegChannel, SubscribeDataChannel, send_message};
 use lib::sinks::{Sink, SinkConfig};
 use lib::sources::tcp::TCPConfig;
-use lib::sources::{DataSourceConfig, DataSourceT}; // Added DataSourceT
+use lib::sources::{DataSourceConfig, DataSourceT};
 use log::*;
 use tokio::net::tcp::OwnedWriteHalf;
-use tokio::sync::{Mutex, broadcast, mpsc, watch}; // Added mpsc
+use tokio::sync::{Mutex, broadcast, mpsc, watch};
 use tokio::task::{self, JoinHandle};
 
 use crate::registry::Registry;
@@ -60,12 +60,12 @@ pub struct SystemNode {
     local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,               // For local DeviceHandler data
     local_data_rx: Arc<Mutex<mpsc::Receiver<(DataMsg, DeviceId)>>>, // Receiver for local data
     handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
-    sinks: Arc<Mutex<HashMap<String, Box<dyn Sink>>>>, // Added shared sinks
+    sinks: Arc<Mutex<HashMap<String, Box<dyn Sink>>>>,
     addr: SocketAddr,
     host_id: u64,
     registry_addrs: Option<Vec<SocketAddr>>,
     device_configs: Vec<DeviceHandlerConfig>,
-    sink_configs: Vec<SinkConfigWithName>, // Added sink configurations
+    sink_configs: Vec<SinkConfigWithName>,
     registry: Registry,
 }
 
@@ -648,5 +648,67 @@ impl Run<SystemNodeConfig> for SystemNode {
         // Run all tasks concurrently
         tokio::try_join!(tcp_server_task, polling_task, local_data_processing_task)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::SocketAddr;
+
+    use async_trait::async_trait;
+    use tokio::net::tcp::OwnedWriteHalf;
+    use tokio::sync::{broadcast, watch};
+
+    use super::*;
+
+    #[derive(Clone)]
+    struct MockConnectionHandler {
+        host_status_sender: broadcast::Sender<(DataMsg, DeviceId)>,
+    }
+    impl MockConnectionHandler {
+        fn new() -> Self {
+            let (host_status_sender, _) = broadcast::channel(16);
+            Self { host_status_sender }
+        }
+    }
+    #[async_trait]
+    impl ConnectionHandler for MockConnectionHandler {
+        async fn handle_recv(&self, _msg: RpcMessage, _send_commands_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
+            Ok(())
+        }
+        async fn handle_send(
+            &self,
+            _recv_commands_channel: watch::Receiver<ChannelMsg>,
+            _recv_data_channel: broadcast::Receiver<(DataMsg, DeviceId)>,
+            _write_stream: OwnedWriteHalf,
+        ) -> Result<(), NetworkError> {
+            Ok(())
+        }
+    }
+    impl SubscribeDataChannel for MockConnectionHandler {
+        fn subscribe_data_channel(&self) -> broadcast::Receiver<(DataMsg, DeviceId)> {
+            self.host_status_sender.subscribe()
+        }
+    }
+
+    fn create_system_node_config(addr: SocketAddr, host_id: u64) -> SystemNodeConfig {
+        SystemNodeConfig {
+            addr,
+            host_id,
+            registries: None,
+            registry_polling_rate_s: None,
+            device_configs: vec![],
+            sinks: vec![],
+        }
+    }
+
+    #[tokio::test]
+    async fn test_system_node_new() {
+        let config = create_system_node_config("127.0.0.1:12345".parse().unwrap(), 1);
+        let global_config = GlobalConfig {
+            log_level: log::LevelFilter::Debug,
+        };
+        let _system_node = SystemNode::new(global_config, config);
+        // Can't check private fields, but construction should succeed
     }
 }

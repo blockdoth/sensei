@@ -5,13 +5,12 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
-use tokio::sync::mpsc; // Added for sending data out
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::adapters::*;
 use crate::errors::TaskError;
-use crate::network::rpc_message::{DataMsg, DeviceId, SourceType}; // Added DataMsg, DeviceId
+use crate::network::rpc_message::{DataMsg, DeviceId, SourceType};
 use crate::sources::controllers::{Controller, ControllerParams};
 use crate::sources::{DataSourceConfig, DataSourceT};
 use crate::{FromConfig, ToConfig};
@@ -133,7 +132,7 @@ impl DeviceHandler {
         &mut self,
         mut source: Box<dyn DataSourceT>,
         mut adapter: Option<Box<dyn CsiDataAdapter>>,
-        data_output_tx: mpsc::Sender<(DataMsg, DeviceId)>, // Added channel sender
+        data_output_tx: mpsc::Sender<(DataMsg, DeviceId)>,
     ) -> Result<(), TaskError> {
         let device_id = self.config.device_id;
         let (shutdown_tx, mut shutdown_rx) = watch::channel(());
