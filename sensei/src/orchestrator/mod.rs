@@ -7,8 +7,9 @@ use std::vec;
 
 use futures::future::pending;
 use lib::handler::device_handler::DeviceHandlerConfig;
-use lib::network::experiment_config::IsRecurring::{NotRecurring, Recurring};
-use lib::network::experiment_config::{Block, Command, Experiment, ExperimentHost, Stage};
+#[cfg(test)]
+use lib::network::experiment_config::Delays;
+use lib::network::experiment_config::{Block, Command, Experiment, ExperimentHost, IsRecurring, Stage};
 use lib::network::rpc_message::DataMsg::RawFrame;
 use lib::network::rpc_message::RpcMessageKind::Data;
 use lib::network::rpc_message::SourceType::ESP32;
@@ -39,9 +40,9 @@ impl Run<OrchestratorConfig> for Orchestrator {
     }
 
     async fn run(&mut self) -> Result<(), Box<dyn Error>> {
-        let experiment = Experiment::from_yaml(self.experiment_config.clone())?;
+        let experiments = Experiment::from_yaml(self.experiment_config.clone())?;
 
-        self.load_experiments(self.client.clone(), experiment).await?;
+        self.load_experiments(self.client.clone(), experiments).await?;
 
         self.cli_interface().await?;
         Ok(())
@@ -49,11 +50,7 @@ impl Run<OrchestratorConfig> for Orchestrator {
 }
 
 impl Orchestrator {
-    pub async fn load_experiments(
-        &mut self,
-        client: Arc<Mutex<TcpClient>>,
-        experiments: Vec<Experiment>,
-    ) -> Result<(), Box<dyn Error>> {
+    pub async fn load_experiments(&mut self, client: Arc<Mutex<TcpClient>>, experiments: Vec<Experiment>) -> Result<(), Box<dyn Error>> {
         for experiment in experiments {
             self.load_experiment(client.clone(), experiment).await?;
         }
@@ -108,7 +105,7 @@ impl Orchestrator {
         let command_types = block.commands;
 
         match block.delays.is_recurring.clone() {
-            Recurring {
+            IsRecurring::Recurring {
                 recurrence_delay,
                 iterations,
             } => {
@@ -127,7 +124,7 @@ impl Orchestrator {
                 }
                 Ok(())
             }
-            NotRecurring => {
+            IsRecurring::NotRecurring => {
                 Self::match_commands(client, command_types, command_delay).await?;
                 Ok(())
             }
@@ -209,7 +206,7 @@ impl Orchestrator {
         device_id: u64,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let msg = RpcMessageKind::HostCtrl(HostCtrl::SubscribeTo {
-            target: source_addr,
+            target_addr: source_addr,
             device_id,
         });
 
@@ -225,7 +222,7 @@ impl Orchestrator {
         device_id: u64,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let msg = RpcMessageKind::HostCtrl(HostCtrl::UnsubscribeFrom {
-            target: source_addr,
+            target_addr: source_addr,
             device_id,
         });
 
@@ -552,7 +549,9 @@ stages:
           is_recurring: !NotRecurring
 "#;
         let file_path = create_dummy_experiment_file(temp_dir.path(), "valid_exp.yaml", yaml_content);
-        let experiment = Experiment::from_yaml(file_path).unwrap();
+        let experiments = Experiment::from_yaml(file_path).unwrap();
+        assert_eq!(experiments.len(), 1);
+        let experiment = &experiments[0];
         assert_eq!(experiment.metadata.name, "Test Experiment");
         assert_eq!(experiment.metadata.output_path, Some(PathBuf::from("/tmp/output.log")));
         assert_eq!(experiment.stages.len(), 1);
@@ -596,8 +595,9 @@ stages:
         let client = Arc::new(Mutex::new(TcpClient::new()));
         // Correctly initialize Metadata based on its actual fields
         let experiment = Experiment {
-            metadata: super::Metadata {
+            metadata: lib::network::experiment_config::Metadata {
                 name: "empty_test".to_string(),
+                experiment_host: ExperimentHost::Orchestrator,
                 output_path: None,
             },
             stages: vec![],
