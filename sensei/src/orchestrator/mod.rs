@@ -519,7 +519,11 @@ mod tests {
     #[tokio::test]
     async fn test_orchestrator_new() {
         let temp_dir = tempdir().unwrap();
-        let dummy_config_path = create_dummy_experiment_file(temp_dir.path(), "exp.yaml", "metadata:\n  name: test\nstages: []");
+        let dummy_config_path = create_dummy_experiment_file(
+            temp_dir.path(),
+            "exp.yaml",
+            "- metadata:\n    name: test\n    experiment_host: !Orchestrator\n  stages: []",
+        );
         // OrchestratorConfig does not derive Clone, so we consume it here.
         let config = OrchestratorConfig {
             experiment_config: dummy_config_path,
@@ -534,19 +538,20 @@ mod tests {
     async fn test_experiment_from_yaml_valid() {
         let temp_dir = tempdir().unwrap();
         let yaml_content = r#"
-metadata:
-  name: Test Experiment
-  output_path: /tmp/output.log
-stages:
-  - name: Stage 1
-    command_blocks:
-      - commands:
-          - !Connect
-            target_addr: "127.0.0.1:8080"
-        delays:
-          init_delay: 100
-          command_delay: 50
-          is_recurring: !NotRecurring
+- metadata:
+    name: Test Experiment
+    experiment_host: !Orchestrator
+    output_path: /tmp/output.log
+  stages:
+    - name: Stage 1
+      command_blocks:
+        - commands:
+            - !Connect
+              target_addr: "127.0.0.1:8080"
+          delays:
+            init_delay: 100
+            command_delay: 50
+            is_recurring: !NotRecurring
 "#;
         let file_path = create_dummy_experiment_file(temp_dir.path(), "valid_exp.yaml", yaml_content);
         let experiments = Experiment::from_yaml(file_path).unwrap();
