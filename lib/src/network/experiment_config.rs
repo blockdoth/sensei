@@ -17,6 +17,8 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "orchestrator")]
+use {crate::errors::CommandError, crate::network::rpc_message::DEFAULT_ADDRESS, log::info, std::str::FromStr};
 
 use crate::network::rpc_message::{CfgType, DeviceId, HostId};
 
@@ -119,13 +121,13 @@ pub enum Command {
     },
     SubscribeTo {
         target_addr: SocketAddr,
-        source_addr: SocketAddr,
         device_id: DeviceId,
+        source_addr: SocketAddr,
     },
     UnsubscribeFrom {
         target_addr: SocketAddr,
-        source_addr: SocketAddr,
         device_id: DeviceId,
+        source_addr: SocketAddr,
     },
     SendStatus {
         target_addr: SocketAddr,
@@ -145,4 +147,82 @@ pub enum Command {
     Delay {
         delay: u64,
     },
+    DummyData {},
+}
+
+#[cfg(feature = "orchestrator")]
+impl FromStr for Command {
+    type Err = CommandError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut split = s.split_whitespace();
+        let base = split.next().ok_or(CommandError::NoSuchCommand)?;
+
+        let target_addr = split.next().ok_or(CommandError::MissingArgument)?.parse().unwrap_or(DEFAULT_ADDRESS);
+
+        match base {
+            "connect" => Ok(Command::Connect { target_addr }),
+            "disconnect" => Ok(Command::Disconnect { target_addr }),
+            "sendstatus" => Ok(Command::SendStatus {
+                target_addr,
+                // Technically host_id and device_id could become different types. Might as well handle them separately.
+                host_id: split
+                    .next()
+                    .ok_or(CommandError::MissingArgument)?
+                    .parse::<u64>()
+                    .map_err(|_| CommandError::InvalidArgument)?,
+            }),
+            base => {
+                use crate::handler::device_handler::DeviceHandlerConfig;
+
+                let device_id = split
+                    .next()
+                    .ok_or(CommandError::MissingArgument)?
+                    .parse::<u64>()
+                    .map_err(|_| CommandError::InvalidArgument)?;
+                match base {
+                    "sub" => Ok(Command::Subscribe { target_addr, device_id }),
+                    "unsub" => Ok(Command::Unsubscribe { target_addr, device_id }),
+                    "configure" => {
+                        let config_path: PathBuf = split
+                            .next()
+                            .ok_or(CommandError::MissingArgument)?
+                            .parse()
+                            .map_err(|_| CommandError::InvalidArgument)?;
+                        let cfgs = DeviceHandlerConfig::from_yaml(config_path.clone())?;
+                        let cfg = if cfgs.len() > 1 {
+                            info!("Several configs were supplied. Grabbing the first one");
+                            cfgs.first().ok_or(CommandError::InvalidArgument)?
+                        } else if cfgs.is_empty() {
+                            return Err(CommandError::InvalidArgument);
+                        } else {
+                            cfgs.first().ok_or(CommandError::InvalidArgument)?
+                        };
+                        Ok(Command::Configure {
+                            target_addr,
+                            device_id,
+                            cfg_type: todo!(),
+                        })
+                    }
+                    base => {
+                        let source_addr = todo!();
+                        match base {
+                            "unsubfrom" => Ok(Command::UnsubscribeFrom {
+                                target_addr,
+                                source_addr,
+                                device_id,
+                            }),
+                            "subto" => Ok(Command::SubscribeTo {
+                                target_addr,
+                                device_id,
+                                source_addr,
+                            }),
+                            _ => Err(CommandError::NoSuchCommand),
+                        }
+                    }
+                }
+            }
+            "dummydata" => Ok(Command::DummyData {}),
+            _ => Err(CommandError::NoSuchCommand),
+        }
+    }
 }

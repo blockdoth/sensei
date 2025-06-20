@@ -423,6 +423,36 @@ pub enum RegistryError {
     NoStandalone,
 }
 
+#[derive(Error, Debug)]
+pub enum CommandError {
+    /// No command associated with the base string.
+    #[error("Could not find a command associated with the base string.")]
+    NoSuchCommand,
+
+    /// The command is missing an argument.
+    #[error("The command is missing an argument")]
+    MissingArgument,
+
+    /// The command argument is invallid.
+    #[error("The command argument is invallid.")]
+    InvalidArgument,
+
+    /// There was an error in parsing a config.
+    #[error("There was an error in parsing a config.")]
+    ConfigError(#[from] ConfigError),
+}
+
+#[derive(Error, Debug)]
+pub enum ConfigError {
+    /// Underlying I/O error (e.g., writing to file).
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+
+    // Error when you trying to serialie
+    #[error("Seriliazation error: {0}")]
+    Serde(#[from] serde_yaml::Error),
+}
+
 // Allow conversion from Box<NetworkError> to NetworkError
 impl From<Box<NetworkError>> for NetworkError {
     fn from(err: Box<NetworkError>) -> Self {
