@@ -296,10 +296,11 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
         // Validate controller configuration if present.
         if let Some(controller_cfg) = &cg.controller {
             match (controller_cfg, &cg.source) {
+                #[cfg(feature = "esp_tool")]
                 (ControllerParams::Esp32(_), DataSourceConfig::Esp32(_)) => {
                     // These combinations are allowed.
                 }
-                #[cfg(target_os = "linux")]
+                #[cfg(all(target_os = "linux", feature = "iwl5300"))]
                 (ControllerParams::Netlink(_), DataSourceConfig::Netlink(_)) => {
                     // Netlink is allowed on Linux.
                 }

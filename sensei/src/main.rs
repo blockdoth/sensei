@@ -16,30 +16,53 @@
 //! - `visualiser`: Visualization tools for representing system status and logs.
 
 mod cli;
+#[cfg(feature = "esp_tool")]
 mod esp_tool;
+#[cfg(feature = "orchestrator")]
 mod orchestrator;
 mod registry;
 mod services;
+#[cfg(feature = "sys_node")]
 mod system_node;
+#[cfg(feature = "visualiser")]
 mod visualiser;
 
 use std::fs::File;
 
 use cli::*;
+#[cfg(feature = "esp_tool")]
 use esp_tool::EspTool;
 use log::*;
-use services::{FromYaml, Run, SystemNodeConfig};
+#[cfg(feature = "sys_node")]
+use services::FromYaml;
+use services::Run;
+#[cfg(feature = "sys_node")]
+use services::SystemNodeConfig;
 use simplelog::{ColorChoice, CombinedLogger, LevelFilter, TermLogger, TerminalMode, WriteLogger};
 
+#[cfg(feature = "orchestrator")]
 use crate::orchestrator::*;
+#[cfg(feature = "sys_node")]
 use crate::system_node::*;
+#[cfg(feature = "visualiser")]
 use crate::visualiser::*;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 1)]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Args = argh::from_env();
 
-    if args.subcommand.is_some() && !matches!(&args.subcommand, Some(SubCommandsArgs::EspTool(_))) {
+    let is_esp_tool = {
+        #[cfg(feature = "esp_tool")]
+        {
+            matches!(&args.subcommand, Some(SubCommandsArgs::EspTool(_)))
+        }
+        #[cfg(not(feature = "esp_tool"))]
+        {
+            false
+        }
+    };
+
+    if args.subcommand.is_some() && !is_esp_tool {
         CombinedLogger::init(vec![
             TermLogger::new(
                 args.level,
@@ -67,6 +90,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match &args.subcommand {
         None => lib::tui::example::run_example().await,
         Some(subcommand) => match subcommand {
+            #[cfg(feature = "sys_node")]
             SubCommandsArgs::SystemNode(args) => {
                 SystemNode::new(
                     global_args,
@@ -75,8 +99,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .run()
                 .await?
             }
+            #[cfg(feature = "orchestrator")]
             SubCommandsArgs::Orchestrator(args) => Orchestrator::new(global_args, args.parse()?).run().await?,
+            #[cfg(feature = "visualiser")]
             SubCommandsArgs::Visualiser(args) => Visualiser::new(global_args, args.parse()?).run().await?,
+            #[cfg(feature = "esp_tool")]
             SubCommandsArgs::EspTool(args) => EspTool::new(global_args, args.parse()?).run().await?,
         },
     }
