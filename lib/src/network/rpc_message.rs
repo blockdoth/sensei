@@ -69,9 +69,9 @@ pub enum HostCtrl {
     /// Unsubscribe from a device's data stream.
     Unsubscribe { device_id: DeviceId },
     /// Subscribe to another node's device stream.
-    SubscribeTo { target: SocketAddr, device_id: DeviceId },
+    SubscribeTo { target_addr: SocketAddr, device_id: DeviceId },
     /// Unsubscribe from another node's device stream.
-    UnsubscribeFrom { target: SocketAddr, device_id: DeviceId },
+    UnsubscribeFrom { target_addr: SocketAddr, device_id: DeviceId },
     /// Sends an experiment configuration
     Experiment { experiment: Experiment },
 }

@@ -349,10 +349,10 @@ impl SystemNode {
             HostCtrl::Unsubscribe { device_id } => {
                 Self::unsubscribe(request.src_addr, device_id, send_channel_msg_channel).await?;
             }
-            HostCtrl::SubscribeTo { target, device_id } => {
-                Self::subscribe_to(target, device_id, self.handlers.clone()).await?;
+            HostCtrl::SubscribeTo { target_addr, device_id } => {
+                Self::subscribe_to(target_addr, device_id, self.handlers.clone()).await?;
             }
-            HostCtrl::UnsubscribeFrom { target: _, device_id } => {
+            HostCtrl::UnsubscribeFrom { target_addr: _, device_id } => {
                 Self::unsubscribe(request.src_addr, device_id, send_channel_msg_channel).await?;
             }
             HostCtrl::Configure { device_id, cfg_type } => {
