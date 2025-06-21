@@ -22,10 +22,12 @@ const PADDING: Padding = Padding::new(1, 1, 0, 0);
 
 pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
     let (main_area, footer_area) = split_main_footer(f);
-    let (log_area, config_area) = split_logs_config(main_area);
+    let (info_area, config_area) = split_info_config(main_area);
+    let (log_area, csi_area) = split_log_csi(info_area);
     let (registry_area, hosts_area, experiments_area) = split_registry_hosts_experiments(config_area);
 
     render_logs(f, tui_state, log_area);
+    render_csi(f, tui_state, csi_area);
     render_registry(f, tui_state, registry_area);
     render_hosts(f, tui_state, hosts_area);
     render_experiments(f, tui_state, experiments_area);
@@ -45,7 +47,7 @@ fn split_main_footer(f: &Frame) -> (Rect, Rect) {
     (chunks[0], chunks[1])
 }
 
-fn split_logs_config(area: Rect) -> (Rect, Rect) {
+fn split_info_config(area: Rect) -> (Rect, Rect) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -55,6 +57,18 @@ fn split_logs_config(area: Rect) -> (Rect, Rect) {
         .split(area);
     (chunks[0], chunks[1])
 }
+
+fn split_log_csi(area: Rect) -> (Rect, Rect) {
+      let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage(50),  // Left panel: logs
+            Constraint::Percentage(50), // Right panel: csi
+        ])
+        .split(area);
+    (chunks[0], chunks[1])
+}
+
 
 fn split_registry_hosts_experiments(area: Rect) -> (Rect, Rect, Rect) {
     let chunks = Layout::default()
@@ -78,15 +92,14 @@ fn divider(area: Rect) -> Line<'static> {
 
 // Render functions
 
-fn render_logs(f: &mut Frame, tui_state: &OrgTuiState, log_area: Rect) {
-    let log_panel_content_height = log_area.height.saturating_sub(2) as usize;
+fn render_logs(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
 
     let current_log_count = tui_state.logs.len();
-    let start_index = current_log_count.saturating_sub(log_panel_content_height);
+    let start_index = current_log_count.saturating_sub(area.height.saturating_sub(2) as usize);
 
-    let logs_to_display: Vec<Line> = tui_state.logs.iter().skip(start_index).map(|entry| entry.format()).collect();
+    let logs: Vec<Line> = tui_state.logs.iter().skip(start_index).map(|entry| entry.format()).collect();
 
-    let logs_widget = Paragraph::new(Text::from(logs_to_display)).wrap(Wrap { trim: true }).block(
+    let widget = Paragraph::new(Text::from(logs)).wrap(Wrap { trim: true }).block(
         Block::default()
             .padding(PADDING)
             .borders(Borders::ALL)
@@ -97,13 +110,34 @@ fn render_logs(f: &mut Frame, tui_state: &OrgTuiState, log_area: Rect) {
             })
             .title(Span::styled(format!(" Log ({current_log_count})"), HEADER_STYLE)),
     );
-    f.render_widget(logs_widget, log_area);
+    f.render_widget(widget, area);
+}
+
+
+fn render_csi(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
+    let current_log_count = tui_state.logs.len();
+    let start_index = current_log_count.saturating_sub(area.height.saturating_sub(2) as usize);
+
+    // let logs: Vec<Line> = tui_state.csi.iter().skip(start_index).map(|entry| entry.format()).collect();
+    let logs = vec![];
+    let widget = Paragraph::new(Text::from(logs)).wrap(Wrap { trim: true }).block(
+        Block::default()
+            .padding(PADDING)
+            .borders(Borders::ALL)
+            .border_style(if matches!(tui_state.focussed_panel, Focused::Logs) {
+                Style::default().fg(Color::Blue)
+            } else {
+                Style::default()
+            })
+            .title(Span::styled(format!(" CSI"), HEADER_STYLE)),
+    );
+    f.render_widget(widget, area);
 }
 
 fn render_registry(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     let registry_addr_text = match tui_state.registry_addr {
-        Some(addr) => addr.to_string(),
-        None => "".to_owned(),
+        Some(addr) => format!("Address: {:?}",addr),
+        None => "No registry specified".to_owned(),
     };
 
     let registry_status = match tui_state.registry_status {
@@ -145,7 +179,7 @@ fn render_registry(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     }
 
     let used_lines = lines.len();
-    let total_lines = area.height as usize - 7;
+    let total_lines = (area.height as usize).saturating_sub(6);
     if used_lines < total_lines {
         lines.extend(std::iter::repeat_n(Line::from(""), total_lines - used_lines));
     }
@@ -163,13 +197,6 @@ fn render_registry(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
         FocusedAddHostField::Address,
     ));
     lines.push(Line::from(add_addr));
-    let mut add_id = vec![Span::from(" ID      ")];
-    add_id.extend(edit_number(
-        &tui_state.focussed_panel,
-        tui_state.add_host_input_id,
-        FocusedAddHostField::ID,
-    ));
-    lines.push(Line::from(add_id));
 
     let border_style = if matches!(tui_state.focussed_panel, Focused::Registry(_)) {
         Style::default().fg(Color::Blue)
@@ -186,6 +213,7 @@ fn render_registry(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     );
     f.render_widget(widget, area);
 }
+
 
 fn render_hosts(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     let mut lines: Vec<Line> = vec![];
@@ -243,13 +271,13 @@ fn render_hosts(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     };
 
     let used_lines = lines.len();
-    let total_lines = area.height as usize - 4;
+    let total_lines = (area.height as usize).saturating_sub(4);
     if used_lines < total_lines {
         lines.extend(std::iter::repeat_n(Line::from(""), total_lines - used_lines));
     }
 
     lines.push(divider(area));
-    lines.push(Line::from(format!("Selected: [{current_host}]")));
+    lines.push(Line::from(format!("Selected: {current_host}")));
 
     let border_style = if matches!(tui_state.focussed_panel, Focused::Registry(_)) {
         Style::default().fg(Color::Blue)
