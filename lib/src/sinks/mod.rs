@@ -74,7 +74,7 @@ pub enum SinkConfig {
     /// Tcp configuration
     Tcp(tcp::TCPConfig),
     // add other sink types here
-    CSV(csv::CSVConfig),
+    Csv(csv::CsvSinkConfig),
 }
 
 /// Constructs a [`Sink`] implementation from a [`SinkConfig`] using the [`FromConfig`] trait.
@@ -98,8 +98,8 @@ impl FromConfig<SinkConfig> for dyn Sink {
                 let sink = tcp::TCPSink::new(cfg).await?;
                 Ok(Box::new(sink))
             }
-            SinkConfig::CSV(cfg) => {
-                let sink = csv::CSVSink::new(cfg).await?;
+            SinkConfig::Csv(cfg) => {
+                let sink = csv::CsvSink::new(cfg).await?;
                 Ok(Box::new(sink))
             }
         }

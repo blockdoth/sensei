@@ -8,7 +8,7 @@ sinks:
 
 device_configs:
   - device_id: 0
-    stype: CSV
+    stype: Csv
 
     source: !Csv
       path: "resources/test_data/csv/csi_data.csv" # Change this line to use different input data.

@@ -127,23 +127,23 @@ device_configs:
   #   output_to:
   #     - "remote_visualiser"
 
-  # --- EXAMPLE: How to add a CSV file source ---
-  # This handler reads data from a CSV file instead of a hardware device.
+  # --- EXAMPLE: How to add a Csv file source ---
+  # This handler reads data from a Csv file instead of a hardware device.
   #
   # - device_id: 2
-  #   stype: CSV
+  #   stype: Csv
   #
   #   # `!Csv` uses `CsvConfig` from `sources/csv.rs`
   #   source: !Csv
   #     path: "/path/to/my/csi_data.csv"
   #     cell_delimiter: 44 # ASCII for comma ','
   #     row_delimiter: 10  # ASCII for newline '\n'
-  #     header: true       # Set to false if the CSV has no header row.
+  #     header: true       # Set to false if the Csv has no header row.
   #     delay: 100         # Delay in milliseconds between reading each row.
   #
   #   # No controller is needed for a static file.
   #
-  #   # An adapter would be needed here to parse the CSV text lines into CSI data.
+  #   # An adapter would be needed here to parse the Csv text lines into CSI data.
   #   # adapter: !MyCsvAdapter
   #   #   ...
   #

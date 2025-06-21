@@ -67,7 +67,7 @@ pub enum ControllerParams {
     #[cfg(all(target_os = "linux", feature = "iwl5300"))]
     Netlink(netlink_controller::NetlinkControllerParams),
     Esp32(esp32_controller::Esp32ControllerParams),
-    CSV(csv_controller::CsvControllerParams),
+    Csv(csv_controller::CsvControllerParams),
     // Extendable
 }
 
@@ -89,7 +89,7 @@ impl FromConfig<ControllerParams> for dyn Controller {
             ControllerParams::Esp32(params) => Box::new(params),
             // Add more cases here as new controllers are added
             #[cfg(feature = "csv")]
-            ControllerParams::CSV(params) => Box::new(params),
+            ControllerParams::Csv(params) => Box::new(params),
         };
         Ok(controller)
     }

@@ -15,42 +15,42 @@ const DEFAULT_CELL_DELIM: u8 = b',';
 
 /// Config struct which can be parsed from a toml config
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub struct CsvConfig {
-    /// Path to the CSV file
+pub struct CsvSourceConfig {
+    /// Path to the Csv file
     pub path: path::PathBuf,
-    /// Cell delimiter used in the CSV file
+    /// Cell delimiter used in the Csv file
     pub cell_delimiter: Option<u8>,
-    /// Row delimiter used in the CSV file
+    /// Row delimiter used in the Csv file
     pub row_delimiter: Option<u8>,
-    /// Header row in the CSV file
+    /// Header row in the Csv file
     pub header: bool,
     /// The delay between reads
     pub delay: u32,
 }
 
 pub struct CsvSource {
-    config: CsvConfig,
+    config: CsvSourceConfig,
     reader: BufReader<File>,
     cell_delimiter: u8,
     row_delimiter: u8,
 }
 
 impl CsvSource {
-    pub fn new(config: CsvConfig) -> Result<Self, DataSourceError> {
+    pub fn new(config: CsvSourceConfig) -> Result<Self, DataSourceError> {
         let cell_delimiter = config.cell_delimiter.unwrap_or(DEFAULT_CELL_DELIM);
         let row_delimiter = config.row_delimiter.unwrap_or(DEFAULT_ROW_DELIM);
-        trace!("Creating new CSV source (path: {})", config.path.display());
+        trace!("Creating new Csv source (path: {})", config.path.display());
         let file = File::open(&config.path)
-            .map_err(|e| DataSourceError::GenericError(format!("Failed to open CSV file: {}: {}", config.path.display(), e)))?;
+            .map_err(|e| DataSourceError::GenericError(format!("Failed to open Csv file: {}: {}", config.path.display(), e)))?;
         let mut reader = BufReader::new(
             file.try_clone()
-                .map_err(|e| DataSourceError::GenericError(format!("Failed to clone CSV file: {}: {}", config.path.display(), e)))?,
+                .map_err(|e| DataSourceError::GenericError(format!("Failed to clone Csv file: {}: {}", config.path.display(), e)))?,
         );
 
         if config.header {
             reader
                 .read_until(row_delimiter, &mut Vec::new())
-                .map_err(|e| DataSourceError::GenericError(format!("Failed to read header from CSV file: {}: {}", config.path.display(), e)))?;
+                .map_err(|e| DataSourceError::GenericError(format!("Failed to read header from Csv file: {}: {}", config.path.display(), e)))?;
         }
         Ok(Self { config, reader, cell_delimiter, row_delimiter })
     }
@@ -89,7 +89,7 @@ impl DataSourceT for CsvSource {
     /// Start the data source and prepare it for reading data. This may involve
     /// opening files, establishing network connections, etc.
     async fn start(&mut self) -> Result<(), DataSourceError> {
-        trace!("Starting CSV source");
+        trace!("Starting Csv source");
         Ok(())
     }
     /// Stop the data source
@@ -97,7 +97,7 @@ impl DataSourceT for CsvSource {
     /// Stop the data source and release any resources it holds. This may involve
     /// closing files, terminating network connections, etc.
     async fn stop(&mut self) -> Result<(), DataSourceError> {
-        trace!("Stopping CSV source");
+        trace!("Stopping Csv source");
         Ok(())
     }
 
@@ -108,7 +108,7 @@ impl DataSourceT for CsvSource {
             n => Ok(Some(DataMsg::RawFrame {
                 ts: chrono::Utc::now().timestamp_millis() as f64 / 1e3,
                 bytes: temp_buf[..n].to_vec(),
-                source_type: SourceType::CSV,
+                source_type: SourceType::Csv,
             })),
         }
     }
@@ -137,8 +137,8 @@ mod tests {
 
     use super::*;
 
-    fn get_csv_conf(path: PathBuf) -> CsvConfig {
-        CsvConfig {
+    fn get_csv_conf(path: PathBuf) -> CsvSourceConfig {
+        CsvSourceConfig {
             path,
             cell_delimiter: Some(DEFAULT_CELL_DELIM),
             row_delimiter: Some(DEFAULT_ROW_DELIM),
