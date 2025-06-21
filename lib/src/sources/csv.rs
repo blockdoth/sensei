@@ -3,22 +3,25 @@ use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::{path, vec};
 
 use log::trace;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::ToConfig;
 use crate::errors::{DataSourceError, TaskError};
 use crate::network::rpc_message::SourceType;
 use crate::sources::{BUFSIZE, DataMsg, DataSourceConfig, DataSourceT};
 
+const DEFAULT_ROW_DELIM: u8 = b'\n';
+const DEFAULT_CELL_DELIM: u8 = b',';
+
 /// Config struct which can be parsed from a toml config
-#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct CsvConfig {
     /// Path to the CSV file
     pub path: path::PathBuf,
     /// Cell delimiter used in the CSV file
-    pub cell_delimiter: u8,
+    pub cell_delimiter: Option<u8>,
     /// Row delimiter used in the CSV file
-    pub row_delimiter: u8,
+    pub row_delimiter: Option<u8>,
     /// Header row in the CSV file
     pub header: bool,
     /// The delay between reads
@@ -28,10 +31,14 @@ pub struct CsvConfig {
 pub struct CsvSource {
     config: CsvConfig,
     reader: BufReader<File>,
+    cell_delimiter: u8,
+    row_delimiter: u8,
 }
 
 impl CsvSource {
     pub fn new(config: CsvConfig) -> Result<Self, DataSourceError> {
+        let cell_delimiter = config.cell_delimiter.unwrap_or(DEFAULT_CELL_DELIM);
+        let row_delimiter = config.row_delimiter.unwrap_or(DEFAULT_ROW_DELIM);
         trace!("Creating new CSV source (path: {})", config.path.display());
         let file = File::open(&config.path)
             .map_err(|e| DataSourceError::GenericError(format!("Failed to open CSV file: {}: {}", config.path.display(), e)))?;
@@ -42,10 +49,10 @@ impl CsvSource {
 
         if config.header {
             reader
-                .read_until(config.row_delimiter, &mut Vec::new())
+                .read_until(row_delimiter, &mut Vec::new())
                 .map_err(|e| DataSourceError::GenericError(format!("Failed to read header from CSV file: {}: {}", config.path.display(), e)))?;
         }
-        Ok(Self { config, reader })
+        Ok(Self { config, reader, cell_delimiter, row_delimiter })
     }
 }
 
@@ -56,7 +63,7 @@ impl DataSourceT for CsvSource {
     /// ---------------------
     /// This function reads either the full buffer, or until a newline character is detected.
     async fn read_buf(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError> {
-        let row_delim = self.config.row_delimiter;
+        let row_delim = self.row_delimiter;
         let max_read = buf.len();
         let mut temp_buf = vec![0u8; max_read];
 
@@ -124,24 +131,28 @@ impl ToConfig<DataSourceConfig> for CsvSource {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
+    use std::{io::Write, path::PathBuf};
 
     use tempfile::NamedTempFile;
 
     use super::*;
+
+    fn get_csv_conf(path: PathBuf) -> CsvConfig {
+        CsvConfig {
+            path,
+            cell_delimiter: Some(DEFAULT_CELL_DELIM),
+            row_delimiter: Some(DEFAULT_ROW_DELIM),
+            header: true,
+            delay: 1,
+        }
+    }
 
     #[tokio::test]
     async fn test_csv_source_read_buf_partial_line() {
         let mut temp_file = NamedTempFile::new().unwrap();
         writeln!(temp_file, "header1,header2\nvalue1,value2\nvalue3,value4").unwrap();
 
-        let config = CsvConfig {
-            path: temp_file.path().to_path_buf(),
-            cell_delimiter: b',',
-            row_delimiter: b'\n',
-            header: true,
-            delay: 1,
-        };
+        let config = get_csv_conf(temp_file.path().to_path_buf());
 
         let mut csv_source = CsvSource::new(config).unwrap();
 
@@ -168,13 +179,7 @@ mod tests {
         let mut temp_file = NamedTempFile::new().unwrap();
         writeln!(temp_file, "header1,header2\nvalue1,value2\n").unwrap();
 
-        let config = CsvConfig {
-            path: temp_file.path().to_path_buf(),
-            cell_delimiter: b',',
-            row_delimiter: b'\n',
-            header: true,
-            delay: 1,
-        };
+        let config = get_csv_conf(temp_file.path().to_path_buf());
 
         let mut csv_source = CsvSource::new(config).unwrap();
 
@@ -190,13 +195,7 @@ mod tests {
         let mut temp_file = NamedTempFile::new().unwrap();
         writeln!(temp_file, "header1,header2\nvalue1,value2\nvalue3,value4\n").unwrap();
 
-        let config = CsvConfig {
-            path: temp_file.path().to_path_buf(),
-            cell_delimiter: b',',
-            row_delimiter: b'\n',
-            header: true,
-            delay: 1,
-        };
+        let config = get_csv_conf(temp_file.path().to_path_buf());
 
         let mut csv_source = CsvSource::new(config).unwrap();
 
@@ -227,13 +226,7 @@ mod tests {
         let mut temp_file = NamedTempFile::new().unwrap();
         writeln!(temp_file, "header1,header2\nvalue1,value2").unwrap();
 
-        let config = CsvConfig {
-            path: temp_file.path().to_path_buf(),
-            cell_delimiter: b',',
-            row_delimiter: b'\n',
-            header: true,
-            delay: 1,
-        };
+        let config = get_csv_conf(temp_file.path().to_path_buf());
 
         let mut csv_source = CsvSource::new(config).unwrap();
 
@@ -251,13 +244,7 @@ mod tests {
         let mut temp_file = NamedTempFile::new().unwrap();
         writeln!(temp_file, "header1,header2\nvalue1,value2").unwrap();
 
-        let config = CsvConfig {
-            path: temp_file.path().to_path_buf(),
-            cell_delimiter: b',',
-            row_delimiter: b'\n',
-            header: true,
-            delay: 1,
-        };
+        let config = get_csv_conf(temp_file.path().to_path_buf());
 
         let csv_source = CsvSource::new(config.clone());
         assert!(csv_source.is_ok());
@@ -265,13 +252,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_csv_source_new_file_not_found() {
-        let config = CsvConfig {
-            path: "non_existent_file.csv".into(),
-            cell_delimiter: b',',
-            row_delimiter: b'\n',
-            header: true,
-            delay: 1,
-        };
+        let config = get_csv_conf("Nonexisting".into());
 
         let csv_source = CsvSource::new(config);
         assert!(csv_source.is_err());
@@ -282,13 +263,7 @@ mod tests {
         let mut temp_file = NamedTempFile::new().unwrap();
         writeln!(temp_file, "header1,header2\nvalue1,value2").unwrap();
 
-        let config = CsvConfig {
-            path: temp_file.path().to_path_buf(),
-            cell_delimiter: b',',
-            row_delimiter: b'\n',
-            header: true,
-            delay: 1,
-        };
+        let config = get_csv_conf(temp_file.path().to_path_buf());
 
         let mut csv_source = CsvSource::new(config).unwrap();
         let mut buffer = vec![0; 1024];
@@ -301,13 +276,7 @@ mod tests {
         let mut temp_file = NamedTempFile::new().unwrap();
         writeln!(temp_file, "header1,header2\nvalue1,value2").unwrap();
 
-        let config = CsvConfig {
-            path: temp_file.path().to_path_buf(),
-            cell_delimiter: b',',
-            row_delimiter: b'\n',
-            header: true,
-            delay: 1,
-        };
+        let config = get_csv_conf(temp_file.path().to_path_buf());
 
         let mut csv_source = CsvSource::new(config).unwrap();
         assert!(csv_source.start().await.is_ok());
