@@ -183,8 +183,8 @@ mod tests {
         let path = csv_file.path();
         let mut source = CsvSource::new(CsvConfig {
             path: (*path).to_path_buf(),
-            cell_delimiter: b',',
-            row_delimiter: b'\n',
+            cell_delimiter: Some(b','),
+            row_delimiter: Some(b'\n'),
             header: true,
             delay: 0,
         })

@@ -9,6 +9,8 @@
 //! instantiation of controller implementations from serialized configuration.
 
 use async_trait::async_trait;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 use crate::FromConfig;
 use crate::errors::{ControllerError, TaskError};
@@ -17,6 +19,8 @@ use crate::sources::DataSourceT;
 pub mod esp32_controller;
 #[cfg(all(target_os = "linux", feature = "iwl5300"))]
 pub mod netlink_controller;
+#[cfg(feature = "csv")]
+pub mod csv_controller;
 use crate::ToConfig;
 
 /// Trait that must be implemented by all source controller types.
@@ -58,11 +62,12 @@ pub trait Controller: Send + Sync + ToConfig<ControllerParams> {
 ///
 /// Each variant carries the specific parameters needed to construct that
 /// controller implementation. Tagged via Serde as `{ "type": "...", "params": { ... } }`.
-#[derive(serde::Serialize, serde::Deserialize, Debug, schemars::JsonSchema, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone, PartialEq)]
 pub enum ControllerParams {
     #[cfg(all(target_os = "linux", feature = "iwl5300"))]
     Netlink(netlink_controller::NetlinkControllerParams),
     Esp32(esp32_controller::Esp32ControllerParams),
+    CSV(csv_controller::CsvControllerParams),
     // Extendable
 }
 
@@ -83,6 +88,8 @@ impl FromConfig<ControllerParams> for dyn Controller {
             #[cfg(feature = "esp_tool")]
             ControllerParams::Esp32(params) => Box::new(params),
             // Add more cases here as new controllers are added
+            #[cfg(feature = "csv")]
+            ControllerParams::CSV(params) => Box::new(params),
         };
         Ok(controller)
     }
