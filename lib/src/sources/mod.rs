@@ -15,9 +15,11 @@
 //! [`DataSourceT::start`] method before reading frames.
 
 pub mod controllers;
+#[cfg(feature = "csv")]
 pub mod csv;
+#[cfg(feature = "esp_tool")]
 pub mod esp32;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "iwl5300"))]
 pub mod netlink;
 pub mod tcp;
 
@@ -84,9 +86,10 @@ pub trait DataSourceT: Send + Any + ToConfig<DataSourceConfig> {
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
 pub enum DataSourceConfig {
     /// Linux netlink source (packet capture via netlink sockets).
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "iwl5300"))]
     Netlink(netlink::NetlinkConfig),
     /// Data source backed by an ESP32 device.
+    #[cfg(feature = "esp_tool")]
     Esp32(esp32::Esp32SourceConfig),
     /// TCP receiving from another device.
     Tcp(tcp::TCPConfig),
@@ -101,8 +104,9 @@ impl FromConfig<DataSourceConfig> for dyn DataSourceT {
     /// constructor fails.
     async fn from_config(config: DataSourceConfig) -> Result<Box<Self>, TaskError> {
         let source: Box<dyn DataSourceT> = match config {
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", feature = "iwl5300"))]
             DataSourceConfig::Netlink(cfg) => Box::new(netlink::NetlinkSource::new(cfg).map_err(TaskError::DataSourceError)?),
+            #[cfg(feature = "esp_tool")]
             DataSourceConfig::Esp32(cfg) => Box::new(esp32::Esp32Source::new(cfg).map_err(TaskError::DataSourceError)?),
             DataSourceConfig::Tcp(cfg) => Box::new(tcp::TCPSource::new(cfg).map_err(TaskError::DataSourceError)?),
         };

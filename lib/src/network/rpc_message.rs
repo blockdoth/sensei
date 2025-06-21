@@ -10,6 +10,7 @@ use tokio::net::TcpStream;
 
 use crate::csi_types::CsiData;
 use crate::handler::device_handler::DeviceHandlerConfig;
+use crate::network::experiment_config::Experiment;
 use crate::network::rpc_message::CfgType::{Create, Delete, Edit};
 
 /// The default address used for network communication (localhost:6969).
@@ -71,6 +72,8 @@ pub enum HostCtrl {
     SubscribeTo { target_addr: SocketAddr, device_id: DeviceId },
     /// Unsubscribe from another node's device stream.
     UnsubscribeFrom { target_addr: SocketAddr, device_id: DeviceId },
+    /// Sends an experiment configuration
+    Experiment { experiment: Experiment },
 }
 
 /// Registration and control messages for orchestrator and node communication.

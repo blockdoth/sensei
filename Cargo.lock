@@ -1279,6 +1279,7 @@ dependencies = [
  "anyhow",
  "argh",
  "async-trait",
+ "bincode",
  "charming",
  "chrono",
  "crossterm 0.29.0",
@@ -1288,8 +1289,10 @@ dependencies = [
  "ratatui",
  "rustfft",
  "serde",
+ "serde_json",
  "serde_yaml",
  "simplelog",
+ "tempfile",
  "tokio",
 ]
 

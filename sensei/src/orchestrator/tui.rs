@@ -50,7 +50,7 @@ fn split_info_config(area: Rect) -> (Rect, Rect) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Min(0),  // Left panel: status
+            Constraint::Min(0),     // Left panel: status
             Constraint::Length(44), // Right panel: config
         ])
         .split(area);
@@ -114,7 +114,6 @@ fn render_csi(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
 
     lines.push(Line::from("Timestamp(s) Seq RSSI Subcarriers"));
 
-
     tui_state
         .csi
         .iter()
@@ -122,11 +121,7 @@ fn render_csi(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
         .skip(start_index)
         .take(area.height.saturating_sub(2) as usize)
         .for_each(|p| {
-            let num_subcarriers = p
-                .csi
-                .first()
-                .and_then(|rx| rx.first())
-                .map_or(0, |sc_row| sc_row.len());
+            let num_subcarriers = p.csi.first().and_then(|rx| rx.first()).map_or(0, |sc_row| sc_row.len());
             let rssi_str = p.rssi.first().map_or_else(|| "N/A".to_string(), |r| r.to_string());
 
             let secs = p.timestamp.trunc() as i64;
@@ -142,7 +137,7 @@ fn render_csi(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
             )));
         });
     lines.push(divider(area));
-    
+
     let widget = Paragraph::new(Text::from(lines)).wrap(Wrap { trim: true }).block(
         Block::default()
             .padding(PADDING)
@@ -164,27 +159,17 @@ fn render_registry(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
         RegistryStatus::NotSpecified => Span::raw(""),
     };
 
-    
     let reg_addr = match &tui_state.focussed_panel {
-      Focus::Registry(FocusReg::RegistryAddress) => Line::from(vec![
-        Span::styled(registry_addr_text,Style::default().bg(Color::White).fg(Color::Black)) ,
-          registry_status,
-          ]),
-          _ => Line::from(vec![Span::raw(registry_addr_text), registry_status]),
-        };
-    let mut lines: Vec<Line> = vec![
-      reg_addr,
-      divider(area),
-      Line::from("ID  Address/Device  Status"),
-      divider(area),
-    ];
+        Focus::Registry(FocusReg::RegistryAddress) => Line::from(vec![
+            Span::styled(registry_addr_text, Style::default().bg(Color::White).fg(Color::Black)),
+            registry_status,
+        ]),
+        _ => Line::from(vec![Span::raw(registry_addr_text), registry_status]),
+    };
+    let mut lines: Vec<Line> = vec![reg_addr, divider(area), Line::from("ID  Address/Device  Status"), divider(area)];
 
     for (i, host) in tui_state.hosts_from_reg.iter().enumerate() {
-        let host_id = if let Some(id) = host.id {
-          id.to_string()
-        } else{
-          "?".to_owned()
-        };
+        let host_id = if let Some(id) = host.id { id.to_string() } else { "?".to_owned() };
         let line_text = format!(" [{host_id}] {} [{:?}]", host.addr, host.status);
 
         let status_style = match host.status {
@@ -256,11 +241,7 @@ fn render_hosts(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
                 HostStatus::Unresponsive => style.fg(Color::Red),
             }
         };
-        let host_id = if let Some(id) = host.id {
-          id.to_string()
-        } else{
-          "?".to_owned()
-        };
+        let host_id = if let Some(id) = host.id { id.to_string() } else { "?".to_owned() };
         lines.push(Line::from(Span::styled(
             format!("[{host_id}] {} [{:?}]", host.addr, host.status),
             host_style,

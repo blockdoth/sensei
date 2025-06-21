@@ -21,10 +21,12 @@
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
 
+#[cfg(feature = "sys_node")]
 use lib::handler::device_handler::DeviceHandlerConfig;
 use log::LevelFilter;
 use serde::Deserialize;
 
+#[cfg(feature = "sys_node")]
 use crate::system_node::SinkConfigWithName;
 
 pub const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
@@ -88,6 +90,7 @@ pub trait FromYaml: Sized + for<'de> Deserialize<'de> {
 }
 
 /// Configuration for the Orchestrator service.
+#[cfg(feature = "orchestrator")]
 pub struct OrchestratorConfig {
     /// Path to the experiment configuration file.
     pub experiments_folder: PathBuf,
@@ -99,6 +102,7 @@ pub struct OrchestratorConfig {
 /// This struct holds all necessary settings for a system node,
 /// including its network address, unique ID, registry information,
 /// device configurations, and sink configurations.
+#[cfg(feature = "sys_node")]
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct SystemNodeConfig {
     pub addr: SocketAddr,
@@ -111,6 +115,7 @@ pub struct SystemNodeConfig {
 }
 
 /// Configuration for the Visualiser service.
+#[cfg(feature = "visualiser")]
 pub struct VisualiserConfig {
     /// The network address of the target service (e.g., a System Node or Orchestrator)
     /// from which the visualiser will fetch data.
@@ -123,6 +128,7 @@ pub struct VisualiserConfig {
 ///
 /// Contains settings related to interacting with ESP-based devices,
 /// primarily the serial port for communication.
+#[cfg(feature = "esp_tool")]
 pub struct EspToolConfig {
     /// The serial port path (e.g., "/dev/ttyUSB0" or "COM3") to use for communicating
     /// with the ESP device.
@@ -138,12 +144,16 @@ pub struct GlobalConfig {
 /// An enum representing the configuration for any of the available services.
 pub enum ServiceConfig {
     /// Configuration for the Orchestrator service.
+    #[cfg(feature = "orchestrator")]
     Orchestrator(OrchestratorConfig),
     /// Configuration for a System Node service.
+    #[cfg(feature = "sys_node")]
     SystemNode(SystemNodeConfig),
     /// Configuration for the Visualiser service.
+    #[cfg(feature = "visualiser")]
     Visualiser(VisualiserConfig),
     /// Configuration for the ESP Tool service.
+    #[cfg(feature = "esp_tool")]
     EspTool(EspToolConfig),
 }
 
@@ -175,4 +185,78 @@ pub trait Run<Config> {
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>>;
 }
 
+#[cfg(feature = "sys_node")]
 impl FromYaml for SystemNodeConfig {}
+
+#[cfg(test)]
+mod tests {
+    use std::fs::File;
+    use std::io::Write;
+
+    use tempfile::tempdir;
+
+    use super::*;
+
+    #[derive(Deserialize, PartialEq, Debug)]
+    struct TestConfig {
+        field1: String,
+        field2: i32,
+    }
+
+    impl FromYaml for TestConfig {}
+
+    #[test]
+    fn test_from_yaml_success() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test_config.yaml");
+        let mut file = File::create(&file_path).unwrap();
+        writeln!(file, "field1: hello\nfield2: 123").unwrap();
+
+        let config = TestConfig::from_yaml(file_path).unwrap();
+        assert_eq!(
+            config,
+            TestConfig {
+                field1: "hello".to_string(),
+                field2: 123
+            }
+        );
+    }
+
+    #[test]
+    fn test_from_yaml_file_not_found() {
+        let result = TestConfig::from_yaml(PathBuf::from("non_existent_file.yaml"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_yaml_malformed_content() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("malformed_config.yaml");
+        let mut file = File::create(&file_path).unwrap();
+        writeln!(file, "field1: hello\\nfield2: not_an_integer").unwrap();
+
+        let result = TestConfig::from_yaml(file_path);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_system_node_config_from_yaml() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("system_node_config.yaml");
+        let mut file = File::create(&file_path).unwrap();
+        writeln!(
+            file,
+            r#"
+addr: "127.0.0.1:8080"
+host_id: 1
+device_configs: []
+"#
+        )
+        .unwrap();
+
+        let config = SystemNodeConfig::from_yaml(file_path).unwrap();
+        assert_eq!(config.addr, "127.0.0.1:8080".parse().unwrap());
+        assert_eq!(config.host_id, 1);
+        assert!(config.registries.is_none()); // Ensure default is handled
+    }
+}

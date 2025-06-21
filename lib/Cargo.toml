@@ -36,3 +36,9 @@ netlink-sys = "0.8.7"
 [lints]
 workspace = true
 
+[features]
+default = ["esp_tool", "iwl5300", "csv", "file_sink"]
+esp_tool = []
+iwl5300 = []
+csv = []
+file_sink = []

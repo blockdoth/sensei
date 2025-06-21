@@ -356,7 +356,7 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
             }
             OrgUpdate::CsiData(data) => {
                 self.csi.push(data);
-            }            
+            }
             OrgUpdate::Connect(to_addr) => {
                 command_send.send(OrgChannelMsg::Connect(to_addr)).await;
                 self.known_hosts.iter_mut().find(|a| a.addr == to_addr).unwrap().status = HostStatus::Connected;
@@ -433,8 +433,7 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
             OrgUpdate::Enter(Focus::Hosts(focus)) => {
                 let ip_string = self.add_host_input_socket.iter().collect::<String>().replace("_", "");
                 if let Ok(socket_addr) = ip_string.parse::<SocketAddr>() {
-
-                    if self.known_hosts.iter().any(|a|  a.addr == socket_addr) {
+                    if self.known_hosts.iter().any(|a| a.addr == socket_addr) {
                         info!("Address {socket_addr} already known");
                     } else {
                         info!("Adding new host with address {socket_addr}");
@@ -468,7 +467,7 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
             OrgUpdate::Right(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.cursor_right()),
 
             // Handles key updates, which are highly dependant on which panel is focussed
-            key_update => {},
+            key_update => {}
         }
     }
     fn should_quit(&self) -> bool {
@@ -550,13 +549,13 @@ impl FocusExp {
 }
 
 impl FocusReg {
-    fn cursor_up(&self, host_count:usize) -> FocusReg {
+    fn cursor_up(&self, host_count: usize) -> FocusReg {
         match self {
             FocusReg::AvailableHosts(0) => FocusReg::RegistryAddress,
             FocusReg::AvailableHosts(i) if *i > 0 => FocusReg::AvailableHosts(i - 1),
             FocusReg::AddHost(0) => FocusReg::AvailableHosts(host_count),
             FocusReg::AddHost(i) if *i == 3 || *i == 7 || *i == 11 || *i == 15 => FocusReg::AddHost(*i + 1),
-            FocusReg::AddHost(i) if *i >= 4  => FocusReg::AddHost(i - 4),
+            FocusReg::AddHost(i) if *i >= 4 => FocusReg::AddHost(i - 4),
             other => other.clone(),
         }
     }

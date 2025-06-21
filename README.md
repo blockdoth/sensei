@@ -15,6 +15,7 @@ The variants of Sensei consist of:
 - registry
 - orchestrator
 - visualiser
+- esp_tool
 
 ### System Node
 System nodes should run on any device that should be included in the network that should broadcast CSI data.
@@ -45,6 +46,16 @@ The visualiser has a number of commands to manipulate and graph the data, such a
 - clear
 ```
 Use esc to end the visualiser
+
+### ESP Tool
+The ESP Tool provides a terminal interface for ESP32 CSI monitoring and Wi-Fi frame transmission.
+It connects directly to ESP32 devices via serial port for real-time CSI data collection and device configuration.
+
+```bash
+cargo run --bin sensei esp_tool --serial-port /dev/ttyUSB0
+```
+
+For detailed setup instructions and usage guide, see [ESP Tool Documentation](sensei/src/esp_tool/README.md).
 
 
 # Building and development

@@ -13,21 +13,25 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use lib::FromConfig;
-use lib::adapters::CsiDataAdapter; // Added CsiDataAdapter
+use lib::adapters::CsiDataAdapter;
 use lib::errors::NetworkError;
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
+use lib::network::experiment_config::IsRecurring::{NotRecurring, Recurring};
+use lib::network::experiment_config::{Block, Command, Experiment, Stage};
 use lib::network::rpc_message::CfgType::{Create, Delete, Edit};
 use lib::network::rpc_message::SourceType::*;
-use lib::network::rpc_message::{DataMsg, DeviceId, DeviceStatus, HostCtrl, HostId, HostStatus, RegCtrl, Responsiveness, RpcMessage, RpcMessageKind};
+use lib::network::rpc_message::{
+    CfgType, DataMsg, DeviceId, DeviceStatus, HostCtrl, HostId, HostStatus, RegCtrl, Responsiveness, RpcMessage, RpcMessageKind,
+};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, HostChannel, RegChannel, SubscribeDataChannel, send_message};
 use lib::sinks::{Sink, SinkConfig};
 use lib::sources::tcp::TCPConfig;
-use lib::sources::{DataSourceConfig, DataSourceT}; // Added DataSourceT
+use lib::sources::{DataSourceConfig, DataSourceT};
 use log::*;
 use tokio::net::tcp::OwnedWriteHalf;
-use tokio::sync::{Mutex, broadcast, mpsc, watch}; // Added mpsc
+use tokio::sync::{Mutex, broadcast, mpsc, watch};
 use tokio::task::{self, JoinHandle};
 
 use crate::registry::Registry;
@@ -56,12 +60,12 @@ pub struct SystemNode {
     local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,               // For local DeviceHandler data
     local_data_rx: Arc<Mutex<mpsc::Receiver<(DataMsg, DeviceId)>>>, // Receiver for local data
     handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
-    sinks: Arc<Mutex<HashMap<String, Box<dyn Sink>>>>, // Added shared sinks
+    sinks: Arc<Mutex<HashMap<String, Box<dyn Sink>>>>,
     addr: SocketAddr,
     host_id: u64,
     registry_addrs: Option<Vec<SocketAddr>>,
     device_configs: Vec<DeviceHandlerConfig>,
-    sink_configs: Vec<SinkConfigWithName>, // Added sink configurations
+    sink_configs: Vec<SinkConfigWithName>,
     registry: Registry,
 }
 
@@ -89,6 +93,227 @@ impl SystemNode {
         }
     }
 
+    async fn connect(src_addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
+        info!("Started connection with {src_addr}");
+
+        Ok(())
+    }
+
+    async fn disconnect(src_addr: SocketAddr, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), Box<dyn std::error::Error>> {
+        send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Disconnect))?;
+
+        info!("Disconnecting from the connection with {src_addr}");
+
+        Ok(())
+    }
+
+    async fn subscribe(
+        src_addr: SocketAddr,
+        device_id: DeviceId,
+        send_channel_msg_channel: watch::Sender<ChannelMsg>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Subscribe { device_id }))?;
+        info!("Client {src_addr} subscribed to data stream for device_id: {device_id}");
+
+        Ok(())
+    }
+
+    async fn unsubscribe(
+        src_addr: SocketAddr,
+        device_id: DeviceId,
+        send_channel_msg_channel: watch::Sender<ChannelMsg>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Unsubscribe { device_id }))?;
+        info!("Client {src_addr} unsubscribed from data stream for device_id: {device_id}");
+
+        Ok(())
+    }
+
+    async fn subscribe_to(
+        target_addr: SocketAddr,
+        device_id: DeviceId,
+        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Create a device handler with a source that will connect to the node server of the target
+        // The sink will connect to this nodes server
+        // Node servers broadcast all incoming data to all connections, but only relevant sources will process this data
+        let source: DataSourceConfig = lib::sources::DataSourceConfig::Tcp(TCPConfig { target_addr, device_id });
+        let controller = None;
+        let adapter = None;
+        // Sinks are now managed by SystemNode, this specific logic for TCP sink might need adjustment
+        // based on how `output_to` is handled for such dynamically created handlers.
+        // For now, we assume it might output to a default or pre-configured sink if necessary.
+        let new_handler_config = DeviceHandlerConfig {
+            device_id,
+            stype: TCP,
+            source,
+            controller,
+            adapter,
+            output_to: vec![],
+        };
+
+        // This can be allowed to unwrap, as it will literally always succeed
+        let new_handler = DeviceHandler::from_config(new_handler_config).await.unwrap();
+
+        info!("Handler created to subscribe to {target_addr}");
+
+        handlers.lock().await.insert(device_id, new_handler);
+
+        Ok(())
+    }
+
+    async fn unsubscribe_from(device_id: DeviceId, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), Box<dyn std::error::Error>> {
+        // TODO: Make it target specific, but for now removing based on device id should be fine.
+        // Would require extracting the source itself from the device handler
+        info!("Removing handler subscribing to {device_id}");
+        match handlers.lock().await.remove(&device_id) {
+            Some(mut handler) => {
+                handler.stop().await;
+            }
+            _ => info!("This handler does not exist."),
+        }
+
+        Ok(())
+    }
+
+    async fn configure(
+        device_id: DeviceId,
+        cfg_type: CfgType,
+        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        match cfg_type {
+            Create { cfg } => {
+                info!("Creating a new device handler for device id {device_id}");
+                let handler = DeviceHandler::from_config(cfg).await;
+                match handler {
+                    Ok(handler) => {
+                        handlers.lock().await.insert(device_id, handler);
+                    }
+                    Err(e) => {
+                        info!("Creating device handler went wrong: {e}")
+                    }
+                }
+            }
+            Edit { cfg } => {
+                info!("Editing existing device handler for device id {device_id}");
+                match handlers.lock().await.get_mut(&device_id) {
+                    Some(handler) => handler.reconfigure(cfg).await.expect("Whoopsy"),
+                    _ => info!("This handler does not exist."),
+                }
+            }
+            Delete => {
+                info!("Deleting device handler for device id {device_id}");
+                match handlers.lock().await.remove(&device_id) {
+                    Some(mut handler) => handler.stop().await.expect("Whoopsy"),
+                    _ => info!("This handler does not exist."),
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn load_experiment(
+        experiment: Experiment,
+        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        info!("Running {}", experiment.metadata.name.clone());
+
+        for (i, stage) in experiment.stages.into_iter().enumerate() {
+            let name = stage.name.clone();
+            info!("Executing stage {name}");
+            Self::execute_stage(stage, handlers.clone()).await?;
+            info!("Finished stage {name}");
+        }
+
+        Ok(())
+    }
+
+    async fn execute_stage(stage: Stage, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), Box<dyn std::error::Error>> {
+        let mut tasks = vec![];
+
+        for block in stage.command_blocks {
+            // Have to define the clone outside the tokio task and then move the clone, rather than create the clone inside the tokio task
+            let handlers_clone = handlers.clone();
+            let task = tokio::spawn(async move {
+                Self::execute_command_block(block, handlers_clone).await;
+            });
+            tasks.push(task);
+        }
+
+        let results = futures::future::join_all(tasks).await;
+
+        for result in results {
+            result?;
+        }
+
+        Ok(())
+    }
+
+    async fn execute_command_block(block: Block, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), Box<dyn std::error::Error>> {
+        tokio::time::sleep(std::time::Duration::from_millis(block.delays.init_delay.unwrap_or(0u64))).await;
+        let command_delay = block.delays.command_delay.unwrap_or(0u64);
+        let command_types = block.commands;
+
+        match block.delays.is_recurring.clone() {
+            Recurring {
+                recurrence_delay,
+                iterations,
+            } => {
+                let r_delay = recurrence_delay.unwrap_or(0u64);
+                let n = iterations.unwrap_or(0u64);
+                if n == 0 {
+                    loop {
+                        Self::match_commands(command_types.clone(), handlers.clone(), command_delay).await?;
+                        tokio::time::sleep(std::time::Duration::from_millis(r_delay)).await;
+                    }
+                } else {
+                    for _ in 0..n {
+                        Self::match_commands(command_types.clone(), handlers.clone(), command_delay).await?;
+                        tokio::time::sleep(std::time::Duration::from_millis(r_delay)).await;
+                    }
+                }
+                Ok(())
+            }
+            NotRecurring => {
+                Self::match_commands(command_types, handlers, command_delay).await?;
+                Ok(())
+            }
+        }
+    }
+
+    pub async fn match_commands(
+        commands: Vec<Command>,
+        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+        command_delay: u64,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        for command in commands {
+            Self::match_command(command.clone(), handlers.clone()).await?;
+            tokio::time::sleep(std::time::Duration::from_millis(command_delay)).await;
+        }
+        Ok(())
+    }
+
+    async fn match_command(command: Command, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), Box<dyn std::error::Error>> {
+        match command {
+            Command::Subscribe { target_addr, device_id } => Ok(Self::subscribe_to(target_addr, device_id, handlers).await?),
+            Command::Unsubscribe { target_addr, device_id } => Ok(Self::unsubscribe_from(device_id, handlers).await?),
+            Command::Configure {
+                target_addr,
+                device_id,
+                cfg_type,
+            } => Ok(Self::configure(device_id, cfg_type, handlers).await?),
+            Command::Delay { delay } => {
+                tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                Ok(())
+            }
+            c => {
+                info!("The system node does not support this command {c:?}");
+                Ok(())
+            }
+        }
+    }
+
     /// Handles incoming host control messages and performs the corresponding actions.
     ///
     /// # Arguments
@@ -100,7 +325,7 @@ impl SystemNode {
     /// * `Result<(), NetworkError>` - Returns `Ok(())` if the command was handled successfully, or a `NetworkError` if an error occurred.
     ///
     /// # Behavior
-    /// - Handles various `HostCtrl` commands such as `Connect`, `Disconnect`, `Subscribe`, `Unsubscribe`, `SubscribeTo`, `UnsubscribeFrom`, and `Configure`.
+    /// - Handles various `HostCtrl` commands such as `Connect`, `Disconnect`, `Subscribe`, `Unsubscribe`, `SubscribeTo`, `UnsubscribeFrom`, `Configure`.and `Experiment`
     /// - For `Disconnect`, signals the sending task to disconnect and returns an error to indicate the connection should close.
     /// - For subscription commands, updates the relevant handlers and logs the actions.
     /// - For configuration commands, creates, edits, or deletes device handlers as specified.
@@ -109,81 +334,33 @@ impl SystemNode {
         request: RpcMessage,
         message: HostCtrl,
         send_channel_msg_channel: watch::Sender<ChannelMsg>,
-    ) -> Result<(), NetworkError> {
+    ) -> Result<(), Box<dyn std::error::Error>> {
         match message {
             // regular Host commands
             HostCtrl::Connect => {
-                let src = request.src_addr;
-                info!("Started connection with {src}");
+                Self::connect(request.src_addr).await?;
             }
             HostCtrl::Disconnect => {
-                // Correct way to signal disconnect to the sending task for this connection
-                send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Disconnect))?;
-                return Err(NetworkError::Closed); // Indicate connection should close
+                Self::disconnect(request.src_addr, send_channel_msg_channel).await?;
             }
             HostCtrl::Subscribe { device_id } => {
-                send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Subscribe { device_id }))?;
-                info!("Client {} subscribed to data stream for device_id: {device_id}", request.src_addr);
+                Self::subscribe(request.src_addr, device_id, send_channel_msg_channel).await?;
             }
             HostCtrl::Unsubscribe { device_id } => {
-                send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Unsubscribe { device_id }))?;
-                info!("Client {} unsubscribed from data stream for device_id: {device_id}", request.src_addr);
+                Self::unsubscribe(request.src_addr, device_id, send_channel_msg_channel).await?;
             }
             HostCtrl::SubscribeTo { target_addr, device_id } => {
-                // Create a device handler with a source that will connect to the node server of the target
-                // The sink will connect to this nodes server
-                // Node servers broadcast all incoming data to all connections, but only relevant sources will process this data
-                let source: DataSourceConfig = lib::sources::DataSourceConfig::Tcp(TCPConfig { target_addr, device_id });
-                let controller = None;
-                let adapter = None;
-                // Sinks are now managed by SystemNode, this specific logic for TCP sink might need adjustment
-                // based on how `output_to` is handled for such dynamically created handlers.
-                // For now, we assume it might output to a default or pre-configured sink if necessary.
-                let new_handler_config = DeviceHandlerConfig {
-                    device_id,
-                    stype: TCP,
-                    source,
-                    controller,
-                    adapter,
-                    output_to: vec![],
-                };
-
-                let new_handler = DeviceHandler::from_config(new_handler_config).await.unwrap();
-
-                info!("Handler created to subscribe to {target_addr}");
-
-                self.handlers.lock().await.insert(device_id, new_handler);
+                Self::subscribe_to(target_addr, device_id, self.handlers.clone()).await?;
             }
             HostCtrl::UnsubscribeFrom { target_addr: _, device_id } => {
-                // TODO: Make it target specific, but for now removing based on device id should be fine.
-                // Would require extracting the source itself from the device handler
-                info!("Removing handler subscribing to {device_id}");
-                match self.handlers.lock().await.remove(&device_id) {
-                    Some(mut handler) => handler.stop().await.expect("Whoopsy"),
-                    _ => warn!("This handler does not exist."),
-                }
+                Self::unsubscribe(request.src_addr, device_id, send_channel_msg_channel).await?;
             }
-            HostCtrl::Configure { device_id, cfg_type } => match cfg_type {
-                Create { cfg } => {
-                    info!("Creating a new device handler for device id {device_id}");
-                    let handler = DeviceHandler::from_config(cfg).await.unwrap();
-                    self.handlers.lock().await.insert(device_id, handler);
-                }
-                Edit { cfg } => {
-                    info!("Editing existing device handler for device id {device_id}");
-                    match self.handlers.lock().await.get_mut(&device_id) {
-                        Some(handler) => handler.reconfigure(cfg).await.expect("Whoopsy"),
-                        _ => warn!("This handler does not exist."),
-                    }
-                }
-                Delete => {
-                    info!("Deleting device handler for device id {device_id}");
-                    match self.handlers.lock().await.remove(&device_id) {
-                        Some(mut handler) => handler.stop().await.expect("Whoopsy"),
-                        _ => warn!("This handler does not exist."),
-                    }
-                }
-            },
+            HostCtrl::Configure { device_id, cfg_type } => {
+                Self::configure(device_id, cfg_type, self.handlers.clone()).await?;
+            }
+            HostCtrl::Experiment { experiment } => {
+                Self::load_experiment(experiment, self.handlers.clone()).await?;
+            }
             HostCtrl::Ping => {
                 debug!("Received ping from {:#?}.", request.src_addr);
                 send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Pong))?;
@@ -201,17 +378,17 @@ impl SystemNode {
         host_msg: HostChannel,
         send_stream: &mut OwnedWriteHalf,
         subscribed_ids: &mut HashSet<HostId>,
-    ) -> Result<(), NetworkError> {
+    ) -> Result<(), Box<dyn std::error::Error>> {
         match host_msg {
             HostChannel::Disconnect => {
-                return Err(NetworkError::Closed); // Throwing an error here feels weird, but it's also done in the recv_handler
+                send_message(send_stream, RpcMessageKind::HostCtrl(HostCtrl::Disconnect)).await?;
+                debug!("Send close confirmation");
+                return Err(NetworkError::Closed.into()); // Throwing an error here feels weird, but it's also done in the recv_handler
             }
             HostChannel::Subscribe { device_id } => {
-                info!("Subscribed");
                 subscribed_ids.insert(device_id);
             }
             HostChannel::Unsubscribe { device_id } => {
-                info!("Unsubscribed");
                 subscribed_ids.remove(&device_id);
             }
             HostChannel::Pong => {
@@ -303,9 +480,12 @@ impl ConnectionHandler for SystemNode {
     /// - Subscribe/Unsubscribe
     /// - Configure
     async fn handle_recv(&self, request: RpcMessage, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
-        debug!("Received message {:?} from {}", request.msg, request.src_addr);
+        debug!("Received message {:?} from {:?}", request.msg, request.src_addr);
         match &request.msg {
-            RpcMessageKind::HostCtrl(command) => self.handle_host_ctrl(request.clone(), command.clone(), send_channel_msg_channel).await?,
+            RpcMessageKind::HostCtrl(command) => self
+                .handle_host_ctrl(request.clone(), command.clone(), send_channel_msg_channel)
+                .await
+                .unwrap_or(()),
             RpcMessageKind::RegCtrl(command) => {
                 self.registry
                     .handle_reg_ctrl(request.clone(), command.clone(), send_channel_msg_channel)
@@ -347,7 +527,10 @@ impl ConnectionHandler for SystemNode {
                 let msg_opt = recv_command_channel.borrow_and_update().clone();
                 debug!("Received message {msg_opt:?} over channel");
                 match msg_opt {
-                    ChannelMsg::HostChannel(host_msg) => self.handle_host_channel(host_msg, &mut send_stream, &mut subscribed_ids).await?,
+                    ChannelMsg::HostChannel(host_msg) => self
+                        .handle_host_channel(host_msg, &mut send_stream, &mut subscribed_ids)
+                        .await
+                        .unwrap_or(()),
                     ChannelMsg::RegChannel(reg_msg) => self.handle_reg_channel(reg_msg, &mut send_stream).await?,
                     _ => (),
                 }
@@ -463,5 +646,67 @@ impl Run<SystemNodeConfig> for SystemNode {
         // Run all tasks concurrently
         tokio::try_join!(tcp_server_task, polling_task, local_data_processing_task)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::SocketAddr;
+
+    use async_trait::async_trait;
+    use tokio::net::tcp::OwnedWriteHalf;
+    use tokio::sync::{broadcast, watch};
+
+    use super::*;
+
+    #[derive(Clone)]
+    struct MockConnectionHandler {
+        host_status_sender: broadcast::Sender<(DataMsg, DeviceId)>,
+    }
+    impl MockConnectionHandler {
+        fn new() -> Self {
+            let (host_status_sender, _) = broadcast::channel(16);
+            Self { host_status_sender }
+        }
+    }
+    #[async_trait]
+    impl ConnectionHandler for MockConnectionHandler {
+        async fn handle_recv(&self, _msg: RpcMessage, _send_commands_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
+            Ok(())
+        }
+        async fn handle_send(
+            &self,
+            _recv_commands_channel: watch::Receiver<ChannelMsg>,
+            _recv_data_channel: broadcast::Receiver<(DataMsg, DeviceId)>,
+            _write_stream: OwnedWriteHalf,
+        ) -> Result<(), NetworkError> {
+            Ok(())
+        }
+    }
+    impl SubscribeDataChannel for MockConnectionHandler {
+        fn subscribe_data_channel(&self) -> broadcast::Receiver<(DataMsg, DeviceId)> {
+            self.host_status_sender.subscribe()
+        }
+    }
+
+    fn create_system_node_config(addr: SocketAddr, host_id: u64) -> SystemNodeConfig {
+        SystemNodeConfig {
+            addr,
+            host_id,
+            registries: None,
+            registry_polling_rate_s: None,
+            device_configs: vec![],
+            sinks: vec![],
+        }
+    }
+
+    #[tokio::test]
+    async fn test_system_node_new() {
+        let config = create_system_node_config("127.0.0.1:12345".parse().unwrap(), 1);
+        let global_config = GlobalConfig {
+            log_level: log::LevelFilter::Debug,
+        };
+        let _system_node = SystemNode::new(global_config, config);
+        // Can't check private fields, but construction should succeed
     }
 }

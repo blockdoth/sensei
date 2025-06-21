@@ -5,13 +5,12 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
-use tokio::sync::mpsc; // Added for sending data out
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::adapters::*;
 use crate::errors::TaskError;
-use crate::network::rpc_message::{DataMsg, DeviceId, SourceType}; // Added DataMsg, DeviceId
+use crate::network::rpc_message::{DataMsg, DeviceId, SourceType};
 use crate::sources::controllers::{Controller, ControllerParams};
 use crate::sources::{DataSourceConfig, DataSourceT};
 use crate::{FromConfig, ToConfig};
@@ -133,7 +132,7 @@ impl DeviceHandler {
         &mut self,
         mut source: Box<dyn DataSourceT>,
         mut adapter: Option<Box<dyn CsiDataAdapter>>,
-        data_output_tx: mpsc::Sender<(DataMsg, DeviceId)>, // Added channel sender
+        data_output_tx: mpsc::Sender<(DataMsg, DeviceId)>,
     ) -> Result<(), TaskError> {
         let device_id = self.config.device_id;
         let (shutdown_tx, mut shutdown_rx) = watch::channel(());
@@ -297,10 +296,11 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
         // Validate controller configuration if present.
         if let Some(controller_cfg) = &cg.controller {
             match (controller_cfg, &cg.source) {
+                #[cfg(feature = "esp_tool")]
                 (ControllerParams::Esp32(_), DataSourceConfig::Esp32(_)) => {
                     // These combinations are allowed.
                 }
-                #[cfg(target_os = "linux")]
+                #[cfg(all(target_os = "linux", feature = "iwl5300"))]
                 (ControllerParams::Netlink(_), DataSourceConfig::Netlink(_)) => {
                     // Netlink is allowed on Linux.
                 }
@@ -359,6 +359,7 @@ mod tests {
     use crate::network::rpc_message::{DataMsg, SourceType};
     use crate::sinks::tcp::TCPConfig;
     use crate::sinks::{MockSink, SinkConfig};
+    #[cfg(target_os = "linux")]
     use crate::sources::controllers::ControllerParams;
     use crate::sources::{DataSourceConfig, MockDataSourceT};
 
@@ -417,6 +418,7 @@ mod tests {
         assert_eq!(handler.config(), config);
     }
 
+    #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn test_from_config_invalid_controller_combo() {
         let config = DeviceHandlerConfig {

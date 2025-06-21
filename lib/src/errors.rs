@@ -171,8 +171,12 @@ pub enum CsiAdapterError {
     IntConversionError(#[from] ParseIntError),
 
     /// Error whilst parsing to float
-    #[error("Could not convert to float: {0}")]
-    FloatConversionError(#[from] ParseFloatError),
+    #[error("Could not convert '{input}' to float: {err}")]
+    FloatConversionError {
+        #[source]
+        err: ParseFloatError,
+        input: String,
+    },
 }
 
 /// Specific errors of the CSV Adapter

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 experiment:
 metadata:
   name: Experiment1
@@ -5,11 +6,22 @@ metadata:
 stages:
   - name: "init"
     blocks:
+=======
+- metadata:
+    name: Experiment1
+    experiment_host: !SystemNode
+      target_addr: "127.0.0.1:8000"
+    output_path: "output.csv"
+  stages:
+    - name: "init"
+      command_blocks:
+>>>>>>> dev
         - commands:
             - !Connect
               target_addr: "127.0.0.1:8080"
           delays:
             init_delay: 2000
+<<<<<<< HEAD
             delay_type: !NotRecurring
   - name: "main"
     blocks:
@@ -58,3 +70,53 @@ stages:
           target_addr: "127.0.0.1:8080"
         delays:
           delay_type: !NotRecurring 
+=======
+            is_recurring: !NotRecurring
+    - name: "main"
+      command_blocks:
+        - commands:
+            - !Connect
+              target_addr: "127.0.0.1:8000"
+            - !Subscribe
+              target_addr: "127.0.0.1:8000"
+              device_id: 0
+            - !Delay
+              delay: 5000
+            - !Unsubscribe
+              target_addr: "127.0.0.1:8000"
+              device_id: 0
+            - !Disconnect
+              target_addr: "127.0.0.1:8000"
+          delays:
+            init_delay: 500
+            command_delay: 200
+            is_recurring: !Recurring
+              recurrence_delay: 1000
+              iterations: 5
+        - commands:
+            - !Connect
+              target_addr: "127.0.0.1:8080"
+            - !Subscribe
+              target_addr: "127.0.0.1:8080"
+              device_id: 0
+            - !Delay
+              delay: 5000
+            - !Unsubscribe
+              target_addr: "127.0.0.1:8080"
+              device_id: 0
+            - !Disconnect
+              target_addr: "127.0.0.1:8080"
+          delays:
+            init_delay: 500
+            command_delay: 200
+            is_recurring: !Recurring
+              recurrence_delay: 1000
+              iterations: 5
+    - name: "endstage"
+      command_blocks:
+        - commands:
+            - !Disconnect
+              target_addr: "127.0.0.1:8080"
+          delays:
+            is_recurring: !NotRecurring
+>>>>>>> dev

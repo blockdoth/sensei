@@ -23,16 +23,26 @@
 //! ```
 //!
 //! This command sets the system node address and port, overriding the defaults.
-
+#[cfg(feature = "sys_node")]
 use std::path::PathBuf;
 
 use anyhow::Error;
 use argh::FromArgs;
+#[cfg(feature = "sys_node")]
 use lib::handler::device_handler::DeviceHandlerConfig;
+#[cfg(feature = "sys_node")]
 use log::debug;
 use simplelog::LevelFilter;
 
-use crate::services::{EspToolConfig, GlobalConfig, OrchestratorConfig, SystemNodeConfig, VisualiserConfig};
+#[cfg(feature = "esp_tool")]
+use crate::services::EspToolConfig;
+use crate::services::GlobalConfig;
+#[cfg(feature = "orchestrator")]
+use crate::services::OrchestratorConfig;
+#[cfg(feature = "sys_node")]
+use crate::services::SystemNodeConfig;
+#[cfg(feature = "visualiser")]
+use crate::services::VisualiserConfig;
 
 /// A trait for overlaying subcommand arguments onto an existing configuration.
 ///
@@ -56,8 +66,10 @@ pub trait OverlaySubcommandArgs<T> {
     fn overlay_subcommand_args(&self, full_config: T) -> Result<T, Box<dyn std::error::Error>>;
 }
 
-pub static DEFAULT_HOST_CONFIG: &str = "resources/example_configs/host/dummy_node.yaml";
-pub static DEFAULT_ORCHESTRATOR_CONFIG_FOLDER: &str = "resources/example_configs/orchestrator";
+/// Default path to the host configuration YAML file.
+pub static DEFAULT_HOST_CONFIG: &str = "resources/testing_configs/minimal.yaml";
+/// Default path to the orchestrator configuration YAML file.
+pub static DEFAULT_ORCHESTRATOR_CONFIG: &str = "resources/example_configs/orchestrator/experiment_config.yaml";
 
 /// A simple app to perform collection from configured sources
 #[derive(FromArgs)]
@@ -93,9 +105,13 @@ pub trait ConfigFromCli<Config> {
 #[derive(FromArgs)]
 #[argh(subcommand)]
 pub enum SubCommandsArgs {
+    #[cfg(feature = "sys_node")]
     SystemNode(SystemNodeSubcommandArgs),
+    #[cfg(feature = "orchestrator")]
     Orchestrator(OrchestratorSubcommandArgs),
+    #[cfg(feature = "visualiser")]
     Visualiser(VisualiserSubcommandArgs),
+    #[cfg(feature = "esp_tool")]
     EspTool(EspToolSubcommandArgs),
 }
 
@@ -103,6 +119,7 @@ const DEFAULT_PORT_CLI: u16 = 6969;
 const DEFAULT_IP_CLI: &str = "127.0.0.1";
 
 /// System node commands
+#[cfg(feature = "sys_node")]
 #[derive(FromArgs)]
 #[argh(subcommand, name = "node")]
 pub struct SystemNodeSubcommandArgs {
@@ -119,6 +136,7 @@ pub struct SystemNodeSubcommandArgs {
     pub config_path: PathBuf,
 }
 
+#[cfg(feature = "sys_node")]
 impl ConfigFromCli<SystemNodeConfig> for SystemNodeSubcommandArgs {
     /// Parses system node subcommand arguments into a `SystemNodeConfig`.
     ///
@@ -137,6 +155,7 @@ impl ConfigFromCli<SystemNodeConfig> for SystemNodeSubcommandArgs {
     }
 }
 
+#[cfg(feature = "sys_node")]
 /// Overlays subcommand arguments onto a SystemNodeConfig, overriding fields if provided.
 impl OverlaySubcommandArgs<SystemNodeConfig> for SystemNodeSubcommandArgs {
     fn overlay_subcommand_args(&self, mut full_config: SystemNodeConfig) -> Result<SystemNodeConfig, Box<dyn std::error::Error>> {
@@ -153,6 +172,7 @@ impl OverlaySubcommandArgs<SystemNodeConfig> for SystemNodeSubcommandArgs {
     }
 }
 
+#[cfg(feature = "orchestrator")]
 /// Orchestrator node commands
 #[derive(FromArgs)]
 #[argh(subcommand, name = "orchestrator")]
@@ -162,10 +182,11 @@ pub struct OrchestratorSubcommandArgs {
     pub tui: bool,
 
     /// file path of the experiment config
-    #[argh(option, default = "DEFAULT_ORCHESTRATOR_CONFIG_FOLDER.parse().unwrap()")]
+    #[argh(option, default = "DEFAULT_ORCHESTRATOR_CONFIG.parse().unwrap()")]
     pub experiments_folder: PathBuf,
 }
 
+#[cfg(feature = "orchestrator")]
 impl ConfigFromCli<OrchestratorConfig> for OrchestratorSubcommandArgs {
     /// Parses orchestrator subcommand arguments into an `OrchestratorConfig`.
     ///
@@ -180,6 +201,7 @@ impl ConfigFromCli<OrchestratorConfig> for OrchestratorSubcommandArgs {
 }
 
 /// Visualiser commands
+#[cfg(feature = "visualiser")]
 #[derive(FromArgs)]
 #[argh(subcommand, name = "visualiser")]
 pub struct VisualiserSubcommandArgs {
@@ -200,6 +222,7 @@ pub struct VisualiserSubcommandArgs {
     pub ui_type: String,
 }
 
+#[cfg(feature = "visualiser")]
 impl ConfigFromCli<VisualiserConfig> for VisualiserSubcommandArgs {
     /// Parses visualiser subcommand arguments into a `VisualiserConfig`.
     ///
@@ -214,6 +237,7 @@ impl ConfigFromCli<VisualiserConfig> for VisualiserSubcommandArgs {
 }
 
 /// Arguments for the ESP Test Tool subcommand
+#[cfg(feature = "esp_tool")]
 #[derive(FromArgs, Debug, Clone)]
 #[argh(subcommand, name = "esp-tool")]
 pub struct EspToolSubcommandArgs {
@@ -222,6 +246,7 @@ pub struct EspToolSubcommandArgs {
     pub serial_port: String,
 }
 
+#[cfg(feature = "esp_tool")]
 impl ConfigFromCli<EspToolConfig> for EspToolSubcommandArgs {
     /// Parses ESP tool subcommand arguments into an `EspToolConfig`.
     ///
