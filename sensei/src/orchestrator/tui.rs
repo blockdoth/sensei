@@ -1,5 +1,5 @@
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Padding, Paragraph, Wrap};
@@ -10,8 +10,31 @@ use crate::orchestrator::state::{
     DeviceStatus, Focused, FocusedAddHostField, FocusedExperiments, FocusedHosts, FocusedRegistry, HostStatus, RegistryStatus,
 };
 
+const HEADER_STYLE: Style = Style {
+    fg: None,                        // No foreground color
+    bg: None,                        // No background color
+    underline_color: None,           // No underline color
+    add_modifier: Modifier::empty(), // No text modifiers
+    sub_modifier: Modifier::empty(), // No modifiers to remove
+};
+
+const PADDING: Padding = Padding::new(1, 1, 0, 0);
+
 pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
-    let screen_chunks = Layout::default()
+    let (main_area, footer_area) = split_main_footer(f);
+    let (log_area, config_area) = split_logs_config(main_area);
+    let (registry_area, hosts_area, experiments_area) = split_registry_hosts_experiments(config_area);
+
+    render_logs(f, tui_state, log_area);
+    render_registry(f, tui_state, registry_area);
+    render_hosts(f, tui_state, hosts_area);
+    render_experiments(f, tui_state, experiments_area);
+    render_footer(f, tui_state, footer_area);
+}
+
+// Splits
+fn split_main_footer(f: &Frame) -> (Rect, Rect) {
+    let chunks = Layout::default()
         .direction(Direction::Vertical)
         .margin(1)
         .constraints([
@@ -19,59 +42,65 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
             Constraint::Length(3), // Footer: for info/errors
         ])
         .split(f.area());
+    (chunks[0], chunks[1])
+}
 
-    let header_style = Style::default().fg(Color::White).add_modifier(Modifier::BOLD);
-    let padding = Padding::new(1, 1, 0, 0);
-
-    let content_area = screen_chunks[0];
-    let footer_area = screen_chunks[1];
-
-    let content_horizontal_chunks = Layout::default()
+fn split_logs_config(area: Rect) -> (Rect, Rect) {
+    let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(60), // Left panel: status
-            Constraint::Percentage(40), // Right panel: config
+            Constraint::Min(0),  // Left panel: status
+            Constraint::Min(30), // Right panel: config
         ])
-        .split(content_area);
+        .split(area);
+    (chunks[0], chunks[1])
+}
 
-    let status_area = content_horizontal_chunks[0];
-    let control_area = content_horizontal_chunks[1];
+fn split_registry_hosts_experiments(area: Rect) -> (Rect, Rect, Rect) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(0), // Registry address
+            Constraint::Min(0), // Hosts
+            Constraint::Min(0), // Experiment Control
+        ])
+        .split(area);
+    (chunks[0], chunks[1], chunks[2])
+}
 
-    let log_panel_content_height = status_area.height.saturating_sub(2) as usize;
+// Misc helpers
+fn divider(area: Rect) -> Line<'static> {
+    Line::from(vec![Span::styled(
+        "─".repeat(area.width.into()),
+        Style::default().add_modifier(Modifier::DIM),
+    )])
+}
+
+// Render functions
+
+fn render_logs(f: &mut Frame, tui_state: &OrgTuiState, log_area: Rect) {
+    let log_panel_content_height = log_area.height.saturating_sub(2) as usize;
+
     let current_log_count = tui_state.logs.len();
-
     let start_index = current_log_count.saturating_sub(log_panel_content_height);
 
     let logs_to_display: Vec<Line> = tui_state.logs.iter().skip(start_index).map(|entry| entry.format()).collect();
 
     let logs_widget = Paragraph::new(Text::from(logs_to_display)).wrap(Wrap { trim: true }).block(
         Block::default()
-            .padding(padding)
+            .padding(PADDING)
             .borders(Borders::ALL)
             .border_style(if matches!(tui_state.focussed_panel, Focused::Logs) {
                 Style::default().fg(Color::Blue)
             } else {
                 Style::default()
             })
-            .title(Span::styled(format!(" Log ({current_log_count})"), header_style)),
+            .title(Span::styled(format!(" Log ({current_log_count})"), HEADER_STYLE)),
     );
+    f.render_widget(logs_widget, log_area);
+}
 
-    f.render_widget(logs_widget, status_area);
-
-    let control_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(8), // Registry address
-            Constraint::Min(10),   // Known addresses
-            Constraint::Min(10),   // Experiment Control
-        ])
-        .split(control_area);
-
-    let control_divider = Line::from(Span::styled(
-        "─".repeat(control_chunks[0].width.into()), // horizontal divider
-        Style::default().add_modifier(Modifier::DIM),
-    ));
-
+fn render_registry(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     let registry_addr_text = match tui_state.registry_addr {
         Some(addr) => addr.to_string(),
         None => "".to_owned(),
@@ -83,7 +112,6 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
         RegistryStatus::NotSpecified => Span::raw(""),
     };
 
-    // First line: registry address + status
     let mut lines: Vec<Line> = vec![];
 
     let reg_addr = match &tui_state.focussed_panel {
@@ -95,7 +123,7 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
     };
 
     lines.push(reg_addr);
-    lines.push(control_divider.clone());
+    lines.push(divider(area));
 
     for (i, host) in tui_state.hosts_from_reg.iter().enumerate() {
         let line_text = format!(" [{}] {} [{:?}]", host.id, host.addr, host.status);
@@ -116,28 +144,53 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
         lines.push(Line::from(format!("  └─ Devices Count: {} ", host.devices.len())));
     }
 
-    let registry_widget = Paragraph::new(Text::from(lines)).block(
-        Block::default()
-            .padding(padding)
-            .title(Span::styled("Registry", header_style))
-            .borders(Borders::ALL)
-            .border_style(if matches!(tui_state.focussed_panel, Focused::Registry(_)) {
-                Style::default().fg(Color::Blue)
-            } else {
-                Style::default()
-            }),
-    );
-    f.render_widget(registry_widget, control_chunks[0]);
+    let used_lines = lines.len();
+    let total_lines = area.height as usize - 7;
+    if used_lines < total_lines {
+        lines.extend(std::iter::repeat_n(Line::from(""), total_lines - used_lines));
+    }
 
-    let current_host = if let Some(selected) = tui_state.selected_host {
-        selected.to_string()
+    lines.push(divider(area));
+    lines.push(Line::from("Manually add Host: "));
+    lines.push(divider(area));
+
+    let ip_input = Line::from(" [IP:Port] ___.___.___.___:______");
+
+    let mut add_addr = vec![Span::from(" IP:Port ")];
+    add_addr.extend(edit_number(
+        &tui_state.focussed_panel,
+        tui_state.add_host_input_socket,
+        FocusedAddHostField::Address,
+    ));
+    lines.push(Line::from(add_addr));
+    let mut add_id = vec![Span::from(" ID      ")];
+    add_id.extend(edit_number(
+        &tui_state.focussed_panel,
+        tui_state.add_host_input_id,
+        FocusedAddHostField::ID,
+    ));
+    lines.push(Line::from(add_id));
+
+    let border_style = if matches!(tui_state.focussed_panel, Focused::Registry(_)) {
+        Style::default().fg(Color::Blue)
     } else {
-        "Current device".to_string()
+        Style::default()
     };
 
-    let mut h_lines: Vec<Line> = vec![];
-    h_lines.push(Line::from(format!("ID  Address/Device  Status   Selected Host: [{current_host}]")));
-    h_lines.push(control_divider.clone());
+    let widget = Paragraph::new(Text::from(lines)).block(
+        Block::default()
+            .padding(PADDING)
+            .title(Span::styled("Registry", HEADER_STYLE))
+            .borders(Borders::ALL)
+            .border_style(border_style),
+    );
+    f.render_widget(widget, area);
+}
+
+fn render_hosts(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
+    let mut lines: Vec<Line> = vec![];
+    lines.push(Line::from("ID  Address/Device  Status"));
+    lines.push(divider(area));
     for (host_idx, host) in tui_state.known_hosts.iter().enumerate() {
         // Handles host style
         let host_style = {
@@ -155,7 +208,7 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
             }
         };
 
-        h_lines.push(Line::from(Span::styled(
+        lines.push(Line::from(Span::styled(
             format!("[{}] {} [{:?}]", host.id, host.addr, host.status),
             host_style,
         )));
@@ -180,47 +233,42 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
                 _ => device_style.fg(Color::DarkGray),
             };
 
-            h_lines.push(Line::from(Span::styled(text, device_style)));
+            lines.push(Line::from(Span::styled(text, device_style)));
         }
     }
+    let current_host = if let Some(selected) = tui_state.selected_host {
+        selected.to_string()
+    } else {
+        "Current device".to_string()
+    };
 
-    h_lines.push(control_divider.clone());
-    h_lines.push(Line::from("Manually add Host: "));
-    h_lines.push(control_divider.clone());
+    let used_lines = lines.len();
+    let total_lines = area.height as usize - 4;
+    if used_lines < total_lines {
+        lines.extend(std::iter::repeat_n(Line::from(""), total_lines - used_lines));
+    }
 
-    let ip_input = Line::from(" [IP:Port] ___.___.___.___:______");
+    lines.push(divider(area));
+    lines.push(Line::from(format!("Selected: [{current_host}]")));
 
-    let mut add_addr = vec![Span::from(" IP:Port ")];
-    add_addr.extend(edit_number(
-        &tui_state.focussed_panel,
-        tui_state.add_host_input_socket,
-        FocusedAddHostField::Address,
-    ));
-    h_lines.push(Line::from(add_addr));
-    let mut add_id = vec![Span::from(" ID      ")];
-    add_id.extend(edit_number(
-        &tui_state.focussed_panel,
-        tui_state.add_host_input_id,
-        FocusedAddHostField::ID,
-    ));
-    h_lines.push(Line::from(add_id));
-    h_lines.push(control_divider.clone());
+    let border_style = if matches!(tui_state.focussed_panel, Focused::Registry(_)) {
+        Style::default().fg(Color::Blue)
+    } else {
+        Style::default()
+    };
 
-    let hosts_tree_view = Paragraph::new(Text::from(h_lines)).block(
+    let widget = Paragraph::new(Text::from(lines)).block(
         Block::default()
-            .padding(padding)
-            .title(Span::styled("Hosts", header_style))
+            .padding(PADDING)
+            .title(Span::styled("Hosts", HEADER_STYLE))
             .borders(Borders::ALL)
-            .border_style(if matches!(tui_state.focussed_panel, Focused::Hosts(_)) {
-                Style::default().fg(Color::Blue)
-            } else {
-                Style::default()
-            }),
+            .border_style(border_style),
     );
+    f.render_widget(widget, area);
+}
 
-    f.render_widget(hosts_tree_view, control_chunks[1]);
-
-    let mut exp_lines = if let Some(active_exp) = &tui_state.active_experiment {
+fn render_experiments(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
+    let mut lines = if let Some(active_exp) = &tui_state.active_experiment {
         let status_color = match active_exp.status {
             ExperimentStatus::Running => Color::Yellow,
             ExperimentStatus::Stopped => Color::Red,
@@ -264,47 +312,50 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
         vec![Line::from("No experiment selected")]
     };
 
-    exp_lines.push(control_divider.clone());
-    exp_lines.push(Line::from("Select Experiment"));
-    exp_lines.push(control_divider.clone());
+    lines.push(divider(area));
+    lines.push(Line::from("Select Experiment"));
+    lines.push(divider(area));
 
     for (i, metadata) in tui_state.experiments.iter().enumerate() {
         let line_text = format!("  [{}] {}", i + 1, metadata.name);
 
         if matches!( tui_state.focussed_panel, Focused::Experiments(FocusedExperiments::Select(idx)) if idx == i) {
-            exp_lines.push(Line::from(vec![Span::styled(
+            lines.push(Line::from(vec![Span::styled(
                 line_text,
                 Style::default().bg(Color::White).fg(Color::Black),
             )]));
         } else {
-            exp_lines.push(Line::from(line_text));
+            lines.push(Line::from(line_text));
         }
     }
 
-    let experiment_widget = Paragraph::new(Text::from(exp_lines)).block(
+    let border_style = if matches!(tui_state.focussed_panel, Focused::Registry(_)) {
+        Style::default().fg(Color::Blue)
+    } else {
+        Style::default()
+    };
+
+    let widget = Paragraph::new(Text::from(lines)).block(
         Block::default()
-            .padding(padding)
+            .padding(PADDING)
+            .title(Span::styled("Experiment Control", HEADER_STYLE))
             .borders(Borders::ALL)
-            .border_style(if matches!(tui_state.focussed_panel, Focused::Experiments(_)) {
-                Style::default().fg(Color::Blue)
-            } else {
-                Style::default()
-            })
-            .title(Span::styled("Experiment Control", header_style)),
+            .border_style(border_style),
     );
+    f.render_widget(widget, area);
+}
 
-    f.render_widget(experiment_widget, control_chunks[2]);
-
+fn render_footer(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     let footer = Block::default().title("Info").borders(Borders::ALL);
 
-    let footer = Paragraph::new(footer_text(tui_state)).wrap(Wrap { trim: true }).block(
+    let widget = Paragraph::new(footer_text(tui_state)).wrap(Wrap { trim: true }).block(
         Block::default()
             .borders(Borders::ALL)
-            .padding(padding)
-            .title(Span::styled("Info / Errors", header_style)), // .style(footer_style),
+            .padding(PADDING)
+            .title(Span::styled("Keybinds", HEADER_STYLE)),
     );
 
-    f.render_widget(footer, footer_area);
+    f.render_widget(widget, area);
 }
 
 /// Renders the footer text
