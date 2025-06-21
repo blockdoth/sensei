@@ -15,12 +15,12 @@ use serde::{Deserialize, Serialize};
 use crate::FromConfig;
 use crate::errors::{ControllerError, TaskError};
 use crate::sources::DataSourceT;
+#[cfg(feature = "csv")]
+pub mod csv_controller;
 #[cfg(feature = "esp_tool")]
 pub mod esp32_controller;
 #[cfg(all(target_os = "linux", feature = "iwl5300"))]
 pub mod netlink_controller;
-#[cfg(feature = "csv")]
-pub mod csv_controller;
 use crate::ToConfig;
 
 /// Trait that must be implemented by all source controller types.

@@ -52,7 +52,12 @@ impl CsvSource {
                 .read_until(row_delimiter, &mut Vec::new())
                 .map_err(|e| DataSourceError::GenericError(format!("Failed to read header from Csv file: {}: {}", config.path.display(), e)))?;
         }
-        Ok(Self { config, reader, cell_delimiter, row_delimiter })
+        Ok(Self {
+            config,
+            reader,
+            cell_delimiter,
+            row_delimiter,
+        })
     }
 }
 
@@ -131,7 +136,8 @@ impl ToConfig<DataSourceConfig> for CsvSource {
 
 #[cfg(test)]
 mod tests {
-    use std::{io::Write, path::PathBuf};
+    use std::io::Write;
+    use std::path::PathBuf;
 
     use tempfile::NamedTempFile;
 

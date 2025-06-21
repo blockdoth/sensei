@@ -3,7 +3,7 @@ use std::vec;
 use crate::ToConfig;
 use crate::adapters::{CsiDataAdapter, DataAdapterConfig};
 use crate::csi_types::{Complex, CsiData};
-use crate::errors::{CsvAdapterError, CsiAdapterError, TaskError};
+use crate::errors::{CsiAdapterError, CsvAdapterError, TaskError};
 use crate::network::rpc_message::DataMsg;
 
 const DEFAULT_LINE_DELIM: u8 = b'\n';

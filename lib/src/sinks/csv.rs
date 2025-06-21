@@ -134,7 +134,7 @@ mod tests {
     use crate::adapters::csv::CsvAdapter;
     use crate::network::rpc_message::{DataMsg, SourceType};
     use crate::sources::DataSourceT;
-    use crate::sources::csv::{CsvSourceConfig, CsvSource};
+    use crate::sources::csv::{CsvSource, CsvSourceConfig};
     use crate::test_utils;
 
     fn dummy_csi_data() -> CsiData {

@@ -2,7 +2,10 @@ use async_trait::async_trait;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{errors::{ControllerError, TaskError}, sources::{controllers::{Controller, ControllerParams}, DataSourceT}, ToConfig};
+use crate::ToConfig;
+use crate::errors::{ControllerError, TaskError};
+use crate::sources::DataSourceT;
+use crate::sources::controllers::{Controller, ControllerParams};
 
 /// Parameters for controlling an ESP32 device.
 #[derive(Serialize, Deserialize, Debug, Clone, Default, JsonSchema, PartialEq)]
