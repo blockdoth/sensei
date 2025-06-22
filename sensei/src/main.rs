@@ -39,16 +39,17 @@ use services::Run;
 #[cfg(feature = "sys_node")]
 use services::SystemNodeConfig;
 use simplelog::{ColorChoice, CombinedLogger, LevelFilter, TermLogger, TerminalMode, WriteLogger};
+use tokio::runtime::Builder;
 
 #[cfg(feature = "orchestrator")]
 use crate::orchestrator::*;
+use crate::services::GlobalConfig;
 #[cfg(feature = "sys_node")]
 use crate::system_node::*;
 #[cfg(feature = "visualiser")]
 use crate::visualiser::*;
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 1)]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Args = argh::from_env();
 
     let is_esp_tool = {
@@ -84,9 +85,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap();
         debug!("Parsed args and initialized CombinedLogger");
     }
-
     debug!("Parsed args and initialized CombinedLogger");
     let global_args = args.parse_global_config()?;
+    // This builders allows us to select the number of worker threads based on
+    // either compile flags or CLI arguments, instead of statically setting them in the source.
+    let runtime = Builder::new_multi_thread().worker_threads(global_args.num_workers).enable_all().build()?;
+    debug!("Created a builder with {} workers", global_args.num_workers);
+    runtime.block_on(run_subcommand(args, global_args));
+    Ok(())
+}
+
+async fn run_subcommand(args: Args, global_args: GlobalConfig) -> Result<(), Box<dyn std::error::Error + 'static>> {
     match &args.subcommand {
         None => lib::tui::example::run_example().await,
         Some(subcommand) => match subcommand {
@@ -144,6 +153,7 @@ device_configs: []
                 port: 9090,                      // Default port for test case
             })),
             level: LevelFilter::Error,
+            num_workers: 4,
         };
 
         let global_args = args.parse_global_config().unwrap();
@@ -176,6 +186,7 @@ stages: []";
                 tui: false, // Default tui setting for test
             })),
             level: LevelFilter::Error,
+            num_workers: 4,
         };
         let global_args = args.parse_global_config().unwrap();
 
