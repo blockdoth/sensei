@@ -97,7 +97,7 @@ pub struct HostStatus {
     /// The unique ID of the host.
     pub host_id: HostId,
     /// The status of each device managed by the host.
-    pub device_statuses: Vec<DeviceStatus>,
+    pub device_statuses: Vec<DeviceInfo>,
     /// How well the host is responding.
     pub responsiveness: Responsiveness,
 }
@@ -128,19 +128,19 @@ impl From<RegCtrl> for HostStatus {
 }
 
 /// Status information for a device managed by a host.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct DeviceStatus {
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
+pub struct DeviceInfo {
     /// The unique ID of the device.
     pub id: DeviceId,
     /// The type of the device/source.
     pub dev_type: SourceType,
 }
 
-impl From<&DeviceHandlerConfig> for DeviceStatus {
+impl From<&DeviceHandlerConfig> for DeviceInfo {
     fn from(value: &DeviceHandlerConfig) -> Self {
-        DeviceStatus {
+        DeviceInfo {
             id: value.device_id,
-            dev_type: value.stype.clone(),
+            dev_type: value.stype,
         }
     }
 }
@@ -155,7 +155,7 @@ pub enum DataMsg {
 }
 
 /// Supported source/device types in the Sensei system.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
 pub enum SourceType {
     ESP32,
     IWL5300,

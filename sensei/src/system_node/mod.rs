@@ -21,7 +21,7 @@ use lib::network::experiment_config::{Block, Command, Experiment, Stage};
 use lib::network::rpc_message::CfgType::{Create, Delete, Edit};
 use lib::network::rpc_message::SourceType::*;
 use lib::network::rpc_message::{
-    CfgType, DataMsg, DeviceId, DeviceStatus, HostCtrl, HostId, HostStatus, RegCtrl, Responsiveness, RpcMessage, RpcMessageKind,
+    CfgType, DataMsg, DeviceId, DeviceInfo, HostCtrl, HostId, HostStatus, RegCtrl, Responsiveness, RpcMessage, RpcMessageKind,
 };
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
@@ -88,7 +88,7 @@ impl SystemNode {
     fn get_host_status(&self) -> HostStatus {
         HostStatus {
             host_id: self.host_id,
-            device_statuses: self.device_configs.iter().map(DeviceStatus::from).collect(),
+            device_statuses: self.device_configs.iter().map(DeviceInfo::from).collect(),
             responsiveness: Responsiveness::Connected,
         }
     }

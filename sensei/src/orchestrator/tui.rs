@@ -154,8 +154,10 @@ fn render_registry(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     };
 
     let registry_status = match tui_state.registry_status {
+        RegistryStatus::Disconnected => Span::raw(" [Not Connected]"),
+        RegistryStatus::WaitingForConnection => Span::raw(" [Connecting...]"),
         RegistryStatus::Connected => Span::raw(" [Connected]"),
-        RegistryStatus::Disconnected => Span::raw(" [Disconnected]"),
+        RegistryStatus::Polling => Span::raw(" [Polling]"),
         RegistryStatus::NotSpecified => Span::raw(""),
     };
 
@@ -168,9 +170,8 @@ fn render_registry(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     };
     let mut lines: Vec<Line> = vec![reg_addr, divider(area), Line::from("ID  Address/Device  Status"), divider(area)];
 
-    for (i, host) in tui_state.hosts_from_reg.iter().enumerate() {
-        let host_id = if let Some(id) = host.id { id.to_string() } else { "?".to_owned() };
-        let line_text = format!(" [{host_id}] {} [{:?}]", host.addr, host.status);
+    for (i, host) in tui_state.registry_hosts.iter().enumerate() {
+        let line_text = format!(" [{}] {} [{:?}]", host.id, host.addr, host.status);
 
         let status_style = match host.status {
             HostStatus::Available => Style::default().fg(Color::Green),
@@ -241,9 +242,9 @@ fn render_hosts(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
                 HostStatus::Unresponsive => style.fg(Color::Red),
             }
         };
-        let host_id = if let Some(id) = host.id { id.to_string() } else { "?".to_owned() };
+
         lines.push(Line::from(Span::styled(
-            format!("[{host_id}] {} [{:?}]", host.addr, host.status),
+            format!("[{}] {} [{:?}]", host.id, host.addr, host.status),
             host_style,
         )));
 
@@ -285,7 +286,7 @@ fn render_hosts(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     lines.push(divider(area));
     lines.push(Line::from(format!("Selected: {current_host}")));
 
-    let border_style = if matches!(tui_state.focussed_panel, Focus::Registry(_)) {
+    let border_style = if matches!(tui_state.focussed_panel, Focus::Hosts(_)) {
         Style::default().fg(Color::Blue)
     } else {
         Style::default()
@@ -363,7 +364,7 @@ fn render_experiments(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
         }
     }
 
-    let border_style = if matches!(tui_state.focussed_panel, Focus::Registry(_)) {
+    let border_style = if matches!(tui_state.focussed_panel, Focus::Experiments(_)) {
         Style::default().fg(Color::Blue)
     } else {
         Style::default()
@@ -403,12 +404,10 @@ fn footer_text(tui_state: &OrgTuiState) -> String {
         },
         Focus::Registry(focused_registry_panel) => match focused_registry_panel {
           FocusReg::RegistryAddress => match &tui_state.registry_status {
-                RegistryStatus::Disconnected | RegistryStatus::NotSpecified=> {
-                  "[C]onnect | [M]anual Add | [Tab] Next | [↓] Move | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit"
-                },
-                RegistryStatus::Connected => {
-                  "[D]isconnect | [P]ing Statuses | [M]anual Add | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit"
-                },
+              RegistryStatus::Disconnected | RegistryStatus::NotSpecified=> "[C]onnect | [M]anual Add | [Tab] Next | [↓] Move | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit",
+              RegistryStatus::WaitingForConnection => "[D]isconnect | [M]anual Add | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit",
+              RegistryStatus::Connected => "[D]isconnect | [S]tart Polling | [P]oll once | [M]anual Add | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit",
+              RegistryStatus::Polling => "[D]isconnect | [S]top Polling | [M]anual Add | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit",
             },
             FocusReg::AvailableHosts(_) => "[M]anual Add | [Tab] Next | [Shft+Tab] Prev | [↑↓] Move | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit",
             FocusReg::AddHost(_) => "[Tab] Next | [Shft+Tab] Prev | [←→↑↓] Move | [Enter] | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit",

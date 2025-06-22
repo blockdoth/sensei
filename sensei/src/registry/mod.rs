@@ -10,7 +10,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use lib::errors::{NetworkError, RegistryError};
-use lib::network::rpc_message::{DataMsg, DeviceId, DeviceStatus, HostId, HostStatus, RegCtrl, Responsiveness, RpcMessage, RpcMessageKind};
+use lib::network::rpc_message::{DataMsg, DeviceId, DeviceInfo, HostId, HostStatus, RegCtrl, Responsiveness, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::{ChannelMsg, RegChannel, SubscribeDataChannel};
 use log::{debug, info, warn};
@@ -227,7 +227,7 @@ impl Registry {
         Ok(())
     }
     /// Store an update to a host's status in the registry.
-    pub async fn store_host_update(&self, host_id: HostId, host_address: SocketAddr, host_status: Vec<DeviceStatus>) -> Result<(), RegistryError> {
+    pub async fn store_host_update(&self, host_id: HostId, host_address: SocketAddr, host_status: Vec<DeviceInfo>) -> Result<(), RegistryError> {
         debug!("{host_status:?}");
         let status = HostInfo {
             addr: host_address,
@@ -248,7 +248,7 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::sync::Arc;
 
-    use lib::network::rpc_message::{DeviceStatus, HostId, HostStatus, RegCtrl, RpcMessageKind, SourceType};
+    use lib::network::rpc_message::{DeviceInfo, HostId, HostStatus, RegCtrl, RpcMessageKind, SourceType};
     use tokio::sync::{Mutex, broadcast};
 
     use super::Registry;
@@ -327,7 +327,7 @@ mod tests {
         let registry = make_registry();
         let host_id = test_host_id(4);
         let addr = test_socket_addr(4567);
-        let device_status = vec![DeviceStatus {
+        let device_status = vec![DeviceInfo {
             id: 1,
             dev_type: SourceType::ESP32,
         }];
@@ -363,7 +363,7 @@ mod tests {
         registry.register_host(host_id, addr).await.unwrap();
 
         // Simulate host sending status update
-        let device_status = vec![DeviceStatus {
+        let device_status = vec![DeviceInfo {
             id: 42,
             dev_type: SourceType::ESP32,
         }];

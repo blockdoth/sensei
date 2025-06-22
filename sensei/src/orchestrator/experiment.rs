@@ -218,7 +218,7 @@ impl ExperimentSession {
             //       debug!("Finished experiment");
             //       return;
             //   }
-            self.cancel_signal.changed().await;
+            self.cancel_signal.changed().await; // Clear reset value
             let cancel_signal_task = self.cancel_signal.clone();
             let mut cancel_signal_cancel = self.cancel_signal.clone();
             let client = client.clone();
@@ -253,7 +253,7 @@ impl ExperimentSession {
 
     pub async fn match_commands(commands: Vec<ExperimentCommand>, command_delay: u64, client: Arc<Mutex<TcpClient>>, update_send: Sender<OrgUpdate>) {
         for command in commands {
-            Orchestrator::handle_msg(client.clone(), command.into(), update_send.clone(), None);
+            Orchestrator::handle_msg(client.clone(), command.into(), update_send.clone(), None, None);
             sleep(Duration::from_millis(command_delay)).await;
         }
     }

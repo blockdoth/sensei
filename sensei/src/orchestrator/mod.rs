@@ -9,10 +9,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::vec;
 
-#[cfg(test)]
-use lib::network::experiment_config::Delays;
+use lib::errors::NetworkError;
 use lib::network::rpc_message::RpcMessageKind::Data;
-use lib::network::rpc_message::{CfgType, DataMsg, DeviceId, HostCtrl, HostId, RegCtrl, RpcMessageKind};
+use lib::network::rpc_message::{CfgType, DataMsg, DeviceId, HostCtrl, HostId, HostStatus, RegCtrl, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
 use lib::tui::TuiRunner;
 use log::*;
@@ -30,6 +29,7 @@ pub struct Orchestrator {
     log_level: LevelFilter,
     experiments_folder: PathBuf,
     tui: bool,
+    polling_interval: u64,
 }
 
 #[derive(Debug)]
@@ -49,6 +49,20 @@ pub enum OrgChannelMsg {
     SelectExperiment(usize),
     StartExperiment,
     StopExperiment,
+    ConnectRegistry(SocketAddr),
+    DisconnectRegistry,
+    StartPolling,
+    StopPolling,
+    Poll,
+}
+
+#[derive(Debug)]
+pub enum RegistryChannelMsg {
+    Connect(SocketAddr),
+    Disconnect,
+    Poll,
+    StartPolling,
+    StopPolling,
 }
 
 impl Run<OrchestratorConfig> for Orchestrator {
@@ -57,12 +71,14 @@ impl Run<OrchestratorConfig> for Orchestrator {
             log_level: global_config.log_level,
             experiments_folder: config.experiments_folder,
             tui: config.tui,
+            polling_interval: 5,
         }
     }
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let (command_send, mut command_recv) = mpsc::channel::<OrgChannelMsg>(1000);
         let (update_send, mut update_recv) = mpsc::channel::<OrgUpdate>(1000);
         let (experiment_send, mut experiment_recv) = mpsc::channel::<ExperimentChannelMsg>(1000);
+        let (registry_send, mut registry_recv) = mpsc::channel::<RegistryChannelMsg>(1000);
 
         let client = Arc::new(Mutex::new(TcpClient::new()));
 
@@ -70,7 +86,13 @@ impl Run<OrchestratorConfig> for Orchestrator {
         let session = ExperimentSession::new(client.clone(), update_send.clone(), cancel_signal_recv);
         // Tasks needs to be boxed and pinned in order to make the type checker happy
         let tasks: Vec<Pin<Box<dyn Future<Output = ()> + Send>>> = vec![
-            Box::pin(Self::command_handler(command_recv, update_send.clone(), experiment_send, client.clone())),
+            Box::pin(Self::command_handler(
+                command_recv,
+                update_send.clone(),
+                experiment_send,
+                registry_send,
+                client.clone(),
+            )),
             Box::pin(Self::experiment_handler(
                 session,
                 self.experiments_folder.clone(),
@@ -78,6 +100,12 @@ impl Run<OrchestratorConfig> for Orchestrator {
                 experiment_recv,
                 update_send.clone(),
                 cancel_signal_send,
+            )),
+            Box::pin(Self::registry_handler(
+                client.clone(),
+                registry_recv,
+                update_send.clone(),
+                self.polling_interval,
             )),
         ];
 
@@ -110,6 +138,105 @@ impl Run<OrchestratorConfig> for Orchestrator {
 }
 
 impl Orchestrator {
+    async fn registry_handler(
+        client: Arc<Mutex<TcpClient>>,
+        mut registry_recv: Receiver<RegistryChannelMsg>,
+        update_send: Sender<OrgUpdate>,
+        polling_interval: u64,
+    ) {
+        let mut current_registry_addr: Option<SocketAddr> = None;
+        let (poll_signal_send, mut poll_signal_recv) = watch::channel(false);
+
+        while let Some(msg) = registry_recv.recv().await {
+            match msg {
+                RegistryChannelMsg::Connect(addr) => match client.lock().await.connect(addr).await {
+                    Ok(_) => {
+                        debug!("Connected to registry");
+                        current_registry_addr = Some(addr);
+                        update_send.send(OrgUpdate::RegistryIsConnected(true)).await;
+                    }
+                    Err(e) => {
+                        debug!("Failed to connect {e}");
+                        update_send.send(OrgUpdate::RegistryIsConnected(false)).await;
+                    }
+                },
+                RegistryChannelMsg::Disconnect => {
+                    if let Some(registry_addr) = current_registry_addr {
+                        if client.lock().await.disconnect(registry_addr).await.is_ok() {
+                            debug!("Disconnected registry");
+                        }
+                    }
+                }
+                RegistryChannelMsg::Poll => {
+                    if let Some(registry_addr) = current_registry_addr {
+                        if let Ok(statuses) = Self::poll(client.clone(), registry_addr).await {
+                            update_send.send(OrgUpdate::UpdateHostStatuses(statuses)).await;
+                        }
+                    }
+                }
+                RegistryChannelMsg::StartPolling => {
+                    if let Some(registry_addr) = current_registry_addr {
+                        poll_signal_send.send(false);
+                        poll_signal_recv.changed().await; // Clear signals
+
+                        let mut poll_signal_recv = poll_signal_recv.clone();
+                        let mut update_send = update_send.clone();
+                        let client = client.clone();
+                        tokio::spawn(async move {
+                            debug!("Started polling registry");
+                            tokio::select! {
+                              _ = async move {
+                                loop {
+                                  if let Ok(statuses) = Self::poll(client.clone(), registry_addr).await {
+                                    update_send.send(OrgUpdate::UpdateHostStatuses(statuses)).await;
+                                    debug!("Polled registry");
+                                  }else{
+                                    update_send.send(OrgUpdate::RegistryIsConnected(false)).await;
+                                    break;
+                                  }
+                                  sleep(Duration::from_secs(polling_interval)).await;
+                                }
+                                debug!("Stopped polling registry");
+                              } => {}
+                              _ = poll_signal_recv.changed() => {
+                                if *poll_signal_recv.borrow() {
+                                  debug!("Stopped polling registry");
+                                }
+                                }
+                            }
+                        });
+                    }
+                }
+                RegistryChannelMsg::StopPolling => {
+                    poll_signal_send.send(true);
+                }
+            }
+        }
+    }
+
+    async fn poll(client: Arc<Mutex<TcpClient>>, registry_addr: SocketAddr) -> Result<Vec<HostStatus>, NetworkError> {
+        // Lock client for send and response cycle
+        let mut client = client.lock().await;
+
+        let msg: RpcMessageKind = RpcMessageKind::RegCtrl(RegCtrl::PollHostStatuses);
+
+        client.send_message(registry_addr, msg).await?;
+        match client.read_message(registry_addr).await {
+            Ok(RpcMessage { msg, src_addr, target_addr }) => {
+                if let RpcMessageKind::RegCtrl(RegCtrl::HostStatuses { host_statuses }) = msg {
+                    Ok(host_statuses)
+                } else {
+                    error!("Received wrong message");
+                    Err(NetworkError::MessageError)
+                }
+            }
+            Err(e) => {
+                error!("Failed to receive host updates");
+                Err(e)
+            }
+        }
+    }
+
     async fn experiment_handler(
         mut session: ExperimentSession,
         experiment_config_path: PathBuf,
@@ -178,21 +305,20 @@ impl Orchestrator {
         mut recv_commands_channel: Receiver<OrgChannelMsg>,
         update_send: Sender<OrgUpdate>,
         experiment_send: Sender<ExperimentChannelMsg>,
+        registry_send: Sender<RegistryChannelMsg>,
         client: Arc<Mutex<TcpClient>>,
     ) {
         info!("Started stream handler task");
         let mut receiving = false;
         let mut targets: Vec<SocketAddr> = vec![];
-
         loop {
             tokio::select! {
                 // Commands from channel
                 msg_opt = recv_commands_channel.recv() => {
                     debug!("Received channel message {msg_opt:?}");
                     if let Some(msg) = msg_opt {
-                        Self::handle_msg(client.clone(), msg, update_send.clone(), Some(experiment_send.clone())).await;
+                        Self::handle_msg(client.clone(), msg, update_send.clone(), Some(experiment_send.clone()),Some(registry_send.clone())).await;
                     }
-                    debug!("Handled");
                 }
 
                 // TCP Client messages if in receiving mode
@@ -224,6 +350,7 @@ impl Orchestrator {
         msg: OrgChannelMsg,
         update_send: Sender<OrgUpdate>,
         experiment_send: Option<Sender<ExperimentChannelMsg>>, // Option allows reuse of this function in experiment.rs
+        registry_send: Option<Sender<RegistryChannelMsg>>,     // Option allows reuse of this function in experiment.rs
     ) {
         match msg {
             OrgChannelMsg::Connect(target_addr) => {
@@ -289,16 +416,10 @@ impl Orchestrator {
                 }
             }
             OrgChannelMsg::GetHostStatuses(target_addr) => {
-                let msg = RpcMessageKind::RegCtrl(RegCtrl::PollHostStatuses);
-                let mut client = client.lock().await;
-                client.send_message(target_addr, msg).await;
-                if let Ok(response) = client.wait_for_read_message(target_addr).await {
-                    if let RpcMessageKind::RegCtrl(RegCtrl::HostStatuses { host_statuses }) = response.msg {
-                        info!("{host_statuses:?}");
-                    }
+                if let Some(experiment_send) = experiment_send {
+                    experiment_send.send(ExperimentChannelMsg::Stop).await;
                 }
             }
-
             OrgChannelMsg::Ping(target_addr) => {
                 let msg = RpcMessageKind::HostCtrl(HostCtrl::Ping);
                 let mut client = client.lock().await;
@@ -311,6 +432,33 @@ impl Orchestrator {
                     }
                 } else {
                     error!("Channel error")
+                }
+            }
+
+            // Kinda inefficient, but tech debt
+            OrgChannelMsg::ConnectRegistry(socket_addr) => {
+                if let Some(registry_send) = registry_send {
+                    registry_send.send(RegistryChannelMsg::Connect(socket_addr)).await;
+                }
+            }
+            OrgChannelMsg::DisconnectRegistry => {
+                if let Some(registry_send) = registry_send {
+                    registry_send.send(RegistryChannelMsg::Disconnect).await;
+                }
+            }
+            OrgChannelMsg::StartPolling => {
+                if let Some(registry_send) = registry_send {
+                    registry_send.send(RegistryChannelMsg::StartPolling).await;
+                }
+            }
+            OrgChannelMsg::StopPolling => {
+                if let Some(registry_send) = registry_send {
+                    registry_send.send(RegistryChannelMsg::StopPolling).await;
+                }
+            }
+            OrgChannelMsg::Poll => {
+                if let Some(registry_send) = registry_send {
+                    registry_send.send(RegistryChannelMsg::Poll).await;
                 }
             }
         }

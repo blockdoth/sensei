@@ -1,9 +1,9 @@
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net::SocketAddr;
 
 use async_trait::async_trait;
 use crossterm::event::{KeyCode, KeyEvent};
 use lib::csi_types::CsiData;
-use lib::network::rpc_message::{HostId, SourceType};
+use lib::network::rpc_message::{HostId, HostStatus as RegHostStatus, Responsiveness, SourceType};
 use lib::tui::Tui;
 use lib::tui::logs::{FromLog, LogEntry};
 use log::info;
@@ -17,7 +17,7 @@ use crate::services::DEFAULT_ADDRESS;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Host {
-    pub id: Option<HostId>,
+    pub id: HostId,
     pub addr: SocketAddr,
     pub devices: Vec<Device>,
     pub status: HostStatus,
@@ -44,10 +44,14 @@ pub enum DeviceStatus {
     Subscribed,
     NotSubscribed,
 }
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum RegistryStatus {
     Connected,
     Disconnected,
+    Polling,
     NotSpecified,
+    WaitingForConnection,
 }
 
 #[derive(PartialEq, Debug, Clone)]
@@ -96,9 +100,14 @@ pub enum OrgUpdate {
     ActiveExperiment(ActiveExperiment),
     UpdateExperimentList(Vec<ExperimentMetadata>),
     Edit(char),
+    //Registry
     ConnectRegistry,
     DisconnectRegistry,
-    StatusUpdate,
+    RegistryIsConnected(bool),
+    TogglePolling,
+    Poll,
+    UpdateHostStatuses(Vec<RegHostStatus>),
+    //Experiments
     StartExperiment,
     StopExperiment,
     ClearLogs,
@@ -124,9 +133,10 @@ impl FromLog for OrgUpdate {
 /// Holds the entire state of the TUI, including configurations, logs, and mode information.
 pub struct OrgTuiState {
     pub should_quit: bool,
-    pub hosts_from_reg: Vec<Host>,
+    pub registry_hosts: Vec<Host>,
     pub registry_addr: Option<SocketAddr>,
     pub registry_status: RegistryStatus,
+    pub is_polling: bool,
     pub known_hosts: Vec<Host>,
     pub logs: Vec<LogEntry>,
     pub csi: Vec<CsiData>,
@@ -141,22 +151,23 @@ impl OrgTuiState {
     pub fn new() -> Self {
         OrgTuiState {
             should_quit: false,
-            hosts_from_reg: vec![
-                Host {
-                    id: Some(100),
-                    addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 4242)),
-                    devices: vec![],
-                    status: HostStatus::Available,
-                },
-                Host {
-                    id: Some(101),
-                    addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 2121)),
-                    devices: vec![],
-                    status: HostStatus::Unresponsive,
-                },
+            registry_hosts: vec![
+                // Host {
+                //     id: Some(100),
+                //     addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 4242)),
+                //     devices: vec![],
+                //     status: HostStatus::Available,
+                // },
+                // Host {
+                //     id: Some(101),
+                //     addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 2121)),
+                //     devices: vec![],
+                //     status: HostStatus::Unresponsive,
+                // },
             ],
             registry_addr: Some(DEFAULT_ADDRESS),
             registry_status: RegistryStatus::Disconnected,
+            is_polling: false,
             logs: vec![],
             csi: vec![],
             focussed_panel: Focus::Main,
@@ -167,29 +178,29 @@ impl OrgTuiState {
             ],
             selected_host: None,
             known_hosts: vec![
-                Host {
-                    id: Some(0),
-                    status: HostStatus::Available,
-                    devices: vec![],
-                    addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 8080)),
-                },
-                Host {
-                    id: Some(2),
-                    status: HostStatus::Sending,
-                    devices: vec![
-                        Device {
-                            id: 5,
-                            dev_type: SourceType::AX210,
-                            status: DeviceStatus::Subscribed,
-                        },
-                        Device {
-                            id: 9,
-                            dev_type: SourceType::AtherosQCA,
-                            status: DeviceStatus::Subscribed,
-                        },
-                    ],
-                    addr: DEFAULT_ADDRESS,
-                },
+                // Host {
+                //     id: Some(0),
+                //     status: HostStatus::Available,
+                //     devices: vec![],
+                //     addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 8080)),
+                // },
+                // Host {
+                //     id: Some(2),
+                //     status: HostStatus::Sending,
+                //     devices: vec![
+                //         Device {
+                //             id: 5,
+                //             dev_type: SourceType::AX210,
+                //             status: DeviceStatus::Subscribed,
+                //         },
+                //         Device {
+                //             id: 9,
+                //             dev_type: SourceType::AtherosQCA,
+                //             status: DeviceStatus::Subscribed,
+                //         },
+                //     ],
+                //     addr: DEFAULT_ADDRESS,
+                // },
             ],
         }
     }
@@ -232,7 +243,8 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                     KeyCode::Down => Some(OrgUpdate::Down(focus)),
                     KeyCode::Char('c') | KeyCode::Char('C') => Some(OrgUpdate::ConnectRegistry),
                     KeyCode::Char('d') | KeyCode::Char('D') => Some(OrgUpdate::DisconnectRegistry),
-                    KeyCode::Char('s') | KeyCode::Char('S') => Some(OrgUpdate::StatusUpdate),
+                    KeyCode::Char('s') | KeyCode::Char('S') => Some(OrgUpdate::TogglePolling),
+                    KeyCode::Char('p') | KeyCode::Char('P') => Some(OrgUpdate::Poll),
                     KeyCode::Char('m') | KeyCode::Char('M') => Some(OrgUpdate::FocusChange(Focus::Registry(FocusReg::AddHost(0)))),
                     _ => None,
                 },
@@ -241,7 +253,7 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                     KeyCode::Down => Some(OrgUpdate::Down(focus)),
                     KeyCode::Tab => Some(OrgUpdate::Tab(focus)),
                     KeyCode::BackTab => Some(OrgUpdate::BackTab(focus)),
-                    KeyCode::Char('a') | KeyCode::Char('A') => self.hosts_from_reg.get(*host_idx).map(|host| OrgUpdate::AddHost((*host).clone())),
+                    KeyCode::Char('a') | KeyCode::Char('A') => self.registry_hosts.get(*host_idx).map(|host| OrgUpdate::AddHost((*host).clone())),
                     KeyCode::Char('m') | KeyCode::Char('M') => Some(OrgUpdate::FocusChange(Focus::Registry(FocusReg::AddHost(0)))),
                     _ => None,
                 },
@@ -403,25 +415,97 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
             OrgUpdate::ClearLogs => self.logs.clear(),
             OrgUpdate::ClearCsi => self.csi.clear(),
             OrgUpdate::FocusChange(focused_panel) => self.focussed_panel = focused_panel,
-            OrgUpdate::AddHost(host) => {
-                if !self.known_hosts.iter().any(|h| h.id == host.id || h.addr == host.addr) {
+            OrgUpdate::AddHost(status) => {
+                if !self.known_hosts.iter().any(|h| h.id == status.id || h.addr == status.addr) {
                     info!("Adding new host from registry");
-                    self.known_hosts.push(host)
+                    self.known_hosts.push(status)
                 } else {
                     info!("Host already known");
                 }
             }
+            // Registry
+            OrgUpdate::ConnectRegistry => if self.registry_status == RegistryStatus::Disconnected {
+                if let Some(registry_addr) = self.registry_addr {
+                    command_send.send(OrgChannelMsg::ConnectRegistry(registry_addr)).await;
+                    self.registry_status = RegistryStatus::Connected;
+                }
+            },
 
-            OrgUpdate::ConnectRegistry => {
-                // todo!()
-                self.registry_status = RegistryStatus::Connected
+            OrgUpdate::RegistryIsConnected(is_connected) => {
+                self.registry_status = if is_connected {
+                    RegistryStatus::Connected
+                } else {
+                    self.registry_hosts = self
+                        .registry_hosts
+                        .clone()
+                        .into_iter()
+                        .map(|mut h| {
+                            h.devices = h
+                                .devices
+                                .into_iter()
+                                .map(|mut d| {
+                                    d.status = DeviceStatus::NotSubscribed;
+                                    d
+                                })
+                                .collect();
+                            h.status = HostStatus::Disconnected;
+                            h
+                        })
+                        .collect();
+
+                    RegistryStatus::Disconnected
+                }
             }
-            OrgUpdate::DisconnectRegistry => {
-                // todo!()
-                self.registry_status = RegistryStatus::Disconnected
-            }
-            OrgUpdate::StatusUpdate => {
-                todo!()
+            OrgUpdate::DisconnectRegistry => match self.registry_status {
+                RegistryStatus::Polling | RegistryStatus::Connected | RegistryStatus::WaitingForConnection => {
+                    command_send.send(OrgChannelMsg::DisconnectRegistry).await;
+                    self.registry_status = RegistryStatus::Disconnected
+                }
+                _ => {}
+            },
+            OrgUpdate::TogglePolling => match self.registry_status {
+                RegistryStatus::Connected | RegistryStatus::Polling => {
+                    self.registry_status = if self.is_polling {
+                        if command_send.send(OrgChannelMsg::StopPolling).await.is_ok() {
+                            RegistryStatus::Connected
+                        } else {
+                            RegistryStatus::Disconnected
+                        }
+                    } else if command_send.send(OrgChannelMsg::StartPolling).await.is_ok() {
+                        RegistryStatus::Polling
+                    } else {
+                        RegistryStatus::Disconnected
+                    }
+                }
+                _ => {}
+            },
+            OrgUpdate::Poll => if self.registry_status == RegistryStatus::Connected {
+                command_send.send(OrgChannelMsg::Poll).await;
+            },
+
+            OrgUpdate::UpdateHostStatuses(statuses) => {
+                // Couldnt get Into() to work
+                self.registry_hosts = statuses
+                    .iter()
+                    .map(|h| Host {
+                        id: h.host_id,
+                        addr: DEFAULT_ADDRESS,
+                        devices: h
+                            .device_statuses
+                            .iter()
+                            .map(|d| Device {
+                                id: d.id,
+                                dev_type: d.dev_type,
+                                status: DeviceStatus::NotSubscribed,
+                            })
+                            .collect(),
+                        status: match h.responsiveness {
+                            Responsiveness::Connected => HostStatus::Connected,
+                            Responsiveness::Lossy => HostStatus::Unresponsive,
+                            Responsiveness::Disconnected => HostStatus::Disconnected,
+                        },
+                    })
+                    .collect();
             }
 
             OrgUpdate::Backspace(Focus::Registry(focus)) => {
@@ -439,7 +523,7 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                         info!("Adding new host with address {socket_addr}");
 
                         self.known_hosts.push(Host {
-                            id: None,
+                            id: 0,
                             addr: socket_addr,
                             devices: vec![],
                             status: HostStatus::Available,
@@ -459,9 +543,9 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
             OrgUpdate::Down(Focus::Experiments(focus)) => self.focussed_panel = Focus::Experiments(focus.down(self.experiments.len())),
 
             // Key logic for the registry panel
-            OrgUpdate::Up(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.cursor_up(self.hosts_from_reg.len())),
-            OrgUpdate::Down(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.cursor_down(self.hosts_from_reg.len())),
-            OrgUpdate::Tab(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.tab(self.hosts_from_reg.len())),
+            OrgUpdate::Up(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.cursor_up(self.registry_hosts.len())),
+            OrgUpdate::Down(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.cursor_down(self.registry_hosts.len())),
+            OrgUpdate::Tab(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.tab(self.registry_hosts.len())),
             OrgUpdate::BackTab(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.back_tab()),
             OrgUpdate::Left(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.cursor_left()),
             OrgUpdate::Right(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.cursor_right()),
