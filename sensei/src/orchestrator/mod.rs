@@ -10,6 +10,7 @@ use std::time::Duration;
 use std::vec;
 
 use lib::errors::NetworkError;
+use lib::network::experiment_config::{Block, Delays, Experiment, ExperimentHost, IsRecurring, Metadata, Stage};
 use lib::network::rpc_message::RpcMessageKind::Data;
 use lib::network::rpc_message::{CfgType, DataMsg, DeviceId, HostCtrl, HostId, HostStatus, RegCtrl, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
@@ -21,39 +22,38 @@ use tokio::sync::{Mutex, mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
-use crate::orchestrator::experiment::{ActiveExperiment, ExperimentChannelMsg, ExperimentSession, ExperimentStatus};
+use crate::orchestrator::experiment::{ActiveExperiment, DelayType, ExperimentChannelMsg, ExperimentSession, ExperimentStatus};
 use crate::orchestrator::state::{OrgTuiState, OrgUpdate};
 use crate::services::{GlobalConfig, OrchestratorConfig, Run};
 
-pub struct Orchestrator {
-    log_level: LevelFilter,
-    experiments_folder: PathBuf,
-    tui: bool,
-    polling_interval: u64,
-}
-
 #[derive(Debug)]
 pub enum OrgChannelMsg {
+    // === Host ===
     Connect(SocketAddr),
     Disconnect(SocketAddr),
     Subscribe(SocketAddr, Option<SocketAddr>, DeviceId),
     Unsubscribe(SocketAddr, Option<SocketAddr>, DeviceId),
     SubscribeAll(SocketAddr, Option<SocketAddr>),
     UnsubscribeAll(SocketAddr, Option<SocketAddr>),
-    SendStatus(SocketAddr, HostId),
-    Configure(SocketAddr, DeviceId, CfgType),
-    GetHostStatuses(SocketAddr),
-    Delay(u64),
-    Shutdown,
-    Ping(SocketAddr),
+    // === Experiments ===
     SelectExperiment(usize),
     StartExperiment,
+    StartRemoteExperiment(SocketAddr),
     StopExperiment,
+    // === Registry ===
+    StopRemoteExperiment(SocketAddr),
     ConnectRegistry(SocketAddr),
+    GetHostStatuses(SocketAddr),
+    SendStatus(SocketAddr, HostId),
     DisconnectRegistry,
     StartPolling,
     StopPolling,
     Poll,
+    // === Misc ===
+    Configure(SocketAddr, DeviceId, CfgType),
+    Delay(u64),
+    Shutdown,
+    Ping(SocketAddr),
 }
 
 #[derive(Debug)]
@@ -65,20 +65,27 @@ pub enum RegistryChannelMsg {
     StopPolling,
 }
 
+pub struct Orchestrator {
+    log_level: LevelFilter,
+    experiments_folder: PathBuf,
+    tui: bool,
+    polling_interval: u64,
+}
+
 impl Run<OrchestratorConfig> for Orchestrator {
     fn new(global_config: GlobalConfig, config: OrchestratorConfig) -> Self {
         Orchestrator {
             log_level: global_config.log_level,
             experiments_folder: config.experiments_folder,
             tui: config.tui,
-            polling_interval: 5,
+            polling_interval: config.polling_interval,
         }
     }
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let (command_send, mut command_recv) = mpsc::channel::<OrgChannelMsg>(1000);
-        let (update_send, mut update_recv) = mpsc::channel::<OrgUpdate>(1000);
-        let (experiment_send, mut experiment_recv) = mpsc::channel::<ExperimentChannelMsg>(1000);
-        let (registry_send, mut registry_recv) = mpsc::channel::<RegistryChannelMsg>(1000);
+        let (command_send, mut command_recv) = mpsc::channel::<OrgChannelMsg>(100);
+        let (update_send, mut update_recv) = mpsc::channel::<OrgUpdate>(100);
+        let (experiment_send, mut experiment_recv) = mpsc::channel::<ExperimentChannelMsg>(5);
+        let (registry_send, mut registry_recv) = mpsc::channel::<RegistryChannelMsg>(5);
 
         let client = Arc::new(Mutex::new(TcpClient::new()));
 
@@ -107,6 +114,7 @@ impl Run<OrchestratorConfig> for Orchestrator {
                 update_send.clone(),
                 self.polling_interval,
             )),
+            Box::pin(Self::init(update_send.clone())),
         ];
 
         if self.tui {
@@ -138,6 +146,17 @@ impl Run<OrchestratorConfig> for Orchestrator {
 }
 
 impl Orchestrator {
+
+    /// Initialization function that is able to set everything up using the proper channels (pun intended)
+    async fn init(update_send: Sender<OrgUpdate>) {
+        update_send.send(OrgUpdate::ConnectRegistry).await;
+        sleep(Duration::from_millis(100)).await;
+        update_send.send(OrgUpdate::TogglePolling).await;
+        sleep(Duration::from_millis(100)).await;
+        update_send.send(OrgUpdate::AddAllHosts).await;
+    }
+
+    /// Continuously running task responsible for managing registry related functionality
     async fn registry_handler(
         client: Arc<Mutex<TcpClient>>,
         mut registry_recv: Receiver<RegistryChannelMsg>,
@@ -162,7 +181,9 @@ impl Orchestrator {
                 },
                 RegistryChannelMsg::Disconnect => {
                     if let Some(registry_addr) = current_registry_addr {
+                        poll_signal_send.send(true);
                         if client.lock().await.disconnect(registry_addr).await.is_ok() {
+                            update_send.send(OrgUpdate::RegistryIsConnected(false)).await;
                             debug!("Disconnected registry");
                         }
                     }
@@ -213,7 +234,8 @@ impl Orchestrator {
             }
         }
     }
-
+    
+    /// Poll a device for status updates
     async fn poll(client: Arc<Mutex<TcpClient>>, registry_addr: SocketAddr) -> Result<Vec<HostStatus>, NetworkError> {
         // Lock client for send and response cycle
         let mut client = client.lock().await;
@@ -237,6 +259,7 @@ impl Orchestrator {
         }
     }
 
+    /// Continuously running task responsible for managing experiment related functionality
     async fn experiment_handler(
         mut session: ExperimentSession,
         experiment_config_path: PathBuf,
@@ -255,7 +278,6 @@ impl Orchestrator {
             ))
             .await;
 
-        info!("Waiting for experiment updates");
         while let Some(msg) = experiment_recv.recv().await {
             match msg {
                 ExperimentChannelMsg::Start => {
@@ -276,12 +298,55 @@ impl Orchestrator {
                         }
                     }
                 }
-
-                ExperimentChannelMsg::Stop => {
-                    if let Some(active) = &mut session.active_experiment {
-                        active.status = ExperimentStatus::Stopped;
-                        cancel_signal_send.send(true);
+                ExperimentChannelMsg::StartRemote(target_addr) => {
+                    if let Some(active) = &session.active_experiment {
+                        // TODO make better
+                        let msg = RpcMessageKind::HostCtrl(HostCtrl::StartExperiment {
+                            experiment: Experiment {
+                                metadata: Metadata {
+                                    name: active.experiment.metadata.name.clone(),
+                                    experiment_host: ExperimentHost::SystemNode { target_addr },
+                                    output_path: Some(active.experiment.metadata.output_path.clone()),
+                                },
+                                stages: active
+                                    .experiment
+                                    .stages
+                                    .iter()
+                                    .map(|s| Stage {
+                                        name: s.name.clone(),
+                                        command_blocks: s
+                                            .blocks
+                                            .iter()
+                                            .map(|b| Block {
+                                                commands: b.commands.clone(),
+                                                delays: Delays {
+                                                    init_delay: b.delays.init_delay,
+                                                    command_delay: b.delays.command_delay,
+                                                    is_recurring: match b.delays.delay_type {
+                                                        DelayType::Recurring {
+                                                            recurrence_delay,
+                                                            iterations,
+                                                        } => IsRecurring::Recurring {
+                                                            recurrence_delay,
+                                                            iterations,
+                                                        },
+                                                        DelayType::NotRecurring => IsRecurring::NotRecurring,
+                                                    },
+                                                },
+                                            })
+                                            .collect(),
+                                    })
+                                    .collect(),
+                            },
+                        });
+                        client.lock().await.send_message(target_addr, msg).await;
                     }
+                }
+
+                ExperimentChannelMsg::Stop => {}
+                ExperimentChannelMsg::StopRemote(target_addr) => {
+                    let msg = RpcMessageKind::HostCtrl(HostCtrl::StopExperiment);
+                    client.lock().await.send_message(target_addr, msg).await;
                 }
 
                 ExperimentChannelMsg::Select(i) => {
@@ -300,7 +365,12 @@ impl Orchestrator {
                 .await;
         }
     }
-
+    
+    /// Asynchronous task responsible for handling messages from the TUI and orchestrating communication
+    /// with the TCP client, experiment manager, and registry.
+    /// 
+    /// This task listens for incoming control messages via a channel and also optionally listens
+    /// to messages from the TCP client, particularly CSI and raw frame data, if receiving is enabled.
     async fn command_handler(
         mut recv_commands_channel: Receiver<OrgChannelMsg>,
         update_send: Sender<OrgUpdate>,
@@ -345,6 +415,10 @@ impl Orchestrator {
         }
     }
 
+    /// Processes a single `OrgChannelMsg` control message and dispatches the appropriate command
+    /// to the TCP client, experiment manager, or registry.
+    ///
+    /// Used both inside the `command_handler` loop and externally when triggering individual commands.
     pub async fn handle_msg(
         client: Arc<Mutex<TcpClient>>,
         msg: OrgChannelMsg,
@@ -381,11 +455,28 @@ impl Orchestrator {
                     client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await;
                 }
             }
-            OrgChannelMsg::SubscribeAll(to_addr, msg_origin_addr) => {
-                todo!()
+            OrgChannelMsg::SubscribeAll(target_addr, msg_origin_addr) => {
+                if let Some(msg_origin_addr) = msg_origin_addr {
+                    info!("Subscribing {msg_origin_addr} to all devices of {target_addr}");
+
+                    let msg = HostCtrl::UnsubscribeFromAll { target_addr };
+                    client.lock().await.send_message(msg_origin_addr, RpcMessageKind::HostCtrl(msg)).await;
+                } else {
+                    info!("Subscribing to all devices of {target_addr}");
+                    let msg = HostCtrl::UnsubscribeAll;
+                    client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await;
+                }
             }
-            OrgChannelMsg::UnsubscribeAll(to_addr, msg_origin_addr) => {
-                todo!()
+            OrgChannelMsg::UnsubscribeAll(target_addr, msg_origin_addr) => {
+                if let Some(msg_origin_addr) = msg_origin_addr {
+                    info!("Unsubscribing {msg_origin_addr} from all devices of {target_addr}");
+                    let msg = HostCtrl::UnsubscribeFromAll { target_addr };
+                    client.lock().await.send_message(msg_origin_addr, RpcMessageKind::HostCtrl(msg)).await;
+                } else {
+                    info!("Unsubscribing from all devices of {target_addr}");
+                    let msg = HostCtrl::UnsubscribeAll;
+                    client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await;
+                }
             }
             OrgChannelMsg::SendStatus(target_addr, host_id) => {
                 let msg = RpcMessageKind::RegCtrl(RegCtrl::PollHostStatus { host_id });
@@ -410,9 +501,19 @@ impl Orchestrator {
                     experiment_send.send(ExperimentChannelMsg::Start).await;
                 }
             }
+            OrgChannelMsg::StartRemoteExperiment(addr) => {
+                if let Some(experiment_send) = experiment_send {
+                    experiment_send.send(ExperimentChannelMsg::StartRemote(addr)).await;
+                }
+            }
             OrgChannelMsg::StopExperiment => {
                 if let Some(experiment_send) = experiment_send {
                     experiment_send.send(ExperimentChannelMsg::Stop).await;
+                }
+            }
+            OrgChannelMsg::StopRemoteExperiment(addr) => {
+                if let Some(experiment_send) = experiment_send {
+                    experiment_send.send(ExperimentChannelMsg::StopRemote(addr)).await;
                 }
             }
             OrgChannelMsg::GetHostStatuses(target_addr) => {

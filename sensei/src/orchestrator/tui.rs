@@ -33,7 +33,11 @@ pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
     render_footer(f, tui_state, footer_area);
 }
 
-// Splits
+// === Splits ===
+
+/// Splits the full frame into two vertical chunks:
+/// - Main content area
+/// - Footer
 fn split_main_footer(f: &Frame) -> (Rect, Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -46,6 +50,9 @@ fn split_main_footer(f: &Frame) -> (Rect, Rect) {
     (chunks[0], chunks[1])
 }
 
+/// Splits a given area horizontally into:
+/// - Left panel: Information or status display
+/// - Right panel: Configuration area
 fn split_info_config(area: Rect) -> (Rect, Rect) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
@@ -57,6 +64,9 @@ fn split_info_config(area: Rect) -> (Rect, Rect) {
     (chunks[0], chunks[1])
 }
 
+/// Splits a given area vertically into two equal parts:
+/// - Top: Log output
+/// - Bottom: CSI (e.g., system information or metrics)
 fn split_log_csi(area: Rect) -> (Rect, Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -68,6 +78,10 @@ fn split_log_csi(area: Rect) -> (Rect, Rect) {
     (chunks[0], chunks[1])
 }
 
+/// Splits a given area vertically into three equal parts:
+/// - Top: Registry address display
+/// - Middle: Hosts listing
+/// - Bottom: Experiment controls
 fn split_registry_hosts_experiments(area: Rect) -> (Rect, Rect, Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -80,7 +94,17 @@ fn split_registry_hosts_experiments(area: Rect) -> (Rect, Rect, Rect) {
     (chunks[0], chunks[1], chunks[2])
 }
 
-// Misc helpers
+// === Misc helpers ===
+
+/// Creates a styled horizontal divider line to visually separate UI sections.
+///
+/// # Parameters
+/// - `area`: The `Rect` representing the area where the line will be drawn.
+///   Used to calculate the width of the divider.
+///
+/// # Returns
+/// - A `Line` containing a dimmed horizontal rule (`─`), adjusted to fit
+///   the area width minus 4 units for padding or margins.r
 fn divider(area: Rect) -> Line<'static> {
     Line::from(vec![Span::styled(
         "─".repeat((area.width as usize).saturating_sub(4)),
@@ -88,27 +112,40 @@ fn divider(area: Rect) -> Line<'static> {
     )])
 }
 
-// Render functions
+// === Render functions ===
 
+/// Renders the logs panel in the TUI.
+/// Displays formatted log entries with scroll support and highlights the panel if focused.
 fn render_logs(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     let current_log_count = tui_state.logs.len();
-    let start_index = current_log_count.saturating_sub(area.height.saturating_sub(2) as usize);
+    let start_index = current_log_count
+        .saturating_sub(area.height.saturating_sub(2) as usize)
+        .saturating_sub(tui_state.logs_scroll_offset);
 
     let logs: Vec<Line> = tui_state.logs.iter().skip(start_index).map(|entry| entry.format()).collect();
 
+    let border_style = if matches!(tui_state.focussed_panel, Focus::Logs) {
+        Style::default().fg(Color::Blue)
+    } else {
+        Style::default()
+    };
     let widget = Paragraph::new(Text::from(logs)).wrap(Wrap { trim: true }).block(
         Block::default()
             .padding(PADDING)
             .borders(Borders::ALL)
+            .border_style(border_style)
             .title(Span::styled(format!(" Log ({current_log_count})"), HEADER_STYLE)),
     );
     f.render_widget(widget, area);
 }
 
+/// Renders the CSI (Channel State Information) panel in the TUI.
+/// Displays a timestamped list of CSI entries with basic metadata and subcarrier counts.
 fn render_csi(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     let current_log_count = tui_state.logs.len();
-    let start_index = current_log_count.saturating_sub(area.height.saturating_sub(2) as usize);
-
+    let start_index = current_log_count
+        .saturating_sub(area.height.saturating_sub(2) as usize)
+        .saturating_sub(tui_state.logs_scroll_offset);
     // let logs: Vec<Line> = tui_state.csi.iter().skip(start_index).map(|entry| entry.format()).collect();
     let mut lines = vec![];
 
@@ -137,16 +174,23 @@ fn render_csi(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
             )));
         });
     lines.push(divider(area));
-
+    let border_style = if matches!(tui_state.focussed_panel, Focus::Csi) {
+        Style::default().fg(Color::Blue)
+    } else {
+        Style::default()
+    };
     let widget = Paragraph::new(Text::from(lines)).wrap(Wrap { trim: true }).block(
         Block::default()
             .padding(PADDING)
             .borders(Borders::ALL)
+            .border_style(border_style)
             .title(Span::styled(" CSI".to_string(), HEADER_STYLE)),
     );
     f.render_widget(widget, area);
 }
 
+/// Renders the registry panel in the TUI.
+/// Shows the registry address, status, list of available hosts, and input for manually adding hosts.
 fn render_registry(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     let registry_addr_text = match tui_state.registry_addr {
         Some(addr) => format!("Address: {addr:?}"),
@@ -154,13 +198,12 @@ fn render_registry(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     };
 
     let registry_status = match tui_state.registry_status {
-        RegistryStatus::Disconnected => Span::raw(" [Not Connected]"),
-        RegistryStatus::WaitingForConnection => Span::raw(" [Connecting...]"),
-        RegistryStatus::Connected => Span::raw(" [Connected]"),
-        RegistryStatus::Polling => Span::raw(" [Polling]"),
+        RegistryStatus::Disconnected => Span::styled(" [Not Connected]", Style::default().fg(Color::Red)),
+        RegistryStatus::WaitingForConnection => Span::styled(" [Connecting...]", Style::default().fg(Color::Yellow)),
+        RegistryStatus::Connected => Span::styled(" [Connected]", Style::default().fg(Color::Green)),
+        RegistryStatus::Polling => Span::styled(" [Polling]", Style::default().fg(Color::Cyan)),
         RegistryStatus::NotSpecified => Span::raw(""),
     };
-
     let reg_addr = match &tui_state.focussed_panel {
         Focus::Registry(FocusReg::RegistryAddress) => Line::from(vec![
             Span::styled(registry_addr_text, Style::default().bg(Color::White).fg(Color::Black)),
@@ -202,7 +245,7 @@ fn render_registry(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     let ip_input = Line::from(" [IP:Port] ___.___.___.___:______");
 
     let mut add_addr = vec![Span::from(" IP:Port ")];
-    add_addr.extend(edit_number(&tui_state.focussed_panel, tui_state.add_host_input_socket));
+    add_addr.extend(edit_address(&tui_state.focussed_panel, tui_state.add_host_input_socket));
     lines.push(Line::from(add_addr));
 
     let border_style = if matches!(tui_state.focussed_panel, Focus::Registry(_)) {
@@ -221,6 +264,8 @@ fn render_registry(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     f.render_widget(widget, area);
 }
 
+/// Renders the hosts panel in the TUI.
+/// Displays a tree of known hosts and their associated devices, with connection and subscription statuses.
 fn render_hosts(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     let mut lines: Vec<Line> = vec![];
     lines.push(Line::from("ID  Address/Device  Status"));
@@ -235,11 +280,11 @@ fn render_hosts(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
 
             match host.status {
                 HostStatus::Unknown => style.fg(Color::DarkGray),
-                HostStatus::Available => style.fg(Color::DarkGray),
-                HostStatus::Disconnected => style.fg(Color::DarkGray),
-                HostStatus::Connected => style.fg(Color::Yellow),
-                HostStatus::Sending => style.fg(Color::Green),
-                HostStatus::Unresponsive => style.fg(Color::Red),
+                HostStatus::Disconnected => style.fg(Color::Red),
+                HostStatus::Available => style.fg(Color::Gray),
+                HostStatus::Connected => style.fg(Color::Green),
+                HostStatus::Sending => style.fg(Color::Cyan),
+                HostStatus::Unresponsive => style.fg(Color::Yellow),
             }
         };
 
@@ -302,6 +347,8 @@ fn render_hosts(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     f.render_widget(widget, area);
 }
 
+/// Renders the experiments panel in the TUI.
+/// Displays current experiment status and metadata, as well as a list of selectable experiments.
 fn render_experiments(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     let mut lines = if let Some(active_exp) = &tui_state.active_experiment {
         let status_color = match active_exp.status {
@@ -311,9 +358,15 @@ fn render_experiments(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
             _ => Color::White,
         };
         let stage_names: Vec<String> = active_exp.experiment.stages.iter().map(|f| f.name.clone()).collect();
+        let running_on = if let Some(addr) = tui_state.selected_host {
+            format!("{addr:?}")
+        } else {
+            "Current Device".to_owned()
+        };
 
         let mut lines = vec![
             Line::from(vec![Span::raw("Name:         "), Span::raw(&active_exp.experiment.metadata.name)]),
+            Line::from(vec![Span::raw("Running on:   "), Span::raw(running_on.to_string())]),
             Line::from(vec![
                 Span::raw("Output path:  "),
                 Span::styled(
@@ -352,7 +405,12 @@ fn render_experiments(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     lines.push(divider(area));
 
     for (i, metadata) in tui_state.experiments.iter().enumerate() {
-        let line_text = format!("  [{}] {}", i + 1, metadata.name);
+        let selected = match &tui_state.active_experiment {
+            Some(active_exp) if &active_exp.experiment.metadata == metadata => "X",
+            _ => " ",
+        };
+
+        let line_text = format!("  [{}] {}", selected, metadata.name);
 
         if matches!( tui_state.focussed_panel, Focus::Experiments(FocusExp::Select(idx)) if idx == i) {
             lines.push(Line::from(vec![Span::styled(
@@ -380,6 +438,7 @@ fn render_experiments(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     f.render_widget(widget, area);
 }
 
+/// Renders the footer panel with keybindings or contextual help based on the current focused panel.
 fn render_footer(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     let footer = Block::default().title("Info").borders(Borders::ALL);
 
@@ -393,10 +452,10 @@ fn render_footer(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     f.render_widget(widget, area);
 }
 
-/// Renders the footer text
+/// Returns a footer string with keybinds/help based on the currently focused panel.
 fn footer_text(tui_state: &OrgTuiState) -> String {
     match &tui_state.focussed_panel {
-        Focus::Main => "[R]egistry | [H]osts  | [E]xperiment | [.] Clear Logs | [,] Clear CSI | [Q]uit",
+        Focus::Main => "[R]egistry | [H]osts  | [E]xperiment | [L]ogs | [C]si | [.] Clear Logs | [,] Clear CSI | [Q]uit",
         Focus::Hosts(focused_hosts_panel) => match focused_hosts_panel {
             FocusHost::None => "[.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit",
             FocusHost::HostTree(_, 0) => "S[E]lect Host | [C]onnect | [D]isconnect | [S]ubscribe to all | [U]nsubscribe to all | [Tab] Next | [Shft+Tab] Prev | [↑↓] Move |  [.] Clear Logs | [ESC]ape | [Q]uit",
@@ -406,8 +465,8 @@ fn footer_text(tui_state: &OrgTuiState) -> String {
           FocusReg::RegistryAddress => match &tui_state.registry_status {
               RegistryStatus::Disconnected | RegistryStatus::NotSpecified=> "[C]onnect | [M]anual Add | [Tab] Next | [↓] Move | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit",
               RegistryStatus::WaitingForConnection => "[D]isconnect | [M]anual Add | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit",
-              RegistryStatus::Connected => "[D]isconnect | [S]tart Polling | [P]oll once | [M]anual Add | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit",
-              RegistryStatus::Polling => "[D]isconnect | [S]top Polling | [M]anual Add | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit",
+              RegistryStatus::Connected => "[D]isconnect | [A]add all hosts | [S]tart Polling | [P]oll once | [M]anual Add | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit",
+              RegistryStatus::Polling => "[D]isconnect | [A]add all hosts | [S]top Polling | [M]anual Add | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit",
             },
             FocusReg::AvailableHosts(_) => "[M]anual Add | [Tab] Next | [Shft+Tab] Prev | [↑↓] Move | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit",
             FocusReg::AddHost(_) => "[Tab] Next | [Shft+Tab] Prev | [←→↑↓] Move | [Enter] | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit",
@@ -428,13 +487,13 @@ fn footer_text(tui_state: &OrgTuiState) -> String {
             None => "[S]elect Experiment | [Tab] Next | [Shft+Tab] Prev | [↑↓] Move | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit"
           }
         },
-        Focus::Logs => todo!(),
+        Focus::Logs | Focus::Csi => "[↑↓] Move | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit",
     }
     .to_owned()
 }
 
-/// Reusable edit IP function
-fn edit_number(focussed: &Focus, input: [char; 21]) -> Vec<Span<'static>> {
+/// Renders the editable IP address input box with highlighting on the selected character.
+fn edit_address(focussed: &Focus, input: [char; 21]) -> Vec<Span<'static>> {
     match focussed {
         Focus::Registry(FocusReg::AddHost(selected_idx)) => {
             let mut spans: Vec<Span> = vec![];

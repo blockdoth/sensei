@@ -123,7 +123,7 @@ where
     /// using the `FromLog` trait. These updates are then forwarded into the update stream.
     async fn log_handler_task(mut log_recv_channel: Receiver<LogEntry>, update_send_channel: Sender<U>) -> JoinHandle<()> {
         tokio::spawn(async move {
-            info!("Log processor task started.");
+            info!("Started log processor task");
             loop {
                 tokio::select! {
                     log = log_recv_channel.recv() => {

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use lib::network::rpc_message::{CfgType, DeviceId, HostId};
+use lib::network::experiment_config::Command;
 use lib::network::tcp::client::TcpClient;
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
@@ -15,7 +15,7 @@ use tokio::time::sleep;
 use crate::orchestrator::state::OrgUpdate;
 use crate::orchestrator::{Orchestrator, OrgChannelMsg};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct ExperimentMetadata {
     pub name: String,
     pub output_path: PathBuf,
@@ -29,7 +29,7 @@ pub struct Stage {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Block {
-    pub commands: Vec<ExperimentCommand>,
+    pub commands: Vec<Command>,
     pub delays: Delays,
 }
 
@@ -64,85 +64,42 @@ pub enum ExperimentStatus {
     Stopped,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum ExperimentCommand {
-    Connect {
-        target_addr: SocketAddr,
-    },
-    Disconnect {
-        target_addr: SocketAddr,
-    },
-    Subscribe {
-        target_addr: SocketAddr,
-        device_id: DeviceId,
-    },
-    Unsubscribe {
-        target_addr: SocketAddr,
-        device_id: DeviceId,
-    },
-    SubscribeTo {
-        target_addr: SocketAddr,
-        source_addr: SocketAddr,
-        device_id: DeviceId,
-    },
-    UnsubscribeFrom {
-        target_addr: SocketAddr,
-        source_addr: SocketAddr,
-        device_id: DeviceId,
-    },
-    SendStatus {
-        target_addr: SocketAddr,
-        host_id: HostId,
-    },
-    GetHostStatuses {
-        target_addr: SocketAddr,
-    },
-    Configure {
-        target_addr: SocketAddr,
-        device_id: DeviceId,
-        cfg_type: CfgType,
-    },
-    Ping {
-        target_addr: SocketAddr,
-    },
-    Delay {
-        delay: u64,
-    },
-}
-
 #[derive(Debug)]
 pub enum ExperimentChannelMsg {
     Start,
     Stop,
+    StartRemote(SocketAddr),
+    StopRemote(SocketAddr),
     Select(usize),
 }
 
-impl From<ExperimentCommand> for OrgChannelMsg {
-    fn from(cmd: ExperimentCommand) -> Self {
+impl From<Command> for OrgChannelMsg {
+    /// Converts a `Command` into a corresponding `OrgChannelMsg` for orchestrator control.  
+    fn from(cmd: Command) -> Self {
         match cmd {
-            ExperimentCommand::Connect { target_addr } => OrgChannelMsg::Connect(target_addr),
-            ExperimentCommand::Disconnect { target_addr } => OrgChannelMsg::Disconnect(target_addr),
-            ExperimentCommand::Subscribe { target_addr, device_id } => OrgChannelMsg::Subscribe(target_addr, None, device_id),
-            ExperimentCommand::Unsubscribe { target_addr, device_id } => OrgChannelMsg::Unsubscribe(target_addr, None, device_id),
-            ExperimentCommand::SubscribeTo {
+            Command::Connect { target_addr } => OrgChannelMsg::Connect(target_addr),
+            Command::Disconnect { target_addr } => OrgChannelMsg::Disconnect(target_addr),
+            Command::Subscribe { target_addr, device_id } => OrgChannelMsg::Subscribe(target_addr, None, device_id),
+            Command::Unsubscribe { target_addr, device_id } => OrgChannelMsg::Unsubscribe(target_addr, None, device_id),
+            Command::SubscribeTo {
                 target_addr,
                 source_addr,
                 device_id,
             } => OrgChannelMsg::Subscribe(target_addr, Some(source_addr), device_id),
-            ExperimentCommand::UnsubscribeFrom {
+            Command::UnsubscribeFrom {
                 target_addr,
                 source_addr,
                 device_id,
             } => OrgChannelMsg::Unsubscribe(target_addr, Some(source_addr), device_id),
-            ExperimentCommand::SendStatus { target_addr, host_id } => OrgChannelMsg::SendStatus(target_addr, host_id),
-            ExperimentCommand::Configure {
+            Command::SendStatus { target_addr, host_id } => OrgChannelMsg::SendStatus(target_addr, host_id),
+            Command::Configure {
                 target_addr,
                 device_id,
                 cfg_type,
             } => OrgChannelMsg::Configure(target_addr, device_id, cfg_type),
-            ExperimentCommand::Delay { delay } => OrgChannelMsg::Delay(delay),
-            ExperimentCommand::GetHostStatuses { target_addr } => OrgChannelMsg::GetHostStatuses(target_addr),
-            ExperimentCommand::Ping { target_addr } => OrgChannelMsg::Ping(target_addr),
+            Command::Delay { delay } => OrgChannelMsg::Delay(delay),
+            Command::GetHostStatuses { target_addr } => OrgChannelMsg::GetHostStatuses(target_addr),
+            Command::Ping { target_addr } => OrgChannelMsg::Ping(target_addr),
         }
     }
 }
@@ -171,6 +128,7 @@ pub struct ExperimentSession {
 }
 
 impl ExperimentSession {
+    /// Creates a new session instance for managing experiments.
     pub fn new(client: Arc<Mutex<TcpClient>>, update_send: Sender<OrgUpdate>, cancel_signal: watch::Receiver<bool>) -> Self {
         ExperimentSession {
             client,
@@ -180,7 +138,7 @@ impl ExperimentSession {
             cancel_signal,
         }
     }
-
+    /// Loads all YAML experiment files from the specified folder.
     pub fn load_experiments(&mut self, folder: PathBuf) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         for entry in fs::read_dir(&folder)? {
             let entry = match entry {
@@ -205,6 +163,8 @@ impl ExperimentSession {
         Ok(())
     }
 
+    /// Starts running the currently selected experiment.
+    /// Executes all stages and handles cancellation asynchronously.
     pub async fn run(&mut self, client: Arc<Mutex<TcpClient>>, update_send: Sender<OrgUpdate>) {
         if let Some(mut active_exp) = self.active_experiment.clone() {
             active_exp.status = ExperimentStatus::Running;
@@ -251,7 +211,10 @@ impl ExperimentSession {
         }
     }
 
-    pub async fn match_commands(commands: Vec<ExperimentCommand>, command_delay: u64, client: Arc<Mutex<TcpClient>>, update_send: Sender<OrgUpdate>) {
+    /// Matches and executes a list of commands with a delay between each.
+    ///
+    /// Used by blocks and stages to orchestrate command flow.
+    pub async fn match_commands(commands: Vec<Command>, command_delay: u64, client: Arc<Mutex<TcpClient>>, update_send: Sender<OrgUpdate>) {
         for command in commands {
             Orchestrator::handle_msg(client.clone(), command.into(), update_send.clone(), None, None);
             sleep(Duration::from_millis(command_delay)).await;
@@ -260,6 +223,9 @@ impl ExperimentSession {
 }
 
 impl Stage {
+    /// Executes all blocks in the stage concurrently.
+    ///
+    /// Each block runs in a separate task. Blocks share the same cancel signal.  
     pub async fn execute(&self, client: Arc<Mutex<TcpClient>>, update_send: Sender<OrgUpdate>, cancel_signal: watch::Receiver<bool>) {
         let mut tasks = vec![];
 
@@ -275,6 +241,9 @@ impl Stage {
     }
 }
 impl Block {
+    /// Executes all commands in the block based on delay settings.
+    ///
+    /// Commands can run once or multiple times depending on `DelayType`.  
     pub async fn execute(&self, client: Arc<Mutex<TcpClient>>, update_send: Sender<OrgUpdate>, mut cancel_signal: watch::Receiver<bool>) {
         sleep(Duration::from_millis(self.delays.init_delay.unwrap_or(0u64))).await;
         let command_delay = self.delays.command_delay.unwrap_or(0u64);

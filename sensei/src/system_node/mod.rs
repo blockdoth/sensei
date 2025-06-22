@@ -213,7 +213,7 @@ impl SystemNode {
         Ok(())
     }
 
-    async fn load_experiment(
+    async fn run_experiment(
         experiment: Experiment,
         handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -355,11 +355,32 @@ impl SystemNode {
             HostCtrl::UnsubscribeFrom { target_addr: _, device_id } => {
                 Self::unsubscribe(request.src_addr, device_id, send_channel_msg_channel).await?;
             }
+            HostCtrl::SubscribeAll => {
+                todo!();
+                // Self::subscribe_all(request.src_addr, send_channel_msg_channel).await?;
+            }
+            HostCtrl::UnsubscribeAll => {
+                todo!();
+                // Self::unsubscribe_all(request.src_addr, send_channel_msg_channel).await?;
+            }
+            HostCtrl::SubscribeToAll { target_addr } => {
+                todo!();
+                // Self::subscribe_to_all(target_addr, self.handlers.clone()).await?;
+            }
+            HostCtrl::UnsubscribeFromAll { target_addr: _ } => {
+                todo!();
+                // Self::unsubscribe_all(request.src_addr, send_channel_msg_channel).await?;
+            }
+            HostCtrl::StartExperiment { experiment } => {
+                todo!()
+                // Self::load_experiment(experiment, self.handlers.clone()).await?;
+            }
+            HostCtrl::StopExperiment => {
+                todo!()
+                // Self::load_experiment(experiment, self.handlers.clone()).await?;
+            }
             HostCtrl::Configure { device_id, cfg_type } => {
                 Self::configure(device_id, cfg_type, self.handlers.clone()).await?;
-            }
-            HostCtrl::Experiment { experiment } => {
-                Self::load_experiment(experiment, self.handlers.clone()).await?;
             }
             HostCtrl::Ping => {
                 debug!("Received ping from {:#?}.", request.src_addr);
@@ -437,7 +458,7 @@ impl SystemNode {
             let mut sinks_guard = self.sinks.lock().await;
             for sink_id in &handler_config.output_to {
                 if let Some(sink) = sinks_guard.get_mut(sink_id) {
-                    info!("Routing data from device {device_id} to sink {sink_id}");
+                    debug!("Routing data from device {device_id} to sink {sink_id}");
                     if let Err(e) = sink.provide(data_msg.clone()).await {
                         error!("Error providing data to sink {sink_id}: {e:?}");
                     }

@@ -3,7 +3,6 @@
 //! This module defines the types used for remote procedure call (RPC) messages exchanged between nodes and orchestrators in the Sensei system. It includes message kinds, control commands, device and host status, and serialization helpers for network communication.
 
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpStream;
@@ -11,7 +10,6 @@ use tokio::net::TcpStream;
 use crate::csi_types::CsiData;
 use crate::handler::device_handler::DeviceHandlerConfig;
 use crate::network::experiment_config::Experiment;
-use crate::network::rpc_message::CfgType::{Create, Delete, Edit};
 
 /// The default address used for network communication (localhost:6969).
 pub const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
@@ -72,8 +70,20 @@ pub enum HostCtrl {
     SubscribeTo { target_addr: SocketAddr, device_id: DeviceId },
     /// Unsubscribe from another node's device stream.
     UnsubscribeFrom { target_addr: SocketAddr, device_id: DeviceId },
+    /// Subscribe to all data streams of this host.
+    SubscribeAll,
+    /// Unsubscribe from all data streams of this host.
+    UnsubscribeAll,
+    /// Subscribe to all data streams of another host.
+    SubscribeToAll { target_addr: SocketAddr },
+    /// Unsubscribe from all data streams of another host.
+    UnsubscribeFromAll { target_addr: SocketAddr },
     /// Sends an experiment configuration
-    Experiment { experiment: Experiment },
+    StartExperiment { experiment: Experiment },
+    /// Stops an running experiment
+    StopExperiment,
+    /// Updates the status of an experiment
+    UpdateExperimentInfo { status: String },
 }
 
 /// Registration and control messages for orchestrator and node communication.
@@ -184,95 +194,6 @@ pub enum CfgType {
     Edit { cfg: DeviceHandlerConfig },
     /// Delete a device handler.
     Delete,
-}
-
-impl CfgType {
-    /// It is sadly necessary to make my own function, as FromStr can not have two fields nor be async
-    /// This requires preprocessing the cfg
-    /// Construct a CfgType from a string and a device handler config.
-    ///
-    /// # Arguments
-    /// * `config_type` - The type of configuration operation ("create", "edit", or "delete").
-    /// * `cfg` - The device handler configuration.
-    pub fn from_string(config_type: Option<&str>, cfg: DeviceHandlerConfig) -> Result<Self, String> {
-        match config_type {
-            Some("create") => Ok(Create { cfg }),
-            Some("edit") => Ok(Edit { cfg }),
-            Some("delete") => Ok(Delete),
-            _ => Err(format!("Unrecognized config type {config_type:?}")),
-        }
-    }
-}
-
-impl FromStr for AdapterMode {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "raw" => Ok(AdapterMode::RAW),
-            "source" => Ok(AdapterMode::SOURCE),
-            "target" => Ok(AdapterMode::TARGET),
-            _ => Err(format!("Unrecognised adapter mode '{s}'")),
-        }
-    }
-}
-
-// FromStr implementations for easy cli usage
-impl FromStr for HostCtrl {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let lowercase = s.to_lowercase();
-        let mut parts = lowercase.split_whitespace();
-        let kind = parts.next().unwrap_or("not a valid command");
-
-        match kind {
-            "connect" => Ok(HostCtrl::Connect),
-            "disconnect" => Ok(HostCtrl::Disconnect),
-            "configure" => {
-                todo!("support this")
-            }
-            "subscribe" => {
-                let device_id = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0); // TODO better id assignment
-
-                Ok(HostCtrl::Subscribe { device_id })
-            }
-            "unsubscribe" => {
-                let device_id = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
-
-                Ok(HostCtrl::Unsubscribe { device_id })
-            }
-            s => Err(s.to_owned()),
-        }
-    }
-}
-
-// FromStr implementations for easy cli usage
-impl FromStr for RegCtrl {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let lowercase = s.to_lowercase();
-        let mut parts = lowercase.split_whitespace();
-        let kind = parts.next().unwrap_or("not a valid command");
-
-        match kind {
-            "pollhoststatus" => {
-                let host_id = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
-                Ok(RegCtrl::PollHostStatus { host_id })
-            }
-            "pollhoststatuses" => Ok(RegCtrl::PollHostStatuses),
-            "hoststatus" => Ok(RegCtrl::HostStatus(HostStatus {
-                host_id: 0,
-                device_statuses: vec![],
-                responsiveness: Responsiveness::Connected,
-            })),
-            "heartbeat" => Ok(RegCtrl::AnnouncePresence {
-                host_id: 0,
-                host_address: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 8080)),
-            }), // TODO better id assignment
-            s => Err(s.to_owned()),
-        }
-    }
 }
 
 /// Helper to construct an RpcMessage from a stream and message kind.

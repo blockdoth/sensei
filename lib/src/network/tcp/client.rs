@@ -97,17 +97,18 @@ impl TcpClient {
     /// # Errors
     /// Returns a `NetworkError` if the connection fails.
     pub async fn connect(&mut self, target_addr: SocketAddr) -> Result<(), NetworkError> {
-        { // Scope for lock
-          let mut connections_map = self.connections.lock().await;        
-          if let Some(connection) = connections_map.get(&target_addr) {
-              if connection.read_stream.peer_addr().is_ok(){ 
-                info!("Already connected to {target_addr}");
-                return Ok(());
-              }else{
-                // Cleanup broken connections
-                connections_map.remove(&target_addr);
-              }
-          }
+        {
+            // Scope for lock
+            let mut connections_map = self.connections.lock().await;
+            if let Some(connection) = connections_map.get(&target_addr) {
+                if connection.read_stream.peer_addr().is_ok() {
+                    info!("Already connected to {target_addr}");
+                    return Ok(());
+                } else {
+                    // Cleanup broken connections
+                    connections_map.remove(&target_addr);
+                }
+            }
         }
 
         let connection = TcpStream::connect(target_addr).await?;

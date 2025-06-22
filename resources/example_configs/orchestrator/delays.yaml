@@ -1,6 +1,6 @@
 experiment:
 metadata:
-  name: delays
+  name: Delays
   output_path: "/balls.csv"
 stages:
   - name: "slow"

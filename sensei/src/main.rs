@@ -181,6 +181,7 @@ stages: []";
             subcommand: Some(SubCommandsArgs::Orchestrator(OrchestratorSubcommandArgs {
                 experiments_folder: exp_path.clone(),
                 tui: false, // Default tui setting for test
+                polling_interval: 5,
             })),
             level: LevelFilter::Error,
         };

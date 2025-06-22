@@ -1,16 +1,16 @@
 experiment:
 metadata:
-  name: GetHostStatuses
+  name: Ping Hosts
   output_path: "/dev/null"
 stages:
   - name: "init"
-    command_blocks:
+    blocks:
         - commands:
           delays:
             init_delay: 10
-            is_recurring: !NotRecurring
+            delay_type: !NotRecurring
   - name: "main"
-    command_blocks:
+    blocks:
       - commands:
           - !Connect
             target_addr: "127.0.0.1:8080"
@@ -23,11 +23,11 @@ stages:
         delays:
           init_delay: 500
           command_delay: 200
-          is_recurring: !Recurring
+          delay_type: !Recurring
             recurrence_delay: 1000
             iterations: 100
   - name: "endstage"
-    command_blocks:
+    blocks:
       - commands:
         delays:
-          is_recurring: !NotRecurring 
+          delay_type: !NotRecurring 

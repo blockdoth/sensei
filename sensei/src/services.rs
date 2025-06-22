@@ -95,6 +95,7 @@ pub struct OrchestratorConfig {
     /// Path to the experiment configuration file.
     pub experiments_folder: PathBuf,
     pub tui: bool,
+    pub polling_interval: u64,
 }
 
 /// Configuration for a System Node service.

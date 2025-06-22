@@ -24,6 +24,13 @@ pub struct Host {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct Device {
+    pub id: DeviceID,
+    pub dev_type: SourceType,
+    pub status: DeviceStatus,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum HostStatus {
     Available,
     Connected,
@@ -33,12 +40,7 @@ pub enum HostStatus {
     Unknown,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Device {
-    pub id: DeviceID,
-    pub dev_type: SourceType,
-    pub status: DeviceStatus,
-}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum DeviceStatus {
     Subscribed,
@@ -61,6 +63,7 @@ pub enum Focus {
     Hosts(FocusHost),
     Experiments(FocusExp),
     Logs,
+    Csi,
 }
 
 #[derive(PartialEq, Debug, Clone)]
@@ -83,10 +86,10 @@ pub enum FocusHost {
 
 type DeviceID = u64;
 
+/// Enum representing different types of updates/events in the TUI state.
 #[derive(Debug)]
 pub enum OrgUpdate {
-    Log(LogEntry),
-    CsiData(CsiData),
+    // === Hosts ===
     Connect(SocketAddr),
     Disconnect(SocketAddr),
     Subscribe(SocketAddr, Option<SocketAddr>, DeviceID),
@@ -94,26 +97,34 @@ pub enum OrgUpdate {
     SubscribeAll(SocketAddr, Option<SocketAddr>),
     UnsubscribeAll(SocketAddr, Option<SocketAddr>),
     SelectHost(SocketAddr),
-    FocusChange(Focus),
-    AddHost(Host),
-    SelectExperiment(usize),
-    ActiveExperiment(ActiveExperiment),
-    UpdateExperimentList(Vec<ExperimentMetadata>),
-    Edit(char),
-    //Registry
+    
+    // === Registry ===
     ConnectRegistry,
     DisconnectRegistry,
     RegistryIsConnected(bool),
     TogglePolling,
+    AddAllHosts,
     Poll,
+    AddHost(Host),
     UpdateHostStatuses(Vec<RegHostStatus>),
-    //Experiments
-    StartExperiment,
-    StopExperiment,
+
+    // === Experiments ===
+    StartExperiment(Option<SocketAddr>),
+    StopExperiment(Option<SocketAddr>),
+    SelectExperiment(usize),
+    ActiveExperiment(ActiveExperiment),
+    UpdateExperimentList(Vec<ExperimentMetadata>),
+    
+    // Misc
+    Log(LogEntry),
+    CsiData(CsiData),
+    FocusChange(Focus),
     ClearLogs,
     ClearCsi,
     Exit,
-    // Keys
+
+    // === Keys ==
+    Edit(char, Focus),
     Up(Focus),
     Down(Focus),
     Left(Focus),
@@ -145,26 +156,15 @@ pub struct OrgTuiState {
     pub selected_host: Option<SocketAddr>,
     pub active_experiment: Option<ActiveExperiment>,
     pub experiments: Vec<ExperimentMetadata>,
+    pub logs_scroll_offset: usize,
+    pub csi_scroll_offset: usize,
 }
 
 impl OrgTuiState {
     pub fn new() -> Self {
         OrgTuiState {
             should_quit: false,
-            registry_hosts: vec![
-                // Host {
-                //     id: Some(100),
-                //     addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 4242)),
-                //     devices: vec![],
-                //     status: HostStatus::Available,
-                // },
-                // Host {
-                //     id: Some(101),
-                //     addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 2121)),
-                //     devices: vec![],
-                //     status: HostStatus::Unresponsive,
-                // },
-            ],
+            registry_hosts: vec![],
             registry_addr: Some(DEFAULT_ADDRESS),
             registry_status: RegistryStatus::Disconnected,
             is_polling: false,
@@ -177,31 +177,9 @@ impl OrgTuiState {
                 '_', '_', '_', '.', '_', '_', '_', '.', '_', '_', '_', '.', '_', '_', '_', ':', '_', '_', '_', '_', '_',
             ],
             selected_host: None,
-            known_hosts: vec![
-                // Host {
-                //     id: Some(0),
-                //     status: HostStatus::Available,
-                //     devices: vec![],
-                //     addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 8080)),
-                // },
-                // Host {
-                //     id: Some(2),
-                //     status: HostStatus::Sending,
-                //     devices: vec![
-                //         Device {
-                //             id: 5,
-                //             dev_type: SourceType::AX210,
-                //             status: DeviceStatus::Subscribed,
-                //         },
-                //         Device {
-                //             id: 9,
-                //             dev_type: SourceType::AtherosQCA,
-                //             status: DeviceStatus::Subscribed,
-                //         },
-                //     ],
-                //     addr: DEFAULT_ADDRESS,
-                // },
-            ],
+            known_hosts: vec![],
+            logs_scroll_offset: 0,
+            csi_scroll_offset: 0,
         }
     }
 }
@@ -219,12 +197,15 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
         match key {
             KeyCode::Char('q') | KeyCode::Char('Q') => return Some(OrgUpdate::Exit),
             KeyCode::Char('.') => return Some(OrgUpdate::ClearLogs),
+            KeyCode::Char(',') => return Some(OrgUpdate::ClearCsi),
             KeyCode::Esc => return Some(OrgUpdate::FocusChange(Focus::Main)),
             _ => {}
         };
         let focus = self.focussed_panel.clone();
         match &focus {
             Focus::Main => match key {
+                KeyCode::Char('l') | KeyCode::Char('L') => Some(OrgUpdate::FocusChange(Focus::Logs)),
+                KeyCode::Char('c') | KeyCode::Char('C') => Some(OrgUpdate::FocusChange(Focus::Csi)),
                 KeyCode::Char('r') | KeyCode::Char('R') => Some(OrgUpdate::FocusChange(Focus::Registry(FocusReg::RegistryAddress))),
                 KeyCode::Char('e') | KeyCode::Char('E') => Some(OrgUpdate::FocusChange(Focus::Experiments(FocusExp::Select(0)))),
                 KeyCode::Char('h') | KeyCode::Char('H') => {
@@ -245,6 +226,7 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                     KeyCode::Char('d') | KeyCode::Char('D') => Some(OrgUpdate::DisconnectRegistry),
                     KeyCode::Char('s') | KeyCode::Char('S') => Some(OrgUpdate::TogglePolling),
                     KeyCode::Char('p') | KeyCode::Char('P') => Some(OrgUpdate::Poll),
+                    KeyCode::Char('a') | KeyCode::Char('A') => Some(OrgUpdate::AddAllHosts),
                     KeyCode::Char('m') | KeyCode::Char('M') => Some(OrgUpdate::FocusChange(Focus::Registry(FocusReg::AddHost(0)))),
                     _ => None,
                 },
@@ -266,7 +248,7 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                     KeyCode::BackTab => Some(OrgUpdate::BackTab(focus)),
                     KeyCode::Backspace => Some(OrgUpdate::Backspace(focus)),
                     KeyCode::Enter => Some(OrgUpdate::Enter(focus)),
-                    KeyCode::Char(chr) => Some(OrgUpdate::Edit(chr)),
+                    KeyCode::Char(chr) => Some(OrgUpdate::Edit(chr, focus)),
                     _ => None,
                 },
             },
@@ -293,9 +275,10 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                 },
                 FocusHost::HostTree(host_idx, device_idx) => match key {
                     KeyCode::Char('s') | KeyCode::Char('S') => {
+                        // (device_idx - 1) to account for device_idx == 0 means selecting the host
                         if let Some(host) = self.known_hosts.get(*host_idx) {
                             host.devices
-                                .get(*device_idx)
+                                .get(device_idx - 1)
                                 .map(|device| OrgUpdate::Subscribe(host.addr, self.selected_host, device.id))
                         } else {
                             None
@@ -304,7 +287,7 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                     KeyCode::Char('u') | KeyCode::Char('U') => {
                         if let Some(host) = self.known_hosts.get(*host_idx) {
                             host.devices
-                                .get(*device_idx)
+                                .get(device_idx - 1)
                                 .map(|device| OrgUpdate::Unsubscribe(host.addr, self.selected_host, device.id))
                         } else {
                             None
@@ -323,7 +306,7 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                 KeyCode::Char('e') | KeyCode::Char('E') => {
                     if let Some(exp) = &self.active_experiment {
                         match exp.status {
-                            ExperimentStatus::Running => Some(OrgUpdate::StopExperiment),
+                            ExperimentStatus::Running => Some(OrgUpdate::StopExperiment(self.selected_host)),
                             _ => None,
                         }
                     } else {
@@ -333,7 +316,9 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                 KeyCode::Char('b') | KeyCode::Char('B') => {
                     if let Some(exp) = &self.active_experiment {
                         match exp.status {
-                            ExperimentStatus::Done | ExperimentStatus::Ready | ExperimentStatus::Stopped => Some(OrgUpdate::StartExperiment),
+                            ExperimentStatus::Done | ExperimentStatus::Ready | ExperimentStatus::Stopped => {
+                                Some(OrgUpdate::StartExperiment(self.selected_host))
+                            }
                             _ => None,
                         }
                     } else {
@@ -352,7 +337,11 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                 }
                 _ => None,
             },
-            Focus::Logs => None,
+            Focus::Logs | Focus::Csi => match key {
+                KeyCode::Up => Some(OrgUpdate::Up(focus)),
+                KeyCode::Down => Some(OrgUpdate::Down(focus)),
+                _ => None,
+            },
         }
     }
 
@@ -396,11 +385,19 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                     _ => None,
                 }
             }
-            OrgUpdate::StartExperiment => {
-                command_send.send(OrgChannelMsg::StartExperiment).await;
+            OrgUpdate::StartExperiment(addr_opt) => {
+                if let Some(addr) = addr_opt {
+                    command_send.send(OrgChannelMsg::StartRemoteExperiment(addr)).await;
+                } else {
+                    command_send.send(OrgChannelMsg::StartExperiment).await;
+                }
             }
-            OrgUpdate::StopExperiment => {
-                command_send.send(OrgChannelMsg::StopExperiment).await;
+            OrgUpdate::StopExperiment(addr_opt) => {
+                if let Some(addr) = addr_opt {
+                    command_send.send(OrgChannelMsg::StopRemoteExperiment(addr)).await;
+                } else {
+                    command_send.send(OrgChannelMsg::StopExperiment).await;
+                }
             }
             OrgUpdate::SelectExperiment(idx) => {
                 command_send.send(OrgChannelMsg::SelectExperiment(idx)).await;
@@ -417,20 +414,24 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
             OrgUpdate::FocusChange(focused_panel) => self.focussed_panel = focused_panel,
             OrgUpdate::AddHost(status) => {
                 if !self.known_hosts.iter().any(|h| h.id == status.id || h.addr == status.addr) {
-                    info!("Adding new host from registry");
+                    info!("Added host from registry");
                     self.known_hosts.push(status)
                 } else {
                     info!("Host already known");
                 }
             }
             // Registry
-            OrgUpdate::ConnectRegistry => if self.registry_status == RegistryStatus::Disconnected {
-                if let Some(registry_addr) = self.registry_addr {
-                    command_send.send(OrgChannelMsg::ConnectRegistry(registry_addr)).await;
-                    self.registry_status = RegistryStatus::Connected;
+            OrgUpdate::ConnectRegistry => {
+                if self.registry_status == RegistryStatus::Disconnected {
+                    if let Some(registry_addr) = self.registry_addr {
+                        command_send.send(OrgChannelMsg::ConnectRegistry(registry_addr)).await;
+                        self.registry_status = RegistryStatus::Connected;
+                    }
                 }
-            },
-
+            }
+            OrgUpdate::AddAllHosts => {
+                self.known_hosts = self.registry_hosts.clone();
+            }
             OrgUpdate::RegistryIsConnected(is_connected) => {
                 self.registry_status = if is_connected {
                     RegistryStatus::Connected
@@ -448,7 +449,7 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                                     d
                                 })
                                 .collect();
-                            h.status = HostStatus::Disconnected;
+                            h.status = HostStatus::Unknown;
                             h
                         })
                         .collect();
@@ -459,19 +460,20 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
             OrgUpdate::DisconnectRegistry => match self.registry_status {
                 RegistryStatus::Polling | RegistryStatus::Connected | RegistryStatus::WaitingForConnection => {
                     command_send.send(OrgChannelMsg::DisconnectRegistry).await;
-                    self.registry_status = RegistryStatus::Disconnected
                 }
                 _ => {}
             },
             OrgUpdate::TogglePolling => match self.registry_status {
                 RegistryStatus::Connected | RegistryStatus::Polling => {
                     self.registry_status = if self.is_polling {
+                        self.is_polling = false;
                         if command_send.send(OrgChannelMsg::StopPolling).await.is_ok() {
                             RegistryStatus::Connected
                         } else {
                             RegistryStatus::Disconnected
                         }
                     } else if command_send.send(OrgChannelMsg::StartPolling).await.is_ok() {
+                        self.is_polling = true;
                         RegistryStatus::Polling
                     } else {
                         RegistryStatus::Disconnected
@@ -479,9 +481,11 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                 }
                 _ => {}
             },
-            OrgUpdate::Poll => if self.registry_status == RegistryStatus::Connected {
-                command_send.send(OrgChannelMsg::Poll).await;
-            },
+            OrgUpdate::Poll => {
+                if self.registry_status == RegistryStatus::Connected {
+                    command_send.send(OrgChannelMsg::Poll).await;
+                }
+            }
 
             OrgUpdate::UpdateHostStatuses(statuses) => {
                 // Couldnt get Into() to work
@@ -514,7 +518,7 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                     self.focussed_panel = Focus::Registry(focus.cursor_left());
                 }
             }
-            OrgUpdate::Enter(Focus::Hosts(focus)) => {
+            OrgUpdate::Enter(Focus::Registry(_)) => {
                 let ip_string = self.add_host_input_socket.iter().collect::<String>().replace("_", "");
                 if let Ok(socket_addr) = ip_string.parse::<SocketAddr>() {
                     if self.known_hosts.iter().any(|a| a.addr == socket_addr) {
@@ -533,6 +537,14 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                     info!("Failed to parse socket address {ip_string}");
                 }
             }
+            OrgUpdate::Edit(chr, Focus::Registry(focus)) => match focus {
+                FocusReg::AddHost(idx) if chr.is_numeric() => {
+                    self.add_host_input_socket[idx] = chr;
+                    self.focussed_panel = Focus::Registry(focus.cursor_right());
+                }
+                _ => {}
+            },
+
             OrgUpdate::Up(Focus::Hosts(focus)) => self.focussed_panel = Focus::Hosts(focus.cursor_up(&self.known_hosts)),
             OrgUpdate::Down(Focus::Hosts(focus)) => self.focussed_panel = Focus::Hosts(focus.cursor_down(&self.known_hosts)),
             OrgUpdate::Tab(Focus::Hosts(focus)) => self.focussed_panel = Focus::Hosts(focus.tab(&self.known_hosts)),
@@ -546,12 +558,17 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
             OrgUpdate::Up(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.cursor_up(self.registry_hosts.len())),
             OrgUpdate::Down(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.cursor_down(self.registry_hosts.len())),
             OrgUpdate::Tab(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.tab(self.registry_hosts.len())),
-            OrgUpdate::BackTab(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.back_tab()),
+            OrgUpdate::BackTab(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.back_tab(self.registry_hosts.len())),
             OrgUpdate::Left(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.cursor_left()),
             OrgUpdate::Right(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.cursor_right()),
 
-            // Handles key updates, which are highly dependant on which panel is focussed
-            key_update => {}
+            // Scoll logic for logs / csi
+            OrgUpdate::Up(Focus::Logs) => self.logs_scroll_offset += 1,
+            OrgUpdate::Up(Focus::Csi) => self.csi_scroll_offset += 1,
+            OrgUpdate::Down(Focus::Logs) => self.logs_scroll_offset = self.logs_scroll_offset.saturating_sub(1),
+            OrgUpdate::Down(Focus::Csi) => self.csi_scroll_offset = self.csi_scroll_offset.saturating_sub(1),
+
+            _ => {}
         }
     }
     fn should_quit(&self) -> bool {
@@ -560,8 +577,9 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
 
     async fn on_tick(&mut self) {}
 }
+
 impl FocusHost {
-    // Move cursor up
+    /// Move cursor up
     fn cursor_up(&self, connected_hosts: &[Host]) -> FocusHost {
         match self {
             FocusHost::HostTree(0, 0) => FocusHost::HostTree(0, 0),
@@ -578,7 +596,7 @@ impl FocusHost {
         }
     }
 
-    // Move cursor down
+    /// Move cursor down
     fn cursor_down(&self, connected_hosts: &[Host]) -> FocusHost {
         match self {
             FocusHost::HostTree(h, d) if *h < connected_hosts.len() => {
@@ -598,7 +616,7 @@ impl FocusHost {
         }
     }
 
-    // Tab key behavior
+    /// Tab key behavior
     fn tab(&self, connected_hosts: &[Host]) -> FocusHost {
         match self {
             FocusHost::HostTree(h, 0) if *h < connected_hosts.len() - 1 => FocusHost::HostTree(h + 1, 0),
@@ -606,7 +624,7 @@ impl FocusHost {
         }
     }
 
-    // BackTab (shift+tab) behavior
+    /// BackTab (shift+tab) behavior
     fn back_tab(&self, connected_hosts: &[Host]) -> FocusHost {
         match self {
             FocusHost::HostTree(0, 0) => FocusHost::HostTree(0, 0),
@@ -617,13 +635,14 @@ impl FocusHost {
 }
 
 impl FocusExp {
+    /// Move up
     fn up(&self) -> Self {
         match self {
             FocusExp::Select(i) if *i > 0 => FocusExp::Select(i - 1),
             FocusExp::Select(i) => FocusExp::Select(*i),
         }
     }
-
+    /// Move down
     fn down(&self, limit: usize) -> Self {
         match self {
             FocusExp::Select(i) if i + 1 < limit => FocusExp::Select(i + 1),
@@ -633,26 +652,25 @@ impl FocusExp {
 }
 
 impl FocusReg {
+    /// Move cursor up
     fn cursor_up(&self, host_count: usize) -> FocusReg {
         match self {
             FocusReg::AvailableHosts(0) => FocusReg::RegistryAddress,
             FocusReg::AvailableHosts(i) if *i > 0 => FocusReg::AvailableHosts(i - 1),
-            FocusReg::AddHost(0) => FocusReg::AvailableHosts(host_count),
-            FocusReg::AddHost(i) if *i == 3 || *i == 7 || *i == 11 || *i == 15 => FocusReg::AddHost(*i + 1),
-            FocusReg::AddHost(i) if *i >= 4 => FocusReg::AddHost(i - 4),
+            FocusReg::AddHost(_) => FocusReg::AvailableHosts(host_count.saturating_sub(1)),
             other => other.clone(),
         }
     }
-
+    /// Move cursor down
     fn cursor_down(&self, limit: usize) -> FocusReg {
         match self {
             FocusReg::AvailableHosts(i) if i + 1 < limit => FocusReg::AvailableHosts(i + 1),
+            FocusReg::AvailableHosts(_) => FocusReg::AddHost(0),
             FocusReg::RegistryAddress => FocusReg::AvailableHosts(0),
-            FocusReg::AddHost(i) if *i < 16 => FocusReg::AddHost(*i + 4),
             other => other.clone(),
         }
     }
-
+    /// Move cursor left
     fn cursor_left(&self) -> FocusReg {
         match self {
             FocusReg::AddHost(i) if *i == 4 || *i == 8 || *i == 12 || *i == 16 => FocusReg::AddHost(i - 2),
@@ -660,7 +678,7 @@ impl FocusReg {
             other => other.clone(),
         }
     }
-
+    /// Move cursor right
     fn cursor_right(&self) -> FocusReg {
         match self {
             FocusReg::AddHost(i) if *i == 2 || *i == 6 || *i == 10 || *i == 14 => FocusReg::AddHost(i + 2),
@@ -668,23 +686,23 @@ impl FocusReg {
             other => other.clone(),
         }
     }
-
+    /// Tab 
     fn tab(&self, limit: usize) -> FocusReg {
         match self {
             FocusReg::AvailableHosts(i) if i + 1 < limit => FocusReg::AvailableHosts(i + 1),
+            FocusReg::AvailableHosts(_) => FocusReg::AddHost(0),
             FocusReg::RegistryAddress => FocusReg::AvailableHosts(0),
             FocusReg::AddHost(i) if *i < 14 => FocusReg::AddHost(4 * (i / 4) + 4),
-            FocusReg::AddHost(_) => FocusReg::AddHost(0),
             other => other.clone(),
         }
     }
-
-    fn back_tab(&self) -> FocusReg {
+    /// Back tab
+    fn back_tab(&self, host_count: usize) -> FocusReg {
         match self {
             FocusReg::AvailableHosts(0) => FocusReg::RegistryAddress,
             FocusReg::AvailableHosts(i) if *i > 0 => FocusReg::AvailableHosts(i - 1),
             FocusReg::AddHost(i) if *i > 2 => FocusReg::AddHost(4 * (i / 4) - 4),
-            FocusReg::AddHost(_) => FocusReg::AddHost(0),
+            FocusReg::AddHost(0) => FocusReg::AvailableHosts(host_count.saturating_sub(1)),
             other => other.clone(),
         }
     }

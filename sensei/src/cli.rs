@@ -69,7 +69,7 @@ pub trait OverlaySubcommandArgs<T> {
 /// Default path to the host configuration YAML file.
 pub static DEFAULT_HOST_CONFIG: &str = "resources/testing_configs/minimal.yaml";
 /// Default path to the orchestrator configuration YAML file.
-pub static DEFAULT_ORCHESTRATOR_CONFIG: &str = "resources/example_configs/orchestrator/experiment_config.yaml";
+pub static DEFAULT_ORCHESTRATOR_CONFIG: &str = "resources/example_configs/orchestrator";
 
 /// A simple app to perform collection from configured sources
 #[derive(FromArgs)]
@@ -184,6 +184,10 @@ pub struct OrchestratorSubcommandArgs {
     /// file path of the experiment config
     #[argh(option, default = "DEFAULT_ORCHESTRATOR_CONFIG.parse().unwrap()")]
     pub experiments_folder: PathBuf,
+
+    /// polling interval of the registry
+    #[argh(option, default = "5")]
+    pub polling_interval: u64,
 }
 
 #[cfg(feature = "orchestrator")]
@@ -196,6 +200,7 @@ impl ConfigFromCli<OrchestratorConfig> for OrchestratorSubcommandArgs {
         Ok(OrchestratorConfig {
             experiments_folder: self.experiments_folder.clone(),
             tui: self.tui,
+            polling_interval: self.polling_interval,
         })
     }
 }

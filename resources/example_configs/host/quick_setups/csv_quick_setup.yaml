@@ -4,7 +4,7 @@ host_id: 1
 sinks:
   - id: "stdout"
     config: !File
-      file: "/dev/stdout"
+      file: "/dev/null"
 
 device_configs:
   - device_id: 0
