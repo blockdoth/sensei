@@ -32,6 +32,7 @@ use std::fs::File;
 use cli::*;
 #[cfg(feature = "esp_tool")]
 use esp_tool::EspTool;
+use lib::tui::example::run_example;
 use log::*;
 #[cfg(feature = "sys_node")]
 use services::FromYaml;
@@ -43,7 +44,6 @@ use tokio::runtime::Builder;
 
 #[cfg(feature = "orchestrator")]
 use crate::orchestrator::*;
-use crate::services::GlobalConfig;
 #[cfg(feature = "sys_node")]
 use crate::system_node::*;
 #[cfg(feature = "visualiser")]
@@ -91,29 +91,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // either compile flags or CLI arguments, instead of statically setting them in the source.
     let runtime = Builder::new_multi_thread().worker_threads(global_args.num_workers).enable_all().build()?;
     debug!("Created a builder with {} workers", global_args.num_workers);
-    runtime.block_on(run_subcommand(args, global_args));
-    Ok(())
-}
-
-async fn run_subcommand(args: Args, global_args: GlobalConfig) -> Result<(), Box<dyn std::error::Error + 'static>> {
     match &args.subcommand {
-        None => lib::tui::example::run_example().await,
+        None => runtime.block_on(run_example()),
         Some(subcommand) => match subcommand {
             #[cfg(feature = "sys_node")]
-            SubCommandsArgs::SystemNode(args) => {
+            SubCommandsArgs::SystemNode(args) => runtime.block_on(
                 SystemNode::new(
                     global_args,
                     args.overlay_subcommand_args(SystemNodeConfig::from_yaml(args.config_path.clone())?)?,
                 )
-                .run()
-                .await?
-            }
+                .run(),
+            )?,
             #[cfg(feature = "orchestrator")]
-            SubCommandsArgs::Orchestrator(args) => Orchestrator::new(global_args, args.parse()?).run().await?,
+            SubCommandsArgs::Orchestrator(args) => runtime.block_on(Orchestrator::new(global_args, args.parse()?).run())?,
             #[cfg(feature = "visualiser")]
-            SubCommandsArgs::Visualiser(args) => Visualiser::new(global_args, args.parse()?).run().await?,
+            SubCommandsArgs::Visualiser(args) => runtime.block_on(Visualiser::new(global_args, args.parse()?).run())?,
             #[cfg(feature = "esp_tool")]
-            SubCommandsArgs::EspTool(args) => EspTool::new(global_args, args.parse()?).run().await?,
+            SubCommandsArgs::EspTool(args) => runtime.block_on(EspTool::new(global_args, args.parse()?).run())?,
         },
     }
     Ok(())
