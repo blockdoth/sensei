@@ -35,6 +35,7 @@ use esp_tool::EspTool;
 use log::*;
 #[cfg(feature = "sys_node")]
 use services::FromYaml;
+#[cfg(any(feature = "esp_tool", feature = "sys_node", feature = "orchestrator", feature = "visualiser"))]
 use services::Run;
 #[cfg(feature = "sys_node")]
 use services::SystemNodeConfig;
@@ -87,6 +88,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     debug!("Parsed args and initialized CombinedLogger");
     let global_args = args.parse_global_config()?;
+    #[cfg(any(feature = "esp_tool", feature = "sys_node", feature = "orchestrator", feature = "visualiser"))]
     match &args.subcommand {
         None => lib::tui::example::run_example().await,
         Some(subcommand) => match subcommand {
