@@ -23,7 +23,6 @@ use crate::errors::{SinkError, TaskError};
 use crate::network::rpc_message::DataMsg;
 use crate::{FromConfig, ToConfig};
 
-
 pub mod csv;
 #[cfg(feature = "file_sink")]
 pub mod file;

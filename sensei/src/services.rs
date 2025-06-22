@@ -138,6 +138,8 @@ pub struct EspToolConfig {
 pub struct GlobalConfig {
     /// The logging level filter to be applied across the application.
     pub log_level: LevelFilter,
+    /// The number of workers Sensei will use
+    pub num_workers: usize,
 }
 
 /// An enum representing the configuration for any of the available services.
