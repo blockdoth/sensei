@@ -419,6 +419,7 @@ mod tests {
         };
         let global_config = GlobalConfig {
             log_level: log::LevelFilter::Debug,
+            num_workers: 4,
         };
         let _orchestrator = Orchestrator::new(global_config, config);
     }
