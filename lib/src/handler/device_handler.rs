@@ -256,7 +256,7 @@ impl DeviceHandler {
     /// Reconfigures the device handler with a new configuration.
     ///
     /// This function stops the current task, applies the new configuration,
-    /// and starts a new task using the updated parameters.
+    /// and does not start a new task using the updated parameters.
     ///
     /// # Arguments
     ///

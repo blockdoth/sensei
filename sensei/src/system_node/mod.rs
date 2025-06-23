@@ -154,7 +154,7 @@ impl SystemNode {
 
         // This can be allowed to unwrap, as it will literally always succeed
         let mut new_handler = DeviceHandler::from_config(new_handler_config).await.unwrap();
-
+        
         new_handler.start(local_data_tx).await?;
 
         info!("Handler created to subscribe to {target_addr}");
@@ -182,7 +182,6 @@ impl SystemNode {
         device_id: DeviceId,
         cfg_type: CfgType,
         handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
-        local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         match cfg_type {
             Create { cfg } => {
@@ -190,7 +189,6 @@ impl SystemNode {
                 let handler = DeviceHandler::from_config(cfg).await;
                 match handler {
                     Ok(mut handler) => {
-                        handler.start(local_data_tx).await?;
                         handlers.lock().await.insert(device_id, handler);
                     }
                     Err(e) => {
@@ -212,6 +210,37 @@ impl SystemNode {
                     _ => info!("This handler does not exist."),
                 }
             }
+        }
+
+        Ok(())
+    }
+    
+    async fn start(
+        device_id: DeviceId,
+        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+        local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        match handlers.lock().await.get_mut(&device_id) {
+            Some(handler) => { 
+                info!("Starting device handler {device_id}");
+                handler.start(local_data_tx.clone()).await?; 
+            }
+            _ => { info!("There does not exist a device handler {device_id}") }
+        }
+        
+        Ok(())
+    }
+
+    async fn stop(
+        device_id: DeviceId,
+        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        match handlers.lock().await.get_mut(&device_id) {
+            Some(handler) => {
+                info!("Stopping device handler {device_id}");
+                handler.stop().await?;
+            }
+            _ => { info!("There does not exist a device handler {device_id}") }
         }
 
         Ok(())
@@ -321,11 +350,13 @@ impl SystemNode {
                 target_addr,
                 device_id,
                 cfg_type,
-            } => Ok(Self::configure(device_id, cfg_type, handlers, local_data_tx).await?),
+            } => Ok(Self::configure(device_id, cfg_type, handlers).await?),
             Command::Delay { delay } => {
                 tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
                 Ok(())
             }
+            Command::Start { target_addr, device_id } => Ok(Self::start(device_id, handlers, local_data_tx).await?),
+            Command::Stop { target_addr, device_id } => Ok(Self::stop(device_id, handlers).await?),
             c => {
                 info!("The system node does not support this command {c:?}");
                 Ok(())
@@ -375,7 +406,13 @@ impl SystemNode {
                 Self::unsubscribe(request.src_addr, device_id, send_channel_msg_channel).await?;
             }
             HostCtrl::Configure { device_id, cfg_type } => {
-                Self::configure(device_id, cfg_type, self.handlers.clone(), self.local_data_tx.clone()).await?;
+                Self::configure(device_id, cfg_type, self.handlers.clone()).await?;
+            }
+            HostCtrl::Start { device_id } => {
+                Self::start(device_id, self.handlers.clone(), self.local_data_tx.clone()).await?;
+            }
+            HostCtrl::Stop { device_id } => {
+                Self::stop(device_id, self.handlers.clone()).await?;
             }
             HostCtrl::Experiment { experiment } => {
                 Self::load_experiment(experiment, self.handlers.clone(), self.local_data_tx.clone()).await?;

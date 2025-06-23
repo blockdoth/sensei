@@ -22,6 +22,9 @@
                     delay: 500
                     adapter: !Csv
                     output_to:
+            - !Start
+              target_addr: "127.0.0.1:12345"
+              device_id: 0
             - !SubscribeTo
               target_addr: "127.0.0.1:42000"
               device_id: 0

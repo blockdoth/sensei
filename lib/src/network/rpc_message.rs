@@ -64,6 +64,10 @@ pub enum HostCtrl {
     Disconnect,
     /// Configure a device handler.
     Configure { device_id: DeviceId, cfg_type: CfgType },
+    /// Start a device handler on a node
+    Start { device_id: DeviceId },
+    /// Stop a device handler on a node
+    Stop { device_id: DeviceId},
     /// Subscribe to a device's data stream.
     Subscribe { device_id: DeviceId },
     /// Unsubscribe from a device's data stream.

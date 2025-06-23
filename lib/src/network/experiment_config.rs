@@ -147,6 +147,14 @@ pub enum Command {
     Delay {
         delay: u64,
     },
+    Start {
+        target_addr: SocketAddr,
+        device_id: DeviceId,
+    },
+    Stop {
+        target_addr: SocketAddr,
+        device_id: DeviceId,
+    },
     DummyData {},
 }
 
