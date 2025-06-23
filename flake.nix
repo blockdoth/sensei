@@ -69,7 +69,7 @@
             configureFlags = [
               "--enable-static"
               "--disable-shared"
-              "--without-cxx-exceptions"
+              "--enable-cxx-exceptions"
               "--prefix=$out"
               "--host=aarch64-unknown-linux-musl"
             ];
@@ -77,6 +77,7 @@
             buildPhase = ''
               autoreconf -i
               ./configure ${pkgs.lib.concatStringsSep " " configureFlags}
+              make
               make -C src
             '';
 
@@ -123,10 +124,6 @@
 
             RUST_SRC_PATH = "${toolchain}/lib/rustlib/src/rust/library";
             CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER = "${linker}";
-            MUSL_LIB_PATH = "${muslLib}";
-            MUSL_GCC_LIB_PATH = "${gccLibPath}";
-            MUSL_GCC_PATH = "${muslGcc}";
-            MUSL_UNWIND_PATH = "${libunwindMusl}";
             RUSTFLAGS = "";
             # For coverage tools
             LLVM_COV = "${pkgs.llvmPackages_latest.llvm}/bin/llvm-cov";
@@ -150,7 +147,7 @@
                 pkgs.pkg-config
                 pkgs.pkgsCross.aarch64-multiplatform-musl.stdenv
                 pkgs.pkgsCross.aarch64-multiplatform-musl.musl
-                pkgs.pkgsCross.aarch64-multiplatform-musl.libunwind
+                libunwindMuslStatic
               ];
 
               nativeBuildInputs = [
@@ -161,32 +158,42 @@
                 pkgs.pkg-config
                 pkgs.pkgsCross.aarch64-multiplatform-musl.stdenv
                 pkgs.pkgsCross.aarch64-multiplatform-musl.musl
-                pkgs.pkgsCross.aarch64-multiplatform-musl.libunwind
+                libunwindMuslStatic
               ];
-              # cargoBuildFlags = [
-              #   # FOR SOME REASON --offline IS PASSED
-              #   "--package testapp"
-              #   "--target aarch64-unknown-linux-musl"
-              #   "-Z build-std=std,panic_abort"
-              #   "-Z build-std-features=panic_immediate_abort"
-              # ];
-              buildPhase = ''
-                ./scripts/crosscompile-arm.sh
-              '';
-              RUSTFLAGS = "-C linker=${linker} \
-              -C link-arg=-nostartfiles \
-              -L${muslLib}              \
-              -L${gccLibPath}           \
-              -L${libunwindMusl}        \
-              -C link-arg=-nostdlib     \
-              -C link-arg=-static       \
-              -C link-arg=-Wl,--start-group \
-              -C link-arg=-lc             \
-              -C link-arg=-lm             \
-              -C link-arg=-lgcc           \
-              -C link-arg=-Wl,--end-group \
-              -C panic=abort";
+
+              cargoBuildFlags = [
+                "--package" "sensei"
+                "--target" "aarch64-unknown-linux-musl"
+                "-Z" "build-std=std,panic_abort"
+                "-Z" "build-std-features=panic_immediate_abort"
+                "-Z" "build-std-features=optimize_for_size"
+                ];
+
+              RUSTFLAGS = "-C linker=${linker}
+              -C link-arg=-nostartfiles
+              -L${muslLib}
+              -L${gccLibPath}
+              -L${libunwindMusl}
+              -C link-arg=-nostdlib
+              -C link-arg=-static
+              -C link-arg=-Wl,--start-group
+              -C link-arg=-lc
+              -C link-arg=-lm
+              -C link-arg=-lgcc
+              -C link-arg=-lunwind
+              -C link-arg=-Wl,--end-group
+              -C panic=abort
+              -C force-unwind-tables=yes
+              -C opt-level=z
+              -Zlocation-detail=none
+              -Zfmt-debug=none
+              ";
               doCheck = false;
+
+              MUSL_LIB_PATH = "${muslLib}";
+              MUSL_GCC_LIB_PATH = "${gccLibPath}";
+              MUSL_GCC_PATH = "${muslGcc}";
+              MUSL_UNWIND_PATH = "${libunwindMusl}";
             }
           );
 
