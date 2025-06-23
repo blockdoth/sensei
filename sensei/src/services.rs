@@ -18,7 +18,7 @@
 //! The module aims to provide a clear and structured way to manage service-specific
 //! settings and their execution flow.
 
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net::SocketAddr;
 use std::path::PathBuf;
 
 #[cfg(feature = "sys_node")]
@@ -28,8 +28,6 @@ use serde::Deserialize;
 
 #[cfg(feature = "sys_node")]
 use crate::system_node::SinkConfigWithName;
-
-pub const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
 
 /// A trait for parsing a YAML file into a struct using Serde.
 ///
@@ -140,6 +138,8 @@ pub struct EspToolConfig {
 pub struct GlobalConfig {
     /// The logging level filter to be applied across the application.
     pub log_level: LevelFilter,
+    /// The number of workers Sensei will use
+    pub num_workers: usize,
 }
 
 /// An enum representing the configuration for any of the available services.

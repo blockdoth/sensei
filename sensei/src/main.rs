@@ -32,6 +32,7 @@ use std::fs::File;
 use cli::*;
 #[cfg(feature = "esp_tool")]
 use esp_tool::EspTool;
+use lib::tui::example::run_example;
 use log::*;
 #[cfg(feature = "sys_node")]
 use services::FromYaml;
@@ -39,6 +40,7 @@ use services::Run;
 #[cfg(feature = "sys_node")]
 use services::SystemNodeConfig;
 use simplelog::{ColorChoice, CombinedLogger, LevelFilter, TermLogger, TerminalMode, WriteLogger};
+use tokio::runtime::Builder;
 
 #[cfg(feature = "orchestrator")]
 use crate::orchestrator::*;
@@ -47,8 +49,7 @@ use crate::system_node::*;
 #[cfg(feature = "visualiser")]
 use crate::visualiser::*;
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 1)]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Args = argh::from_env();
 
     let tui_enabled = {
@@ -95,23 +96,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap();
         debug!("Parsed args and initialized CombinedLogger");
     }
-
     debug!("Parsed args and initialized CombinedLogger");
     let global_args = args.parse_global_config()?;
+    // This builders allows us to select the number of worker threads based on
+    // either compile flags or CLI arguments, instead of statically setting them in the source.
+    let runtime = Builder::new_multi_thread().worker_threads(global_args.num_workers).enable_all().build()?;
+    debug!("Created a builder with {} workers", global_args.num_workers);
     match &args.subcommand {
-        None => lib::tui::example::run_example().await,
+        None => runtime.block_on(run_example()),
         Some(subcommand) => match subcommand {
             #[cfg(feature = "sys_node")]
-            SubCommandsArgs::SystemNode(args) => {
-                let overlayed_config = args.overlay_subcommand_args(SystemNodeConfig::from_yaml(args.config_path.clone())?)?;
-                SystemNode::new(global_args, overlayed_config).run().await?
-            }
+            SubCommandsArgs::SystemNode(args) => runtime.block_on(
+                SystemNode::new(
+                    global_args,
+                    args.overlay_subcommand_args(SystemNodeConfig::from_yaml(args.config_path.clone())?)?,
+                )
+                .run(),
+            )?,
             #[cfg(feature = "orchestrator")]
-            SubCommandsArgs::Orchestrator(args) => Orchestrator::new(global_args, args.parse()?).run().await?,
+            SubCommandsArgs::Orchestrator(args) => runtime.block_on(Orchestrator::new(global_args, args.parse()?).run())?,
             #[cfg(feature = "visualiser")]
-            SubCommandsArgs::Visualiser(args) => Visualiser::new(global_args, args.parse()?).run().await?,
+            SubCommandsArgs::Visualiser(args) => runtime.block_on(Visualiser::new(global_args, args.parse()?).run())?,
             #[cfg(feature = "esp_tool")]
-            SubCommandsArgs::EspTool(args) => EspTool::new(global_args, args.parse()?).run().await?,
+            SubCommandsArgs::EspTool(args) => runtime.block_on(EspTool::new(global_args, args.parse()?).run())?,
         },
     }
     Ok(())
@@ -151,6 +158,7 @@ device_configs: []
                 port: 9090,                      // Default port for test case
             })),
             level: LevelFilter::Error,
+            num_workers: 4,
         };
 
         let global_args = args.parse_global_config().unwrap();
@@ -184,6 +192,7 @@ stages: []";
                 polling_interval: 5,
             })),
             level: LevelFilter::Error,
+            num_workers: 4,
         };
         let global_args = args.parse_global_config().unwrap();
 

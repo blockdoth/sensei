@@ -8,7 +8,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use std::vec;
-
 use lib::errors::NetworkError;
 use lib::network::experiment_config::{Block, Delays, Experiment, ExperimentHost, IsRecurring, Metadata, Stage};
 use lib::network::rpc_message::RpcMessageKind::Data;

@@ -1007,6 +1007,7 @@ mod tests {
     fn setup_visualiser() -> Visualiser {
         let global_config = GlobalConfig {
             log_level: simplelog::LevelFilter::Off,
+            num_workers: 4,
         };
         let visualiser_config = VisualiserConfig {
             target: "127.0.0.1:1234".parse().unwrap(),

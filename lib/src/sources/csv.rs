@@ -68,6 +68,11 @@ impl DataSourceT for CsvSource {
     /// ---------------------
     /// This function reads either the full buffer, or until a newline character is detected.
     async fn read_buf(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError> {
+        // sleep to simulate a delay between arriving packets.
+        if self.config.delay > 0 {
+            tokio::time::sleep(tokio::time::Duration::from_millis(self.config.delay.into())).await;
+        }
+        trace!("Reading buffer...");
         let row_delim = self.row_delimiter;
         let max_read = buf.len();
         let mut temp_buf = vec![0u8; max_read];
@@ -82,10 +87,6 @@ impl DataSourceT for CsvSource {
             }
         }
         buf[..bytes_read].copy_from_slice(&temp_buf[..bytes_read]);
-        // sleep to simulate a delay between arriving packets.
-        if self.config.delay > 0 {
-            tokio::time::sleep(tokio::time::Duration::from_millis(self.config.delay.into())).await;
-        }
         Ok(bytes_read)
     }
 

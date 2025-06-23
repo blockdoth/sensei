@@ -82,24 +82,25 @@ impl From<Command> for OrgChannelMsg {
             Command::Subscribe { target_addr, device_id } => OrgChannelMsg::Subscribe(target_addr, None, device_id),
             Command::Unsubscribe { target_addr, device_id } => OrgChannelMsg::Unsubscribe(target_addr, None, device_id),
             Command::SubscribeTo {
-                target_addr,
-                source_addr,
-                device_id,
-            } => OrgChannelMsg::Subscribe(target_addr, Some(source_addr), device_id),
+                        target_addr,
+                        source_addr,
+                        device_id,
+                    } => OrgChannelMsg::Subscribe(target_addr, Some(source_addr), device_id),
             Command::UnsubscribeFrom {
-                target_addr,
-                source_addr,
-                device_id,
-            } => OrgChannelMsg::Unsubscribe(target_addr, Some(source_addr), device_id),
+                        target_addr,
+                        source_addr,
+                        device_id,
+                    } => OrgChannelMsg::Unsubscribe(target_addr, Some(source_addr), device_id),
             Command::SendStatus { target_addr, host_id } => OrgChannelMsg::SendStatus(target_addr, host_id),
             Command::Configure {
-                target_addr,
-                device_id,
-                cfg_type,
-            } => OrgChannelMsg::Configure(target_addr, device_id, cfg_type),
+                        target_addr,
+                        device_id,
+                        cfg_type,
+                    } => OrgChannelMsg::Configure(target_addr, device_id, cfg_type),
             Command::Delay { delay } => OrgChannelMsg::Delay(delay),
             Command::GetHostStatuses { target_addr } => OrgChannelMsg::GetHostStatuses(target_addr),
             Command::Ping { target_addr } => OrgChannelMsg::Ping(target_addr),
+            Command::DummyData {  } => todo!(),
         }
     }
 }

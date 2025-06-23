@@ -285,6 +285,7 @@ mod tests {
     fn test_esp_tool_new() {
         let global_config = GlobalConfig {
             log_level: LevelFilter::Debug,
+            num_workers: 4,
         };
         let esp_config = EspToolConfig {
             serial_port: "/dev/ttyUSB0".to_string(),

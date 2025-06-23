@@ -79,6 +79,10 @@ pub struct Args {
     #[argh(option, default = "LevelFilter::Info")]
     pub level: LevelFilter,
 
+    /// the number of workers sensei will be started with.
+    #[argh(option, default = "4")]
+    pub num_workers: usize,
+
     #[argh(subcommand)]
     pub subcommand: Option<SubCommandsArgs>,
 }
@@ -88,7 +92,10 @@ impl Args {
     ///
     /// Currently, this primarily involves extracting the log level.
     pub fn parse_global_config(&self) -> Result<GlobalConfig, Error> {
-        Ok(GlobalConfig { log_level: self.level })
+        Ok(GlobalConfig {
+            log_level: self.level,
+            num_workers: self.num_workers,
+        })
     }
 }
 

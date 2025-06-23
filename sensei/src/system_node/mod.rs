@@ -721,6 +721,7 @@ mod tests {
         let config = create_system_node_config("127.0.0.1:12345".parse().unwrap(), 1);
         let global_config = GlobalConfig {
             log_level: log::LevelFilter::Debug,
+            num_workers: 4,
         };
         let _system_node = SystemNode::new(global_config, config);
         // Can't check private fields, but construction should succeed

@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use async_trait::async_trait;
 use crossterm::event::{KeyCode, KeyEvent};
 use lib::csi_types::CsiData;
-use lib::network::rpc_message::{HostId, HostStatus as RegHostStatus, Responsiveness, SourceType};
+use lib::network::rpc_message::{HostId, HostStatus as RegHostStatus, Responsiveness, SourceType, DEFAULT_ADDRESS};
 use lib::tui::Tui;
 use lib::tui::logs::{FromLog, LogEntry};
 use log::info;
@@ -13,7 +13,6 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use super::tui::ui;
 use crate::orchestrator::OrgChannelMsg;
 use crate::orchestrator::experiment::{ActiveExperiment, ExperimentMetadata, ExperimentStatus};
-use crate::services::DEFAULT_ADDRESS;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Host {
