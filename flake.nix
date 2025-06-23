@@ -130,7 +130,7 @@
             LLVM_PROFDATA = "${pkgs.llvmPackages_latest.llvm}/bin/llvm-profdata";
           };
 
-          packages.build-aarch64 = lib.mkIf (system == "x86_64-linux" || system == "aarch64-linux") (
+          packages.cross-aarch64 = lib.mkIf (system == "x86_64-linux" || system == "aarch64-linux") (
             pkgs.rustPlatform.buildRustPackage {
               pname = "sensei";
               version = "0.1.0";
@@ -146,20 +146,17 @@
                 pkgs.glibc
                 pkgs.pkg-config
                 pkgs.pkgsCross.aarch64-multiplatform-musl.stdenv
-                pkgs.pkgsCross.aarch64-multiplatform-musl.musl
                 libunwindMuslStatic
               ];
 
               nativeBuildInputs = [
                 toolchain
-                pkgs.pkg-config
                 pkgs.gcc
                 pkgs.glibc
                 pkgs.pkg-config
-                pkgs.pkgsCross.aarch64-multiplatform-musl.stdenv
-                pkgs.pkgsCross.aarch64-multiplatform-musl.musl
+                pkgs.pkgsCross.aarch64-multiplatform-musl.stdenv  
                 libunwindMuslStatic
-              ];
+              ];              
 
               cargoBuildFlags = [
                 "--package" "sensei"
