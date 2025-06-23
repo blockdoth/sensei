@@ -239,7 +239,7 @@ mod tests {
             target_addr: test_addr(),
         };
 
-        mock.expect_read_message().with(eq(config.target_addr)).return_once(move |_| Ok(message));
+        mock.expect_wait_for_read_message().with(eq(config.target_addr)).return_once(move |_| Ok(message));
 
         let mut source = TCPSource { client: mock, config };
 
@@ -266,7 +266,7 @@ mod tests {
             target_addr: test_addr(),
         };
 
-        mock.expect_read_message().returning(move |_| Ok(message.clone()));
+        mock.expect_wait_for_read_message().returning(move |_| Ok(message.clone()));
 
         let mut source = TCPSource {
             client: mock,
@@ -281,7 +281,7 @@ mod tests {
         let config = make_config();
 
         let mut mock = TcpClient::default();
-        mock.expect_read_message().returning(|_| {
+        mock.expect_wait_for_read_message().returning(|_| {
             Ok(RpcMessage {
                 msg: RpcMessageKind::HostCtrl(HostCtrl::Connect),
                 src_addr: test_addr(),
