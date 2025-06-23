@@ -2,17 +2,15 @@ use std::error::Error;
 use std::fs::File;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::vec;
 
 use futures::future::pending;
-use lib::handler::device_handler::DeviceHandlerConfig;
 #[cfg(test)]
 use lib::network::experiment_config::Delays;
 use lib::network::experiment_config::{Block, Command, Experiment, ExperimentHost, IsRecurring, Stage};
-use lib::network::rpc_message::DataMsg::RawFrame;
 use lib::network::rpc_message::RpcMessageKind::Data;
-use lib::network::rpc_message::SourceType::ESP32;
 use lib::network::rpc_message::{CfgType, DataMsg, DeviceId, HostCtrl, HostId, HostStatus, RegCtrl, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::{ChannelMsg, HostChannel};
@@ -21,8 +19,7 @@ use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::{Mutex, watch};
 
-use crate::cli::DEFAULT_ORCHESTRATOR_CONFIG;
-use crate::services::{DEFAULT_ADDRESS, GlobalConfig, OrchestratorConfig, Run};
+use crate::services::{GlobalConfig, OrchestratorConfig, Run};
 
 pub struct Orchestrator {
     client: Arc<Mutex<TcpClient>>,
@@ -175,6 +172,9 @@ impl Orchestrator {
             Command::Delay { delay } => {
                 tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
                 Ok(())
+            }
+            Command::DummyData {} => {
+                todo!()
             }
         }
     }
@@ -329,120 +329,9 @@ impl Orchestrator {
         send_client: Arc<Mutex<TcpClient>>,
         send_commands_channel: Sender<ChannelMsg>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut input = line.split_whitespace();
-        match input.next() {
-            Some("connect") => {
-                // Connect the orchestrator and another target node
-                let target_addr: SocketAddr = input
-                    .next()
-                    .unwrap() // #TODO remove unwrap
-                    .parse()
-                    .unwrap_or(DEFAULT_ADDRESS);
-
-                // For some reason rust/my IDE freaks out if the error type is not specific IDK why
-                // Only on this specific Ok
-                // This pissed me off
-                // TODO: FIGURE OUT WHY
-                Ok::<(), anyhow::Error>(Self::connect(&send_client, target_addr).await?)
-            }
-            Some("disconnect") => {
-                // Disconnect the orchestrator from another target node
-                let target_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
-                Ok(Self::disconnect(&send_client, target_addr).await?)
-            }
-            Some("sub") => {
-                // Subscribe the orchestrator to the data output of a node
-                let target_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
-                let device_id: DeviceId = input.next().unwrap_or("0").parse().unwrap();
-
-                Self::subscribe(&send_client, target_addr, device_id).await?;
-                Ok(send_commands_channel.send(ChannelMsg::from(HostChannel::ListenSubscribe { addr: target_addr }))?)
-            }
-            Some("unsub") => {
-                // Unsubscribe the orchestrator from the data output of another node
-                let target_addr: SocketAddr = input
-                    .next()
-                    .unwrap_or("") // #TODO remove unwrap
-                    .parse()
-                    .unwrap_or(DEFAULT_ADDRESS);
-                let device_id: DeviceId = input.next().unwrap_or("0").parse().unwrap();
-                Self::unsubscribe(&send_client, target_addr, device_id).await?;
-                Ok(send_commands_channel.send(ChannelMsg::from(HostChannel::ListenUnsubscribe { addr: target_addr }))?)
-            }
-            Some("subto") => {
-                // Tells a node to subscribe to another node
-                let target_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
-                let source_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
-                let device_id: DeviceId = input.next().unwrap_or("0").parse().unwrap();
-
-                Ok(Self::subscribe_to(&send_client, target_addr, source_addr, device_id).await?)
-            }
-            Some("unsubfrom") => {
-                // Tells a node to unsubscribe from another node
-                let target_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
-                let source_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
-                let device_id: DeviceId = input.next().unwrap_or("0").parse().unwrap();
-
-                Ok(Self::unsubscribe_from(&send_client, target_addr, source_addr, device_id).await?)
-            }
-            Some("dummydata") => {
-                // To test the subscription mechanic
-                let target_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
-
-                let msg = Data {
-                    data_msg: RawFrame {
-                        ts: 1234f64,
-                        bytes: vec![],
-                        source_type: ESP32,
-                    },
-                    device_id: 0,
-                };
-
-                info!("Sending dummy data to {target_addr}");
-                Ok(send_client.lock().await.send_message(target_addr, msg).await?)
-            }
-            Some("sendstatus") => {
-                let target_addr: SocketAddr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
-                let host_id = input.next().unwrap_or("").parse().unwrap_or(0);
-
-                let msg = RpcMessageKind::RegCtrl(RegCtrl::PollHostStatus { host_id });
-
-                Ok(send_client.lock().await.send_message(target_addr, msg).await?)
-            }
-            Some("configure") => {
-                let target_addr = input.next().unwrap_or("").parse().unwrap_or(DEFAULT_ADDRESS);
-                let device_id: DeviceId = input.next().unwrap_or("0").parse().unwrap();
-                let configure_type = input.next();
-                let config_path: PathBuf = input.next().unwrap_or(DEFAULT_ORCHESTRATOR_CONFIG).into();
-                let cfg = match DeviceHandlerConfig::from_yaml(config_path.clone()) {
-                    Ok(cfgs) => match cfgs.first() {
-                        Some(cfg) => cfg.clone(),
-                        None => {
-                            info!("There needs to be at least one config in {cfgs:?}");
-                            return Ok(());
-                        }
-                    },
-                    _ => {
-                        info!("Invalid config path to read {config_path:?} to a device handler config");
-                        return Ok(());
-                    }
-                };
-
-                let cfg_type = match CfgType::from_string(configure_type, cfg) {
-                    Ok(cfg_type) => cfg_type,
-                    _ => {
-                        info!("{configure_type:?} is not a valid config type, needs to be create, edit or delete");
-                        return Ok(());
-                    }
-                };
-
-                Ok(Self::configure(&send_client, target_addr, device_id, cfg_type).await?)
-            }
-            _ => {
-                info!("Failed to parse command");
-                Ok(())
-            }
-        }?;
+        let command = Command::from_str(line)?;
+        let client = send_client;
+        Self::match_command(client, command).await?;
         Ok(())
     }
 

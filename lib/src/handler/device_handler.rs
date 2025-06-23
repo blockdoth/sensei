@@ -9,7 +9,7 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::adapters::*;
-use crate::errors::TaskError;
+use crate::errors::{ConfigError, TaskError};
 use crate::network::rpc_message::{DataMsg, DeviceId, SourceType};
 use crate::sources::controllers::{Controller, ControllerParams};
 use crate::sources::{DataSourceConfig, DataSourceT};
@@ -52,13 +52,13 @@ impl DeviceHandlerConfig {
     ///
     /// # Returns
     /// - `Ok(Vec<DeviceHandlerConfig>)` if the file is read and deserialized successfully.
-    /// - `Err(TaskError::Io)` if the file cannot be read (e.g., missing, permissions).
-    /// - `Err(TaskError::Parse)` if deserialization fails (e.g., invalid YAML format).
+    /// - `Err(ConfigError::Io)` if the file cannot be read (e.g., missing, permissions).
+    /// - `Err(ConfigError::Serde)` if deserialization fails (e.g., invalid YAML format).
     /// # Errors
     /// This function may return:
-    /// - `TaskError::Io` for file reading issues.
-    /// - `TaskError::Parse` for YAML deserialization errors.
-    pub fn from_yaml(file: PathBuf) -> Result<Vec<DeviceHandlerConfig>, TaskError> {
+    /// - `ConfigError::Io` for file reading issues.
+    /// - `ConfigError::Serde` for YAML deserialization errors.
+    pub fn from_yaml(file: PathBuf) -> Result<Vec<DeviceHandlerConfig>, ConfigError> {
         let yaml = fs::read_to_string(file)?;
         let configs = serde_yaml::from_str(&yaml)?;
         Ok(configs)
