@@ -93,15 +93,12 @@ impl SystemNode {
 
     async fn connect(src_addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
         info!("Started connection with {src_addr}");
-
         Ok(())
     }
 
     async fn disconnect(src_addr: SocketAddr, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), Box<dyn std::error::Error>> {
         send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Disconnect))?;
-
         info!("Disconnecting from the connection with {src_addr}");
-
         Ok(())
     }
 

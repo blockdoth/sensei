@@ -17,15 +17,14 @@
 //!
 //! The module aims to provide a clear and structured way to manage service-specific
 //! settings and their execution flow.
-use std::error::Error;
-#[cfg(any(feature = "sys_node", feature = "visualiser"))]
+    #[cfg(any(feature = "sys_node", feature = "visualiser"))]
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::{path::PathBuf};
 
 #[cfg(feature = "sys_node")]
 use lib::handler::device_handler::DeviceHandlerConfig;
 #[cfg(feature = "registry")]
-use lib::network::rpc_message::HostId;
+use lib::{network::rpc_message::HostId};
 use log::LevelFilter;
 use serde::{Deserialize, Serialize};
 
@@ -84,7 +83,7 @@ pub trait FromYaml: Sized + for<'de> Deserialize<'de> {
     /// # Panics
     ///
     /// This function will panic if the file cannot be read.
-    fn from_yaml(file: PathBuf) -> Result<Self, Box<dyn Error>> {
+    fn from_yaml(file: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
         let yaml = std::fs::read_to_string(file.clone()).map_err(|e| format!("Failed to read YAML file: {}\n{}", file.display(), e))?;
         Ok(serde_yaml::from_str(&yaml)?)
     }
@@ -123,7 +122,7 @@ pub struct RegistryConfig {
     /// Holds the ID the registry will use to present themselves to the network
     pub host_id: HostId,
     /// The rate at which the registry will poll the registered hosts, in seconds.
-    pub polling_rate_s: Option<u64>,
+    pub polling_rate_s: Option<u64>
 }
 
 /// Configuration for the Visualiser service.

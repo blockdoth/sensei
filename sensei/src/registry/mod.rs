@@ -15,7 +15,7 @@ use lib::errors::{NetworkError, RegistryError};
 use lib::network::rpc_message::{DataMsg, DeviceId, DeviceStatus, HostCtrl, HostId, HostStatus, RegCtrl, Responsiveness, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
-use lib::network::tcp::{ChannelMsg, ConnectionHandler, RegChannel, SubscribeDataChannel, send_message};
+use lib::network::tcp::{send_message, ChannelMsg, ConnectionHandler, HostChannel, RegChannel, SubscribeDataChannel};
 use log::{debug, info, trace, warn};
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::watch::{self};
@@ -185,15 +185,18 @@ impl ConnectionHandler for Registry {
     async fn handle_recv(&self, request: RpcMessage, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
         match request.msg {
             RpcMessageKind::HostCtrl(host_ctrl) => match host_ctrl {
-                HostCtrl::Connect => todo!(),
-                HostCtrl::Disconnect => todo!(),
+                HostCtrl::Connect => info!("Started connection with {}", request.src_addr),
+                HostCtrl::Disconnect => send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Disconnect))?,
                 HostCtrl::Configure { device_id, cfg_type } => todo!(),
                 HostCtrl::Subscribe { device_id } => todo!(),
                 HostCtrl::Unsubscribe { device_id } => todo!(),
                 HostCtrl::SubscribeTo { target_addr, device_id } => todo!(),
                 HostCtrl::UnsubscribeFrom { target_addr, device_id } => todo!(),
                 HostCtrl::Experiment { experiment } => todo!(),
-                HostCtrl::Ping => todo!(),
+                HostCtrl::Ping => {
+                    debug!("Received ping from {:#?}.", request.src_addr);
+                    send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Pong))?;
+                },
                 HostCtrl::Pong => todo!(),
             },
             RpcMessageKind::RegCtrl(reg_ctrl) => match reg_ctrl {
@@ -284,6 +287,7 @@ impl Run<RegistryConfig> for Registry {
     /// RegistryConfig: Specifies the target address
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let polling_task = if self.polling_rate_s == 0 {
+            warn!("Polling task was not started.");
             task::spawn(async {}) // dummy task
         } else {
             let connection_handler = Arc::new(self.clone());
