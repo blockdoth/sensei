@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use log::trace;
+use log::{info, trace};
 #[cfg(test)]
 use mockall::automock;
 #[cfg(test)]

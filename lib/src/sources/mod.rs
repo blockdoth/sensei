@@ -33,7 +33,7 @@ use crate::errors::{DataSourceError, TaskError};
 use crate::network::rpc_message::DataMsg;
 use crate::{FromConfig, ToConfig};
 
-pub const BUFSIZE: usize = 65535;
+pub const BUFSIZE: usize = 4096;
 
 /// Data Source Trait
 /// -----------------
