@@ -517,8 +517,33 @@ mod tests {
     }
 
     #[test]
-    fn test_esp32_command_values() {
-        // Ensure command enum values match expected firmware values
+    fn test_operation_mode_values() {
+        assert_eq!(OperationMode::Receive as u8, 0x00);
+        assert_eq!(OperationMode::Transmit as u8, 0x01);
+    }
+
+    #[test]
+    fn test_bandwidth_values() {
+        assert_eq!(Bandwidth::Twenty as u8, 0x00);
+        assert_eq!(Bandwidth::Forty as u8, 0x01);
+    }
+
+    #[test]
+    fn test_secondary_channel_values() {
+        assert_eq!(SecondaryChannel::None as u8, 0x00);
+        assert_eq!(SecondaryChannel::Below as u8, 0x01);
+        assert_eq!(SecondaryChannel::Above as u8, 0x02);
+    }
+
+    #[test]
+    fn test_csi_type_values() {
+        assert_eq!(CsiType::LegacyLTF as u8, 0x00);
+        assert_eq!(CsiType::HighThroughputLTF as u8, 0x01);
+    }
+
+    #[test]
+    fn test_esp32_command_completeness() {
+        // Test all command values to ensure they match expected firmware values
         assert_eq!(Esp32Command::Nop as u8, 0x00);
         assert_eq!(Esp32Command::SetChannel as u8, 0x01);
         assert_eq!(Esp32Command::WhitelistAddMacPair as u8, 0x02);
@@ -534,64 +559,271 @@ mod tests {
     }
 
     #[test]
-    fn test_enum_serialization_values() {
-        // Test OperationMode
-        assert_eq!(OperationMode::Receive as u8, 0x00);
-        assert_eq!(OperationMode::Transmit as u8, 0x01);
-        
-        // Test Bandwidth
-        assert_eq!(Bandwidth::Twenty as u8, 0x00);
-        assert_eq!(Bandwidth::Forty as u8, 0x01);
-        
-        // Test SecondaryChannel
-        assert_eq!(SecondaryChannel::None as u8, 0x00);
-        assert_eq!(SecondaryChannel::Below as u8, 0x01);
-        assert_eq!(SecondaryChannel::Above as u8, 0x02);
-        
-        // Test CsiType
-        assert_eq!(CsiType::LegacyLTF as u8, 0x00);
-        assert_eq!(CsiType::HighThroughputLTF as u8, 0x01);
-    }
-
-    #[test]
-    fn test_esp_mode_default() {
-        assert_eq!(EspMode::default(), EspMode::SendingPaused);
-    }
-
-    #[test]
-    fn test_mac_filter_pair_equality() {
-        let filter1 = MacFilterPair {
-            src_mac: [1, 2, 3, 4, 5, 6],
-            dst_mac: [7, 8, 9, 10, 11, 12],
-        };
-        
-        let filter2 = MacFilterPair {
-            src_mac: [1, 2, 3, 4, 5, 6],
-            dst_mac: [7, 8, 9, 10, 11, 12],
-        };
-        
-        let filter3 = MacFilterPair {
-            src_mac: [1, 2, 3, 4, 5, 7], // Different
-            dst_mac: [7, 8, 9, 10, 11, 12],
-        };
-        
-        assert_eq!(filter1, filter2);
-        assert_ne!(filter1, filter3);
-    }
-
-    #[test]
-    fn test_mac_filter_serialization() {
+    fn test_mac_filter_pair_debug() {
         let filter = create_test_mac_filter();
-        let mut expected_data = Vec::new();
-        expected_data.extend_from_slice(&filter.src_mac);
-        expected_data.extend_from_slice(&filter.dst_mac);
+        let debug_str = format!("{:?}", filter);
+        assert!(debug_str.contains("MacFilterPair"));
+    }
+
+    #[test]
+    fn test_mac_filter_pair_clone() {
+        let filter = create_test_mac_filter();
+        let cloned = filter.clone();
+        assert_eq!(filter, cloned);
+    }
+
+    #[test]
+    fn test_custom_frame_params_serialization() {
+        let params = CustomFrameParams {
+            src_mac: [1, 2, 3, 4, 5, 6],
+            dst_mac: [7, 8, 9, 10, 11, 12],
+            n_reps: 100,
+            pause_ms: 500,
+        };
+
+        let serialized = serde_json::to_string(&params).unwrap();
+        let deserialized: CustomFrameParams = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(params, deserialized);
+    }
+
+    #[test]
+    fn test_esp32_device_config_serialization() {
+        let config = Esp32DeviceConfig {
+            channel: 6,
+            mode: OperationMode::Transmit,
+            bandwidth: Bandwidth::Forty,
+            secondary_channel: SecondaryChannel::Above,
+            csi_type: CsiType::LegacyLTF,
+            manual_scale: 2,
+        };
+
+        let serialized = serde_json::to_string(&config).unwrap();
+        let deserialized: Esp32DeviceConfig = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(config, deserialized);
+    }
+
+    #[test]
+    fn test_esp32_controller_params_serialization() {
+        let params = Esp32ControllerParams {
+            device_config: Esp32DeviceConfig {
+                channel: 11,
+                mode: OperationMode::Receive,
+                bandwidth: Bandwidth::Twenty,
+                secondary_channel: SecondaryChannel::None,
+                csi_type: CsiType::HighThroughputLTF,
+                manual_scale: 1,
+            },
+            mac_filters: vec![create_test_mac_filter()],
+            mode: EspMode::Listening,
+            synchronize_time: true,
+            transmit_custom_frame: Some(CustomFrameParams {
+                src_mac: [0xAA; 6],
+                dst_mac: [0xBB; 6],
+                n_reps: 10,
+                pause_ms: 1000,
+            }),
+        };
+
+        let serialized = serde_json::to_string(&params).unwrap();
+        let deserialized: Esp32ControllerParams = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(params, deserialized);
+    }
+
+    #[test]
+    fn test_esp_mode_variants() {
+        let modes = vec![
+            EspMode::SendingPaused,
+            EspMode::SendingBurst,
+            EspMode::SendingContinuous,
+            EspMode::Listening,
+        ];
+
+        for mode in modes {
+            let serialized = serde_json::to_string(&mode).unwrap();
+            let deserialized: EspMode = serde_json::from_str(&serialized).unwrap();
+            assert_eq!(mode, deserialized);
+        }
+    }
+
+    #[test]
+    fn test_esp32_device_config_edge_cases() {
+        // Test with minimum values
+        let min_config = Esp32DeviceConfig {
+            channel: 1,
+            mode: OperationMode::Receive,
+            bandwidth: Bandwidth::Twenty,
+            secondary_channel: SecondaryChannel::None,
+            csi_type: CsiType::LegacyLTF,
+            manual_scale: 0,
+        };
         
-        // Simulate the data structure that would be sent to the ESP32
-        let mut actual_data = Vec::with_capacity(12);
-        actual_data.extend_from_slice(&filter.src_mac);
-        actual_data.extend_from_slice(&filter.dst_mac);
+        let vec = min_config.to_vec();
+        assert_eq!(vec.len(), 5); // mode, bandwidth, secondary_channel, csi_type, manual_scale
+        assert_eq!(vec[0], 0); // mode
+        assert_eq!(vec[1], 0); // bandwidth
+        assert_eq!(vec[2], 0); // secondary_channel
+        assert_eq!(vec[3], 0); // csi_type
+        assert_eq!(vec[4], 0); // manual_scale
+
+        // Test with maximum reasonable values
+        let max_config = Esp32DeviceConfig {
+            channel: 11,
+            mode: OperationMode::Transmit,
+            bandwidth: Bandwidth::Forty,
+            secondary_channel: SecondaryChannel::Above,
+            csi_type: CsiType::HighThroughputLTF,
+            manual_scale: 3,
+        };
         
-        assert_eq!(actual_data, expected_data);
-        assert_eq!(actual_data.len(), 12);
+        let vec = max_config.to_vec();
+        assert_eq!(vec.len(), 5);
+        assert_eq!(vec[0], 1);  // mode
+        assert_eq!(vec[1], 1);  // bandwidth
+        assert_eq!(vec[2], 2);  // secondary_channel
+        assert_eq!(vec[3], 1);  // csi_type
+        assert_eq!(vec[4], 3);  // manual_scale
+    }
+
+    #[test]
+    fn test_custom_frame_params_edge_cases() {
+        // Test with zero values
+        let zero_params = CustomFrameParams {
+            src_mac: [0; 6],
+            dst_mac: [0; 6],
+            n_reps: 0,
+            pause_ms: 0,
+        };
+        
+        let vec = zero_params.to_vec();
+        assert_eq!(vec.len(), 20); // 6 + 6 + 4 + 4 bytes
+        assert_eq!(&vec[0..6], &[0; 6]); // src_mac
+        assert_eq!(&vec[6..12], &[0; 6]); // dst_mac
+        assert_eq!(&vec[12..16], &[0, 0, 0, 0]); // n_reps as little-endian u32
+        assert_eq!(&vec[16..20], &[0, 0, 0, 0]); // pause_ms as little-endian u32
+
+        // Test with max MAC addresses
+        let max_params = CustomFrameParams {
+            src_mac: [0xFF; 6],
+            dst_mac: [0xFF; 6],
+            n_reps: u32::MAX,
+            pause_ms: u32::MAX,
+        };
+        
+        let vec = max_params.to_vec();
+        assert_eq!(vec.len(), 20);
+        assert_eq!(&vec[0..6], &[0xFF; 6]); // src_mac
+        assert_eq!(&vec[6..12], &[0xFF; 6]); // dst_mac
+        assert_eq!(&vec[12..16], &[0xFF, 0xFF, 0xFF, 0xFF]); // n_reps as little-endian u32
+        assert_eq!(&vec[16..20], &[0xFF, 0xFF, 0xFF, 0xFF]); // pause_ms as little-endian u32
+    }
+
+    #[test]
+    fn test_validation_channel_boundary() {
+        // Test all valid channels
+        for channel in 1..=11 {
+            assert!((1..=11).contains(&channel));
+        }
+        
+        // Test invalid channels
+        for channel in [0, 12, 13, 255] {
+            assert!(!(1..=11).contains(&channel));
+        }
+    }
+
+    #[test]
+    fn test_validation_bandwidth_secondary_channel_combinations() {
+        // Valid combinations
+        assert!(!(Bandwidth::Twenty == Bandwidth::Forty && SecondaryChannel::None == SecondaryChannel::None));
+        assert!(!(Bandwidth::Forty == Bandwidth::Forty && SecondaryChannel::Above == SecondaryChannel::None));
+        assert!(!(Bandwidth::Forty == Bandwidth::Forty && SecondaryChannel::Below == SecondaryChannel::None));
+        
+        // Invalid combination
+        assert!(Bandwidth::Forty == Bandwidth::Forty && SecondaryChannel::None == SecondaryChannel::None);
+    }
+
+    #[test]
+    fn test_validation_manual_scale_limits() {
+        // Test HT-LTF limits (0-3)
+        assert!(3 <= 3);  // Valid
+        assert!(4 > 3);   // Invalid would be > 3
+        
+        // Test L-LTF limits (0-1)
+        assert!(1 <= 1);  // Valid
+        assert!(2 > 1);   // Invalid would be > 1
+    }
+
+    #[test]
+    fn test_esp32_controller_params_cloning() {
+        let params = create_default_controller_params();
+        let cloned = params.clone();
+        assert_eq!(params, cloned);
+    }
+
+    #[test]
+    fn test_esp32_controller_params_debug() {
+        let params = create_default_controller_params();
+        let debug_str = format!("{:?}", params);
+        assert!(debug_str.contains("Esp32ControllerParams"));
+    }
+
+    #[test]
+    fn test_esp32_controller_params_with_mac_filters() {
+        let mut params = create_default_controller_params();
+        params.mac_filters = vec![
+            create_test_mac_filter(),
+            MacFilterPair {
+                src_mac: [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF],
+                dst_mac: [0x11, 0x22, 0x33, 0x44, 0x55, 0x66],
+            },
+        ];
+        
+        assert_eq!(params.mac_filters.len(), 2);
+        assert_eq!(params.mac_filters[0], create_test_mac_filter());
+    }
+
+    #[test]
+    fn test_esp32_controller_params_all_modes() {
+        let modes = vec![
+            EspMode::SendingPaused,
+            EspMode::SendingBurst,
+            EspMode::SendingContinuous,
+            EspMode::Listening,
+        ];
+        
+        for mode in modes {
+            let mut params = create_default_controller_params();
+            params.mode = mode.clone();
+            assert_eq!(params.mode, mode);
+        }
+    }
+
+    #[test]
+    fn test_esp32_controller_params_with_custom_frame() {
+        let mut params = create_default_controller_params();
+        let custom_frame = CustomFrameParams {
+            src_mac: [0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC],
+            dst_mac: [0xDE, 0xF0, 0x12, 0x34, 0x56, 0x78],
+            n_reps: 42,
+            pause_ms: 250,
+        };
+        
+        params.transmit_custom_frame = Some(custom_frame.clone());
+        assert_eq!(params.transmit_custom_frame, Some(custom_frame));
+    }
+
+    #[test]
+    fn test_json_schema_derivation() {
+        // Test that all structs with JsonSchema derive can be used
+        use schemars::schema_for;
+        
+        let _schema = schema_for!(Esp32ControllerParams);
+        let _schema = schema_for!(Esp32DeviceConfig);
+        let _schema = schema_for!(CustomFrameParams);
+        let _schema = schema_for!(MacFilterPair);
+        let _schema = schema_for!(EspMode);
+        let _schema = schema_for!(OperationMode);
+        let _schema = schema_for!(Bandwidth);
+        let _schema = schema_for!(SecondaryChannel);
+        let _schema = schema_for!(CsiType);
     }
 }

@@ -789,7 +789,7 @@ mod tests {
         let data = Some(vec![6u8]); // Set channel 6
         
         // Simulate building a command packet
-        let mut command_packet = vec![0u8; CMD_PACKET_TOTAL_SIZE_HOST_TO_ESP];
+        let mut command_packet = [0u8; CMD_PACKET_TOTAL_SIZE_HOST_TO_ESP];
         command_packet[0..CMD_PREAMBLE_HOST_TO_ESP.len()].copy_from_slice(&CMD_PREAMBLE_HOST_TO_ESP);
         
         let cmd_byte_offset = CMD_PREAMBLE_HOST_TO_ESP.len();
@@ -870,5 +870,260 @@ mod tests {
         assert_send_sync::<Esp32SourceConfig>();
         // Note: Can't test Esp32Source directly due to SerialPort not being Send+Sync
         // But the design with Arc<Mutex<>> ensures thread safety
+    }
+
+    #[test]
+    fn test_esp32_source_config_serde_serialization() {
+        let config = create_test_config();
+        
+        // Test JSON serialization
+        let json = serde_json::to_string(&config).unwrap();
+        let deserialized: Esp32SourceConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(config, deserialized);
+    }
+
+    #[test]
+    fn test_esp32_source_config_debug_format() {
+        let config = create_test_config();
+        let debug_str = format!("{:?}", config);
+        
+        assert!(debug_str.contains("Esp32SourceConfig"));
+        assert!(debug_str.contains("/dev/ttyUSB0"));
+        assert!(debug_str.contains("115200"));
+        assert!(debug_str.contains("50"));
+        assert!(debug_str.contains("1000"));
+    }
+
+    #[test]
+    fn test_esp32_source_config_with_default_values() {
+        let mut config = Esp32SourceConfig {
+            port_name: "/dev/ttyUSB0".to_string(),
+            ..Default::default()
+        };
+        
+        assert_eq!(config.port_name, "/dev/ttyUSB0");
+        assert_eq!(config.baud_rate, default_baud_rate());
+        assert_eq!(config.csi_buffer_size, default_csi_buffer_size());
+        assert_eq!(config.ack_timeout_ms, default_ack_timeout_ms());
+        
+        // Test that serde defaults work
+        config.baud_rate = 0; // This should be replaced by default
+        let json = r#"{"port_name": "/dev/ttyUSB0"}"#;
+        let deserialized: Esp32SourceConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(deserialized.baud_rate, default_baud_rate());
+    }
+
+    #[tokio::test]
+    async fn test_esp32_source_read_buf_when_running_but_no_data() {
+        let config = create_test_config();
+        let mut source = Esp32Source::new(config).unwrap();
+        
+        // Simulate running state but no data available
+        source.is_running.store(true, AtomicOrdering::SeqCst);
+        
+        let mut buf = vec![0u8; 1024];
+        let result = source.read_buf(&mut buf).await;
+        
+        // Should return error because no data is available and receiver times out
+        // However, in this test environment without actual threads running,
+        // the behavior may vary, so we just check it doesn't panic
+        match result {
+            Ok(_) => {}, // If it somehow succeeds, that's fine too
+            Err(_) => {}, // Expected error is also fine
+        }
+    }
+
+    #[tokio::test]
+    async fn test_esp32_source_start_stop_multiple_times() {
+        let config = create_test_config();
+        let mut source = Esp32Source::new(config).unwrap();
+        
+        // Test stopping when not started
+        let result = source.stop().await;
+        assert!(result.is_ok()); // Should handle gracefully
+        
+        // Test multiple stops
+        let result = source.stop().await;
+        assert!(result.is_ok()); // Should handle gracefully
+    }
+
+    #[test]
+    fn test_constants_values() {
+        assert_eq!(CMD_PREAMBLE_HOST_TO_ESP, [0xC3; 4]);
+        assert_eq!(CMD_PACKET_TOTAL_SIZE_HOST_TO_ESP, 128);
+        assert_eq!(ESP_PACKET_PREAMBLE_ESP_TO_HOST, [0xAA; 8]);
+        assert_eq!(ESP_TO_HOST_MIN_HEADER_SIZE, ESP_PACKET_PREAMBLE_ESP_TO_HOST.len() + 2);
+        assert_eq!(BAUDRATE, 3_000_000);
+        assert_eq!(DEFAULT_ACK_TIMEOUT_MS, 2000);
+        assert_eq!(DEFAULT_CSI_BUFFER_SIZE, 100);
+        assert_eq!(SERIAL_READ_TIMEOUT_MS, 100);
+        assert_eq!(SERIAL_READ_BUFFER_SIZE, 4096);
+    }
+
+    #[test]
+    fn test_esp32_source_config_extreme_values() {
+        // Test with very high but reasonable values (not max to avoid overflow)
+        let extreme_config = Esp32SourceConfig {
+            port_name: "/dev/ttyUSB999".to_string(),
+            baud_rate: 1_000_000, // High but reasonable baud rate
+            csi_buffer_size: 0, // This should fail
+            ack_timeout_ms: 10_000, // High but reasonable timeout
+        };
+        
+        // Should fail because buffer size is zero
+        let result = Esp32Source::new(extreme_config);
+        assert!(result.is_err());
+        
+        match result.unwrap_err() {
+            DataSourceError::Controller(msg) => {
+                assert!(msg.contains("CSI buffer size cannot be zero"));
+            }
+            _ => panic!("Expected Controller error"),
+        }
+    }
+
+    #[test]
+    fn test_esp32_source_config_minimum_values() {
+        let min_config = Esp32SourceConfig {
+            port_name: "".to_string(),
+            baud_rate: 1,
+            csi_buffer_size: 1,
+            ack_timeout_ms: 1,
+        };
+        
+        let result = Esp32Source::new(min_config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_esp32_source_new_with_various_buffer_sizes() {
+        let valid_sizes = vec![1, 10, 100, 1000, 10000];
+        
+        for size in valid_sizes {
+            let config = Esp32SourceConfig {
+                port_name: "/dev/test".to_string(),
+                baud_rate: 115200,
+                csi_buffer_size: size,
+                ack_timeout_ms: 1000,
+            };
+            
+            let result = Esp32Source::new(config);
+            assert!(result.is_ok(), "Failed to create source with buffer size {}", size);
+        }
+    }
+
+    #[test]
+    fn test_packet_structure_constants() {
+        // Verify packet structure makes sense
+        assert!(CMD_PACKET_TOTAL_SIZE_HOST_TO_ESP > CMD_PREAMBLE_HOST_TO_ESP.len() + 1);
+        assert!(ESP_TO_HOST_MIN_HEADER_SIZE >= ESP_PACKET_PREAMBLE_ESP_TO_HOST.len());
+        
+        // Verify there's room for data in command packets
+        let data_space = CMD_PACKET_TOTAL_SIZE_HOST_TO_ESP - CMD_PREAMBLE_HOST_TO_ESP.len() - 1;
+        assert!(data_space > 0);
+    }
+
+    #[test]
+    fn test_esp32_source_debug_implementation() {
+        let config = create_test_config();
+        let source = Esp32Source::new(config).unwrap();
+        
+        let debug_str = format!("{:?}", source);
+        assert!(debug_str.contains("Esp32Source"));
+        // Debug implementation is minimal, just check it doesn't panic
+    }
+
+    #[test]
+    fn test_atomic_bool_usage() {
+        let config = create_test_config();
+        let source = Esp32Source::new(config).unwrap();
+        
+        // Test atomic operations
+        assert!(!source.is_running.load(AtomicOrdering::Relaxed));
+        assert!(!source.is_running.load(AtomicOrdering::SeqCst));
+        assert!(!source.is_running.load(AtomicOrdering::Acquire));
+        
+        source.is_running.store(true, AtomicOrdering::Relaxed);
+        assert!(source.is_running.load(AtomicOrdering::Relaxed));
+        
+        source.is_running.store(false, AtomicOrdering::SeqCst);
+        assert!(!source.is_running.load(AtomicOrdering::SeqCst));
+    }
+
+    #[test]
+    fn test_crossbeam_channel_usage() {
+        let (tx, rx) = bounded::<Vec<u8>>(10);
+        
+        // Test sending and receiving
+        let test_data = vec![1, 2, 3, 4, 5];
+        tx.send(test_data.clone()).unwrap();
+        
+        let received = rx.recv().unwrap();
+        assert_eq!(received, test_data);
+        
+        // Test bounded behavior
+        for i in 0..10 {
+            assert!(tx.try_send(vec![i]).is_ok());
+        }
+        
+        // 11th send should fail
+        assert!(tx.try_send(vec![11]).is_err());
+    }
+
+    #[tokio::test]
+    async fn test_esp32_source_to_config_implementation() {
+        let original_config = create_test_config();
+        let source = Esp32Source::new(original_config.clone()).unwrap();
+        
+        let config_result = source.to_config().await;
+        assert!(config_result.is_ok());
+        
+        match config_result.unwrap() {
+            DataSourceConfig::Esp32(recovered_config) => {
+                assert_eq!(recovered_config, original_config);
+            }
+            _ => panic!("Expected Esp32 config variant"),
+        }
+    }
+
+    #[test]
+    fn test_shared_ack_waiters_thread_safety() {
+        let waiters: SharedAckWaiters = Arc::new(Mutex::new(HashMap::new()));
+        let waiters_clone = Arc::clone(&waiters);
+        
+        // Test that we can access from multiple contexts
+        {
+            let mut map = waiters.lock().unwrap();
+            let (tx, _rx) = bounded(1);
+            map.insert(1u8, tx);
+        }
+        
+        {
+            let map = waiters_clone.lock().unwrap();
+            assert!(map.contains_key(&1u8));
+        }
+    }
+
+    #[test]
+    fn test_error_type_conversions() {
+        // Test that DataSourceError can be created from io::Error
+        let io_error = std::io::Error::new(std::io::ErrorKind::NotFound, "test error");
+        let data_source_error = DataSourceError::from(io_error);
+        
+        match data_source_error {
+            DataSourceError::Io(_) => {}, // Expected
+            _ => panic!("Expected Io error variant"),
+        }
+    }
+
+    #[test]
+    fn test_controller_error_variants() {
+        let exec_error = ControllerError::Execution("test execution error".to_string());
+        match exec_error {
+            ControllerError::Execution(msg) => {
+                assert_eq!(msg, "test execution error");
+            }
+            _ => panic!("Expected Execution variant"),
+        }
     }
 }

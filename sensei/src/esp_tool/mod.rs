@@ -313,4 +313,287 @@ mod tests {
             _ => panic!("EspUpdate should be of type Log"),
         }
     }
+
+    #[test]
+    fn test_constants() {
+        assert_eq!(LOG_BUFFER_CAPACITY, 200);
+        assert_eq!(CSI_DATA_BUFFER_CAPACITY, 50000);
+        assert_eq!(UI_REFRESH_INTERVAL_MS, 20);
+        assert_eq!(ACTOR_CHANNEL_CAPACITY, 10);
+        assert_eq!(ESP_READ_BUFFER_SIZE, 4096);
+    }
+
+    #[test]
+    fn test_esp_channel_command_debug() {
+        let params = Esp32ControllerParams::default();
+        let update_cmd = EspChannelCommand::UpdatedConfig(params);
+        let debug_str = format!("{:?}", update_cmd);
+        assert!(debug_str.contains("UpdatedConfig"));
+
+        let exit_cmd = EspChannelCommand::Exit;
+        let debug_str = format!("{:?}", exit_cmd);
+        assert!(debug_str.contains("Exit"));
+    }
+
+    #[test]
+    fn test_esp_tool_creation_with_different_configs() {
+        let test_cases = vec![
+            ("/dev/ttyUSB0", LevelFilter::Error),
+            ("/dev/ttyUSB1", LevelFilter::Warn),
+            ("/dev/ttyACM0", LevelFilter::Info),
+            ("/dev/ttyS0", LevelFilter::Debug),
+            ("/dev/ttyS1", LevelFilter::Trace),
+        ];
+
+        for (port, log_level) in test_cases {
+            let global_config = GlobalConfig {
+                log_level,
+                num_workers: 4,
+            };
+            let esp_config = EspToolConfig {
+                serial_port: port.to_string(),
+            };
+            
+            let esp_tool = EspTool::new(global_config, esp_config);
+            assert_eq!(esp_tool.serial_port, port);
+            assert_eq!(esp_tool.log_level, log_level);
+        }
+    }
+
+    #[test]
+    fn test_from_log_with_different_log_levels() {
+        let log_levels = vec![
+            Level::Error,
+            Level::Warn,
+            Level::Info,
+            Level::Debug,
+            Level::Trace,
+        ];
+
+        for level in log_levels {
+            let log_entry = LogEntry {
+                level,
+                message: format!("Test message for level {:?}", level),
+                timestamp: Local::now(),
+            };
+            
+            let esp_update = EspUpdate::from_log(log_entry.clone());
+            match esp_update {
+                EspUpdate::Log(received_log_entry) => {
+                    assert_eq!(received_log_entry.level, level);
+                    assert_eq!(received_log_entry.message, log_entry.message);
+                }
+                _ => panic!("EspUpdate should be of type Log"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_from_log_with_empty_message() {
+        let log_entry = LogEntry {
+            level: Level::Info,
+            message: String::new(),
+            timestamp: Local::now(),
+        };
+        
+        let esp_update = EspUpdate::from_log(log_entry.clone());
+        match esp_update {
+            EspUpdate::Log(received_log_entry) => {
+                assert_eq!(received_log_entry.message, "");
+            }
+            _ => panic!("EspUpdate should be of type Log"),
+        }
+    }
+
+    #[test]
+    fn test_from_log_with_long_message() {
+        let long_message = "A".repeat(1000);
+        let log_entry = LogEntry {
+            level: Level::Warn,
+            message: long_message.clone(),
+            timestamp: Local::now(),
+        };
+        
+        let esp_update = EspUpdate::from_log(log_entry.clone());
+        match esp_update {
+            EspUpdate::Log(received_log_entry) => {
+                assert_eq!(received_log_entry.message, long_message);
+                assert_eq!(received_log_entry.message.len(), 1000);
+            }
+            _ => panic!("EspUpdate should be of type Log"),
+        }
+    }
+
+    #[test]
+    fn test_from_log_with_special_characters() {
+        let special_message = "Test with special chars: éñ中文🚀\n\t\"'";
+        let log_entry = LogEntry {
+            level: Level::Debug,
+            message: special_message.to_string(),
+            timestamp: Local::now(),
+        };
+        
+        let esp_update = EspUpdate::from_log(log_entry.clone());
+        match esp_update {
+            EspUpdate::Log(received_log_entry) => {
+                assert_eq!(received_log_entry.message, special_message);
+            }
+            _ => panic!("EspUpdate should be of type Log"),
+        }
+    }
+
+    #[test]
+    fn test_esp_tool_with_minimum_config() {
+        let global_config = GlobalConfig {
+            log_level: LevelFilter::Off,
+            num_workers: 1,
+        };
+        let esp_config = EspToolConfig {
+            serial_port: "".to_string(),
+        };
+        
+        let esp_tool = EspTool::new(global_config, esp_config);
+        assert_eq!(esp_tool.serial_port, "");
+        assert_eq!(esp_tool.log_level, LevelFilter::Off);
+    }
+
+    #[test]
+    fn test_esp_tool_with_maximum_workers() {
+        let global_config = GlobalConfig {
+            log_level: LevelFilter::Trace,
+            num_workers: usize::MAX,
+        };
+        let esp_config = EspToolConfig {
+            serial_port: "/dev/maximum".to_string(),
+        };
+        
+        let esp_tool = EspTool::new(global_config, esp_config);
+        assert_eq!(esp_tool.serial_port, "/dev/maximum");
+        assert_eq!(esp_tool.log_level, LevelFilter::Trace);
+    }
+
+    #[test]
+    fn test_esp_channel_command_variants() {
+        // Test UpdatedConfig variant
+        let params = Esp32ControllerParams {
+            device_config: Esp32DeviceConfig::default(),
+            mac_filters: vec![],
+            mode: EspMode::Listening,
+            synchronize_time: false,
+            transmit_custom_frame: None,
+        };
+        
+        let cmd = EspChannelCommand::UpdatedConfig(params.clone());
+        match cmd {
+            EspChannelCommand::UpdatedConfig(received_params) => {
+                assert_eq!(received_params, params);
+            }
+            _ => panic!("Expected UpdatedConfig variant"),
+        }
+
+        // Test Exit variant
+        let cmd = EspChannelCommand::Exit;
+        match cmd {
+            EspChannelCommand::Exit => {}, // Expected
+            _ => panic!("Expected Exit variant"),
+        }
+    }
+
+    #[test]
+    fn test_esp_update_log_variant_pattern_matching() {
+        let log_entry = LogEntry {
+            level: Level::Error,
+            message: "Error occurred".to_string(),
+            timestamp: Local::now(),
+        };
+        
+        let esp_update = EspUpdate::from_log(log_entry.clone());
+        
+        // Test pattern matching works correctly
+        let extracted_message = match &esp_update {
+            EspUpdate::Log(entry) => &entry.message,
+            _ => panic!("Expected Log variant"),
+        };
+        
+        assert_eq!(extracted_message, &log_entry.message);
+    }
+
+    #[test]
+    fn test_buffer_capacity_constants_are_reasonable() {
+        // Test that constants have reasonable values
+        assert!(LOG_BUFFER_CAPACITY > 0);
+        assert!(LOG_BUFFER_CAPACITY < 10000); // Not too large
+        
+        assert!(CSI_DATA_BUFFER_CAPACITY > 0);
+        assert!(CSI_DATA_BUFFER_CAPACITY > LOG_BUFFER_CAPACITY); // CSI buffer should be larger
+        
+        assert!(UI_REFRESH_INTERVAL_MS > 0);
+        assert!(UI_REFRESH_INTERVAL_MS < 1000); // Should refresh frequently
+        
+        assert!(ACTOR_CHANNEL_CAPACITY > 0);
+        assert!(ACTOR_CHANNEL_CAPACITY < 1000); // Reasonable channel size
+        
+        assert!(ESP_READ_BUFFER_SIZE > 0);
+        assert!(ESP_READ_BUFFER_SIZE >= 1024); // At least 1KB
+    }
+
+    #[test]
+    fn test_esp_tool_implements_run_trait() {
+        // This test verifies that EspTool correctly implements the Run trait
+        let global_config = GlobalConfig {
+            log_level: LevelFilter::Info,
+            num_workers: 2,
+        };
+        let esp_config = EspToolConfig {
+            serial_port: "/dev/test".to_string(),
+        };
+        
+        // This should compile, confirming the trait is implemented
+        let _esp_tool: EspTool = <EspTool as Run<EspToolConfig>>::new(global_config, esp_config);
+    }
+
+    #[test]
+    fn test_timestamp_preservation_in_from_log() {
+        // Test with a specific timestamp
+        let specific_time = Local::now();
+        let log_entry = LogEntry {
+            level: Level::Info,
+            message: "Timestamp test".to_string(),
+            timestamp: specific_time,
+        };
+        
+        let esp_update = EspUpdate::from_log(log_entry);
+        match esp_update {
+            EspUpdate::Log(entry) => {
+                assert_eq!(entry.timestamp, specific_time);
+            }
+            _ => panic!("Expected Log variant"),
+        }
+    }
+
+    #[test]
+    fn test_log_level_filter_values() {
+        // Test that we can create EspTool with all possible log levels
+        let log_levels = vec![
+            LevelFilter::Off,
+            LevelFilter::Error,
+            LevelFilter::Warn,
+            LevelFilter::Info,
+            LevelFilter::Debug,
+            LevelFilter::Trace,
+        ];
+        
+        for level in log_levels {
+            let global_config = GlobalConfig {
+                log_level: level,
+                num_workers: 1,
+            };
+            let esp_config = EspToolConfig {
+                serial_port: "/dev/test".to_string(),
+            };
+            
+            let esp_tool = EspTool::new(global_config, esp_config);
+            assert_eq!(esp_tool.log_level, level);
+        }
+    }
 }
