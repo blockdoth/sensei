@@ -1,12 +1,12 @@
 //! DeviceHandler manages the lifecycle and data flow for a single device,
 //! including source reading, data adaptation, and dispatching to sinks.
-use tokio::sync::Mutex;
 use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::{mpsc, watch};
+
+use tokio::sync::{Mutex, mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::adapters::*;
@@ -133,10 +133,7 @@ impl DeviceHandler {
     /// 4. Passes the frame through the adapter (if present).
     /// 5. Logs and continues on adapter errors, breaks the loop on source read error.
     ///    Aditionally provides functionality for shutting down the thread
-    pub async fn start(
-        &mut self,
-        data_output_tx: mpsc::Sender<(DataMsg, DeviceId)>,
-    ) -> Result<(), TaskError> {
+    pub async fn start(&mut self, data_output_tx: mpsc::Sender<(DataMsg, DeviceId)>) -> Result<(), TaskError> {
         let device_id = self.config.device_id;
         let controller_config = self.config.controller.clone();
         let (shutdown_tx, mut shutdown_rx) = watch::channel(());
@@ -158,10 +155,13 @@ impl DeviceHandler {
             // Apply controller if configured, now that the source is started.
             if let Some(controller_cfg) = controller_config {
                 log::info!("Applying controller for device {device_id}.");
-                let controller: Box<dyn Controller> = <dyn Controller>::from_config(controller_cfg.clone()).await.map_err(|e| {
-                    log::error!("Device {device_id} controller instantiation failed: {e:?}");
-                    e // Assuming TaskError::Controller will be handled by `?` or caller
-                }).unwrap();
+                let controller: Box<dyn Controller> = <dyn Controller>::from_config(controller_cfg.clone())
+                    .await
+                    .map_err(|e| {
+                        log::error!("Device {device_id} controller instantiation failed: {e:?}");
+                        e // Assuming TaskError::Controller will be handled by `?` or caller
+                    })
+                    .unwrap();
                 controller.apply(source.as_mut()).await.map_err(|e| {
                     log::error!("Device {device_id} controller apply failed: {e:?}");
                     TaskError::ControllerError(e)

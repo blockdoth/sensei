@@ -13,7 +13,6 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use lib::FromConfig;
-use lib::adapters::CsiDataAdapter;
 use lib::errors::NetworkError;
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
 use lib::network::experiment_config::IsRecurring::{NotRecurring, Recurring};
@@ -27,8 +26,8 @@ use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, HostChannel, RegChannel, SubscribeDataChannel, send_message};
 use lib::sinks::{Sink, SinkConfig};
+use lib::sources::DataSourceConfig;
 use lib::sources::tcp::TCPConfig;
-use lib::sources::{DataSourceConfig, DataSourceT};
 use log::*;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::{Mutex, broadcast, mpsc, watch};
@@ -155,7 +154,7 @@ impl SystemNode {
 
         // This can be allowed to unwrap, as it will literally always succeed
         let mut new_handler = DeviceHandler::from_config(new_handler_config).await.unwrap();
-        
+
         new_handler.start(local_data_tx).await?;
 
         info!("Handler created to subscribe to {target_addr}");
@@ -236,7 +235,7 @@ impl SystemNode {
     }
 
     async fn execute_stage(
-        stage: Stage, 
+        stage: Stage,
         handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
         local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -245,7 +244,7 @@ impl SystemNode {
         for block in stage.command_blocks {
             // Have to define the clone outside the tokio task and then move the clone, rather than create the clone inside the tokio task
             let handlers_clone = handlers.clone();
-            let  local_data_tx_clone = local_data_tx.clone();
+            let local_data_tx_clone = local_data_tx.clone();
             let task = tokio::spawn(async move {
                 Self::execute_command_block(block, handlers_clone, local_data_tx_clone).await;
             });
@@ -262,7 +261,8 @@ impl SystemNode {
     }
 
     async fn execute_command_block(
-        block: Block, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+        block: Block,
+        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
         local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         tokio::time::sleep(std::time::Duration::from_millis(block.delays.init_delay.unwrap_or(0u64))).await;
@@ -310,7 +310,7 @@ impl SystemNode {
     }
 
     async fn match_command(
-        command: Command, 
+        command: Command,
         handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
         local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -613,11 +613,7 @@ impl Run<SystemNodeConfig> for SystemNode {
         for cfg in &self.device_configs {
             let mut handler = DeviceHandler::from_config(cfg.clone()).await?;
             // Pass the sender for local data to the handler's start method
-            handler
-                .start(
-                    self.local_data_tx.clone(),
-                )
-                .await?;
+            handler.start(self.local_data_tx.clone()).await?;
             handlers_map.insert(cfg.device_id, handler);
         }
         drop(handlers_map); // Release lock
