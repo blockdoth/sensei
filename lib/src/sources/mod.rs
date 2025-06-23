@@ -122,9 +122,10 @@ impl FromConfig<DataSourceConfig> for dyn DataSourceT {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::net::SocketAddr;
     use std::path::PathBuf;
+
+    use super::*;
 
     #[test]
     fn test_bufsize_constant() {
@@ -137,7 +138,7 @@ mod tests {
             target_addr: "127.0.0.1:8080".parse::<SocketAddr>().unwrap(),
             device_id: 123,
         });
-        let debug_str = format!("{:?}", tcp_config);
+        let debug_str = format!("{tcp_config:?}");
         assert!(debug_str.contains("Tcp"));
         assert!(debug_str.contains("127.0.0.1:8080"));
         assert!(debug_str.contains("123"));
@@ -167,7 +168,7 @@ mod tests {
             target_addr: "127.0.0.1:8080".parse::<SocketAddr>().unwrap(),
             device_id: 456,
         });
-        
+
         assert_eq!(tcp_config1, tcp_config2);
         assert_ne!(tcp_config1, tcp_config3);
     }
@@ -178,10 +179,10 @@ mod tests {
             target_addr: "127.0.0.1:8080".parse::<SocketAddr>().unwrap(),
             device_id: 123,
         });
-        
+
         let serialized = serde_json::to_string(&tcp_config).unwrap();
         let deserialized: DataSourceConfig = serde_json::from_str(&serialized).unwrap();
-        
+
         assert_eq!(tcp_config, deserialized);
     }
 
@@ -194,8 +195,8 @@ mod tests {
             csi_buffer_size: 100,
             ack_timeout_ms: 2000,
         });
-        
-        let debug_str = format!("{:?}", esp32_config);
+
+        let debug_str = format!("{esp32_config:?}");
         assert!(debug_str.contains("Esp32"));
         assert!(debug_str.contains("/dev/ttyUSB0"));
         assert!(debug_str.contains("115200"));
@@ -211,8 +212,8 @@ mod tests {
             header: true,
             delay: 100,
         });
-        
-        let debug_str = format!("{:?}", csv_config);
+
+        let debug_str = format!("{csv_config:?}");
         assert!(debug_str.contains("Csv"));
         assert!(debug_str.contains("/tmp/test.csv"));
     }
@@ -224,7 +225,7 @@ mod tests {
             target_addr: "127.0.0.1:8080".parse::<SocketAddr>().unwrap(),
             device_id: 123,
         });
-        
+
         // Verify the config was created correctly
         match tcp_config {
             DataSourceConfig::Tcp(config) => {
@@ -244,7 +245,7 @@ mod tests {
             csi_buffer_size: 100,
             ack_timeout_ms: 2000,
         });
-        
+
         let result = <dyn DataSourceT>::from_config(esp32_config).await;
         assert!(result.is_ok());
     }
@@ -259,11 +260,11 @@ mod tests {
             header: true,
             delay: 100,
         });
-        
+
         let result = <dyn DataSourceT>::from_config(csv_config).await;
         assert!(result.is_err());
         match result {
-            Err(TaskError::DataSourceError(_)) => {},
+            Err(TaskError::DataSourceError(_)) => {}
             _ => panic!("Expected DataSourceError"),
         }
     }
@@ -274,13 +275,13 @@ mod tests {
             target_addr: "127.0.0.1:8080".parse::<SocketAddr>().unwrap(),
             device_id: 123,
         });
-        
+
         #[cfg(feature = "esp_tool")]
         {
             let esp32_config = DataSourceConfig::Esp32(crate::sources::esp32::Esp32SourceConfig::default());
             assert_ne!(tcp_config, esp32_config);
         }
-        
+
         #[cfg(feature = "csv")]
         {
             let csv_config = DataSourceConfig::Csv(crate::sources::csv::CsvSourceConfig {
@@ -296,13 +297,11 @@ mod tests {
 
     #[test]
     fn test_data_source_config_serde_roundtrip() {
-        let mut configs = vec![
-            DataSourceConfig::Tcp(crate::sources::tcp::TCPConfig {
-                target_addr: "192.168.1.100:9000".parse::<SocketAddr>().unwrap(),
-                device_id: 999,
-            }),
-        ];
-        
+        let mut configs = vec![DataSourceConfig::Tcp(crate::sources::tcp::TCPConfig {
+            target_addr: "192.168.1.100:9000".parse::<SocketAddr>().unwrap(),
+            device_id: 999,
+        })];
+
         #[cfg(feature = "esp_tool")]
         {
             configs.push(DataSourceConfig::Esp32(crate::sources::esp32::Esp32SourceConfig {
@@ -312,7 +311,7 @@ mod tests {
                 ack_timeout_ms: 1000,
             }));
         }
-        
+
         #[cfg(feature = "csv")]
         {
             configs.push(DataSourceConfig::Csv(crate::sources::csv::CsvSourceConfig {
@@ -323,7 +322,7 @@ mod tests {
                 delay: 500,
             }));
         }
-        
+
         for config in configs {
             let json = serde_json::to_string(&config).unwrap();
             let deserialized: DataSourceConfig = serde_json::from_str(&json).unwrap();

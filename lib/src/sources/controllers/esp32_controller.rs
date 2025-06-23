@@ -386,13 +386,16 @@ mod tests {
         };
 
         let vec = config.to_vec();
-        assert_eq!(vec, vec![
-            OperationMode::Transmit as u8,
-            Bandwidth::Forty as u8,
-            SecondaryChannel::Above as u8,
-            CsiType::LegacyLTF as u8,
-            2u8
-        ]);
+        assert_eq!(
+            vec,
+            vec![
+                OperationMode::Transmit as u8,
+                Bandwidth::Forty as u8,
+                SecondaryChannel::Above as u8,
+                CsiType::LegacyLTF as u8,
+                2u8
+            ]
+        );
     }
 
     #[test]
@@ -416,12 +419,9 @@ mod tests {
         let vec = params.to_vec();
         let expected = vec![
             // dst_mac
-            0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF,
-            // src_mac  
-            0x11, 0x22, 0x33, 0x44, 0x55, 0x66,
-            // n_reps as little-endian
-            0x78, 0x56, 0x34, 0x12,
-            // pause_ms as little-endian
+            0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, // src_mac
+            0x11, 0x22, 0x33, 0x44, 0x55, 0x66, // n_reps as little-endian
+            0x78, 0x56, 0x34, 0x12, // pause_ms as little-endian
             0x21, 0x43, 0x65, 0x87,
         ];
         assert_eq!(vec, expected);
@@ -441,17 +441,17 @@ mod tests {
     fn test_validation_invalid_channel() {
         let mut controller = create_default_controller_params();
         controller.device_config.channel = 15; // Invalid channel (must be 1-11)
-        
+
         // Test channel validation logic
         let channel = &controller.device_config.channel;
         assert!(!(1..=11).contains(channel));
     }
 
-    #[test] 
+    #[test]
     fn test_validation_valid_channel() {
         let mut controller = create_default_controller_params();
         controller.device_config.channel = 6; // Valid channel
-        
+
         let channel = &controller.device_config.channel;
         assert!((1..=11).contains(channel));
     }
@@ -461,10 +461,10 @@ mod tests {
         let mut controller = create_default_controller_params();
         controller.device_config.bandwidth = Bandwidth::Forty;
         controller.device_config.secondary_channel = SecondaryChannel::None; // Invalid for 40MHz
-        
+
         // Test bandwidth/secondary channel validation logic
-        let invalid_combo = controller.device_config.bandwidth == Bandwidth::Forty 
-            && controller.device_config.secondary_channel == SecondaryChannel::None;
+        let invalid_combo =
+            controller.device_config.bandwidth == Bandwidth::Forty && controller.device_config.secondary_channel == SecondaryChannel::None;
         assert!(invalid_combo);
     }
 
@@ -473,18 +473,18 @@ mod tests {
         let mut controller = create_default_controller_params();
         controller.device_config.bandwidth = Bandwidth::Forty;
         controller.device_config.secondary_channel = SecondaryChannel::Above; // Valid for 40MHz
-        
-        let valid_combo = !(controller.device_config.bandwidth == Bandwidth::Forty 
-            && controller.device_config.secondary_channel == SecondaryChannel::None);
+
+        let valid_combo =
+            !(controller.device_config.bandwidth == Bandwidth::Forty && controller.device_config.secondary_channel == SecondaryChannel::None);
         assert!(valid_combo);
     }
 
-    #[test] 
+    #[test]
     fn test_validation_sending_without_custom_frame() {
         let mut controller = create_default_controller_params();
         controller.mode = EspMode::SendingContinuous;
         controller.transmit_custom_frame = None; // No custom frame for sending mode
-        
+
         // Test that sending modes require custom frame
         let needs_custom_frame = matches!(controller.mode, EspMode::SendingContinuous | EspMode::SendingBurst);
         let has_custom_frame = controller.transmit_custom_frame.is_some();
@@ -496,7 +496,7 @@ mod tests {
         let mut controller = create_default_controller_params();
         controller.mode = EspMode::SendingContinuous;
         controller.transmit_custom_frame = Some(CustomFrameParams::default());
-        
+
         let needs_custom_frame = matches!(controller.mode, EspMode::SendingContinuous | EspMode::SendingBurst);
         let has_custom_frame = controller.transmit_custom_frame.is_some();
         assert!(needs_custom_frame && has_custom_frame);
@@ -507,7 +507,7 @@ mod tests {
         let controller = create_default_controller_params();
         let config_result = controller.to_config().await;
         assert!(config_result.is_ok());
-        
+
         match config_result.unwrap() {
             ControllerParams::Esp32(params) => {
                 assert_eq!(params, controller);
@@ -561,7 +561,7 @@ mod tests {
     #[test]
     fn test_mac_filter_pair_debug() {
         let filter = create_test_mac_filter();
-        let debug_str = format!("{:?}", filter);
+        let debug_str = format!("{filter:?}");
         assert!(debug_str.contains("MacFilterPair"));
     }
 
@@ -656,7 +656,7 @@ mod tests {
             csi_type: CsiType::LegacyLTF,
             manual_scale: 0,
         };
-        
+
         let vec = min_config.to_vec();
         assert_eq!(vec.len(), 5); // mode, bandwidth, secondary_channel, csi_type, manual_scale
         assert_eq!(vec[0], 0); // mode
@@ -674,14 +674,14 @@ mod tests {
             csi_type: CsiType::HighThroughputLTF,
             manual_scale: 3,
         };
-        
+
         let vec = max_config.to_vec();
         assert_eq!(vec.len(), 5);
-        assert_eq!(vec[0], 1);  // mode
-        assert_eq!(vec[1], 1);  // bandwidth
-        assert_eq!(vec[2], 2);  // secondary_channel
-        assert_eq!(vec[3], 1);  // csi_type
-        assert_eq!(vec[4], 3);  // manual_scale
+        assert_eq!(vec[0], 1); // mode
+        assert_eq!(vec[1], 1); // bandwidth
+        assert_eq!(vec[2], 2); // secondary_channel
+        assert_eq!(vec[3], 1); // csi_type
+        assert_eq!(vec[4], 3); // manual_scale
     }
 
     #[test]
@@ -693,7 +693,7 @@ mod tests {
             n_reps: 0,
             pause_ms: 0,
         };
-        
+
         let vec = zero_params.to_vec();
         assert_eq!(vec.len(), 20); // 6 + 6 + 4 + 4 bytes
         assert_eq!(&vec[0..6], &[0; 6]); // src_mac
@@ -708,7 +708,7 @@ mod tests {
             n_reps: u32::MAX,
             pause_ms: u32::MAX,
         };
-        
+
         let vec = max_params.to_vec();
         assert_eq!(vec.len(), 20);
         assert_eq!(&vec[0..6], &[0xFF; 6]); // src_mac
@@ -723,7 +723,7 @@ mod tests {
         for channel in 1..=11 {
             assert!((1..=11).contains(&channel));
         }
-        
+
         // Test invalid channels
         for channel in [0, 12, 13, 255] {
             assert!(!(1..=11).contains(&channel));
@@ -736,20 +736,15 @@ mod tests {
         assert!(!(Bandwidth::Twenty == Bandwidth::Forty && SecondaryChannel::None == SecondaryChannel::None));
         assert!(!(Bandwidth::Forty == Bandwidth::Forty && SecondaryChannel::Above == SecondaryChannel::None));
         assert!(!(Bandwidth::Forty == Bandwidth::Forty && SecondaryChannel::Below == SecondaryChannel::None));
-        
+
         // Invalid combination
         assert!(Bandwidth::Forty == Bandwidth::Forty && SecondaryChannel::None == SecondaryChannel::None);
     }
 
     #[test]
     fn test_validation_manual_scale_limits() {
-        // Test HT-LTF limits (0-3)
-        assert!(3 <= 3);  // Valid
-        assert!(4 > 3);   // Invalid would be > 3
-        
-        // Test L-LTF limits (0-1)
-        assert!(1 <= 1);  // Valid
-        assert!(2 > 1);   // Invalid would be > 1
+        // Test HT-LTF limits (0-3) and L-LTF limits (0-1)
+        // These are compile-time constant checks, no need for runtime assertions
     }
 
     #[test]
@@ -762,7 +757,7 @@ mod tests {
     #[test]
     fn test_esp32_controller_params_debug() {
         let params = create_default_controller_params();
-        let debug_str = format!("{:?}", params);
+        let debug_str = format!("{params:?}");
         assert!(debug_str.contains("Esp32ControllerParams"));
     }
 
@@ -776,7 +771,7 @@ mod tests {
                 dst_mac: [0x11, 0x22, 0x33, 0x44, 0x55, 0x66],
             },
         ];
-        
+
         assert_eq!(params.mac_filters.len(), 2);
         assert_eq!(params.mac_filters[0], create_test_mac_filter());
     }
@@ -789,7 +784,7 @@ mod tests {
             EspMode::SendingContinuous,
             EspMode::Listening,
         ];
-        
+
         for mode in modes {
             let mut params = create_default_controller_params();
             params.mode = mode.clone();
@@ -806,7 +801,7 @@ mod tests {
             n_reps: 42,
             pause_ms: 250,
         };
-        
+
         params.transmit_custom_frame = Some(custom_frame.clone());
         assert_eq!(params.transmit_custom_frame, Some(custom_frame));
     }
@@ -815,7 +810,7 @@ mod tests {
     fn test_json_schema_derivation() {
         // Test that all structs with JsonSchema derive can be used
         use schemars::schema_for;
-        
+
         let _schema = schema_for!(Esp32ControllerParams);
         let _schema = schema_for!(Esp32DeviceConfig);
         let _schema = schema_for!(CustomFrameParams);

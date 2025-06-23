@@ -314,10 +314,10 @@ mod tests {
     #[test]
     fn test_ui_render_with_different_terminal_sizes() {
         let sizes = vec![
-            (80, 24),   // Small terminal
-            (100, 50),  // Medium terminal
-            (120, 30),  // Wide but short
-            (200, 60),  // Large terminal
+            (80, 24),  // Small terminal
+            (100, 50), // Medium terminal
+            (120, 30), // Wide but short
+            (200, 60), // Large terminal
         ];
 
         for (width, height) in sizes {
@@ -395,7 +395,7 @@ mod tests {
             let backend = TestBackend::new(100, 50);
             let mut terminal = Terminal::new(backend).unwrap();
             let mut tui_state = TuiState::new();
-            
+
             tui_state.unsaved_esp_config.channel = channel;
             tui_state.unsaved_esp_config.bandwidth = bandwidth;
             tui_state.unsaved_esp_config.secondary_channel = secondary_channel;
@@ -435,8 +435,8 @@ mod tests {
         let mut tui_state = TuiState::new();
 
         // Add some mock CSI data
-        use lib::csi_types::{CsiData, Complex};
-        
+        use lib::csi_types::{Complex, CsiData};
+
         for i in 0..5 {
             let csi_data = CsiData {
                 timestamp: 1000.0 + i as f64,
@@ -461,15 +461,15 @@ mod tests {
         let mut tui_state = TuiState::new();
 
         // Add some mock log entries
+        use chrono::Local;
         use lib::tui::logs::LogEntry;
         use log::Level;
-        use chrono::Local;
 
         let log_levels = [Level::Error, Level::Warn, Level::Info, Level::Debug];
         for (i, level) in log_levels.iter().enumerate() {
             let log_entry = LogEntry {
                 level: *level,
-                message: format!("Test log message {}", i),
+                message: format!("Test log message {i}"),
                 timestamp: Local::now(),
             };
             tui_state.logs.push_back(log_entry);
@@ -484,10 +484,7 @@ mod tests {
 
     #[test]
     fn test_ui_render_with_different_panel_focus() {
-        let panels = vec![
-            FocusedPanel::Main,
-            FocusedPanel::SpamConfig,
-        ];
+        let panels = vec![FocusedPanel::Main, FocusedPanel::SpamConfig];
 
         for panel in panels {
             let backend = TestBackend::new(100, 50);
@@ -512,8 +509,10 @@ mod tests {
         let backend = TestBackend::new(100, 50);
         let mut terminal = Terminal::new(backend).unwrap();
         let mut tui_state = TuiState::new();
-        
-        tui_state.last_error_message = Some("This is a very long error message that should be wrapped properly in the footer area to test the wrapping functionality".to_string());
+
+        tui_state.last_error_message = Some(
+            "This is a very long error message that should be wrapped properly in the footer area to test the wrapping functionality".to_string(),
+        );
 
         terminal
             .draw(|f| {
@@ -527,7 +526,7 @@ mod tests {
         let backend = TestBackend::new(100, 50);
         let mut terminal = Terminal::new(backend).unwrap();
         let mut tui_state = TuiState::new();
-        
+
         // Ensure all collections are empty
         tui_state.csi_data.clear();
         tui_state.logs.clear();
@@ -559,10 +558,10 @@ mod tests {
         let backend = TestBackend::new(100, 50);
         let mut terminal = Terminal::new(backend).unwrap();
         let mut tui_state = TuiState::new();
-        
+
         tui_state.tool_mode = ToolMode::Spam;
         tui_state.focused_panel = FocusedPanel::SpamConfig;
-        
+
         // Test with different focused inputs using the correct FocussedInput type
         use crate::esp_tool::state::FocussedInput;
         let focused_inputs = vec![
@@ -590,8 +589,8 @@ mod tests {
         let mut tui_state = TuiState::new();
 
         // Fill with maximum data to test performance
-        use lib::csi_types::{CsiData, Complex};
-        
+        use lib::csi_types::{Complex, CsiData};
+
         // Add many CSI frames (but not too many to avoid test timeout)
         for i in 0..100 {
             let csi_data = CsiData {
@@ -620,7 +619,7 @@ mod tests {
         terminal
             .draw(|f| {
                 ui(f, &tui_state);
-                
+
                 // Verify that the frame area is reasonable
                 assert!(f.area().width > 0);
                 assert!(f.area().height > 0);
@@ -633,9 +632,9 @@ mod tests {
         let backend = TestBackend::new(100, 50);
         let mut terminal = Terminal::new(backend).unwrap();
         let mut tui_state = TuiState::new();
-        
+
         tui_state.tool_mode = ToolMode::Spam;
-        
+
         // Make spam settings different to show unsaved changes
         tui_state.unsaved_spam_settings.n_reps = 999;
         // Keep spam_settings at default to show difference
