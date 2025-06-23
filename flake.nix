@@ -175,7 +175,7 @@
               echo
               echo
               '';
-
+              # exposed paths for debugging purposes
               MUSL_LIB_PATH = "${muslLib}";
               MUSL_GCC_LIB_PATH = "${gccLibPath}";
               MUSL_GCC_PATH = "${muslGcc}";

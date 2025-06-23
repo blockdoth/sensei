@@ -7,7 +7,7 @@
 //! Supported sources (via `DataSourceConfig`):
 //! - [`netlink::NetlinkSource`]: Linux-specific netlink packet capture (requires `target_os = "linux"`).
 //! - [`esp32::Esp32Source`]: ESP32-based wireless or serial data source.
-//! - [`csv`]: Placeholder for CSV-based source (e.g., playback from file).
+//! - [`csv`]: Placeholder for Csv-based source (e.g., playback from file).
 //! - ['tcp::TCPSource']: Source to receive from other system nodes
 //!
 //! Each source implementation must be constructed with configuration via the
@@ -27,6 +27,7 @@ use std::any::Any;
 
 #[cfg(test)]
 use mockall::automock;
+use serde::{Deserialize, Serialize};
 
 use crate::errors::{DataSourceError, TaskError};
 use crate::network::rpc_message::DataMsg;
@@ -83,7 +84,7 @@ pub trait DataSourceT: Send + Any + ToConfig<DataSourceConfig> {
 /// - `Netlink`: Linux-only netlink-based capture (requires `target_os = "linux"`)
 /// - `Esp32`: ESP32-based data source
 /// - 'Tcp': receiving from another node
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum DataSourceConfig {
     /// Linux netlink source (packet capture via netlink sockets).
     #[cfg(all(target_os = "linux", feature = "iwl5300"))]
@@ -93,6 +94,9 @@ pub enum DataSourceConfig {
     Esp32(esp32::Esp32SourceConfig),
     /// TCP receiving from another device.
     Tcp(tcp::TCPConfig),
+    /// Csv config
+    #[cfg(feature = "csv")]
+    Csv(csv::CsvSourceConfig),
 }
 
 #[async_trait::async_trait]
@@ -109,6 +113,8 @@ impl FromConfig<DataSourceConfig> for dyn DataSourceT {
             #[cfg(feature = "esp_tool")]
             DataSourceConfig::Esp32(cfg) => Box::new(esp32::Esp32Source::new(cfg).map_err(TaskError::DataSourceError)?),
             DataSourceConfig::Tcp(cfg) => Box::new(tcp::TCPSource::new(cfg).map_err(TaskError::DataSourceError)?),
+            #[cfg(feature = "csv")]
+            DataSourceConfig::Csv(cfg) => Box::new(csv::CsvSource::new(cfg).map_err(TaskError::DataSourceError)?),
         };
         Ok(source)
     }

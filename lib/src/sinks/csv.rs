@@ -1,5 +1,5 @@
 //! The csv sink is functionally pretty much a wrapper around the file sink,
-//! but before writing a csi data frame, it converst it to a format that can be interpreted by the CSV adapter.
+//! but before writing a csi data frame, it converst it to a format that can be interpreted by the Csv adapter.
 //!
 //! The default Csi data format of
 //! CsiData { timestamp, sequence_numberm, rssi, csi }
@@ -14,27 +14,28 @@ use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 
 use async_trait::async_trait;
+use log::warn;
 
 use crate::csi_types::{Complex, CsiData};
 use crate::errors::{SinkError, TaskError};
 use crate::network::rpc_message::DataMsg;
 use crate::sinks::{Sink, SinkConfig, ToConfig};
-pub struct CSVSink {
+pub struct CsvSink {
     writer: BufWriter<File>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
-pub struct CSVConfig {
+pub struct CsvSinkConfig {
     path: PathBuf,
 }
 
-impl CSVSink {
-    pub async fn new(config: CSVConfig) -> Result<Self, SinkError> {
+impl CsvSink {
+    pub async fn new(config: CsvSinkConfig) -> Result<Self, SinkError> {
         let file = File::create(config.path)?;
         let mut writer = BufWriter::new(file);
         // Write header
         writeln!(writer, "timestamp,sequence_number,num_cores,num_streams,num_subcarriers,rssi,csi")?;
-        Ok(CSVSink { writer })
+        Ok(CsvSink { writer })
     }
 
     fn write(&mut self, data: &CsiData) -> Result<(), SinkError> {
@@ -42,10 +43,10 @@ impl CSVSink {
         let num_antennas = if num_cores > 0 { data.csi[0].len() } else { 0 };
         let num_subcarriers = if num_cores > 0 && num_antennas > 0 { data.csi[0][0].len() } else { 0 };
 
-        // rssi as CSV string
+        // rssi as Csv string
         let rssi_str = data.rssi.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(",");
 
-        // csi as CSV string: flatten all (real, imag) pairs
+        // csi as Csv string: flatten all (real, imag) pairs
         let mut csi_vec = Vec::new();
         for core in &data.csi {
             for antenna in core {
@@ -74,15 +75,15 @@ impl CSVSink {
 }
 
 #[async_trait]
-impl ToConfig<SinkConfig> for CSVSink {
+impl ToConfig<SinkConfig> for CsvSink {
     async fn to_config(&self) -> Result<SinkConfig, TaskError> {
         // You may need to adjust this depending on your SinkConfig definition
-        Ok(SinkConfig::CSV(CSVConfig { path: todo!() }))
+        Ok(SinkConfig::Csv(CsvSinkConfig { path: todo!() }))
     }
 }
 
 #[async_trait]
-impl Sink for CSVSink {
+impl Sink for CsvSink {
     /// Open the connection to the sink
     ///
     /// # Errors
@@ -114,7 +115,7 @@ impl Sink for CSVSink {
                 Ok(())
             }
             DataMsg::RawFrame { .. } => {
-                // Optionally: return an error or just ignore
+                warn!("Cannot write unadapted data. Dropping packet...");
                 Ok(())
             }
         }
@@ -131,10 +132,10 @@ mod tests {
 
     use super::*;
     use crate::adapters::CsiDataAdapter;
-    use crate::adapters::csv::CSVAdapter;
+    use crate::adapters::csv::CsvAdapter;
     use crate::network::rpc_message::{DataMsg, SourceType};
     use crate::sources::DataSourceT;
-    use crate::sources::csv::{CsvConfig, CsvSource};
+    use crate::sources::csv::{CsvSource, CsvSourceConfig};
     use crate::test_utils;
 
     fn dummy_csi_data() -> CsiData {
@@ -152,7 +153,7 @@ mod tests {
     #[tokio::test]
     async fn test_csvsink_write_and_flush() {
         let path = "test_output.csv";
-        let mut sink = CSVSink::new(CSVConfig { path: path.into() }).await.unwrap();
+        let mut sink = CsvSink::new(CsvSinkConfig { path: path.into() }).await.unwrap();
         let data = dummy_csi_data();
         sink.write(&data).unwrap();
         sink.flush().unwrap();
@@ -176,21 +177,21 @@ mod tests {
         let mut file = NamedTempFile::new().unwrap();
         let csv_file_option = test_utils::generate_csv_data_file();
         if csv_file_option.is_none() {
-            error!("Skipped test, could not generate a CSV file");
+            error!("Skipped test, could not generate a Csv file");
             return;
         }
         let mut csv_file = csv_file_option.unwrap();
         let path = csv_file.path();
-        let mut source = CsvSource::new(CsvConfig {
+        let mut source = CsvSource::new(CsvSourceConfig {
             path: (*path).to_path_buf(),
-            cell_delimiter: b',',
-            row_delimiter: b'\n',
+            cell_delimiter: Some(b','),
+            row_delimiter: Some(b'\n'),
             header: true,
             delay: 0,
         })
         .unwrap();
-        let mut sink = CSVSink::new(CSVConfig { path: file.path().into() }).await.unwrap();
-        let mut adapter = CSVAdapter::default();
+        let mut sink = CsvSink::new(CsvSinkConfig { path: file.path().into() }).await.unwrap();
+        let mut adapter = CsvAdapter::default();
         loop {
             let mut buf = vec![0u8; 128];
             let size = source.read_buf(&mut buf).await.unwrap();
@@ -201,7 +202,7 @@ mod tests {
             let raw_data_message = DataMsg::RawFrame {
                 ts: 0.0,
                 bytes: buf,
-                source_type: SourceType::CSV,
+                source_type: SourceType::Csv,
             };
             // Might not return a data packet
             if let Some(data) = adapter.produce(raw_data_message).await.unwrap() {
@@ -210,7 +211,7 @@ mod tests {
         }
         sink.flush().unwrap();
 
-        // After writing all data, compare the contents of the temp file and the original CSV data file
+        // After writing all data, compare the contents of the temp file and the original Csv data file
 
         // Rewind the tempfile to read from the beginning
         let mut written_file = File::open(file.path()).unwrap();
@@ -231,7 +232,7 @@ mod tests {
         assert_eq!(
             written_lines.len(),
             original_lines.len(),
-            "CSV sink output and original data have different number of lines"
+            "Csv sink output and original data have different number of lines"
         );
 
         for (i, (written, original)) in written_lines.iter().zip(original_lines.iter()).enumerate() {
@@ -242,8 +243,8 @@ mod tests {
                 let split_written = adapter.parse_row(written.as_bytes()).unwrap();
                 let split_original = adapter.parse_row(original.as_bytes()).unwrap();
 
-                let written_csi = CSVAdapter::row_to_csi(split_written).unwrap();
-                let original_csi = CSVAdapter::row_to_csi(split_original).unwrap();
+                let written_csi = CsvAdapter::row_to_csi(split_written).unwrap();
+                let original_csi = CsvAdapter::row_to_csi(split_original).unwrap();
                 assert_eq!(written_csi, original_csi);
             }
         }

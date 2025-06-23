@@ -147,7 +147,7 @@ pub enum AppError {
     NoSuchHost,
 }
 
-/// Common error enum for all CSI adapters (IWL, ESP32, CSV).
+/// Common error enum for all CSI adapters (IWL, ESP32, Csv).
 #[derive(Error, Debug)]
 pub enum CsiAdapterError {
     /// Error from IWL adapter.
@@ -162,9 +162,9 @@ pub enum CsiAdapterError {
     #[error("Invalid input, give a raw frame")]
     InvalidInput,
 
-    /// Error from CSV adapter.
-    #[error("CSV Adapter Error: {0}")]
-    CSV(#[from] CSVAdapterError),
+    /// Error from Csv adapter.
+    #[error("Csv Adapter Error: {0}")]
+    Csv(#[from] CsvAdapterError),
 
     /// Error whilst parsing to int
     #[error("Could not convert to int: {0}")]
@@ -179,10 +179,10 @@ pub enum CsiAdapterError {
     },
 }
 
-/// Specific errors of the CSV Adapter
+/// Specific errors of the Csv Adapter
 #[derive(Error, Debug)]
-pub enum CSVAdapterError {
-    #[error("Invalid number of columns in CSV row: {0}")]
+pub enum CsvAdapterError {
+    #[error("Invalid number of columns in Csv row: {0}")]
     InvalidData(String),
 }
 
@@ -421,6 +421,36 @@ pub enum RegistryError {
     /// No Standalone
     #[error("The registry cannot be ran as a standalone process.")]
     NoStandalone,
+}
+
+#[derive(Error, Debug)]
+pub enum CommandError {
+    /// No command associated with the base string.
+    #[error("Could not find a command associated with the base string.")]
+    NoSuchCommand,
+
+    /// The command is missing an argument.
+    #[error("The command is missing an argument")]
+    MissingArgument,
+
+    /// The command argument is invallid.
+    #[error("The command argument is invallid.")]
+    InvalidArgument,
+
+    /// There was an error in parsing a config.
+    #[error("There was an error in parsing a config.")]
+    ConfigError(#[from] ConfigError),
+}
+
+#[derive(Error, Debug)]
+pub enum ConfigError {
+    /// Underlying I/O error (e.g., writing to file).
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+
+    // Error when you trying to serialie
+    #[error("Seriliazation error: {0}")]
+    Serde(#[from] serde_yaml::Error),
 }
 
 // Allow conversion from Box<NetworkError> to NetworkError

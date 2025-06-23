@@ -41,7 +41,7 @@ pub fn generate_csv_data_file() -> Option<NamedTempFile> {
     // Print the contents of the generated file for debugging
     let mut contents = String::new();
     File::open(file.path()).unwrap().read_to_string(&mut contents).unwrap();
-    trace!("Generated CSV file contents:\n{contents}");
+    trace!("Generated Csv file contents:\n{contents}");
 
     Some(file)
 }

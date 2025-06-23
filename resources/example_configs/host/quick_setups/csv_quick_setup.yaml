@@ -3,19 +3,21 @@ host_id: 1
 
 sinks:
   - id: "stdout"
-    config: !File
-      file: "/dev/stdout"
+    config: !Csv
+      path: "/dev/stdout"
 
 device_configs:
   - device_id: 0
-    stype: CSV
+    stype: Csv
 
     source: !Csv
       path: "resources/test_data/csv/csi_data.csv" # Change this line to use different input data.
       cell_delimiter: 44
       row_delimiter: 10
       header: true
-      delay: 100
+      delay: 1000
+    
+    adapter: !Csv
       
     output_to:
       - "stdout"

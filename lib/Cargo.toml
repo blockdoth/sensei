@@ -37,8 +37,9 @@ netlink-sys = "0.8.7"
 workspace = true
 
 [features]
-default = ["esp_tool", "iwl5300", "csv", "file_sink"]
+default = ["esp_tool", "iwl5300", "csv", "file_sink", "orchestrator"]
 esp_tool = []
 iwl5300 = []
 csv = []
 file_sink = []
+orchestrator = []

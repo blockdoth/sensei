@@ -68,7 +68,7 @@ pub enum DataAdapterConfig {
         scale_csi: bool,
     },
     #[cfg(feature = "csv")]
-    CSV {},
+    Csv {},
 }
 
 /// Instantiates a boxed CSI data adapter from a configuration tag.
@@ -87,7 +87,7 @@ impl FromConfig<DataAdapterConfig> for dyn CsiDataAdapter {
             DataAdapterConfig::Esp32 { scale_csi } => Box::new(esp32::ESP32Adapter::new(scale_csi)),
             DataAdapterConfig::Tcp { scale_csi } => Box::new(tcp::TCPAdapter::new(scale_csi)),
             #[cfg(feature = "csv")]
-            DataAdapterConfig::CSV {} => Box::new(csv::CSVAdapter::default()),
+            DataAdapterConfig::Csv {} => Box::new(csv::CsvAdapter::default()),
         };
         Ok(adapter)
     }
