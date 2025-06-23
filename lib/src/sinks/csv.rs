@@ -14,6 +14,7 @@ use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 
 use async_trait::async_trait;
+use log::warn;
 
 use crate::csi_types::{Complex, CsiData};
 use crate::errors::{SinkError, TaskError};
@@ -114,7 +115,7 @@ impl Sink for CsvSink {
                 Ok(())
             }
             DataMsg::RawFrame { .. } => {
-                // Optionally: return an error or just ignore
+                warn!("Cannot write unadapted data. Dropping packet...");
                 Ok(())
             }
         }
