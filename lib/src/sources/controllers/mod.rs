@@ -9,6 +9,8 @@
 //! instantiation of controller implementations from serialized configuration.
 
 use async_trait::async_trait;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 use crate::FromConfig;
 use crate::errors::{ControllerError, TaskError};
@@ -58,7 +60,7 @@ pub trait Controller: Send + Sync + ToConfig<ControllerParams> {
 ///
 /// Each variant carries the specific parameters needed to construct that
 /// controller implementation. Tagged via Serde as `{ "type": "...", "params": { ... } }`.
-#[derive(serde::Serialize, serde::Deserialize, Debug, schemars::JsonSchema, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone, PartialEq)]
 pub enum ControllerParams {
     #[cfg(all(target_os = "linux", feature = "iwl5300"))]
     Netlink(netlink_controller::NetlinkControllerParams),

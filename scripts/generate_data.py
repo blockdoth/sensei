@@ -2,7 +2,7 @@ import csv
 import random
 import sys
 
-# This script generates a CSV file with random CSI data.
+# This script generates a Csv file with random CSI data.
 # The rust structs:
 # pub type Complex = Complex64;
 # type Csi = Vec<Vec<Vec<Complex>>>;
@@ -80,17 +80,17 @@ def generate_csi_data_csv(
     always_generate_max=False,
 ):
     """
-    Generates a CSV file with random CSI data, including cores.
+    Generates a Csv file with random CSI data, including cores.
 
     Args:
-        file_path (str): Path to the output CSV file.
+        file_path (str): Path to the output Csv file.
         num_rows (int): Number of rows to generate.
         max_cores (int): Maximum number of cores.
         max_streams (int): Maximum number of streams per core.
         max_subcarriers (int): Maximum number of subcarriers.
         always_generate_max (bool): If True, always generate the maximum number of cores, streams, and subcarriers.
     """
-    # headers for the CSV file
+    # headers for the Csv file
     headers = [
         "timestamp",  # Timestamp (f64)
         "sequence_number",  # Sequence number (u16)
@@ -110,7 +110,7 @@ def generate_csi_data_csv(
                 max_cores, max_streams, max_subcarriers, i, always_generate_max
             )
             writer.writerow(row)
-    # headers for the CSV file
+    # headers for the Csv file
     headers = [
         "timestamp",  # Timestamp (f64)
         "sequence_number",  # Sequence number (u16)

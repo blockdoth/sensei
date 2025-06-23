@@ -147,7 +147,7 @@ pub enum AppError {
     NoSuchHost,
 }
 
-/// Common error enum for all CSI adapters (IWL, ESP32, CSV).
+/// Common error enum for all CSI adapters (IWL, ESP32, Csv).
 #[derive(Error, Debug)]
 pub enum CsiAdapterError {
     /// Error from IWL adapter.
@@ -162,9 +162,9 @@ pub enum CsiAdapterError {
     #[error("Invalid input, give a raw frame")]
     InvalidInput,
 
-    /// Error from CSV adapter.
-    #[error("CSV Adapter Error: {0}")]
-    CSV(#[from] CSVAdapterError),
+    /// Error from Csv adapter.
+    #[error("Csv Adapter Error: {0}")]
+    Csv(#[from] CsvAdapterError),
 
     /// Error whilst parsing to int
     #[error("Could not convert to int: {0}")]
@@ -179,10 +179,10 @@ pub enum CsiAdapterError {
     },
 }
 
-/// Specific errors of the CSV Adapter
+/// Specific errors of the Csv Adapter
 #[derive(Error, Debug)]
-pub enum CSVAdapterError {
-    #[error("Invalid number of columns in CSV row: {0}")]
+pub enum CsvAdapterError {
+    #[error("Invalid number of columns in Csv row: {0}")]
     InvalidData(String),
 }
 

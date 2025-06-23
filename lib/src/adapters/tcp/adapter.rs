@@ -1,5 +1,5 @@
 use crate::ToConfig;
-pub use crate::adapters::csv::adapter::CSVAdapter;
+pub use crate::adapters::csv::adapter::CsvAdapter;
 pub use crate::adapters::esp32::adapter::ESP32Adapter;
 pub use crate::adapters::iwl::adapter::IwlAdapter;
 use crate::adapters::{CsiDataAdapter, DataAdapterConfig};
@@ -49,7 +49,7 @@ impl CsiDataAdapter for TCPAdapter {
             ref f @ DataMsg::RawFrame { ref source_type, .. } => match source_type {
                 SourceType::IWL5300 => IwlAdapter::new(self.scale_csi).produce(f.clone()).await,
                 SourceType::ESP32 => ESP32Adapter::new(self.scale_csi).produce(f.clone()).await,
-                SourceType::CSV => CSVAdapter::default().produce(f.clone()).await,
+                SourceType::Csv => CsvAdapter::default().produce(f.clone()).await,
                 _ => Err(CsiAdapterError::InvalidInput),
             },
             // Already parsed just forward
