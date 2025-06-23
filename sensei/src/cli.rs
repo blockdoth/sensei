@@ -72,6 +72,8 @@ pub trait OverlaySubcommandArgs<T> {
 pub static DEFAULT_HOST_CONFIG: &str = "resources/testing_configs/minimal.yaml";
 /// Default path to the orchestrator configuration YAML file.
 pub static DEFAULT_ORCHESTRATOR_CONFIG: &str = "resources/example_configs/orchestrator/experiment_config.yaml";
+/// Default path for registry config.
+pub static DEFAULT_REGISTRY_CONFIG: &str = "resources/example_configs/registry/registry_config.yaml";
 
 /// A simple app to perform collection from configured sources
 #[derive(FromArgs)]
@@ -187,7 +189,7 @@ pub struct OrchestratorSubcommandArgs {
     pub tui: bool,
 
     /// file path of the experiment config
-    #[argh(option, default = "DEFAULT_ORCHESTRATOR_CONFIG.parse().unwrap()")]
+    #[argh(option, default = "PathBuf::from(DEFAULT_ORCHESTRATOR_CONFIG)")]
     pub experiment_config: PathBuf,
 }
 
@@ -276,7 +278,7 @@ pub struct RegistrySubcommandArgs {
     pub port: u16,
 
     /// path to registry config file
-    #[argh(option, default = "PathBuf::from(\"resources/example_configs/registry/registry_config.yaml\")")]
+    #[argh(option, default = "PathBuf::from(DEFAULT_REGISTRY_CONFIG)")]
     pub config_path: PathBuf,
 }
 

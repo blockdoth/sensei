@@ -45,6 +45,8 @@ use tokio::runtime::Builder;
 
 #[cfg(feature = "orchestrator")]
 use crate::orchestrator::*;
+#[cfg(feature = "registry")]
+use crate::registry::Registry;
 #[cfg(feature = "sys_node")]
 use crate::system_node::*;
 #[cfg(feature = "visualiser")]
@@ -109,6 +111,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             SubCommandsArgs::Visualiser(args) => runtime.block_on(Visualiser::new(global_args, args.parse()?).run())?,
             #[cfg(feature = "esp_tool")]
             SubCommandsArgs::EspTool(args) => runtime.block_on(EspTool::new(global_args, args.parse()?).run())?,
+            #[cfg(feature = "registry")]
+            SubCommandsArgs::Registry(args) => runtime.block_on(Registry::new(global_args, args.parse()?).run())?,
             _ => panic!("Unknown option."),
         },
     }
