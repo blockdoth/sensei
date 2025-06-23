@@ -3,3 +3,27 @@ channel = "nightly"
 components = ["rust-src", "rustfmt", "clippy"]
 
 [target.aarch64-unknown-linux-musl]
+lto = true
+opt-level = "z" 
+codegen-units = 1
+# panic = "abort"
+strip = true
+
+rustflags = [
+    "-C", "link-arg=-nostartfiles",
+    "-C", "link-arg=-nostdlib",
+    "-C", "link-arg=-static",
+    "-C", "link-arg=-Wl,--start-group",
+    "-C", "link-arg=-lc",
+    "-C", "link-arg=-lm",
+    "-C", "link-arg=-lgcc",
+    "-C", "link-arg=-lunwind",
+    "-C", "link-arg=-Wl,--end-group",
+    "-C", "force-unwind-tables=yes",
+    "-C", "inline-threshold=0",
+    "-C", "merge-functions=all",
+    "-C", "link-dead-code=no",
+    "-C", "panic=abort",
+    "-Z", "location-detail=none",
+    "-Z", "fmt-debug=none"
+]

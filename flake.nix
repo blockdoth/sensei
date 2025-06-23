@@ -36,17 +36,7 @@
           toolchain = pkgs.rust-bin.fromRustupToolchainFile ./toolchain.toml;
           target = "aarch64-unknown-linux-musl";
           isLinux = pkgs.stdenv.isLinux;
-          crossPkgs = pkgs.pkgsCross.aarch64-multiplatform-musl;
-          linker = "${crossPkgs.stdenv.cc}/bin/aarch64-unknown-linux-musl-gcc";
-          muslLib = "${crossPkgs.musl}/lib";
-          # gccLib = "${crossPkgs.stdenv.cc.libc}/lib";
-          gccLibDir = builtins.head (
-            builtins.attrNames (
-              builtins.readDir "${pkgs.pkgsCross.aarch64-multiplatform.stdenv.cc.cc}/lib/gcc/aarch64-unknown-linux-gnu"
-            )
-          );
-          gccLibPath = "${pkgs.pkgsCross.aarch64-multiplatform.stdenv.cc.cc}/lib/gcc/aarch64-unknown-linux-gnu/${gccLibDir}";
-
+                    # get and build this lib from source. Precompiled bins for musl were problematic.
           libunwindMuslStatic = crossPkgs.stdenv.mkDerivation rec {
             pname = "libunwind";
             version = "1.8.2";
@@ -96,8 +86,17 @@
               maintainers = with maintainers; [ ];
             };
           };
+          crossPkgs = pkgs.pkgsCross.aarch64-multiplatform-musl;
+          linker = "${crossPkgs.stdenv.cc}/bin/aarch64-unknown-linux-musl-gcc";
+          muslLib = "${crossPkgs.musl}/lib";
           libunwindMusl = "${libunwindMuslStatic}/lib";
           muslGcc = "${crossPkgs.stdenv.cc}";
+          gccLibDir = builtins.head (
+            builtins.attrNames (
+              builtins.readDir "${pkgs.pkgsCross.aarch64-multiplatform.stdenv.cc.cc}/lib/gcc/aarch64-unknown-linux-gnu"
+            )
+          );
+          gccLibPath = "${pkgs.pkgsCross.aarch64-multiplatform.stdenv.cc.cc}/lib/gcc/aarch64-unknown-linux-gnu/${gccLibDir}";
         in
         {
           devShells.default = pkgs.mkShell {
@@ -141,16 +140,11 @@
               cargoToml = ./Cargo.toml;
 
               packages = with pkgs; [
-                toolchain
-                pkgs.gcc
-                pkgs.glibc
-                pkgs.pkg-config
-                pkgs.pkgsCross.aarch64-multiplatform-musl.stdenv
-                libunwindMuslStatic
               ];
 
               nativeBuildInputs = [
                 toolchain
+                pkgs.upx
                 pkgs.gcc
                 pkgs.glibc
                 pkgs.pkg-config
@@ -158,34 +152,22 @@
                 libunwindMuslStatic
               ];              
 
-              cargoBuildFlags = [
-                "--package" "sensei"
-                "--target" "aarch64-unknown-linux-musl"
-                "-Z" "build-std=std,panic_abort"
-                "-Z" "build-std-features=panic_immediate_abort"
-                "-Z" "build-std-features=optimize_for_size"
-                ];
-
+              # I hace set most of the flags in the toolchain.
+              # Since these flags need adirect reference to the nix store they are set here.
               RUSTFLAGS = "-C linker=${linker}
-              -C link-arg=-nostartfiles
               -L${muslLib}
               -L${gccLibPath}
               -L${libunwindMusl}
-              -C link-arg=-nostdlib
-              -C link-arg=-static
-              -C link-arg=-Wl,--start-group
-              -C link-arg=-lc
-              -C link-arg=-lm
-              -C link-arg=-lgcc
-              -C link-arg=-lunwind
-              -C link-arg=-Wl,--end-group
-              -C panic=abort
-              -C force-unwind-tables=yes
-              -C opt-level=z
-              -Zlocation-detail=none
-              -Zfmt-debug=none
               ";
               doCheck = false;
+
+              buildPhase = ''
+              echo 
+              echo
+              echo building using nix build is not supported due to vendoring issues. Use ./scripts/crosscompile-arm.sh.
+              echo
+              echo
+              '';
 
               MUSL_LIB_PATH = "${muslLib}";
               MUSL_GCC_LIB_PATH = "${gccLibPath}";
