@@ -100,30 +100,43 @@ pub enum IsRecurring {
 /// The orchestrator executes these commands by sending messages to system nodes and telling them to run the commands
 ///
 /// The system node executes these commands by running them locally.
-/// System nodes can only run the `Subscribe`, `Unsubscribe`, `Configure` and `Delay` commands,
+/// System nodes can only run the `Subscribe`, `Unsubscribe`, `Configure`, `Start`, `Stop` and `Delay` commands,
 /// as connecting and disconnecting are not relevant concepts to a system node,
 /// and it is not necessary for a system node to tell another system node to subscribe to a third system node.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum Command {
+    /// Tells the orchestrator to connect to a system node
     Connect {
         target_addr: SocketAddr,
     },
+    /// Tells the orchestrator to disconnect from a system node
     Disconnect {
         target_addr: SocketAddr,
     },
+    /// Tells the orchestrator to subscribe to a system node
+    /// 
+    /// Tells a system node to subscribe to a system node
+    /// 
+    /// This is done by creating a device handler with a tcp source pointing to the target node.
+    /// This device handler is immediately started
     Subscribe {
         target_addr: SocketAddr,
         device_id: DeviceId,
     },
+    /// Tells the orchestrator to unsubscribe to a system node
+    /// 
+    /// Tells a system node to unsubscribe to a system node
     Unsubscribe {
         target_addr: SocketAddr,
         device_id: DeviceId,
     },
+    /// Tells the orchestrator to tell a system node to subscribe to another system node
     SubscribeTo {
         target_addr: SocketAddr,
         device_id: DeviceId,
         source_addr: SocketAddr,
     },
+    /// Tells the orchestrator to tell a system node to unsubscribe from another system node
     UnsubscribeFrom {
         target_addr: SocketAddr,
         device_id: DeviceId,
@@ -136,21 +149,28 @@ pub enum Command {
     GetHostStatuses {
         target_addr: SocketAddr,
     },
+    /// Tells a node how to configure a device handler
+    /// 
+    /// Creating or editing a device handler does not start it
     Configure {
         target_addr: SocketAddr,
         device_id: DeviceId,
         cfg_type: CfgType,
     },
+    /// Tells the orchestrator to send a ping message to a node (expected response is Pong)
     Ping {
         target_addr: SocketAddr,
     },
+    /// A manual delay in an experiment command block
     Delay {
         delay: u64,
     },
+    /// Tells a device handler to start
     Start {
         target_addr: SocketAddr,
         device_id: DeviceId,
     },
+    /// Tells a device handler to stop
     Stop {
         target_addr: SocketAddr,
         device_id: DeviceId,
@@ -177,6 +197,8 @@ impl FromStr for Command {
                 | "sendstatus"
                 | "gethoststatuses"
                 | "configure"
+                | "start"
+                | "stop"
                 | "ping"
                 | "delay"
                 | "dummydata"
@@ -210,6 +232,8 @@ impl FromStr for Command {
                 match base {
                     "sub" => Ok(Command::Subscribe { target_addr, device_id }),
                     "unsub" => Ok(Command::Unsubscribe { target_addr, device_id }),
+                    "start" => Ok(Command::Start { target_addr, device_id }),
+                    "stop" => Ok(Command::Stop { target_addr, device_id }),
                     "configure" => {
                         let config_path: PathBuf = split
                             .next()
