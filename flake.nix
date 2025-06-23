@@ -140,6 +140,13 @@
               cargoToml = ./Cargo.toml;
 
               packages = with pkgs; [
+                toolchain
+                pkgs.upx
+                pkgs.gcc
+                pkgs.glibc
+                pkgs.pkg-config
+                pkgs.pkgsCross.aarch64-multiplatform-musl.stdenv  
+                libunwindMuslStatic
               ];
 
               nativeBuildInputs = [
