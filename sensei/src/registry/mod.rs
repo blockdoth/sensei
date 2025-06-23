@@ -13,15 +13,16 @@ use async_trait::async_trait;
 use lib::errors::{NetworkError, RegistryError};
 use lib::network::rpc_message::{DataMsg, DeviceId, DeviceStatus, HostId, HostStatus, RegCtrl, Responsiveness, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
-use lib::network::tcp::{send_message, ChannelMsg, ConnectionHandler, RegChannel, SubscribeDataChannel};
-use log::{debug, info, warn};
+use lib::network::tcp::server::TcpServer;
+use lib::network::tcp::{ChannelMsg, ConnectionHandler, RegChannel, SubscribeDataChannel, send_message};
+use log::{debug, info, trace, warn};
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::watch::{self};
 use tokio::sync::{Mutex, broadcast};
-use tokio::task;
+use tokio::task::{self, JoinHandle};
 use tokio::time::{Duration, interval};
 
-use crate::services::{GlobalConfig, Run, SystemNodeConfig};
+use crate::services::{GlobalConfig, RegistryConfig, Run};
 
 static DEFAULT_POLLING_INTERVAL: u64 = 4;
 
@@ -36,12 +37,18 @@ static DEFAULT_POLLING_INTERVAL: u64 = 4;
 /// - `store_host_update`: Stores an update to a host's status in the registry.
 #[derive(Clone)]
 pub struct Registry {
+    /// Host ID
+    host_id: HostId,
+    /// Server address
+    addr: SocketAddr,
+    /// The polling rate a registry will use. As indicated in the method field, the integer represents the number of seconds between polls.
+    polling_rate_s: u64,
     /// Map of host IDs to their information.
     hosts: Arc<Mutex<HashMap<HostId, HostInfo>>>,
-    /// Broadcast channel for sending data messages to subscribers.
+    /// Broadcast channel for sending messages.
     send_data_channel: broadcast::Sender<(DataMsg, DeviceId)>,
-    /// The polling rate a registry will use. As indicated in the method field, the integer represents the number of seconds between polls.
-    polling_rate_s: Option<u64>,
+    /// A list of registries the registry should register at
+    registry_addrs: Option<Vec<SocketAddr>>,
 }
 
 /// Information about a registered host.
@@ -69,89 +76,7 @@ impl SubscribeDataChannel for Registry {
 /// - `list_hosts`: Returns a list of all registered hosts and their socket addresses.
 /// - `register_host`: Registers a new host with the registry.
 /// - `store_host_update`: Stores an update to a host's status in the registry.
-/// - `create_polling_task`: Creates a task that polls the registered hosts.
 impl Registry {
-    /// Create a new, empty registry.
-    pub fn new(polling_rate_s: Option<u64>) -> Self {
-        Registry {
-            hosts: Arc::from(Mutex::from(HashMap::new())),
-            send_data_channel: broadcast::channel(100).0, // magic buffer for now
-            polling_rate_s,
-        }
-    }
-
-    /// Handle a registration control message from a host or orchestrator.
-    pub async fn handle_reg_ctrl(
-        &self,
-        request: RpcMessage,
-        message: RegCtrl,
-        send_commands_channel: watch::Sender<ChannelMsg>,
-    ) -> Result<(), NetworkError> {
-        match message {
-            RegCtrl::AnnouncePresence { host_id, host_address } => {
-                self.register_host(host_id, host_address).await.unwrap();
-            }
-            RegCtrl::PollHostStatus { host_id } => {
-                send_commands_channel.send(ChannelMsg::from(RegChannel::SendHostStatus { host_id }))?;
-            }
-            RegCtrl::PollHostStatuses => {
-                send_commands_channel.send(ChannelMsg::from(RegChannel::SendHostStatuses))?;
-            }
-            RegCtrl::HostStatus(HostStatus {
-                host_id,
-                device_statuses: device_status,
-                responsiveness,
-            }) => self.store_host_update(host_id, request.src_addr, device_status).await?,
-            RegCtrl::HostStatuses { host_statuses } => {
-                for host_status in host_statuses {
-                    self.store_host_update(host_status.host_id, request.src_addr, host_status.device_statuses)
-                        .await?
-                }
-            }
-            _ => {}
-        };
-        Ok(())
-    }
-
-    /// Spawns a new asynchronous task that periodically polls all registered hosts for their status iff theres an interval > 0
-    /// set in the registry struct.
-    ///
-    /// This function creates a background task using Tokio's task spawning mechanism. The task will
-    /// instantiate a `TcpClient` and repeatedly invoke [`poll_hosts`] at the specified interval (in seconds),
-    /// polling each registered host for its current status. Any errors encountered during polling are
-    /// unwrapped and will cause the task to panic.
-    ///
-    /// # Arguments
-    ///
-    /// # Returns
-    ///
-    /// Returns a [`tokio::task::JoinHandle`] to the spawned task, which can be used to await or manage the task.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// let registry = Registry::new();
-    /// let handle = registry.create_polling_client_task(10);
-    /// // The polling task is now running in the background.
-    /// ```
-    pub fn create_polling_task(&self) -> tokio::task::JoinHandle<()> {
-        if let Some(interval) = self.polling_rate_s {
-            if interval > 0 {
-                let connection_handler = Arc::new(self.clone());
-                task::spawn(async move {
-                    info!("Starting TCP client to poll hosts...");
-                    let client = TcpClient::new();
-                    connection_handler.poll_hosts(client, Duration::from_secs(interval)).await.unwrap();
-                })
-            } else {
-                info!("No registry polling inteval was defined. Pollin task was not started");
-                task::spawn(async {}) // return an empty task if interval is not > 0
-            }
-        } else {
-            info!("No registry polling inteval was defined. Pollin task was not started");
-            task::spawn(async {}) // return an empty task if no interval is defined
-        }
-    }
     /// Go though the list of hosts and poll their status
     pub async fn poll_hosts(&self, mut client: TcpClient, poll_interval: Duration) -> Result<(), RegistryError> {
         let mut interval = interval(poll_interval);
@@ -246,8 +171,6 @@ impl Registry {
     }
 }
 
-
-
 #[async_trait]
 impl ConnectionHandler for Registry {
     /// Handles receiving messages from other senders in the network.
@@ -259,7 +182,34 @@ impl ConnectionHandler for Registry {
     /// - Subscribe/Unsubscribe
     /// - Configure
     async fn handle_recv(&self, request: RpcMessage, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
-        
+        let message = match request.msg {
+            RpcMessageKind::HostCtrl(host_ctrl) => todo!(),
+            RpcMessageKind::RegCtrl(reg_ctrl) => reg_ctrl,
+            RpcMessageKind::Data { data_msg, device_id } => todo!(),
+        };
+        match message {
+            RegCtrl::AnnouncePresence { host_id, host_address } => {
+                self.register_host(host_id, host_address).await.unwrap();
+            }
+            RegCtrl::PollHostStatus { host_id } => {
+                send_channel_msg_channel.send(ChannelMsg::from(RegChannel::SendHostStatus { host_id }))?;
+            }
+            RegCtrl::PollHostStatuses => {
+                send_channel_msg_channel.send(ChannelMsg::from(RegChannel::SendHostStatuses))?;
+            }
+            RegCtrl::HostStatus(HostStatus {
+                host_id,
+                device_statuses: device_status,
+                responsiveness,
+            }) => self.store_host_update(host_id, request.src_addr, device_status).await?,
+            RegCtrl::HostStatuses { host_statuses } => {
+                for host_status in host_statuses {
+                    self.store_host_update(host_status.host_id, request.src_addr, host_status.device_statuses)
+                        .await?
+                }
+            }
+            _ => {}
+        };
         Ok(())
     }
 
@@ -279,31 +229,39 @@ impl ConnectionHandler for Registry {
                 ChannelMsg::RegChannel(reg_channel) => reg_channel,
             };
             match reg_channel {
-                        RegChannel::SendHostStatus { host_id } => {
-                            let host_status = RegCtrl::from(self.get_host_by_id(host_id).await?);
-                            let msg = RpcMessageKind::RegCtrl(host_status);
-                            send_message(&mut send_stream, msg).await?;
-                        }
-                        RegChannel::SendHostStatuses => {
-                            let mut host_statuses: Vec<HostStatus> = self
-                                .list_host_statuses()
-                                .await
-                                .iter()
-                                .map(|(_, info)| HostStatus::from(RegCtrl::from(info.clone())))
-                                .collect();
-                            let msg = RegCtrl::HostStatuses { host_statuses };
-                            send_message(&mut send_stream, RpcMessageKind::RegCtrl(msg)).await?;
-                        }
-                    }
+                RegChannel::SendHostStatus { host_id } => {
+                    let host_status = RegCtrl::from(self.get_host_by_id(host_id).await?);
+                    let msg = RpcMessageKind::RegCtrl(host_status);
+                    send_message(&mut send_stream, msg).await?;
+                }
+                RegChannel::SendHostStatuses => {
+                    let mut host_statuses: Vec<HostStatus> = self
+                        .list_host_statuses()
+                        .await
+                        .iter()
+                        .map(|(_, info)| HostStatus::from(RegCtrl::from(info.clone())))
+                        .collect();
+                    let msg = RegCtrl::HostStatuses { host_statuses };
+                    send_message(&mut send_stream, RpcMessageKind::RegCtrl(msg)).await?;
+                }
+            }
         }
         Ok(())
     }
 }
 
-impl Run<SystemNodeConfig> for Registry {
-    /// Constructs a new `SystemNode` from the given global and node-specific configuration.
-    fn new(global_config: GlobalConfig, config: SystemNodeConfig) -> Self {
-        Self::new(Some(48))
+impl Run<RegistryConfig> for Registry {
+    /// Constructs a new `Registry` from the given global and node-specific configuration.
+    fn new(global_config: GlobalConfig, config: RegistryConfig) -> Self {
+        let (send_data_channel, _) = broadcast::channel::<(DataMsg, DeviceId)>(16); // magic buffer
+        Registry {
+            host_id: config.host_id,
+            addr: config.addr,
+            polling_rate_s: config.polling_rate_s.unwrap_or(0),
+            hosts: Arc::from(Mutex::from(HashMap::new())),
+            send_data_channel,
+            registry_addrs: None,
+        }
     }
 
     /// Starts the system node.
@@ -312,13 +270,53 @@ impl Run<SystemNodeConfig> for Registry {
     ///
     /// # Arguments
     ///
-    /// SystemNodeConfig: Specifies the target address
+    /// RegistryConfig: Specifies the target address
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        
+        let polling_task = if self.polling_rate_s == 0 {
+            task::spawn(async {}) // dummy task
+        } else {
+            let connection_handler = Arc::new(self.clone());
+            task::spawn(async move {
+                info!("Starting TCP client to poll hosts...");
+                let client = TcpClient::new();
+                connection_handler
+                    .poll_hosts(client, Duration::from_secs(connection_handler.polling_rate_s))
+                    .await
+                    .unwrap();
+            })
+        };
+
+        // Register at provided registries. When a single registry refuses, the client exits.
+        if let Some(registries) = &self.registry_addrs {
+            let mut client = TcpClient::new();
+            for registry in registries {
+                trace!("Connecting to registry at {registry}");
+                let registry_addr: SocketAddr = *registry;
+                let heartbeat_msg = RpcMessageKind::RegCtrl(RegCtrl::AnnouncePresence {
+                    host_id: self.host_id,
+                    host_address: self.addr,
+                });
+                client.connect(registry_addr).await?;
+                client.send_message(registry_addr, heartbeat_msg).await?;
+                client.disconnect(registry_addr);
+                info!("Presence announced to registry at {registry_addr}");
+            }
+        }
+        // Create a TCP host server task
+        info!("Starting TCP server on {}...", self.addr);
+        let connection_handler = Arc::new(self.clone());
+        let tcp_server_task: JoinHandle<()> = task::spawn(async move {
+            match TcpServer::serve(connection_handler.addr, connection_handler).await {
+                Ok(_) => (),
+                Err(e) => {
+                    panic!("The TCP server encountered an error: {e}")
+                }
+            };
+        });
+
         Ok(())
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -345,7 +343,10 @@ mod tests {
         Registry {
             hosts: Arc::new(Mutex::new(HashMap::new())),
             send_data_channel: broadcast::channel(10).0,
-            polling_rate_s: None,
+            polling_rate_s: 0,
+            host_id: 1,
+            addr: "127.0.0.1:4100".parse().unwrap(),
+            registry_addrs: None,
         }
     }
 

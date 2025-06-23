@@ -109,7 +109,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             SubCommandsArgs::Visualiser(args) => runtime.block_on(Visualiser::new(global_args, args.parse()?).run())?,
             #[cfg(feature = "esp_tool")]
             SubCommandsArgs::EspTool(args) => runtime.block_on(EspTool::new(global_args, args.parse()?).run())?,
-            _ => panic!("Unknown option.")
+            _ => panic!("Unknown option."),
         },
     }
     Ok(())

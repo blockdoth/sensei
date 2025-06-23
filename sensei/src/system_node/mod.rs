@@ -25,7 +25,7 @@ use lib::network::rpc_message::{
 };
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
-use lib::network::tcp::{ChannelMsg, ConnectionHandler, HostChannel, RegChannel, SubscribeDataChannel, send_message};
+use lib::network::tcp::{ChannelMsg, ConnectionHandler, HostChannel, SubscribeDataChannel, send_message};
 use lib::sinks::{Sink, SinkConfig};
 use lib::sources::tcp::TCPConfig;
 use lib::sources::{DataSourceConfig, DataSourceT};
@@ -34,7 +34,6 @@ use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::{Mutex, broadcast, mpsc, watch};
 use tokio::task::{self, JoinHandle};
 
-use crate::registry::Registry;
 use crate::services::{GlobalConfig, Run, SystemNodeConfig};
 
 /// The System Node is a sender and a receiver in the network of Sensei.
@@ -66,7 +65,6 @@ pub struct SystemNode {
     registry_addrs: Option<Vec<SocketAddr>>,
     device_configs: Vec<DeviceHandlerConfig>,
     sink_configs: Vec<SinkConfigWithName>,
-    registry: Registry,
 }
 
 // Helper struct to associate a name with a SinkConfig, mirroring the YAML structure
@@ -457,11 +455,7 @@ impl ConnectionHandler for SystemNode {
                 .handle_host_ctrl(request.clone(), command.clone(), send_channel_msg_channel)
                 .await
                 .unwrap_or(()),
-            RpcMessageKind::RegCtrl(command) => {
-                self.registry
-                    .handle_reg_ctrl(request.clone(), command.clone(), send_channel_msg_channel)
-                    .await?
-            }
+            RpcMessageKind::RegCtrl(command) => todo!(),
             RpcMessageKind::Data { data_msg, device_id } => {
                 // Data from EXTERNAL source (network)
                 info!("SystemNode received external data for device_id: {device_id}");
@@ -536,7 +530,6 @@ impl Run<SystemNodeConfig> for SystemNode {
             registry_addrs: config.registries,
             device_configs: config.device_configs,
             sink_configs: config.sinks, // Store sink configurations from SystemNodeConfig
-            registry: Registry::new(config.registry_polling_rate_s),
         }
     }
 
@@ -614,10 +607,8 @@ impl Run<SystemNodeConfig> for SystemNode {
             self_clone_for_local_data.process_local_data().await;
         });
 
-        // create registry polling task, if configured
-        let polling_task = self.registry.create_polling_task();
         // Run all tasks concurrently
-        tokio::try_join!(tcp_server_task, polling_task, local_data_processing_task)?;
+        tokio::try_join!(tcp_server_task, local_data_processing_task)?;
         Ok(())
     }
 }

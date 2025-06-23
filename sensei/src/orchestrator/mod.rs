@@ -17,7 +17,7 @@ use lib::network::tcp::{ChannelMsg, HostChannel};
 use log::*;
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::watch::{Receiver, Sender};
-use tokio::sync::{watch, Mutex};
+use tokio::sync::{Mutex, watch};
 
 use crate::services::{GlobalConfig, OrchestratorConfig, Run};
 

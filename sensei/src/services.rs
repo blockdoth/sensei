@@ -17,14 +17,17 @@
 //!
 //! The module aims to provide a clear and structured way to manage service-specific
 //! settings and their execution flow.
-    #[cfg(any(feature = "sys_node", feature = "visualiser"))]
+use std::error::Error;
+#[cfg(any(feature = "sys_node", feature = "visualiser"))]
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
 #[cfg(feature = "sys_node")]
 use lib::handler::device_handler::DeviceHandlerConfig;
+#[cfg(feature = "registry")]
+use lib::network::rpc_message::HostId;
 use log::LevelFilter;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "sys_node")]
 use crate::system_node::SinkConfigWithName;
@@ -81,7 +84,7 @@ pub trait FromYaml: Sized + for<'de> Deserialize<'de> {
     /// # Panics
     ///
     /// This function will panic if the file cannot be read.
-    fn from_yaml(file: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
+    fn from_yaml(file: PathBuf) -> Result<Self, Box<dyn Error>> {
         let yaml = std::fs::read_to_string(file.clone()).map_err(|e| format!("Failed to read YAML file: {}\n{}", file.display(), e))?;
         Ok(serde_yaml::from_str(&yaml)?)
     }
@@ -100,15 +103,27 @@ pub struct OrchestratorConfig {
 /// including its network address, unique ID, registry information,
 /// device configurations, and sink configurations.
 #[cfg(feature = "sys_node")]
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SystemNodeConfig {
     pub addr: SocketAddr,
-    pub host_id: u64,
+    pub host_id: HostId,
     pub registries: Option<Vec<SocketAddr>>,
     pub registry_polling_rate_s: Option<u64>,
     pub device_configs: Vec<DeviceHandlerConfig>,
     #[serde(default)]
     pub sinks: Vec<SinkConfigWithName>,
+}
+
+/// Configuration for a registry
+#[cfg(feature = "registry")]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct RegistryConfig {
+    /// Holds the address and port the registry will listen on
+    pub addr: SocketAddr,
+    /// Holds the ID the registry will use to present themselves to the network
+    pub host_id: HostId,
+    /// The rate at which the registry will poll the registered hosts, in seconds.
+    pub polling_rate_s: Option<u64>,
 }
 
 /// Configuration for the Visualiser service.
@@ -154,6 +169,9 @@ pub enum ServiceConfig {
     /// Configuration for the ESP Tool service.
     #[cfg(feature = "esp_tool")]
     EspTool(EspToolConfig),
+    /// Configuration for the registry.
+    #[cfg(feature = "registry")]
+    Registry(RegistryConfig),
 }
 
 /// A trait defining the runnable lifecycle of a service.
@@ -186,6 +204,8 @@ pub trait Run<Config> {
 
 #[cfg(feature = "sys_node")]
 impl FromYaml for SystemNodeConfig {}
+#[cfg(feature = "registry")]
+impl FromYaml for RegistryConfig {}
 
 #[cfg(test)]
 mod tests {

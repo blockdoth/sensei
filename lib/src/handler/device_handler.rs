@@ -5,6 +5,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
+use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
@@ -21,7 +22,7 @@ use crate::{FromConfig, ToConfig};
 /// parameters required to build a [`DeviceHandler`]: the device’s ID,
 /// the data source type, optional controller parameters, optional
 /// adapter configuration, and a list of sink configurations.
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct DeviceHandlerConfig {
     // Unique identifier for the device.
     pub device_id: u64,

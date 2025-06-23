@@ -29,10 +29,11 @@ bincode = "1.3"
 workspace = true
 
 [features]
-default = ["sys_node", "orchestrator", "visualiser", "esp_tool", "iwl5300", "csv", "file_sink"]
+default = ["sys_node", "orchestrator", "visualiser", "esp_tool", "iwl5300", "csv", "file_sink", "registry"]
 sys_node = []
 orchestrator = []
 visualiser = []
+registry = []
 
 # Optional: forward features to lib
 esp_tool = ["lib/esp_tool"]
