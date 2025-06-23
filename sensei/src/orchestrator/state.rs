@@ -429,7 +429,12 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                 }
             }
             OrgUpdate::AddAllHosts => {
-                self.known_hosts = self.registry_hosts.iter().filter(|h| h.status != HostStatus::Disconnected).cloned().collect();
+                self.known_hosts = self
+                    .registry_hosts
+                    .iter()
+                    .filter(|h| h.status != HostStatus::Disconnected)
+                    .cloned()
+                    .collect();
             }
             OrgUpdate::RegistryIsConnected(is_connected) => {
                 self.registry_status = if is_connected {

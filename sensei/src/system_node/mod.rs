@@ -34,7 +34,7 @@ use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::{Mutex, broadcast, mpsc, watch};
 use tokio::task::{self, JoinHandle};
 
-use crate::registry::{Registry};
+use crate::registry::Registry;
 use crate::services::{GlobalConfig, Run, SystemNodeConfig};
 
 /// The System Node is a sender and a receiver in the network of Sensei.
@@ -589,9 +589,6 @@ impl Run<SystemNodeConfig> for SystemNode {
     ///
     /// Initializes a hashmap of device handlers and sinks based on the configuration file on startup
     ///
-    /// # Arguments
-    ///        let connection_handler = Arc::new(self.clone());
-    /// SystemNodeConfig: Specifies the target address
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         // Initialize Sinks
         let mut sinks_map = self.sinks.lock().await;

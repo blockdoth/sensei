@@ -19,7 +19,6 @@ use tokio::sync::{Mutex, broadcast};
 use tokio::task;
 use tokio::time::{Duration, interval};
 
-
 static DEFAULT_POLLING_INTERVAL: u64 = 4;
 
 /// The `Registry` struct manages a collection of hosts, providing asynchronous methods to poll their status,

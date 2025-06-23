@@ -140,7 +140,6 @@ where
                             }
                         }
                     }
-                    // This breaks it for some reason
                     _ = sleep(Duration::from_millis(50)) => {
                       trace!("tick");
                     }
