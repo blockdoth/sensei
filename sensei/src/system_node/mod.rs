@@ -34,7 +34,7 @@ use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::{Mutex, broadcast, mpsc, watch};
 use tokio::task::{self, JoinHandle};
 
-use crate::registry::Registry;
+use crate::registry::{Registry};
 use crate::services::{GlobalConfig, Run, SystemNodeConfig};
 
 /// The System Node is a sender and a receiver in the network of Sensei.
@@ -87,6 +87,7 @@ impl SystemNode {
     /// Returns the current host status as a `RegCtrl` message.
     fn get_host_status(&self) -> HostStatus {
         HostStatus {
+            addr: self.addr,
             host_id: self.host_id,
             device_statuses: self.device_configs.iter().map(DeviceInfo::from).collect(),
             responsiveness: Responsiveness::Connected,
@@ -435,14 +436,8 @@ impl SystemNode {
             }
             RegChannel::SendHostStatuses => {
                 let own_status = self.get_host_status();
-                let mut host_statuses: Vec<HostStatus> = self
-                    .registry
-                    .list_host_statuses()
-                    .await
-                    .iter()
-                    .map(|(_, info)| HostStatus::from(RegCtrl::from(info.clone())))
-                    .collect();
-                host_statuses.push(own_status);
+                let mut host_statuses: Vec<HostStatus> = self.registry.list_host_info().await;
+                // host_statuses.push(own_status);
                 let msg = RegCtrl::HostStatuses { host_statuses };
                 send_message(send_stream, RpcMessageKind::RegCtrl(msg)).await?;
             }
@@ -632,6 +627,9 @@ impl Run<SystemNodeConfig> for SystemNode {
         if let Some(registries) = &self.registry_addrs {
             let mut client = TcpClient::new();
             for registry in registries {
+                if *registry == self.addr {
+                    continue;
+                }
                 info!("Connecting to registry at {registry}");
                 let registry_addr: SocketAddr = *registry;
                 let heartbeat_msg = RpcMessageKind::RegCtrl(RegCtrl::AnnouncePresence {

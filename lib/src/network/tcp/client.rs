@@ -91,24 +91,31 @@ impl TcpClient {
         self.connections.lock().await.values().map(|conn| conn.addr).collect()
     }
 
+    /// Checks if a socket is connected, cleans it up in the map if it is not
+    pub async fn is_connected(&self, target_addr: SocketAddr) -> bool {
+        let mut connections_map = self.connections.lock().await;
+        if let Some(connection) = connections_map.get(&target_addr) {
+            if connection.read_stream.peer_addr().is_ok() {
+                true
+            } else {
+                // Cleanup broken connections
+                connections_map.remove(&target_addr);
+                false
+            }
+        } else {
+            false
+        }
+    }
+
     /// Connects to the specified `target_addr` and establishes a new TCP connection.
     /// If already connected, does nothing.
     ///
     /// # Errors
     /// Returns a `NetworkError` if the connection fails.
     pub async fn connect(&mut self, target_addr: SocketAddr) -> Result<(), NetworkError> {
-        {
-            // Scope for lock
-            let mut connections_map = self.connections.lock().await;
-            if let Some(connection) = connections_map.get(&target_addr) {
-                if connection.read_stream.peer_addr().is_ok() {
-                    info!("Already connected to {target_addr}");
-                    return Ok(());
-                } else {
-                    // Cleanup broken connections
-                    connections_map.remove(&target_addr);
-                }
-            }
+        if self.is_connected(target_addr).await {
+            info!("Already connected to {target_addr}");
+            return Ok(());
         }
 
         let connection = TcpStream::connect(target_addr).await?;

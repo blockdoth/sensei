@@ -40,7 +40,6 @@ pub enum HostStatus {
     Unknown,
 }
 
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum DeviceStatus {
     Subscribed,
@@ -97,7 +96,7 @@ pub enum OrgUpdate {
     SubscribeAll(SocketAddr, Option<SocketAddr>),
     UnsubscribeAll(SocketAddr, Option<SocketAddr>),
     SelectHost(SocketAddr),
-    
+
     // === Registry ===
     ConnectRegistry,
     DisconnectRegistry,
@@ -114,7 +113,7 @@ pub enum OrgUpdate {
     SelectExperiment(usize),
     ActiveExperiment(ActiveExperiment),
     UpdateExperimentList(Vec<ExperimentMetadata>),
-    
+
     // Misc
     Log(LogEntry),
     CsiData(CsiData),
@@ -430,7 +429,7 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                 }
             }
             OrgUpdate::AddAllHosts => {
-                self.known_hosts = self.registry_hosts.clone();
+                self.known_hosts = self.registry_hosts.iter().filter(|h| h.status != HostStatus::Disconnected).cloned().collect();
             }
             OrgUpdate::RegistryIsConnected(is_connected) => {
                 self.registry_status = if is_connected {
@@ -493,7 +492,7 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                     .iter()
                     .map(|h| Host {
                         id: h.host_id,
-                        addr: DEFAULT_ADDRESS,
+                        addr: h.addr,
                         devices: h
                             .device_statuses
                             .iter()
@@ -686,7 +685,7 @@ impl FocusReg {
             other => other.clone(),
         }
     }
-    /// Tab 
+    /// Tab
     fn tab(&self, limit: usize) -> FocusReg {
         match self {
             FocusReg::AvailableHosts(i) if i + 1 < limit => FocusReg::AvailableHosts(i + 1),

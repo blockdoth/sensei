@@ -146,7 +146,6 @@ impl Run<OrchestratorConfig> for Orchestrator {
 }
 
 impl Orchestrator {
-
     /// Initialization function that is able to set everything up using the proper channels (pun intended)
     async fn init(update_send: Sender<OrgUpdate>) {
         update_send.send(OrgUpdate::ConnectRegistry).await;
@@ -234,7 +233,7 @@ impl Orchestrator {
             }
         }
     }
-    
+
     /// Poll a device for status updates
     async fn poll(client: Arc<Mutex<TcpClient>>, registry_addr: SocketAddr) -> Result<Vec<HostStatus>, NetworkError> {
         // Lock client for send and response cycle
@@ -365,10 +364,10 @@ impl Orchestrator {
                 .await;
         }
     }
-    
+
     /// Asynchronous task responsible for handling messages from the TUI and orchestrating communication
     /// with the TCP client, experiment manager, and registry.
-    /// 
+    ///
     /// This task listens for incoming control messages via a channel and also optionally listens
     /// to messages from the TCP client, particularly CSI and raw frame data, if receiving is enabled.
     async fn command_handler(

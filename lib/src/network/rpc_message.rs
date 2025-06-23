@@ -105,6 +105,8 @@ pub enum RegCtrl {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct HostStatus {
     /// The unique ID of the host.
+    pub addr: SocketAddr,
+    /// The unique ID of the host.
     pub host_id: HostId,
     /// The status of each device managed by the host.
     pub device_statuses: Vec<DeviceInfo>,
@@ -118,24 +120,24 @@ impl From<HostStatus> for RegCtrl {
     }
 }
 
-impl From<RegCtrl> for HostStatus {
-    fn from(value: RegCtrl) -> Self {
-        match value {
-            RegCtrl::HostStatus(HostStatus {
-                host_id,
-                device_statuses,
-                responsiveness,
-            }) => HostStatus {
-                host_id,
-                device_statuses,
-                responsiveness,
-            },
-            _ => {
-                panic!("Could not convert from this type of CtrlMsg: {value:?}");
-            }
-        }
-    }
-}
+// impl From<RegCtrl> for HostStatus {
+//     fn from(value: RegCtrl) -> Self {
+//         match value {
+//             RegCtrl::HostStatus(HostStatus {
+//                 host_id,
+//                 device_statuses,
+//                 responsiveness,
+//             }) => HostStatus {
+//                 host_id,
+//                 device_statuses,
+//                 responsiveness,
+//             },
+//             _ => {
+//                 panic!("Could not convert from this type of CtrlMsg: {value:?}");
+//             }
+//         }
+//     }
+// }
 
 /// Status information for a device managed by a host.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]

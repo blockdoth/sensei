@@ -218,7 +218,8 @@ fn render_registry(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
 
         let status_style = match host.status {
             HostStatus::Available => Style::default().fg(Color::Green),
-            HostStatus::Unresponsive => Style::default().fg(Color::Red),
+            HostStatus::Disconnected => Style::default().fg(Color::Red),
+            HostStatus::Unresponsive => Style::default().fg(Color::Yellow),
             _ => Style::default(),
         };
 

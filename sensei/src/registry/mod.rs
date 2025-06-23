@@ -19,6 +19,7 @@ use tokio::sync::{Mutex, broadcast};
 use tokio::task;
 use tokio::time::{Duration, interval};
 
+
 static DEFAULT_POLLING_INTERVAL: u64 = 4;
 
 /// The `Registry` struct manages a collection of hosts, providing asynchronous methods to poll their status,
@@ -33,20 +34,11 @@ static DEFAULT_POLLING_INTERVAL: u64 = 4;
 #[derive(Clone)]
 pub struct Registry {
     /// Map of host IDs to their information.
-    hosts: Arc<Mutex<HashMap<HostId, HostInfo>>>,
+    hosts: Arc<Mutex<HashMap<HostId, HostStatus>>>,
     /// Broadcast channel for sending data messages to subscribers.
     send_data_channel: broadcast::Sender<(DataMsg, DeviceId)>,
     /// The polling rate a registry will use. As indicated in the method field, the integer represents the number of seconds between polls.
     polling_rate_s: Option<u64>,
-}
-
-/// Information about a registered host.
-#[derive(Clone, Debug)]
-pub struct HostInfo {
-    /// The network address of the host.
-    addr: SocketAddr,
-    /// The current status of the host.
-    status: HostStatus,
 }
 
 /// Allows clients to subscribe to the registry's data channel.
@@ -94,10 +86,11 @@ impl Registry {
                 send_commands_channel.send(ChannelMsg::from(RegChannel::SendHostStatuses))?;
             }
             RegCtrl::HostStatus(HostStatus {
+                addr,
                 host_id,
                 device_statuses: device_status,
                 responsiveness,
-            }) => self.store_host_update(host_id, request.src_addr, device_status).await?,
+            }) => self.store_host_update(host_id, addr, device_status).await?,
             RegCtrl::HostStatuses { host_statuses } => {
                 for host_status in host_statuses {
                     self.store_host_update(host_status.host_id, request.src_addr, host_status.device_statuses)
@@ -151,12 +144,16 @@ impl Registry {
     /// Go though the list of hosts and poll their status
     pub async fn poll_hosts(&self, mut client: TcpClient, poll_interval: Duration) -> Result<(), RegistryError> {
         let mut interval = interval(poll_interval);
+
+        // let connections:Vec<TcpClient> = vec![];
         loop {
             interval.tick().await;
             for (host_id, target_addr) in self.list_hosts().await {
                 let res: Result<(), RegistryError> = async {
                     debug!("Polling host: {host_id:#?} at address: {target_addr}");
-                    client.connect(target_addr).await.map_err(|e| RegistryError::from(Box::new(e)))?;
+                    if !client.is_connected(target_addr).await {
+                        client.connect(target_addr).await;
+                    }
                     client
                         .send_message(target_addr, RpcMessageKind::RegCtrl(RegCtrl::PollHostStatus { host_id }))
                         .await
@@ -168,7 +165,7 @@ impl Registry {
                     } else {
                         return Err(RegistryError::NetworkError(Box::from(NetworkError::MessageError)));
                     }
-                    client.disconnect(target_addr).await.map_err(|e| RegistryError::from(Box::new(e)))?;
+                    // client.disconnect(target_addr).await.map_err(|e| RegistryError::from(Box::new(e)))?;
                     Ok(())
                 }
                 .await;
@@ -186,7 +183,7 @@ impl Registry {
     pub async fn get_host_by_id(&self, host_id: HostId) -> Result<HostStatus, RegistryError> {
         let host_info_table = self.hosts.lock().await;
         let host_info = host_info_table.get(&host_id).ok_or(RegistryError::NoSuchHost)?;
-        Ok(host_info.status.clone())
+        Ok(host_info.clone())
     }
 
     /// Updates hosts responsiveness in the registry.
@@ -194,9 +191,9 @@ impl Registry {
         warn!("Could not reach host: {host_id:?}");
         let mut host_info_table = self.hosts.lock().await;
         let info = host_info_table.get_mut(&host_id).ok_or(RegistryError::NoSuchHost)?;
-        match info.status.responsiveness {
-            Responsiveness::Connected => info.status.responsiveness = Responsiveness::Lossy,
-            Responsiveness::Lossy => info.status.responsiveness = Responsiveness::Disconnected,
+        match info.responsiveness {
+            Responsiveness::Connected => info.responsiveness = Responsiveness::Lossy,
+            Responsiveness::Lossy => info.responsiveness = Responsiveness::Disconnected,
             Responsiveness::Disconnected => (),
         }
         Ok(())
@@ -207,20 +204,23 @@ impl Registry {
     }
     /// List the status of every host in the registry.
     pub async fn list_host_statuses(&self) -> Vec<(HostId, HostStatus)> {
-        self.hosts.lock().await.iter().map(|(id, info)| (*id, info.status.clone())).collect()
+        self.hosts.lock().await.iter().map(|(id, info)| (*id, info.clone())).collect()
     }
+    /// List the host info of every host in the registry.
+    pub async fn list_host_info(&self) -> Vec<HostStatus> {
+        self.hosts.lock().await.iter().map(|h| h.1.clone()).collect()
+    }
+
     /// Register a new host with the registry.
     pub async fn register_host(&self, host_id: HostId, host_address: SocketAddr) -> Result<(), RegistryError> {
         // because the host has been registered with priority 0 it will be next in line
         self.hosts.lock().await.insert(
             host_id,
-            HostInfo {
+            HostStatus {
                 addr: host_address,
-                status: HostStatus {
-                    host_id,
-                    device_statuses: Vec::new(),
-                    responsiveness: Responsiveness::Connected,
-                },
+                host_id,
+                device_statuses: Vec::new(),
+                responsiveness: Responsiveness::Connected,
             },
         );
         info!("Registered host: {host_id:#?}");
@@ -229,13 +229,11 @@ impl Registry {
     /// Store an update to a host's status in the registry.
     pub async fn store_host_update(&self, host_id: HostId, host_address: SocketAddr, host_status: Vec<DeviceInfo>) -> Result<(), RegistryError> {
         debug!("{host_status:?}");
-        let status = HostInfo {
+        let status = HostStatus {
             addr: host_address,
-            status: HostStatus {
-                host_id,
-                device_statuses: host_status,
-                responsiveness: Responsiveness::Connected,
-            },
+            host_id,
+            device_statuses: host_status,
+            responsiveness: Responsiveness::Connected,
         };
         self.hosts.lock().await.insert(host_id, status);
         Ok(())
@@ -296,7 +294,7 @@ mod tests {
         // Now update it if it happens again
         registry.handle_unresponsive_host(host_id).await.unwrap();
         let hosts_map = registry.hosts.lock().await;
-        assert_eq!(hosts_map.get(&host_id).unwrap().status.responsiveness, Responsiveness::Disconnected);
+        assert_eq!(hosts_map.get(&host_id).unwrap().responsiveness, Responsiveness::Disconnected);
     }
 
     #[tokio::test]
@@ -310,7 +308,7 @@ mod tests {
         {
             let mut hosts = registry.hosts.lock().await;
             if let Some(info) = hosts.get_mut(&host_id) {
-                info.status.responsiveness = Responsiveness::Connected;
+                info.responsiveness = Responsiveness::Connected;
             }
         }
         registry.handle_unresponsive_host(host_id).await.unwrap();
@@ -319,7 +317,7 @@ mod tests {
         assert_eq!(hosts[0], (host_id, addr));
         // Should now be marked as not responded
         let hosts_map = registry.hosts.lock().await;
-        assert_eq!(hosts_map.get(&host_id).unwrap().status.responsiveness, Responsiveness::Lossy);
+        assert_eq!(hosts_map.get(&host_id).unwrap().responsiveness, Responsiveness::Lossy);
     }
 
     #[tokio::test]
@@ -337,9 +335,9 @@ mod tests {
         let hosts = registry.hosts.lock().await;
         let info = hosts.get(&host_id).unwrap();
         assert_eq!(info.addr, addr);
-        assert_eq!(info.status.host_id, host_id);
-        assert_eq!(info.status.device_statuses, device_status);
-        assert_eq!(info.status.responsiveness, Responsiveness::Connected);
+        assert_eq!(info.host_id, host_id);
+        assert_eq!(info.device_statuses, device_status);
+        assert_eq!(info.responsiveness, Responsiveness::Connected);
     }
 
     #[tokio::test]
@@ -368,6 +366,7 @@ mod tests {
             dev_type: SourceType::ESP32,
         }];
         let msg_kind = RpcMessageKind::RegCtrl(RegCtrl::HostStatus(HostStatus {
+            addr,
             host_id,
             device_statuses: device_status.clone(),
             responsiveness: Responsiveness::Connected,
