@@ -108,7 +108,7 @@ impl DataSourceT for TCPSource {
     async fn read(&mut self) -> Result<Option<DataMsg>, DataSourceError> {
         let rpcmsg: RpcMessage = self
             .client
-            .read_message(self.config.target_addr)
+            .wait_for_read_message(self.config.target_addr)
             .await
             .map_err(|e| DataSourceError::from(Box::new(e)))?;
         match rpcmsg.msg {

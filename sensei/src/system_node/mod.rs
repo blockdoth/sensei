@@ -183,13 +183,15 @@ impl SystemNode {
         device_id: DeviceId,
         cfg_type: CfgType,
         handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+        local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         match cfg_type {
             Create { cfg } => {
                 info!("Creating a new device handler for device id {device_id}");
                 let handler = DeviceHandler::from_config(cfg).await;
                 match handler {
-                    Ok(handler) => {
+                    Ok(mut handler) => {
+                        handler.start(local_data_tx).await?;
                         handlers.lock().await.insert(device_id, handler);
                     }
                     Err(e) => {
@@ -319,7 +321,7 @@ impl SystemNode {
                 target_addr,
                 device_id,
                 cfg_type,
-            } => Ok(Self::configure(device_id, cfg_type, handlers).await?),
+            } => Ok(Self::configure(device_id, cfg_type, handlers, local_data_tx).await?),
             Command::Delay { delay } => {
                 tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
                 Ok(())
@@ -373,7 +375,7 @@ impl SystemNode {
                 Self::unsubscribe(request.src_addr, device_id, send_channel_msg_channel).await?;
             }
             HostCtrl::Configure { device_id, cfg_type } => {
-                Self::configure(device_id, cfg_type, self.handlers.clone()).await?;
+                Self::configure(device_id, cfg_type, self.handlers.clone(), self.local_data_tx.clone()).await?;
             }
             HostCtrl::Experiment { experiment } => {
                 Self::load_experiment(experiment, self.handlers.clone(), self.local_data_tx.clone()).await?;
