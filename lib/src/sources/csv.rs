@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::{path, vec};
 
-use log::{info, trace};
+use log::trace;
 use serde::{Deserialize, Serialize};
 
 use crate::ToConfig;

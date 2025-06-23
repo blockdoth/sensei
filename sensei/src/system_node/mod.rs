@@ -154,7 +154,7 @@ impl SystemNode {
 
         // This can be allowed to unwrap, as it will literally always succeed
         let mut new_handler = DeviceHandler::from_config(new_handler_config).await.unwrap();
-        
+
         new_handler.start(local_data_tx).await?;
 
         info!("Handler created to subscribe to {target_addr}");
@@ -214,33 +214,34 @@ impl SystemNode {
 
         Ok(())
     }
-    
+
     async fn start(
         device_id: DeviceId,
         handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
         local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         match handlers.lock().await.get_mut(&device_id) {
-            Some(handler) => { 
+            Some(handler) => {
                 info!("Starting device handler {device_id}");
-                handler.start(local_data_tx.clone()).await?; 
+                handler.start(local_data_tx.clone()).await?;
             }
-            _ => { info!("There does not exist a device handler {device_id}") }
+            _ => {
+                info!("There does not exist a device handler {device_id}")
+            }
         }
-        
+
         Ok(())
     }
 
-    async fn stop(
-        device_id: DeviceId,
-        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn stop(device_id: DeviceId, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), Box<dyn std::error::Error>> {
         match handlers.lock().await.get_mut(&device_id) {
             Some(handler) => {
                 info!("Stopping device handler {device_id}");
                 handler.stop().await?;
             }
-            _ => { info!("There does not exist a device handler {device_id}") }
+            _ => {
+                info!("There does not exist a device handler {device_id}")
+            }
         }
 
         Ok(())

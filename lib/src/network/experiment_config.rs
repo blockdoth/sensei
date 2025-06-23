@@ -114,9 +114,9 @@ pub enum Command {
         target_addr: SocketAddr,
     },
     /// Tells the orchestrator to subscribe to a system node
-    /// 
+    ///
     /// Tells a system node to subscribe to a system node
-    /// 
+    ///
     /// This is done by creating a device handler with a tcp source pointing to the target node.
     /// This device handler is immediately started
     Subscribe {
@@ -124,7 +124,7 @@ pub enum Command {
         device_id: DeviceId,
     },
     /// Tells the orchestrator to unsubscribe to a system node
-    /// 
+    ///
     /// Tells a system node to unsubscribe to a system node
     Unsubscribe {
         target_addr: SocketAddr,
@@ -150,7 +150,7 @@ pub enum Command {
         target_addr: SocketAddr,
     },
     /// Tells a node how to configure a device handler
-    /// 
+    ///
     /// Creating or editing a device handler does not start it
     Configure {
         target_addr: SocketAddr,

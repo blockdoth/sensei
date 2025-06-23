@@ -173,12 +173,8 @@ impl Orchestrator {
                 tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
                 Ok(())
             }
-            Command::Start { target_addr, device_id} => {
-                Ok(Self::start(&client, target_addr, device_id).await?)
-            }
-            Command::Stop { target_addr, device_id} => {
-                Ok(Self::stop(&client, target_addr, device_id).await?)
-            }
+            Command::Start { target_addr, device_id } => Ok(Self::start(&client, target_addr, device_id).await?),
+            Command::Stop { target_addr, device_id } => Ok(Self::stop(&client, target_addr, device_id).await?),
             Command::DummyData {} => {
                 todo!()
             }
@@ -280,24 +276,16 @@ impl Orchestrator {
 
         Ok(client.lock().await.send_message(target_addr, msg).await?)
     }
-    
-    async fn start(
-        client: &Arc<Mutex<TcpClient>>,
-        target_addr: SocketAddr,
-        device_id: DeviceId,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+
+    async fn start(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: DeviceId) -> Result<(), Box<dyn std::error::Error>> {
         let msg = RpcMessageKind::HostCtrl(HostCtrl::Start { device_id });
-        
+
         info!("Telling {target_addr} to start the device handler {device_id}");
 
         Ok(client.lock().await.send_message(target_addr, msg).await?)
     }
 
-    async fn stop(
-        client: &Arc<Mutex<TcpClient>>,
-        target_addr: SocketAddr,
-        device_id: DeviceId,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn stop(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: DeviceId) -> Result<(), Box<dyn std::error::Error>> {
         let msg = RpcMessageKind::HostCtrl(HostCtrl::Stop { device_id });
 
         info!("Telling {target_addr} to stop the device handler {device_id}");

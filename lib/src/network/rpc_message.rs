@@ -67,7 +67,7 @@ pub enum HostCtrl {
     /// Start a device handler on a node
     Start { device_id: DeviceId },
     /// Stop a device handler on a node
-    Stop { device_id: DeviceId},
+    Stop { device_id: DeviceId },
     /// Subscribe to a device's data stream.
     Subscribe { device_id: DeviceId },
     /// Unsubscribe from a device's data stream.
