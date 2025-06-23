@@ -10,8 +10,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::try_join;
 use lib::errors::{NetworkError, RegistryError};
-use lib::network::rpc_message::{DataMsg, DeviceId, DeviceStatus, HostId, HostStatus, RegCtrl, Responsiveness, RpcMessage, RpcMessageKind};
+use lib::network::rpc_message::{DataMsg, DeviceId, DeviceStatus, HostCtrl, HostId, HostStatus, RegCtrl, Responsiveness, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, RegChannel, SubscribeDataChannel, send_message};
@@ -182,33 +183,43 @@ impl ConnectionHandler for Registry {
     /// - Subscribe/Unsubscribe
     /// - Configure
     async fn handle_recv(&self, request: RpcMessage, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
-        let message = match request.msg {
-            RpcMessageKind::HostCtrl(host_ctrl) => todo!(),
-            RpcMessageKind::RegCtrl(reg_ctrl) => reg_ctrl,
-            RpcMessageKind::Data { data_msg, device_id } => todo!(),
-        };
-        match message {
-            RegCtrl::AnnouncePresence { host_id, host_address } => {
-                self.register_host(host_id, host_address).await.unwrap();
-            }
-            RegCtrl::PollHostStatus { host_id } => {
-                send_channel_msg_channel.send(ChannelMsg::from(RegChannel::SendHostStatus { host_id }))?;
-            }
-            RegCtrl::PollHostStatuses => {
-                send_channel_msg_channel.send(ChannelMsg::from(RegChannel::SendHostStatuses))?;
-            }
-            RegCtrl::HostStatus(HostStatus {
-                host_id,
-                device_statuses: device_status,
-                responsiveness,
-            }) => self.store_host_update(host_id, request.src_addr, device_status).await?,
-            RegCtrl::HostStatuses { host_statuses } => {
-                for host_status in host_statuses {
-                    self.store_host_update(host_status.host_id, request.src_addr, host_status.device_statuses)
-                        .await?
+        match request.msg {
+            RpcMessageKind::HostCtrl(host_ctrl) => match host_ctrl {
+                HostCtrl::Connect => todo!(),
+                HostCtrl::Disconnect => todo!(),
+                HostCtrl::Configure { device_id, cfg_type } => todo!(),
+                HostCtrl::Subscribe { device_id } => todo!(),
+                HostCtrl::Unsubscribe { device_id } => todo!(),
+                HostCtrl::SubscribeTo { target_addr, device_id } => todo!(),
+                HostCtrl::UnsubscribeFrom { target_addr, device_id } => todo!(),
+                HostCtrl::Experiment { experiment } => todo!(),
+                HostCtrl::Ping => todo!(),
+                HostCtrl::Pong => todo!(),
+            },
+            RpcMessageKind::RegCtrl(reg_ctrl) => match reg_ctrl {
+                RegCtrl::AnnouncePresence { host_id, host_address } => {
+                    self.register_host(host_id, host_address).await.unwrap();
                 }
-            }
-            _ => {}
+                RegCtrl::PollHostStatus { host_id } => {
+                    send_channel_msg_channel.send(ChannelMsg::from(RegChannel::SendHostStatus { host_id }))?;
+                }
+                RegCtrl::PollHostStatuses => {
+                    send_channel_msg_channel.send(ChannelMsg::from(RegChannel::SendHostStatuses))?;
+                }
+                RegCtrl::HostStatus(HostStatus {
+                    host_id,
+                    device_statuses: device_status,
+                    responsiveness,
+                }) => self.store_host_update(host_id, request.src_addr, device_status).await?,
+                RegCtrl::HostStatuses { host_statuses } => {
+                    for host_status in host_statuses {
+                        self.store_host_update(host_status.host_id, request.src_addr, host_status.device_statuses)
+                            .await?
+                    }
+                }
+                _ => {}
+            },
+            RpcMessageKind::Data { data_msg, device_id } => todo!(),
         };
         Ok(())
     }
@@ -314,6 +325,8 @@ impl Run<RegistryConfig> for Registry {
             };
         });
 
+        try_join!(tcp_server_task, polling_task);
+
         Ok(())
     }
 }
@@ -324,11 +337,10 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::sync::Arc;
 
-    use lib::network::rpc_message::{DeviceStatus, HostId, HostStatus, RegCtrl, RpcMessageKind, SourceType};
+    use lib::network::rpc_message::{DeviceStatus, HostId, HostStatus, RegCtrl, Responsiveness, RpcMessageKind, SourceType};
     use tokio::sync::{Mutex, broadcast};
 
     use super::Registry;
-    use crate::registry::Responsiveness;
 
     fn test_host_id(n: u64) -> HostId {
         // placeholder in case the IDs get more complex
