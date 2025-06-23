@@ -74,7 +74,6 @@
               "--host=aarch64-unknown-linux-musl"
             ];
 
-
             buildPhase = ''
               autoreconf -i
               ./configure ${pkgs.lib.concatStringsSep " " configureFlags}
@@ -114,9 +113,6 @@
                 rust-analyzer-unwrapped
                 mprocs
                 pkg-config
-                pkgs.pkgsCross.aarch64-multiplatform-musl.stdenv
-                pkgs.pkgsCross.aarch64-multiplatform-musl.musl
-                pkgs.pkgsCross.aarch64-multiplatform-musl.libunwind
               ]
               ++ lib.optionals isLinux [
                 udev
@@ -131,7 +127,53 @@
             MUSL_GCC_LIB_PATH = "${gccLibPath}";
             MUSL_GCC_PATH = "${muslGcc}";
             MUSL_UNWIND_PATH = "${libunwindMusl}";
-            RUSTFLAGS = "-C linker=${linker} \
+            RUSTFLAGS = "";
+            # For coverage tools
+            LLVM_COV = "${pkgs.llvmPackages_latest.llvm}/bin/llvm-cov";
+            LLVM_PROFDATA = "${pkgs.llvmPackages_latest.llvm}/bin/llvm-profdata";
+          };
+
+          packages.build-aarch64 = lib.mkIf (system == "x86_64-linux" || system == "aarch64-linux") (
+            pkgs.rustPlatform.buildRustPackage {
+              pname = "sensei";
+              version = "0.1.0";
+              src = ./.;
+              cargoLock = {
+                lockFile = ./Cargo.lock;
+              };
+              cargoToml = ./Cargo.toml;
+
+              packages = with pkgs; [
+                toolchain
+                pkgs.gcc
+                pkgs.glibc
+                pkgs.pkg-config
+                pkgs.pkgsCross.aarch64-multiplatform-musl.stdenv
+                pkgs.pkgsCross.aarch64-multiplatform-musl.musl
+                pkgs.pkgsCross.aarch64-multiplatform-musl.libunwind
+              ];
+
+              nativeBuildInputs = [
+                toolchain
+                pkgs.pkg-config
+                pkgs.gcc
+                pkgs.glibc
+                pkgs.pkg-config
+                pkgs.pkgsCross.aarch64-multiplatform-musl.stdenv
+                pkgs.pkgsCross.aarch64-multiplatform-musl.musl
+                pkgs.pkgsCross.aarch64-multiplatform-musl.libunwind
+              ];
+              # cargoBuildFlags = [
+              #   # FOR SOME REASON --offline IS PASSED
+              #   "--package testapp"
+              #   "--target aarch64-unknown-linux-musl"
+              #   "-Z build-std=std,panic_abort"
+              #   "-Z build-std-features=panic_immediate_abort"
+              # ];
+              buildPhase = ''
+                ./scripts/crosscompile-arm.sh
+              '';
+              RUSTFLAGS = "-C linker=${linker} \
               -C link-arg=-nostartfiles \
               -L${muslLib}              \
               -L${gccLibPath}           \
@@ -144,10 +186,9 @@
               -C link-arg=-lgcc           \
               -C link-arg=-Wl,--end-group \
               -C panic=abort";
-            # For coverage tools
-            LLVM_COV = "${pkgs.llvmPackages_latest.llvm}/bin/llvm-cov";
-            LLVM_PROFDATA = "${pkgs.llvmPackages_latest.llvm}/bin/llvm-profdata";
-          };
+              doCheck = false;
+            }
+          );
 
           # Default native build
           packages.default = pkgs.rustPlatform.buildRustPackage {
