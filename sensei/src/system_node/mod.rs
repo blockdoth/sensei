@@ -400,35 +400,6 @@ impl SystemNode {
         Ok(())
     }
 
-    /// Handles channel messages used for registry actions.
-    async fn handle_reg_channel(&self, reg_msg: RegChannel, send_stream: &mut OwnedWriteHalf) -> Result<(), NetworkError> {
-        match reg_msg {
-            RegChannel::SendHostStatus { host_id } => {
-                let host_status = if host_id == self.host_id {
-                    RegCtrl::HostStatus(self.get_host_status())
-                } else {
-                    RegCtrl::from(self.registry.get_host_by_id(host_id).await?)
-                };
-                let msg = RpcMessageKind::RegCtrl(host_status);
-                send_message(send_stream, msg).await?;
-            }
-            RegChannel::SendHostStatuses => {
-                let own_status = self.get_host_status();
-                let mut host_statuses: Vec<HostStatus> = self
-                    .registry
-                    .list_host_statuses()
-                    .await
-                    .iter()
-                    .map(|(_, info)| HostStatus::from(RegCtrl::from(info.clone())))
-                    .collect();
-                host_statuses.push(own_status);
-                let msg = RegCtrl::HostStatuses { host_statuses };
-                send_message(send_stream, RpcMessageKind::RegCtrl(msg)).await?;
-            }
-        }
-        Ok(())
-    }
-
     /// Helper function to route data (from local or external sources) to configured sinks.
     async fn route_data_to_sinks(&self, data_msg: DataMsg, device_id: DeviceId) {
         let handlers_guard = self.handlers.lock().await;
@@ -531,7 +502,7 @@ impl ConnectionHandler for SystemNode {
                         .handle_host_channel(host_msg, &mut send_stream, &mut subscribed_ids)
                         .await
                         .unwrap_or(()),
-                    ChannelMsg::RegChannel(reg_msg) => self.handle_reg_channel(reg_msg, &mut send_stream).await?,
+                    ChannelMsg::RegChannel(reg_msg) => todo!(),
                     _ => (),
                 }
             }

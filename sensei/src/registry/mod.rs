@@ -9,15 +9,19 @@ use std::convert::From;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use lib::errors::{NetworkError, RegistryError};
 use lib::network::rpc_message::{DataMsg, DeviceId, DeviceStatus, HostId, HostStatus, RegCtrl, Responsiveness, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
-use lib::network::tcp::{ChannelMsg, RegChannel, SubscribeDataChannel};
+use lib::network::tcp::{send_message, ChannelMsg, ConnectionHandler, RegChannel, SubscribeDataChannel};
 use log::{debug, info, warn};
+use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::watch::{self};
 use tokio::sync::{Mutex, broadcast};
 use tokio::task;
 use tokio::time::{Duration, interval};
+
+use crate::services::{GlobalConfig, Run, SystemNodeConfig};
 
 static DEFAULT_POLLING_INTERVAL: u64 = 4;
 
@@ -241,6 +245,80 @@ impl Registry {
         Ok(())
     }
 }
+
+
+
+#[async_trait]
+impl ConnectionHandler for Registry {
+    /// Handles receiving messages from other senders in the network.
+    /// This communicates with the sender function using channel messages.
+    ///
+    /// # Types
+    ///
+    /// - Connect/Disconnect
+    /// - Subscribe/Unsubscribe
+    /// - Configure
+    async fn handle_recv(&self, request: RpcMessage, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
+        
+        Ok(())
+    }
+
+    /// Handles sending messages for the nodes to other receivers in the network.
+    ///
+    /// The node will only send messages to subscribers of relevant messages.
+    async fn handle_send(
+        &self,
+        mut recv_command_channel: watch::Receiver<ChannelMsg>,
+        mut _recv_data_channel: broadcast::Receiver<(DataMsg, DeviceId)>,
+        mut send_stream: OwnedWriteHalf,
+    ) -> Result<(), NetworkError> {
+        loop {
+            recv_command_channel.changed().await?;
+            let reg_channel = match recv_command_channel.borrow_and_update().clone() {
+                ChannelMsg::HostChannel(_) | ChannelMsg::Data { data: _ } => todo!(),
+                ChannelMsg::RegChannel(reg_channel) => reg_channel,
+            };
+            match reg_channel {
+                        RegChannel::SendHostStatus { host_id } => {
+                            let host_status = RegCtrl::from(self.get_host_by_id(host_id).await?);
+                            let msg = RpcMessageKind::RegCtrl(host_status);
+                            send_message(&mut send_stream, msg).await?;
+                        }
+                        RegChannel::SendHostStatuses => {
+                            let mut host_statuses: Vec<HostStatus> = self
+                                .list_host_statuses()
+                                .await
+                                .iter()
+                                .map(|(_, info)| HostStatus::from(RegCtrl::from(info.clone())))
+                                .collect();
+                            let msg = RegCtrl::HostStatuses { host_statuses };
+                            send_message(&mut send_stream, RpcMessageKind::RegCtrl(msg)).await?;
+                        }
+                    }
+        }
+        Ok(())
+    }
+}
+
+impl Run<SystemNodeConfig> for Registry {
+    /// Constructs a new `SystemNode` from the given global and node-specific configuration.
+    fn new(global_config: GlobalConfig, config: SystemNodeConfig) -> Self {
+        Self::new(Some(48))
+    }
+
+    /// Starts the system node.
+    ///
+    /// Initializes a hashmap of device handlers and sinks based on the configuration file on startup
+    ///
+    /// # Arguments
+    ///
+    /// SystemNodeConfig: Specifies the target address
+    async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        
+        Ok(())
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
