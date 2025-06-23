@@ -7,7 +7,7 @@
 //! Supported sources (via `DataSourceConfig`):
 //! - [`netlink::NetlinkSource`]: Linux-specific netlink packet capture (requires `target_os = "linux"`).
 //! - [`esp32::Esp32Source`]: ESP32-based wireless or serial data source.
-//! - [`csv`]: Placeholder for CSV-based source (e.g., playback from file).
+//! - [`csv`]: Placeholder for Csv-based source (e.g., playback from file).
 //! - ['tcp::TCPSource']: Source to receive from other system nodes
 //!
 //! Each source implementation must be constructed with configuration via the
@@ -15,13 +15,19 @@
 //! [`DataSourceT::start`] method before reading frames.
 
 pub mod controllers;
+#[cfg(feature = "csv")]
 pub mod csv;
+#[cfg(feature = "esp_tool")]
 pub mod esp32;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "iwl5300"))]
 pub mod netlink;
 pub mod tcp;
 
 use std::any::Any;
+
+#[cfg(test)]
+use mockall::automock;
+use serde::{Deserialize, Serialize};
 
 use crate::errors::{DataSourceError, TaskError};
 use crate::network::rpc_message::DataMsg;
@@ -35,6 +41,7 @@ pub const BUFSIZE: usize = 65535;
 /// Sources are anything that provides packetized bytestream data that can be
 /// interpreted by CSI adapters. It is up to the user to correct a source
 /// sensibly with an adapter.
+#[cfg_attr(test, automock)]
 #[async_trait::async_trait]
 pub trait DataSourceT: Send + Any + ToConfig<DataSourceConfig> {
     /// Start collecting data
@@ -77,15 +84,19 @@ pub trait DataSourceT: Send + Any + ToConfig<DataSourceConfig> {
 /// - `Netlink`: Linux-only netlink-based capture (requires `target_os = "linux"`)
 /// - `Esp32`: ESP32-based data source
 /// - 'Tcp': receiving from another node
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum DataSourceConfig {
     /// Linux netlink source (packet capture via netlink sockets).
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "iwl5300"))]
     Netlink(netlink::NetlinkConfig),
     /// Data source backed by an ESP32 device.
+    #[cfg(feature = "esp_tool")]
     Esp32(esp32::Esp32SourceConfig),
     /// TCP receiving from another device.
     Tcp(tcp::TCPConfig),
+    /// Csv config
+    #[cfg(feature = "csv")]
+    Csv(csv::CsvSourceConfig),
 }
 
 #[async_trait::async_trait]
@@ -97,41 +108,14 @@ impl FromConfig<DataSourceConfig> for dyn DataSourceT {
     /// constructor fails.
     async fn from_config(config: DataSourceConfig) -> Result<Box<Self>, TaskError> {
         let source: Box<dyn DataSourceT> = match config {
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", feature = "iwl5300"))]
             DataSourceConfig::Netlink(cfg) => Box::new(netlink::NetlinkSource::new(cfg).map_err(TaskError::DataSourceError)?),
+            #[cfg(feature = "esp_tool")]
             DataSourceConfig::Esp32(cfg) => Box::new(esp32::Esp32Source::new(cfg).map_err(TaskError::DataSourceError)?),
             DataSourceConfig::Tcp(cfg) => Box::new(tcp::TCPSource::new(cfg).map_err(TaskError::DataSourceError)?),
+            #[cfg(feature = "csv")]
+            DataSourceConfig::Csv(cfg) => Box::new(csv::CsvSource::new(cfg).map_err(TaskError::DataSourceError)?),
         };
         Ok(source)
     }
 }
-
-// Not sure if I need everything after this yet
-//
-//
-/* Fabian's stuff
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
-pub struct RemoteSourceConfig {
-    pub device_id: u64,
-    pub addr: SocketAddr,
-    pub raw: bool,
-}
-
-#[derive(serde::Deserialize, serde::Serialize, Debug, schemars::JsonSchema)]
-pub enum SourceRequest {
-    Subscribe(Subscription),
-    Configure(Configuration),
-}
-
-#[derive(serde::Deserialize, serde::Serialize, Debug, schemars::JsonSchema)]
-pub struct Subscription {
-    pub device_id: u64,
-    pub raw: bool,
-}
-
-#[derive(serde::Deserialize, serde::Serialize, Debug, schemars::JsonSchema)]
-pub struct Configuration {
-    pub device_id: u64,
-    pub params: ControllerParams,
-}
-*/

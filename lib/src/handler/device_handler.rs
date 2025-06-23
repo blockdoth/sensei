@@ -5,13 +5,12 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
-use tokio::sync::mpsc; // Added for sending data out
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::adapters::*;
-use crate::errors::TaskError;
-use crate::network::rpc_message::{DataMsg, DeviceId, SourceType}; // Added DataMsg, DeviceId
+use crate::errors::{ConfigError, TaskError};
+use crate::network::rpc_message::{DataMsg, DeviceId, SourceType};
 use crate::sources::controllers::{Controller, ControllerParams};
 use crate::sources::{DataSourceConfig, DataSourceT};
 use crate::{FromConfig, ToConfig};
@@ -22,7 +21,7 @@ use crate::{FromConfig, ToConfig};
 /// parameters required to build a [`DeviceHandler`]: the device’s ID,
 /// the data source type, optional controller parameters, optional
 /// adapter configuration, and a list of sink configurations.
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
 pub struct DeviceHandlerConfig {
     // Unique identifier for the device.
     pub device_id: u64,
@@ -53,13 +52,13 @@ impl DeviceHandlerConfig {
     ///
     /// # Returns
     /// - `Ok(Vec<DeviceHandlerConfig>)` if the file is read and deserialized successfully.
-    /// - `Err(TaskError::Io)` if the file cannot be read (e.g., missing, permissions).
-    /// - `Err(TaskError::Parse)` if deserialization fails (e.g., invalid YAML format).
+    /// - `Err(ConfigError::Io)` if the file cannot be read (e.g., missing, permissions).
+    /// - `Err(ConfigError::Serde)` if deserialization fails (e.g., invalid YAML format).
     /// # Errors
     /// This function may return:
-    /// - `TaskError::Io` for file reading issues.
-    /// - `TaskError::Parse` for YAML deserialization errors.
-    pub fn from_yaml(file: PathBuf) -> Result<Vec<DeviceHandlerConfig>, TaskError> {
+    /// - `ConfigError::Io` for file reading issues.
+    /// - `ConfigError::Serde` for YAML deserialization errors.
+    pub fn from_yaml(file: PathBuf) -> Result<Vec<DeviceHandlerConfig>, ConfigError> {
         let yaml = fs::read_to_string(file)?;
         let configs = serde_yaml::from_str(&yaml)?;
         Ok(configs)
@@ -133,7 +132,7 @@ impl DeviceHandler {
         &mut self,
         mut source: Box<dyn DataSourceT>,
         mut adapter: Option<Box<dyn CsiDataAdapter>>,
-        data_output_tx: mpsc::Sender<(DataMsg, DeviceId)>, // Added channel sender
+        data_output_tx: mpsc::Sender<(DataMsg, DeviceId)>,
     ) -> Result<(), TaskError> {
         let device_id = self.config.device_id;
         let (shutdown_tx, mut shutdown_rx) = watch::channel(());
@@ -297,10 +296,11 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
         // Validate controller configuration if present.
         if let Some(controller_cfg) = &cg.controller {
             match (controller_cfg, &cg.source) {
-                (ControllerParams::Esp32(_), DataSourceConfig::Esp32(_)) | (ControllerParams::Tcp(_), DataSourceConfig::Tcp(_)) => {
+                #[cfg(feature = "esp_tool")]
+                (ControllerParams::Esp32(_), DataSourceConfig::Esp32(_)) => {
                     // These combinations are allowed.
                 }
-                #[cfg(target_os = "linux")]
+                #[cfg(all(target_os = "linux", feature = "iwl5300"))]
                 (ControllerParams::Netlink(_), DataSourceConfig::Netlink(_)) => {
                     // Netlink is allowed on Linux.
                 }
@@ -341,5 +341,163 @@ impl ToConfig<DeviceHandlerConfig> for DeviceHandler {
         // Create a new DeviceHandlerConfig with the current configuration
         // Note: Sinks are not part of DeviceHandler anymore, so they are not included here.
         Ok(self.config.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+    use async_trait::async_trait;
+    use tempfile::NamedTempFile;
+    use tokio::sync::mpsc;
+
+    use super::*;
+    use crate::ToConfig;
+    use crate::adapters::{DataAdapterConfig, MockCsiDataAdapter};
+    use crate::errors::TaskError;
+    use crate::network::rpc_message::{DataMsg, SourceType};
+    use crate::sinks::tcp::TCPConfig;
+    use crate::sinks::{MockSink, SinkConfig};
+    #[cfg(target_os = "linux")]
+    use crate::sources::controllers::ControllerParams;
+    use crate::sources::{DataSourceConfig, MockDataSourceT};
+
+    // Provide dummy implementations for tests:
+    #[async_trait]
+    impl ToConfig<DataSourceConfig> for MockDataSourceT {
+        async fn to_config(&self) -> Result<DataSourceConfig, TaskError> {
+            Ok(DataSourceConfig::Esp32(Default::default()))
+        }
+    }
+
+    #[async_trait]
+    impl ToConfig<DataAdapterConfig> for MockCsiDataAdapter {
+        async fn to_config(&self) -> Result<DataAdapterConfig, TaskError> {
+            Ok(DataAdapterConfig::Tcp { scale_csi: true })
+        }
+    }
+
+    #[async_trait]
+    impl ToConfig<SinkConfig> for MockSink {
+        async fn to_config(&self) -> Result<SinkConfig, TaskError> {
+            Ok(SinkConfig::Tcp(TCPConfig {
+                target_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 23456),
+                device_id: 42,
+            }))
+        }
+    }
+
+    fn sample_config() -> DeviceHandlerConfig {
+        DeviceHandlerConfig {
+            device_id: 1,
+            stype: SourceType::ESP32,
+            source: DataSourceConfig::Esp32(Default::default()),
+            controller: None,
+            adapter: None,
+            output_to: vec!["sink1".to_string()],
+        }
+    }
+
+    #[tokio::test]
+    async fn test_yaml_roundtrip() {
+        let config = sample_config();
+        let file = NamedTempFile::new().unwrap();
+
+        DeviceHandlerConfig::to_yaml(file.path().to_path_buf(), vec![config.clone()]).unwrap();
+        let loaded = DeviceHandlerConfig::from_yaml(file.path().to_path_buf()).unwrap();
+
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0], config);
+    }
+
+    #[tokio::test]
+    async fn test_from_config_valid() {
+        let config = sample_config();
+        let handler = DeviceHandler::from_config(config.clone()).await.unwrap();
+        assert_eq!(handler.config(), config);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn test_from_config_invalid_controller_combo() {
+        let config = DeviceHandlerConfig {
+            device_id: 1,
+            stype: SourceType::ESP32,
+            source: DataSourceConfig::Esp32(Default::default()),
+            controller: Some(ControllerParams::Netlink(Default::default())),
+            adapter: None,
+            output_to: vec![],
+        };
+
+        let result = DeviceHandler::from_config(config).await;
+        assert!(matches!(result, Err(TaskError::IncorrectController)));
+    }
+
+    #[tokio::test]
+    async fn test_start_and_stop_with_data() {
+        let mut mock_source = MockDataSourceT::new();
+        let raw_data = DataMsg::RawFrame {
+            ts: 123.0,
+            bytes: vec![1, 2, 3],
+            source_type: SourceType::ESP32,
+        };
+
+        mock_source.expect_start().returning(|| Ok(()));
+
+        mock_source.expect_read().returning({
+            let raw_data_cloned = raw_data.clone();
+            move || Ok(Some(raw_data_cloned.clone()))
+        });
+
+        mock_source.expect_stop().returning(|| Ok(()));
+
+        let config = DeviceHandlerConfig {
+            device_id: 42,
+            stype: SourceType::ESP32,
+            source: DataSourceConfig::Esp32(Default::default()),
+            controller: None,
+            adapter: None,
+            output_to: vec![],
+        };
+
+        let mut handler = DeviceHandler::from_config(config).await.unwrap();
+
+        let (tx, mut rx) = mpsc::channel(10);
+        handler.start(Box::new(mock_source), None, tx).await.unwrap();
+
+        // let (msg, dev_id) = rx.recv().await.unwrap();
+        // assert_eq!(dev_id, 42);
+
+        // if let DataMsg::RawFrame { ref bytes, .. } = msg {
+        //     assert_eq!(*bytes, vec![1, 2, 3]);
+        // } else {
+        //     panic!("Expected RawFrame");
+        // }
+
+        handler.stop().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_reconfigure_replaces_state() {
+        let old_config = sample_config();
+        let new_config = DeviceHandlerConfig {
+            device_id: 99,
+            ..old_config.clone()
+        };
+
+        let mut handler = DeviceHandler::from_config(old_config).await.unwrap();
+        handler.reconfigure(new_config.clone()).await.unwrap();
+
+        assert_eq!(handler.config().device_id, 99);
+    }
+
+    #[tokio::test]
+    async fn test_to_config_trait() {
+        let config = sample_config();
+        let handler = DeviceHandler::from_config(config.clone()).await.unwrap();
+
+        let out = handler.to_config().await.unwrap();
+        assert_eq!(out, config);
     }
 }

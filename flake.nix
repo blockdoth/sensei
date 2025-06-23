@@ -50,6 +50,7 @@
               ]
               ++ lib.optionals pkgs.stdenv.isLinux [
                 pkgs.udev
+                valgrind
                 pkgs.llvmPackages_latest.llvm
                 pkgs.cargo-llvm-cov
               ];

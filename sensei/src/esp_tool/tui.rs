@@ -9,11 +9,13 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Cell, Padding, Paragraph, Row, Table, Wrap};
 
 use super::state::TuiState;
-use crate::esp_tool::state::{FocusedPanel, FocussedInput, ToolMode};
+use crate::esp_tool::state::{FocusedPanel, ToolMode};
 use crate::esp_tool::{CSI_DATA_BUFFER_CAPACITY, LOG_BUFFER_CAPACITY};
 
-const BASE_ESP_CONFIG_LINES: u16 = 6; // General ESP32 config lines
-const SPAM_DETAILS_LINES: u16 = 4; // Lines for spam-specific configuration details
+/// Base number of lines for the ESP32 configuration display area.
+const BASE_ESP_CONFIG_LINES: u16 = 6;
+/// Number of lines dedicated to displaying spam-specific configuration details.
+const SPAM_DETAILS_LINES: u16 = 4;
 
 // Renders the full TUI frame based on the current application state (TuiState).
 // This function is *purely presentational* and does not mutate state.
@@ -202,11 +204,9 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
     let csi_table = Table::new(rows, &table_widths)
         .header(table_header)
         .block(Block::default().borders(Borders::ALL).padding(padding).title(Line::from(vec![
-            Span::styled("CSI Data Log ", header_style),
-            Span::styled(
-                format!("({}/{})", tui_state.csi_data.len(), CSI_DATA_BUFFER_CAPACITY),
-                Style::default().fg(Color::Yellow),
-            ),
+            Span::raw(" CSI Data ("),
+            Span::styled(format!("{}", tui_state.csi_data.len()), Style::default().fg(Color::Cyan)),
+            Span::raw(format!("/{CSI_DATA_BUFFER_CAPACITY}) ")),
         ])))
         .row_highlight_style(Style::default().add_modifier(Modifier::REVERSED))
         .highlight_symbol(">> ");
@@ -222,7 +222,7 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
 
     let logs_widget = Paragraph::new(Text::from(log_lines_to_display)).wrap(Wrap { trim: true }).block(
         Block::default().borders(Borders::ALL).padding(padding).title(Span::styled(
-            format!(" Log ({}/{}) ", tui_state.logs.len(), LOG_BUFFER_CAPACITY),
+            format!(" Logs ({}/{LOG_BUFFER_CAPACITY}) ", tui_state.logs.len()),
             header_style,
         )),
     );
@@ -234,14 +234,15 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
         format!("ERROR: {err_msg} (Press 'R' to dismiss)")
     } else {
         match (&tui_state.tool_mode, &tui_state.focused_panel) {
-            (ToolMode::Spam, FocusedPanel::SpamConfig) if tui_state.focused_input != FocussedInput::None => {
-                "[Esc] Exit Spam Config | [Tab]/[Ent] Next | [Shft+Tab] Prev | [←→↑↓] Move".to_string()
+            (ToolMode::Listen, FocusedPanel::Main) => {
+                "[Q]uit | [M]ode | [C]hannel | [B]andwidth | [L]TF | [R]eset Error | [C]lear Logs | Clear [C]SI"
             }
-            (ToolMode::Spam, _) => {
-                "[Q]uit | [M]ode | [C]hannel | [B]andwidth | [L] CSI Type SpamMode: [E]dit | [S]end Burst | [T] Send Continuous".to_string()
+            (ToolMode::Spam, FocusedPanel::Main) => {
+                "[Q]uit | [M]ode | [E]dit Spam | [T]rigger Burst | [Space] Toggle Continuous | [R]eset Error | [C]lear Logs | Clear [C]SI"
             }
-            _ => "[Q]uit | [M]ode | [C]hannel | [B]andwidth | [L] CSI Type | [.] Clear Logs | [,] Clear CSI Logs".to_string(),
+            (_, FocusedPanel::SpamConfig) => "[Esc] Cancel | [Enter] Apply | [Tab] Next | [Shift+Tab] Prev | [←→↑↓] Navigate | [Del] Delete Char",
         }
+        .to_string()
     };
 
     let footer_style = if tui_state.last_error_message.is_some() {
@@ -252,11 +253,55 @@ pub fn ui(f: &mut Frame, tui_state: &TuiState) {
 
     let footer_paragraph = Paragraph::new(footer_text_str).wrap(Wrap { trim: true }).block(
         Block::default()
-            .borders(Borders::ALL)
-            .padding(padding)
-            .title(Span::styled("Info / Errors", header_style))
-            .style(footer_style),
+            .borders(Borders::TOP) // Only top border for the footer
+            .padding(Padding::new(1, 1, 1, 0)), // Padding: left, right, top, bottom
     );
 
     f.render_widget(footer_paragraph, global_footer_area);
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    use super::*;
+
+    #[test]
+    fn test_ui_render() {
+        let backend = TestBackend::new(100, 50);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut tui_state = TuiState::new();
+
+        // Test with default state (Listen Mode)
+        terminal
+            .draw(|f| {
+                ui(f, &tui_state);
+            })
+            .unwrap();
+
+        // Test with Spam Mode
+        tui_state.tool_mode = ToolMode::Spam;
+        terminal
+            .draw(|f| {
+                ui(f, &tui_state);
+            })
+            .unwrap();
+
+        // Test with Spam Config Panel focused
+        tui_state.focused_panel = FocusedPanel::SpamConfig;
+        terminal
+            .draw(|f| {
+                ui(f, &tui_state);
+            })
+            .unwrap();
+
+        // Test with an error message
+        tui_state.last_error_message = Some("Test error message".to_string());
+        terminal
+            .draw(|f| {
+                ui(f, &tui_state);
+            })
+            .unwrap();
+    }
 }

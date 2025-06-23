@@ -20,12 +20,15 @@ async-trait = "0.1.88"
 serde_yaml = "0.9.34"
 num-complex = { version = "0.4.6", features = ["serde"] }
 schemars = "0.8.22"
-log = "0.4.27"
+log = { version = "0.4.27", features = ["std"] }
 thiserror = "2.0.12"
 chrono = "0.4.41"
 futures = "0.3.31"
 tempfile = "3.20.0"
 ratatui = "0.29.0"
+csv = "1.3.1"
+mockall_double = "0.3.1"
+mockall = "0.13.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 netlink-sys = "0.8.7"
@@ -33,3 +36,10 @@ netlink-sys = "0.8.7"
 [lints]
 workspace = true
 
+[features]
+default = ["esp_tool", "iwl5300", "csv", "file_sink", "orchestrator"]
+esp_tool = []
+iwl5300 = []
+csv = []
+file_sink = []
+orchestrator = []

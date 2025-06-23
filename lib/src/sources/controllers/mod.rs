@@ -9,14 +9,16 @@
 //! instantiation of controller implementations from serialized configuration.
 
 use async_trait::async_trait;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 use crate::FromConfig;
 use crate::errors::{ControllerError, TaskError};
 use crate::sources::DataSourceT;
+#[cfg(feature = "esp_tool")]
 pub mod esp32_controller;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "iwl5300"))]
 pub mod netlink_controller;
-pub mod tcp_controller;
 use crate::ToConfig;
 
 /// Trait that must be implemented by all source controller types.
@@ -58,12 +60,11 @@ pub trait Controller: Send + Sync + ToConfig<ControllerParams> {
 ///
 /// Each variant carries the specific parameters needed to construct that
 /// controller implementation. Tagged via Serde as `{ "type": "...", "params": { ... } }`.
-#[derive(serde::Serialize, serde::Deserialize, Debug, schemars::JsonSchema, Clone)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone, PartialEq)]
 pub enum ControllerParams {
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "iwl5300"))]
     Netlink(netlink_controller::NetlinkControllerParams),
     Esp32(esp32_controller::Esp32ControllerParams),
-    Tcp(tcp_controller::TCPControllerParams),
     // Extendable
 }
 
@@ -79,10 +80,10 @@ pub enum ControllerParams {
 impl FromConfig<ControllerParams> for dyn Controller {
     async fn from_config(config: ControllerParams) -> Result<Box<Self>, TaskError> {
         let controller: Box<dyn Controller> = match config {
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", feature = "iwl5300"))]
             ControllerParams::Netlink(params) => Box::new(params),
+            #[cfg(feature = "esp_tool")]
             ControllerParams::Esp32(params) => Box::new(params),
-            ControllerParams::Tcp(params) => Box::new(params),
             // Add more cases here as new controllers are added
         };
         Ok(controller)

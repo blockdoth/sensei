@@ -3,14 +3,14 @@ use std::vec;
 use crate::ToConfig;
 use crate::adapters::{CsiDataAdapter, DataAdapterConfig};
 use crate::csi_types::{Complex, CsiData};
-use crate::errors::{CsiAdapterError, TaskError};
+use crate::errors::{CsiAdapterError, CsvAdapterError, TaskError};
 use crate::network::rpc_message::DataMsg;
 
 const DEFAULT_LINE_DELIM: u8 = b'\n';
 const DEFAULT_CELL_DELIM: u8 = b',';
 const ROW_SIZE: usize = 7;
 
-pub struct CSVAdapter<'a> {
+pub struct CsvAdapter<'a> {
     buffer: Vec<u8>,
     tmp_data: Option<CsiData>,
     cell_delimiter: &'a u8,
@@ -18,143 +18,172 @@ pub struct CSVAdapter<'a> {
 }
 
 #[allow(clippy::needless_lifetimes)] // TODO: fix this
-impl<'a> CSVAdapter<'a> {
-    pub fn new(buffer: Vec<u8>, tmp_data: Option<CsiData>, cell_delimiter: &'a u8, line_delimiter: &'a u8) -> Self {
+/// Implementation of the `CsvAdapter` for parsing Csv-formatted CSI data.
+///
+/// # Methods
+///
+/// - `new(buffer, tmp_data, cell_delimiter, line_delimiter) -> Self`  
+///   Constructs a new `CsvAdapter` with the provided buffer, optional temporary data, and optional cell and line delimiters.
+///
+/// - `split_rows(&mut self) -> Vec<Vec<u8>>`  
+///   Splits the internal buffer into rows using the configured line delimiter, returning a vector of rows as byte vectors. The buffer is updated to contain only the unprocessed remainder.
+///
+/// - `parse_row(&self, row: &[u8]) -> Result<Vec<String>, CsiAdapterError>`  
+///   Parses a single Csv row into a vector of cell strings, handling quoted fields. Returns an error if parsing fails or the row is empty.
+///
+/// - `consume(&mut self, buf: &[u8]) -> Result<Option<CsiData>, CsiAdapterError>`  
+///   Consumes additional bytes into the buffer, splits and parses the last complete row, and attempts to construct a `CsiData` instance from the parsed cells. Handles parsing of numeric fields, RSSI values, and complex CSI values. Returns `Ok(Some(CsiData))` if a row was successfully parsed, `Ok(None)` if no complete row is available, or an error if parsing fails.
+impl<'a> CsvAdapter<'a> {
+    pub fn new(buffer: Vec<u8>, tmp_data: Option<CsiData>, cell_delimiter: Option<&'a u8>, line_delimiter: Option<&'a u8>) -> Self {
         Self {
             buffer,
             tmp_data,
-            cell_delimiter,
-            line_delimiter,
+            cell_delimiter: cell_delimiter.unwrap_or(&DEFAULT_CELL_DELIM),
+            line_delimiter: line_delimiter.unwrap_or(&DEFAULT_LINE_DELIM),
+        }
+    }
+    /// Splits the internal buffer into rows using the configured line delimiter,
+    /// and keeps only the unprocessed remainder in the buffer.
+    fn split_rows(&mut self) -> Vec<Vec<u8>> {
+        let mut rows = Vec::new();
+        let mut start = 0;
+        for (i, &b) in self.buffer.iter().enumerate() {
+            if b == *self.line_delimiter {
+                rows.push(self.buffer[start..i].to_vec());
+                start = i + 1;
+            }
+        }
+        // Remove processed bytes from buffer
+        self.buffer = self.buffer[start..].to_vec();
+        rows
+    }
+
+    /// Parses a single Csv row into a vector of cells, handling quoted fields.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the innput data is inproperly quoted, or contains the wrong nubmer of fields.
+    pub fn parse_row(&self, row: &[u8]) -> Result<Vec<String>, CsiAdapterError> {
+        let mut rdr = csv::ReaderBuilder::new()
+            .has_headers(false)
+            .delimiter(*self.cell_delimiter)
+            .from_reader(row);
+        if let Some(result) = rdr.records().next() {
+            match result {
+                Ok(rec) => Ok(rec.iter().map(|s| s.to_string()).collect()),
+                Err(e) => Err(CsiAdapterError::Csv(CsvAdapterError::InvalidData(format!("Csv parse error: {e}")))),
+            }
+        } else {
+            Err(CsiAdapterError::Csv(CsvAdapterError::InvalidData("Empty Csv row".to_string())))
         }
     }
 
     fn consume(&mut self, buf: &[u8]) -> Result<Option<CsiData>, CsiAdapterError> {
-        // Append the incoming bytes to the buffer
         self.buffer.extend_from_slice(buf);
-        // Find the first EOL character in the buffer
-        let x: Vec<_> = self.buffer.split(|c| c == self.line_delimiter).collect();
-        // we care about the second to last row, as that's the most recent complete row
-        if x.len() < 2 {
-            // throw an error if we don't have enough data
+        let rows = self.split_rows();
+        if rows.is_empty() {
             return Ok(None);
         }
-        let row_buffer = x[x.len() - 2];
-        // EOL found, process the buffer
-        let mut csi_data = CsiData::default();
-        // split the buffer into cells
-        // | timestamp | sequence_number |num_cores | num_antennas | num_subcarriers | rssi | csi |
-        // |-----------|-----------------|----------|--------------|-----------------|------|-----|
-        let mut in_quotes = false;
-        let row = row_buffer
-            .split(|&byte| {
-                if byte == b'"' {
-                    in_quotes = !in_quotes;
-                }
-                byte == *self.cell_delimiter && !in_quotes
-            })
-            .map(|cell| String::from_utf8(cell.to_vec()).unwrap())
-            .collect::<Vec<_>>();
-        // parse the row. This includes a bunch of formatting and parsing checks
-        if row.len() != ROW_SIZE {
-            return Err(CsiAdapterError::CSV(super::CSVAdapterError::InvalidData(format!(
-                "Invalid number of columns in CSV row: {}",
-                row.len()
-            ))));
-        }
-        csi_data.timestamp = row[0]
-            .trim_matches(|c| c == '\n' || c == '\0')
-            .parse::<f64>()
-            .map_err(|_| CsiAdapterError::CSV(super::CSVAdapterError::InvalidData(format!("Invalid timestamp: {}", row[0]))))?;
-        csi_data.sequence_number = row[1]
-            .parse::<u16>()
-            .map_err(|_| CsiAdapterError::CSV(super::CSVAdapterError::InvalidData(format!("Invalid sequence number: {}", row[1]))))?;
-        let num_cores = row[2]
-            .parse::<u8>()
-            .map_err(|_| CsiAdapterError::CSV(super::CSVAdapterError::InvalidData(format!("Invalid number of cores: {}", row[2]))))?;
-        let num_streams = row[3]
-            .parse::<u8>()
-            .map_err(|_| CsiAdapterError::CSV(super::CSVAdapterError::InvalidData(format!("Invalid number of streams: {}", row[2]))))?;
-        let num_subcarriers = row[4]
-            .parse::<u8>()
-            .map_err(|_| CsiAdapterError::CSV(super::CSVAdapterError::InvalidData(format!("Invalid number of subcarriers: {}", row[3]))))?;
-        csi_data.rssi = if row[5].starts_with('(') {
-            row[5]
-                .get(1..row[5].len() - 2)
-                .unwrap()
-                .split(',')
-                .map(|rssi| rssi.parse::<u16>().unwrap_or_default())
-                .collect::<Vec<_>>()
-        } else {
-            row[5].split(',').map(|rssi| rssi.parse::<u16>().unwrap_or_default()).collect::<Vec<_>>()
-        };
-        let comples_values = row[6]
-            .split(',') // Split by subcarriers
-            .map(|subcarrier_data| {
-                // Remove the parentheses and 'j' from the complex number
-                let inner = subcarrier_data.trim_matches(|c| c == '\"' || c == '(' || c == ')' || c == 'j');
-                let parts: Vec<&str> = if let Some(index) = inner.rfind(['+', '-']) {
-                    vec![&inner[..index], &inner[index..]]
-                } else {
-                    vec![inner]
-                };
-                assert!(parts.len() == 2, "Invalid complex number format: {inner}");
-                let real = parts[0].parse::<f64>().unwrap();
-                let imag = parts[1].parse::<f64>().unwrap();
-                Complex { re: real, im: imag }
-            })
-            .collect::<Vec<Complex>>();
+        let row = &rows[rows.len() - 1];
+        let cells = self.parse_row(row)?;
 
-        // turn the complex values into a 3D array
-        let mut csi = vec![vec![vec![Complex::default(); num_subcarriers as usize]; num_streams as usize]; num_cores as usize];
-        csi.iter_mut()
-            .flat_map(|core| core.iter_mut())
-            .flat_map(|stream| stream.iter_mut())
-            .zip(comples_values.iter())
-            .for_each(|(subcarrier, &value)| *subcarrier = value);
-        csi_data.csi = csi;
-
-        assert!(
-            csi_data.csi.len() == num_cores as usize,
-            "Invalid number of cores in CSV row: {}, expected: {}",
-            csi_data.csi.len(),
-            num_cores
-        );
-        assert!(
-            csi_data.csi[0].len() == num_streams as usize,
-            "Invalid number of streams in CSV row: {}, expected: {}",
-            csi_data.csi[0].len(),
-            num_streams
-        );
-        assert!(
-            csi_data.csi[0][0].len() == num_subcarriers as usize,
-            "Invalid number of subcarriers in CSV row: {}, expected: {}",
-            csi_data.csi[0][0].len(),
-            num_subcarriers
-        );
+        let csi_data = CsvAdapter::row_to_csi(cells)?;
 
         self.tmp_data = Some(csi_data);
 
         if let Some(data) = self.tmp_data.take() {
             Ok(Some(data))
         } else {
-            // If no complete row is found, throw an error
             Ok(None)
         }
     }
+
+    fn extract_complex(subcarrier_data: &str) -> Result<num_complex::Complex<f64>, CsiAdapterError> {
+        let inner = subcarrier_data.trim_matches(|c| c == '(' || c == ')' || c == 'j' || c == '"');
+        let mut split = inner.split('|');
+
+        let real = split.next().ok_or(CsiAdapterError::InvalidInput)?;
+        let imag = split.next().ok_or(CsiAdapterError::InvalidInput)?;
+
+        // Ensure there are no extra parts
+        if split.next().is_some() {
+            return Err(CsiAdapterError::InvalidInput);
+        }
+
+        let real = real.parse::<f64>().map_err(|err| CsiAdapterError::FloatConversionError {
+            err,
+            input: real.to_string(),
+        })?;
+        let imag = imag.parse::<f64>().map_err(|err| CsiAdapterError::FloatConversionError {
+            err,
+            input: imag.to_string(),
+        })?;
+        Ok(Complex { re: real, im: imag })
+    }
+
+    /// Parses a Csv row (split into a vector) into CSI data.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the data is malformed.
+    pub fn row_to_csi(cells: Vec<String>) -> Result<CsiData, CsiAdapterError> {
+        if cells.len() != ROW_SIZE {
+            return Err(CsiAdapterError::Csv(CsvAdapterError::InvalidData(format!(
+                "Invalid number of columns in Csv row: {}",
+                cells.len()
+            ))));
+        }
+        let mut csi_data = CsiData {
+            timestamp: cells[0]
+                .trim_matches(|c| c == '\n' || c == '\0')
+                .parse::<f64>()
+                .map_err(|err| CsiAdapterError::FloatConversionError {
+                    err,
+                    input: cells[0].to_string(),
+                })?,
+            sequence_number: cells[1].parse::<u16>()?,
+            ..Default::default()
+        };
+        let num_cores = cells[2].parse::<u8>()?;
+        let num_streams = cells[3].parse::<u8>()?;
+        let num_subcarriers = cells[4].parse::<u8>()?;
+        csi_data.rssi = if cells[5].starts_with('(') {
+            cells[5]
+                .trim_matches(|c| c == '"' || c == '(' || c == ')')
+                .split(',')
+                .map(|rssi| rssi.parse::<u16>())
+                .collect::<Result<Vec<_>, _>>()?
+        } else {
+            cells[5].split(',').map(|rssi| rssi.parse::<u16>()).collect::<Result<Vec<_>, _>>()?
+        };
+        let complex_values = cells[6]
+            .trim_matches('"')
+            .split(',')
+            .map(CsvAdapter::extract_complex)
+            .collect::<Result<Vec<Complex>, CsiAdapterError>>()?;
+        let mut csi = vec![vec![vec![Complex::default(); num_subcarriers as usize]; num_streams as usize]; num_cores as usize];
+        csi.iter_mut()
+            .flat_map(|core| core.iter_mut())
+            .flat_map(|stream| stream.iter_mut())
+            .zip(complex_values.iter())
+            .for_each(|(subcarrier, value)| *subcarrier = *value);
+        csi_data.csi = csi;
+        Ok(csi_data)
+    }
 }
 
-impl std::default::Default for CSVAdapter<'_> {
+impl std::default::Default for CsvAdapter<'_> {
     fn default() -> Self {
-        CSVAdapter::new(Vec::new(), None, &DEFAULT_CELL_DELIM, &DEFAULT_LINE_DELIM)
+        CsvAdapter::new(Vec::new(), None, None, None)
     }
 }
 
 #[async_trait::async_trait]
-impl CsiDataAdapter for CSVAdapter<'_> {
+impl CsiDataAdapter for CsvAdapter<'_> {
     /// Consumes bytes from the provided buffer and processes them into CSI data if a complete row is found.
     ///
     /// This function appends the incoming bytes to an internal buffer. If the buffer contains a complete
-    /// CSV row (determined by the presence of a newline character not preceded by a backslash), it parses
+    /// Csv row (determined by the presence of a newline character not preceded by a backslash), it parses
     /// the row into a `CsiData` structure. The parsed data is temporarily stored and can be retrieved
     /// using the `reap` method. If the data is incomplete or invalid, the function will either wait for
     /// more data or return an error.
@@ -170,55 +199,155 @@ impl CsiDataAdapter for CSVAdapter<'_> {
     ///
     /// # Errors
     ///
-    /// This function returns an error if the CSV row contains invalid data or if parsing fails.
+    /// This function returns an error if the Csv row contains invalid data or if parsing fails.
     ///
     async fn produce(&mut self, msg: DataMsg) -> Result<Option<DataMsg>, CsiAdapterError> {
         // Check if the message is a raw frame
         match msg {
-            DataMsg::RawFrame { bytes, .. } => {
-                let csi = self.consume(&bytes)?;
-                if csi.is_none() {
-                    // If no complete row is found, return None
-                    return Ok(None);
-                }
-                // Call the consume function with the raw bytes
-                Ok(Some(DataMsg::CsiFrame { csi: csi.unwrap() }))
-            }
-            DataMsg::CsiFrame { csi } => {
-                // If the message is already a CsiFrame, we can directly return it
-                Ok(Some(DataMsg::CsiFrame { csi }))
-            }
+            DataMsg::RawFrame { bytes, .. } => match self.consume(&bytes)? {
+                None => Ok(None),
+                Some(csi) => Ok(Some(DataMsg::CsiFrame { csi })),
+            },
+            DataMsg::CsiFrame { csi } => Ok(Some(DataMsg::CsiFrame { csi })),
         }
     }
 }
 
 #[async_trait::async_trait]
-impl ToConfig<DataAdapterConfig> for CSVAdapter<'_> {
-    /// Converts the current `CSVAdapter` instance into its configuration representation.
+impl ToConfig<DataAdapterConfig> for CsvAdapter<'_> {
+    /// Converts the current `CsvAdapter` instance into its configuration representation.
     ///
-    /// This method implements the `ToConfig` trait for `CSVAdapter`, returning a
-    /// `DataAdapterConfig::CSV` variant. This enables the adapter's configuration
+    /// This method implements the `ToConfig` trait for `CsvAdapter`, returning a
+    /// `DataAdapterConfig::Csv` variant. This enables the adapter's configuration
     /// to be serialized, exported, or stored as part of a broader system configuration.
     ///
-    /// Since `CSVAdapter` does not currently hold any configurable fields, the
+    /// Since `CsvAdapter` does not currently hold any configurable fields, the
     /// resulting configuration is an empty struct.
     ///
     /// # Returns
-    /// - `Ok(DataAdapterConfig::CSV)` on successful conversion.
+    /// - `Ok(DataAdapterConfig::Csv)` on successful conversion.
     /// - `Err(TaskError)` if an error occurs (not applicable in this implementation).
     async fn to_config(&self) -> Result<DataAdapterConfig, TaskError> {
-        Ok(DataAdapterConfig::CSV {})
+        Ok(DataAdapterConfig::Csv {})
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use log::error;
+
     use super::*;
+    use crate::network::rpc_message::SourceType;
+    use crate::test_utils;
+
+    #[test]
+    fn test_extract_complex_valid() {
+        // Typical format: "(real|imag)"
+        let input = "(1.23|4.56j)";
+        let result = CsvAdapter::extract_complex(input).unwrap();
+        assert_eq!(result.re, 1.23);
+        assert_eq!(result.im, 4.56);
+
+        // With extra whitespace and quotes
+        let input = "\"(7.89|-0.12j)\"";
+        let result = CsvAdapter::extract_complex(input).unwrap();
+        assert_eq!(result.re, 7.89);
+        assert_eq!(result.im, -0.12);
+    }
+
+    #[test]
+    fn test_extract_complex_invalid() {
+        // Missing imaginary part
+        let input = "(3.14|)";
+        let result = CsvAdapter::extract_complex(input);
+        assert!(result.is_err());
+
+        // Too many parts
+        let input = "(1.0|2.0|3.0)";
+        let result = CsvAdapter::extract_complex(input);
+        assert!(result.is_err());
+
+        // Non-numeric input
+        let input = "(abc|def)";
+        let result = CsvAdapter::extract_complex(input);
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_consume_split_row_in_two_steps() {
+        let mut adapter = CsvAdapter::default();
+        // Split a valid Csv row into two parts
+        let part1 = b"9457616.210305953,45040,1,1,1,97,(";
+        let part2 = b"0.4907193796689|-0.68406335243899j)\n";
+
+        // First, send the incomplete part
+        let msg1 = DataMsg::RawFrame {
+            ts: 0.0,
+            bytes: part1.to_vec(),
+            source_type: crate::network::rpc_message::SourceType::ESP32,
+        };
+        let result1 = adapter.produce(msg1).await.unwrap();
+        // Should not yield a complete frame yet
+        assert!(result1.is_none());
+    }
+
+    #[test]
+    fn test_split_rows_single_row() {
+        let mut adapter = CsvAdapter::new(b"row1col1,row1col2\n".to_vec(), None, None, None);
+        let rows = adapter.split_rows();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0], b"row1col1,row1col2");
+        assert_eq!(adapter.buffer, b"");
+    }
+
+    #[test]
+    fn test_split_rows_multiple_rows() {
+        let mut adapter = CsvAdapter::new(b"row1col1,row1col2\nrow2col1,row2col2\nrow3col1,row3col2\n".to_vec(), None, None, None);
+        let rows = adapter.split_rows();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0], b"row1col1,row1col2");
+        assert_eq!(rows[1], b"row2col1,row2col2");
+        assert_eq!(rows[2], b"row3col1,row3col2");
+        assert_eq!(adapter.buffer, b"");
+    }
+
+    #[test]
+    fn test_split_rows_partial_row_left_in_buffer() {
+        let mut adapter = CsvAdapter::new(b"row1col1,row1col2\nrow2col1,row2col2".to_vec(), None, None, None);
+        let rows = adapter.split_rows();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0], b"row1col1,row1col2");
+        assert_eq!(adapter.buffer, b"row2col1,row2col2");
+    }
+
+    #[test]
+    fn test_split_rows_empty_buffer() {
+        let mut adapter = CsvAdapter::new(Vec::new(), None, None, None);
+        let rows = adapter.split_rows();
+        assert!(rows.is_empty());
+        assert_eq!(adapter.buffer, b"");
+    }
+
+    #[test]
+    fn test_split_rows_custom_delimiter() {
+        let custom_line_delim = b';';
+        let mut adapter = CsvAdapter::new(
+            b"row1col1,row1col2;row2col1,row2col2;partialrow".to_vec(),
+            None,
+            None,
+            Some(&custom_line_delim),
+        );
+        let rows = adapter.split_rows();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0], b"row1col1,row1col2");
+        assert_eq!(rows[1], b"row2col1,row2col2");
+        assert_eq!(adapter.buffer, b"partialrow");
+    }
 
     #[tokio::test]
     async fn test_consume_valid_data() {
-        let mut adapter = CSVAdapter::default();
-        let csv_data = b"9457616.210305953,45040,1,1,1,97,(0.4907193796689-0.684063352438993j)\n";
+        let mut adapter = CsvAdapter::default();
+        let csv_data = b"9457616.210305953,45040,1,1,1,97,(0.4907193796689|-0.684063352438993j)\n";
         let msg = DataMsg::RawFrame {
             ts: 0.0,
             bytes: csv_data.to_vec(),
@@ -243,21 +372,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_consume_incomplete_data() {
-        let mut adapter = CSVAdapter::default();
-        let csv_data = b"1627584000.0,1,2,3,10;20,1+2i|3+4i;5+6i|7+8i";
+        let mut adapter = CsvAdapter::default();
+        let csv_data = b"1627584000.0,1,2,3,\"10,20\",\"(1|+2j),(3|+4j),(5|+6j),(7|+8j)\"";
         let msg = DataMsg::RawFrame {
             ts: 0.0,
             bytes: csv_data.to_vec(),
             source_type: crate::network::rpc_message::SourceType::ESP32,
         };
-        // this should throw an error
+        // this should return an InvalidInput error
         let result = adapter.produce(msg).await.unwrap();
         assert!(result.is_none());
     }
 
     #[tokio::test]
     async fn test_consume_invalid_data() {
-        let mut adapter = CSVAdapter::default();
+        let mut adapter = CsvAdapter::default();
         let csv_data = b"invalid,data,here\n";
         let msg = DataMsg::RawFrame {
             ts: 0.0,
@@ -270,20 +399,20 @@ mod tests {
 
     #[tokio::test]
     async fn test_reap_without_consume() {
-        let mut adapter = CSVAdapter::default();
+        let mut adapter = CsvAdapter::default();
         let msg = DataMsg::RawFrame {
             ts: 0.0,
             bytes: b"".to_vec(),
             source_type: crate::network::rpc_message::SourceType::ESP32,
         };
-        let data = adapter.produce(msg).await.unwrap();
-        assert!(data.is_none());
+        let result = adapter.produce(msg).await.unwrap();
+        assert!(result.is_none());
     }
 
     #[tokio::test]
     async fn test_consume_multiple_rows() {
-        let mut adapter = CSVAdapter::default();
-        let csv_data = b"5139255.620319567,13657,2,1,2,\"48,27\",\"(-0.24795687792212684-0.7262670239309299j),(0.8454303851106912+0.7649475667253236j),(-0.8925048482423406+0.35672177778974534j),(0.5601050369340623-0.9757985075283211j)\"\n1627584001.0,51825,2,1,2,\"10,53\",\"(-0.9336763181483387+0.9137239452950752j),(0.04222732682994734+0.4741629187802445j),(-0.24923809791108553-0.6532018904054162j),(-0.13563524299387808+0.8352370739609778j)\"\n";
+        let mut adapter = CsvAdapter::default();
+        let csv_data = b"5139255.620319567,13657,2,1,2,\"48,27\",\"(-0.24795687792212684|-0.7262670239309299j),(0.8454303851106912|+0.7649475667253236j),(-0.8925048482423406|+0.35672177778974534j),(0.5601050369340623|-0.9757985075283211j)\"\n1627584001.0,51825,2,1,2,\"10,53\",\"(-0.9336763181483387|+0.9137239452950752j),(0.04222732682994734|+0.4741629187802445j),(-0.24923809791108553|-0.6532018904054162j),(-0.13563524299387808|+0.8352370739609778j)\"\n";
         let msg = DataMsg::RawFrame {
             ts: 0.0,
             bytes: csv_data.to_vec(),
@@ -299,9 +428,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_multiple_rows_multiple_consumes() {
-        let mut adapter = CSVAdapter::default();
+        let mut adapter = CsvAdapter::default();
 
-        let csv_data_1 = b"5139255.620319567,13657,2,1,2,\"48,27\",\"(-0.24795687792212684-0.7262670239309299j),(0.8454303851106912+0.7649475667253236j),(-0.8925048482423406+0.35672177778974534j),(0.5601050369340623-0.9757985075283211j)\"\n";
+        let csv_data_1 = b"5139255.620319567,13657,2,1,2,\"48,27\",\"(-0.24795687792212684|-0.7262670239309299j),(0.8454303851106912|+0.7649475667253236j),(-0.8925048482423406|+0.35672177778974534j),(0.5601050369340623|-0.9757985075283211j)\"\n";
         let msg1 = DataMsg::RawFrame {
             ts: 0.0,
             bytes: csv_data_1.to_vec(),
@@ -314,7 +443,7 @@ mod tests {
         assert_eq!(data1.timestamp, 5139255.620319567);
         assert_eq!(data1.sequence_number, 13657);
 
-        let csv_data_2 = b"1627584001.0,51825,2,1,2,\"10,53\",\"(-0.9336763181483387+0.9137239452950752j),(0.04222732682994734+0.4741629187802445j),(-0.24923809791108553-0.6532018904054162j),(-0.13563524299387808+0.8352370739609778j)\"\n";
+        let csv_data_2 = b"1627584001.0,51825,2,1,2,\"10,53\",\"(-0.9336763181483387|+0.9137239452950752j),(0.04222732682994734|+0.4741629187802445j),(-0.24923809791108553|-0.6532018904054162j),(-0.13563524299387808|+0.8352370739609778j)\"\n";
         let msg2 = DataMsg::RawFrame {
             ts: 0.0,
             bytes: csv_data_2.to_vec(),
@@ -327,7 +456,7 @@ mod tests {
         assert_eq!(data2.timestamp, 1627584001.0);
         assert_eq!(data2.sequence_number, 51825);
 
-        let csv_data_3 = b"1627584001.0,51825,2,1,2,\"10,53\",\"(-0.9336763181483387+0.9137239452950752j),(0.04222732682994734+0.4741629187802445j),(-0.24923809791108553-0.6532018904054162j),(-0.13563524299387808+0.8352370739609778j)\"\n";
+        let csv_data_3 = b"1627584001.0,51825,2,1,2,\"10,53\",\"(-0.9336763181483387|+0.9137239452950752j),(0.04222732682994734|+0.4741629187802445j),(-0.24923809791108553|-0.6532018904054162j),(-0.13563524299387808|+0.8352370739609778j)\"\n";
         let msg3 = DataMsg::RawFrame {
             ts: 0.0,
             bytes: csv_data_3.to_vec(),
@@ -339,5 +468,35 @@ mod tests {
         };
         assert_eq!(data3.timestamp, 1627584001.0);
         assert_eq!(data3.sequence_number, 51825);
+    }
+
+    #[tokio::test]
+    async fn test_consume_real_large_csv_file() {
+        use std::fs;
+        let mut adapter = CsvAdapter::default();
+        let csv_file_option = test_utils::generate_csv_data_file();
+        if csv_file_option.is_none() {
+            error!("Skipped test, could not generate a Csv file");
+            return;
+        }
+        let csv_file = csv_file_option.unwrap();
+        let csv_data = fs::read(csv_file.path()).unwrap();
+        let msg = DataMsg::RawFrame {
+            ts: 0.0,
+            bytes: csv_data,
+            source_type: SourceType::ESP32,
+        };
+        // The adapter should process the last row
+        let data = adapter.produce(msg).await.unwrap().unwrap();
+        if let DataMsg::CsiFrame { csi } = data {
+            // Check that the timestamp and sequence number are as expected for the last row
+            // (You can update these values to match the actual last row in your Csv file)
+            assert!(csi.timestamp > 0.0);
+            assert!(csi.sequence_number > 0);
+            assert!(!csi.rssi.is_empty());
+            assert!(!csi.csi.is_empty());
+        } else {
+            panic!("Expected CsiFrame");
+        }
     }
 }

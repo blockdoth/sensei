@@ -1,5 +1,5 @@
 use crate::ToConfig;
-pub use crate::adapters::csv::adapter::CSVAdapter;
+pub use crate::adapters::csv::adapter::CsvAdapter;
 pub use crate::adapters::esp32::adapter::ESP32Adapter;
 pub use crate::adapters::iwl::adapter::IwlAdapter;
 use crate::adapters::{CsiDataAdapter, DataAdapterConfig};
@@ -49,7 +49,7 @@ impl CsiDataAdapter for TCPAdapter {
             ref f @ DataMsg::RawFrame { ref source_type, .. } => match source_type {
                 SourceType::IWL5300 => IwlAdapter::new(self.scale_csi).produce(f.clone()).await,
                 SourceType::ESP32 => ESP32Adapter::new(self.scale_csi).produce(f.clone()).await,
-                SourceType::CSV => CSVAdapter::default().produce(f.clone()).await,
+                SourceType::Csv => CsvAdapter::default().produce(f.clone()).await,
                 _ => Err(CsiAdapterError::InvalidInput),
             },
             // Already parsed just forward
@@ -72,5 +72,59 @@ impl ToConfig<DataAdapterConfig> for TCPAdapter {
     /// - `Err(TaskError)` if an error occurs during the conversion (not applicable in this implementation).
     async fn to_config(&self) -> Result<DataAdapterConfig, TaskError> {
         Ok(DataAdapterConfig::Tcp { scale_csi: self.scale_csi })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use num_complex::Complex;
+
+    use super::*;
+    use crate::adapters::{CsiDataAdapter, DataAdapterConfig, ToConfig};
+    use crate::csi_types::CsiData;
+    use crate::errors::CsiAdapterError;
+    use crate::network::rpc_message::{DataMsg, SourceType};
+
+    const NUM_SUBCARRIER: usize = 64;
+
+    fn make_csi_msg(rssi: Vec<i8>) -> DataMsg {
+        DataMsg::CsiFrame {
+            csi: CsiData {
+                timestamp: 123.456,
+                sequence_number: 99,
+                rssi: vec![1, 2],
+                csi: vec![vec![vec![Complex::new(1.0, -1.0); NUM_SUBCARRIER]; 2]; 1],
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn test_passthrough_csi_frame() {
+        let mut adapter = TCPAdapter::new(true);
+        let input = make_csi_msg(vec![99]);
+
+        let result = adapter.produce(input.clone()).await.unwrap();
+        assert_eq!(result, Some(input));
+    }
+
+    #[tokio::test]
+    async fn test_invalid_source_type() {
+        let mut adapter = TCPAdapter::new(false);
+        let msg = DataMsg::RawFrame {
+            ts: Utc::now().timestamp_millis() as f64 / 1e3,
+            bytes: vec![],
+            source_type: SourceType::Unknown,
+        };
+
+        let err = adapter.produce(msg).await.unwrap_err();
+        assert!(matches!(err, CsiAdapterError::InvalidInput));
+    }
+
+    #[tokio::test]
+    async fn test_to_config_tcp_adapter() {
+        let adapter = TCPAdapter::new(true);
+        let config = adapter.to_config().await.unwrap();
+        assert_eq!(config, DataAdapterConfig::Tcp { scale_csi: true });
     }
 }

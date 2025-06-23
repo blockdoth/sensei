@@ -1,12 +1,48 @@
+//! # Command-Line Interface (CLI) Argument Parsing
+//!
+//! This module defines the command-line argument structures and parsing logic
+//! for the Sensei application. It uses the `argh` crate for parsing arguments
+//! and provides structures for global arguments, subcommands, and their respective
+//! configurations.
+//!
+//! The module includes:
+//! - `Args`: The main struct for top-level arguments, including log level and subcommands.
+//! - `SubCommandsArgs`: An enum representing the available subcommands (SystemNode, Orchestrator, Visualiser, EspTool).
+//! - Structs for each subcommand's arguments (e.g., `SystemNodeSubcommandArgs`).
+//! - Traits `ConfigFromCli` and `OverlaySubcommandArgs` for handling configuration loading and merging
+//!   with command-line overrides.
+//!
+//! Default configuration paths are also defined here.
+//!
+//! # Example
+//!
+//! To run the application with a specific subcommand and options:
+//!
+//! ```sh
+//! cargo run node --addr 192.168.1.10 --port 7070
+//! ```
+//!
+//! This command sets the system node address and port, overriding the defaults.
+#[cfg(feature = "sys_node")]
 use std::path::PathBuf;
 
 use anyhow::Error;
 use argh::FromArgs;
+#[cfg(feature = "sys_node")]
 use lib::handler::device_handler::DeviceHandlerConfig;
+#[cfg(feature = "sys_node")]
 use log::debug;
 use simplelog::LevelFilter;
 
-use crate::services::{EspToolConfig, GlobalConfig, OrchestratorConfig, SystemNodeConfig, VisualiserConfig};
+#[cfg(feature = "esp_tool")]
+use crate::services::EspToolConfig;
+use crate::services::GlobalConfig;
+#[cfg(feature = "orchestrator")]
+use crate::services::OrchestratorConfig;
+#[cfg(feature = "sys_node")]
+use crate::services::SystemNodeConfig;
+#[cfg(feature = "visualiser")]
+use crate::services::VisualiserConfig;
 
 /// A trait for overlaying subcommand arguments onto an existing configuration.
 ///
@@ -23,11 +59,16 @@ use crate::services::{EspToolConfig, GlobalConfig, OrchestratorConfig, SystemNod
 /// # Returns
 /// A new configuration object with subcommand arguments applied.
 pub trait OverlaySubcommandArgs<T> {
-    /// This trait is used to overlay fields set in the subcommands over the config read from the YAML file.
+    /// Overlays fields from subcommand arguments onto a configuration loaded from a YAML file.
+    ///
+    /// If a field is specified in the subcommand arguments, it will override the corresponding
+    /// value from the YAML configuration. Otherwise, the YAML configuration value is retained.
     fn overlay_subcommand_args(&self, full_config: T) -> Result<T, Box<dyn std::error::Error>>;
 }
 
-pub static DEFAULT_HOST_CONFIG: &str = "resources/example_configs/host/example_full.yaml";
+/// Default path to the host configuration YAML file.
+pub static DEFAULT_HOST_CONFIG: &str = "resources/testing_configs/minimal.yaml";
+/// Default path to the orchestrator configuration YAML file.
 pub static DEFAULT_ORCHESTRATOR_CONFIG: &str = "resources/example_configs/orchestrator/experiment_config.yaml";
 
 /// A simple app to perform collection from configured sources
@@ -38,30 +79,51 @@ pub struct Args {
     #[argh(option, default = "LevelFilter::Info")]
     pub level: LevelFilter,
 
+    /// the number of workers sensei will be started with.
+    #[argh(option, default = "4")]
+    pub num_workers: usize,
+
     #[argh(subcommand)]
     pub subcommand: Option<SubCommandsArgs>,
 }
 
 impl Args {
+    /// Parses the global configuration from the command-line arguments.
+    ///
+    /// Currently, this primarily involves extracting the log level.
     pub fn parse_global_config(&self) -> Result<GlobalConfig, Error> {
-        Ok(GlobalConfig { log_level: self.level })
+        Ok(GlobalConfig {
+            log_level: self.level,
+            num_workers: self.num_workers,
+        })
     }
 }
 
+/// A trait for parsing command-line arguments into a specific configuration type.
+///
+/// Implementors of this trait define how to convert raw command-line arguments
+/// (typically a dedicated struct derived with `argh::FromArgs`) into a structured
+/// configuration object (e.g., `SystemNodeConfig`, `OrchestratorConfig`).
 pub trait ConfigFromCli<Config> {
+    /// Parses the command-line arguments into a configuration object.
     fn parse(&self) -> Result<Config, Error>;
 }
 
 #[derive(FromArgs)]
 #[argh(subcommand)]
 pub enum SubCommandsArgs {
+    #[cfg(feature = "sys_node")]
     SystemNode(SystemNodeSubcommandArgs),
+    #[cfg(feature = "orchestrator")]
     Orchestrator(OrchestratorSubcommandArgs),
+    #[cfg(feature = "visualiser")]
     Visualiser(VisualiserSubcommandArgs),
+    #[cfg(feature = "esp_tool")]
     EspTool(EspToolSubcommandArgs),
 }
 
 /// System node commands
+#[cfg(feature = "sys_node")]
 #[derive(FromArgs)]
 #[argh(subcommand, name = "node")]
 pub struct SystemNodeSubcommandArgs {
@@ -78,7 +140,13 @@ pub struct SystemNodeSubcommandArgs {
     pub config_path: PathBuf,
 }
 
+#[cfg(feature = "sys_node")]
 impl ConfigFromCli<SystemNodeConfig> for SystemNodeSubcommandArgs {
+    /// Parses system node subcommand arguments into a `SystemNodeConfig`.
+    ///
+    /// This involves constructing an address from `addr` and `port` fields,
+    /// and loading device configurations from the specified `config_path`.
+    /// Default values are used for fields not directly provided by arguments.
     fn parse(&self) -> Result<SystemNodeConfig, Error> {
         Ok(SystemNodeConfig {
             addr: format!("{}:{}", self.addr, self.port).parse()?,
@@ -91,6 +159,7 @@ impl ConfigFromCli<SystemNodeConfig> for SystemNodeSubcommandArgs {
     }
 }
 
+#[cfg(feature = "sys_node")]
 /// Overlays subcommand arguments onto a SystemNodeConfig, overriding fields if provided.
 impl OverlaySubcommandArgs<SystemNodeConfig> for SystemNodeSubcommandArgs {
     fn overlay_subcommand_args(&self, full_config: SystemNodeConfig) -> Result<SystemNodeConfig, Box<dyn std::error::Error>> {
@@ -104,6 +173,7 @@ impl OverlaySubcommandArgs<SystemNodeConfig> for SystemNodeSubcommandArgs {
     }
 }
 
+#[cfg(feature = "orchestrator")]
 /// Orchestrator node commands
 #[derive(FromArgs)]
 #[argh(subcommand, name = "orchestrator")]
@@ -117,7 +187,11 @@ pub struct OrchestratorSubcommandArgs {
     pub experiment_config: PathBuf,
 }
 
+#[cfg(feature = "orchestrator")]
 impl ConfigFromCli<OrchestratorConfig> for OrchestratorSubcommandArgs {
+    /// Parses orchestrator subcommand arguments into an `OrchestratorConfig`.
+    ///
+    /// This primarily involves setting the path to the experiment configuration file.
     fn parse(&self) -> Result<OrchestratorConfig, Error> {
         // TODO input validation
         Ok(OrchestratorConfig {
@@ -127,6 +201,7 @@ impl ConfigFromCli<OrchestratorConfig> for OrchestratorSubcommandArgs {
 }
 
 /// Visualiser commands
+#[cfg(feature = "visualiser")]
 #[derive(FromArgs)]
 #[argh(subcommand, name = "visualiser")]
 pub struct VisualiserSubcommandArgs {
@@ -147,7 +222,11 @@ pub struct VisualiserSubcommandArgs {
     pub ui_type: String,
 }
 
+#[cfg(feature = "visualiser")]
 impl ConfigFromCli<VisualiserConfig> for VisualiserSubcommandArgs {
+    /// Parses visualiser subcommand arguments into a `VisualiserConfig`.
+    ///
+    /// This involves setting the target address and UI type for the visualiser.
     fn parse(&self) -> Result<VisualiserConfig, Error> {
         // TODO input validation
         Ok(VisualiserConfig {
@@ -158,6 +237,7 @@ impl ConfigFromCli<VisualiserConfig> for VisualiserSubcommandArgs {
 }
 
 /// Arguments for the ESP Test Tool subcommand
+#[cfg(feature = "esp_tool")]
 #[derive(FromArgs, Debug, Clone)]
 #[argh(subcommand, name = "esp-tool")]
 pub struct EspToolSubcommandArgs {
@@ -166,7 +246,11 @@ pub struct EspToolSubcommandArgs {
     pub serial_port: String,
 }
 
+#[cfg(feature = "esp_tool")]
 impl ConfigFromCli<EspToolConfig> for EspToolSubcommandArgs {
+    /// Parses ESP tool subcommand arguments into an `EspToolConfig`.
+    ///
+    /// This involves setting the serial port for communication with the ESP device.
     fn parse(&self) -> Result<EspToolConfig, Error> {
         Ok(EspToolConfig {
             serial_port: self.serial_port.clone(), // TODO remove clone

@@ -16,11 +16,15 @@
 //! ```
 
 use async_trait::async_trait;
+#[cfg(test)]
+use mockall::automock;
 
 use crate::errors::{SinkError, TaskError};
 use crate::network::rpc_message::DataMsg;
 use crate::{FromConfig, ToConfig};
 
+pub mod csv;
+#[cfg(feature = "file_sink")]
 pub mod file;
 pub mod tcp;
 
@@ -31,6 +35,7 @@ pub mod tcp;
 /// or storing in a database.
 ///
 /// Implementations must be `Send` to ensure they can be used across asynchronous tasks.
+#[cfg_attr(test, automock)]
 #[async_trait]
 pub trait Sink: Send + ToConfig<SinkConfig> {
     /// Open the connection to the sink
@@ -61,13 +66,14 @@ pub trait Sink: Send + ToConfig<SinkConfig> {
 /// This enum is tagged using Serde's `tag`  meaning the configuration must specify
 /// a `type` field (e.g., `{ "type": "File", ... }`). Each variant corresponds to a different
 /// kind of sink implementation.
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
 pub enum SinkConfig {
     /// File sink configuration
     File(file::FileConfig),
     /// Tcp configuration
     Tcp(tcp::TCPConfig),
     // add other sink types here
+    Csv(csv::CsvSinkConfig),
 }
 
 /// Constructs a [`Sink`] implementation from a [`SinkConfig`] using the [`FromConfig`] trait.
@@ -82,12 +88,17 @@ pub enum SinkConfig {
 impl FromConfig<SinkConfig> for dyn Sink {
     async fn from_config(config: SinkConfig) -> Result<Box<Self>, TaskError> {
         match config {
+            #[cfg(feature = "file_sink")]
             SinkConfig::File(cfg) => {
                 let sink = file::FileSink::new(cfg).await?;
                 Ok(Box::new(sink))
             }
             SinkConfig::Tcp(cfg) => {
                 let sink = tcp::TCPSink::new(cfg).await?;
+                Ok(Box::new(sink))
+            }
+            SinkConfig::Csv(cfg) => {
+                let sink = csv::CsvSink::new(cfg).await?;
                 Ok(Box::new(sink))
             }
         }

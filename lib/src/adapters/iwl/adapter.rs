@@ -219,9 +219,9 @@ impl ToConfig<DataAdapterConfig> for IwlAdapter {
 mod tests {
     use super::*;
     use crate::adapters::DataAdapterConfig;
-    use crate::adapters::iwl::test_utils::build_test_packet;
     use crate::csi_types::CsiData;
     use crate::network::rpc_message::{DataMsg, SourceType};
+    use crate::test_utils::build_test_packet;
 
     #[tokio::test]
     async fn test_produce_raw() {
