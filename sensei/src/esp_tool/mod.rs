@@ -28,7 +28,6 @@ const LOG_BUFFER_CAPACITY: usize = 200;
 /// Capacity of the TUI CSI data buffer.
 const CSI_DATA_BUFFER_CAPACITY: usize = 50000;
 /// Refresh interval for the TUI in milliseconds.
-#[allow(dead_code)]
 const UI_REFRESH_INTERVAL_MS: u64 = 20;
 /// Capacity of the actor channel for ESP commands.
 /// This channel is used to send commands from the TUI to the ESP32 actor task.
@@ -220,7 +219,7 @@ impl EspTool {
                                 let _ = update_send_channel.send(EspUpdate::EspDisconnected).await;
                                 break;
                             }
-                            tokio::time::sleep(Duration::from_millis(100)).await;
+                            tokio::time::sleep(Duration::from_millis(UI_REFRESH_INTERVAL_MS)).await;
                         }
                         Ok(Some(data_msg)) => {
                             match esp_adapter.produce(data_msg).await {

@@ -30,6 +30,7 @@ pub struct Device {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[allow(unused)]
 pub enum HostStatus {
     Available,
     Connected,
@@ -40,12 +41,14 @@ pub enum HostStatus {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[allow(unused)]
 pub enum DeviceStatus {
     Subscribed,
     NotSubscribed,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[allow(unused)]
 pub enum RegistryStatus {
     Connected,
     Disconnected,
@@ -86,6 +89,7 @@ type DeviceID = u64;
 
 /// Enum representing different types of updates/events in the TUI state.
 #[derive(Debug, Clone)]
+#[allow(unused)]
 pub enum OrgUpdate {
     // === Hosts ===
     Connect(SocketAddr),

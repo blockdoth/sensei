@@ -157,7 +157,7 @@ pub struct GlobalConfig {
 }
 
 /// An enum representing the configuration for any of the available services.
-#[allow(dead_code)]
+#[allow(dead_code)] // not actually dead code.
 pub enum ServiceConfig {
     /// Configuration for the Orchestrator service.
     #[cfg(feature = "orchestrator")]

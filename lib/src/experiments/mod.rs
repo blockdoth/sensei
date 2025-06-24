@@ -190,7 +190,7 @@ pub struct ExperimentSession<UpdateMsg>
 where
     UpdateMsg: Clone + Send + std::fmt::Debug + 'static,
 {
-    update_send_channel: Sender<UpdateMsg>,
+    _update_send_channel: Sender<UpdateMsg>,
     pub cancel_signal: watch::Receiver<bool>,
     pub experiments: Vec<Experiment>,
     pub active_experiment: Option<ActiveExperiment>,
@@ -217,7 +217,7 @@ where
     /// Creates a new session instance for managing experiments.
     pub fn new(update_send: Sender<UpdateMsg>, cancel_signal: watch::Receiver<bool>) -> Self {
         ExperimentSession {
-            update_send_channel: update_send,
+            _update_send_channel: update_send,
             experiments: vec![],
             active_experiment: None,
             cancel_signal,

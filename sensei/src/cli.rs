@@ -194,6 +194,10 @@ pub struct OrchestratorSubcommandArgs {
     #[argh(option, default = "DEFAULT_ORCHESTRATOR_CONFIG.parse().unwrap()")]
     pub experiments_folder: PathBuf,
 
+    /// whether to enable tui input
+    #[argh(option, default = "true")]
+    pub tui: bool,
+
     /// polling interval of the registry
     #[argh(option, default = "5")]
     pub polling_interval: u64,

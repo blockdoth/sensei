@@ -69,7 +69,7 @@ const NLMSG_DONE: u16 = 0x3; // End of Netlink message sequence
 
 /// Parsed representation of a netlink message header.
 /// Netlink header: https://docs.huihoo.com/doxygen/linux/kernel/3.7/structnlmsghdr.html
-#[allow(dead_code)]
+#[allow(unused)]
 #[derive(Debug)]
 struct NetlinkHeader {
     length: u32,
@@ -100,7 +100,7 @@ impl NetlinkHeader {
 /// This is the message sent by the connector protocol:
 /// https://www.kernel.org/doc/Documentation/connector/connector.txt
 #[derive(Debug)]
-#[allow(dead_code)]
+#[allow(unused)]
 struct ConnectorMessageHeader {
     idx: u32,
     val: u32,

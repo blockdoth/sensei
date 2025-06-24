@@ -23,7 +23,7 @@ use tokio::sync::{Mutex, broadcast};
 use tokio::task::{self, JoinHandle};
 use tokio::time::{Duration, interval};
 
-use crate::services::{GlobalConfig, RegistryConfig};
+use crate::services::{GlobalConfig, RegistryConfig, Run};
 
 /// The `Registry` struct manages a collection of hosts, providing asynchronous methods to poll their status,
 /// register new hosts, remove unresponsive hosts, list all registered hosts, and store updates to host status.
@@ -137,10 +137,6 @@ impl Registry {
     /// List the status of every host in the registry.
     pub async fn list_host_statuses(&self) -> Vec<(HostId, HostStatus)> {
         self.hosts.lock().await.iter().map(|(id, info)| (*id, info.clone())).collect()
-    }
-    /// List the host info of every host in the registry.
-    pub async fn list_host_info(&self) -> Vec<HostStatus> {
-        self.hosts.lock().await.iter().map(|h| h.1.clone()).collect()
     }
 
     /// Register a new host with the registry.

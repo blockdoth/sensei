@@ -21,7 +21,7 @@ pub struct ESP32Adapter {
     /// Whether to apply scaling to CSI data.
     /// Note: The specific scaling mechanism for ESP32 might differ from other adapters like IWL.
     /// This flag is currently a placeholder, and no scaling is applied in this version.
-    #[allow(dead_code)] // Remove when scaling is implemented
+    #[allow(unused_features)]
     scale_csi: bool,
 }
 
