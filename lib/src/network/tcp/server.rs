@@ -143,7 +143,7 @@ impl TcpServer {
                         break;
                     }
                 }
-                Ok(None) => {
+                Ok(None) | Err(NetworkError::Closed) => {
                     info!("Connection with {local_peer_addr:?} closed gracefully");
                     break;
                 }

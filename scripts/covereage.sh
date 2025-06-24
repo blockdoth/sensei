@@ -1,4 +1,5 @@
-#!/bin/bash
+#!/usr/bin/env bash
+
 
 mkdir -p target/llvm-cov/lcov
 
