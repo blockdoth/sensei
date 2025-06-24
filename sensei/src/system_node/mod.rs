@@ -150,7 +150,7 @@ impl Run<SystemNodeConfig> for SystemNode {
                     info!("Presence announced to registry at {registry_addr}");
                     client.disconnect(registry_addr).await;
                 } else {
-                    error!("Failed to connect to registry {:?}", registry_addr);
+                    error!("Failed to connect to registry {registry_addr:?}");
                 }
             }
         }

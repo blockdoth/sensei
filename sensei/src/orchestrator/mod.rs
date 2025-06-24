@@ -209,7 +209,7 @@ impl Orchestrator {
         for addr in default_hosts.into_iter() {
           update_send.send(OrgUpdate::AddHost(Host{
             id: start_id,
-            addr: addr,
+            addr,
             devices: vec![],
             status: state::HostStatus::Unknown,
         })).await;
