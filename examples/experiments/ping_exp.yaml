@@ -3,30 +3,30 @@ metadata:
   name: Ping Hosts
   output_path: "/dev/null"
 stages:
-  - name: "init"
+  - name: init
     blocks:
         - commands:
           delays:
             init_delay: 10
             delay_type: !NotRecurring
-  - name: "main"
+  - name: main
     blocks:
       - commands:
           - !Connect
-            target_addr: "127.0.0.1:8080"
+            target_addr: 127.0.0.1:8080
           - !Delay
             delay: 1000
           - !Ping
-            target_addr: "127.0.0.1:8080"
+            target_addr: 127.0.0.1:8080
           - !Disconnect
-            target_addr: "127.0.0.1:8080"
+            target_addr: 127.0.0.1:8080
         delays:
           init_delay: 500
           command_delay: 200
           delay_type: !Recurring
             recurrence_delay: 1000
             iterations: 100
-  - name: "endstage"
+  - name: endstage
     blocks:
       - commands:
         delays:

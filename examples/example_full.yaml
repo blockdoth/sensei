@@ -59,7 +59,7 @@ sinks:
 device_configs:
   # This is the first device handler, for an ESP32.
   - device_id: 0 # A unique ID for this specific handler/pipeline.
-    stype: ESP32 # A high-level identifier for the source type.
+    source_type: ESP32 # A high-level identifier for the source type.
 
     # `source`: Defines where the data comes from. This block is REQUIRED.
     # The tag `!Esp32` corresponds to `Esp32Source` and its `Esp32SourceConfig` struct.
@@ -104,7 +104,7 @@ device_configs:
   # the IWL adapter, and sends the result to a remote TCP endpoint.
   #
   # - device_id: 1
-  #   stype: IWL5300
+  #   source_type: IWL5300
   #
   #   # Source is a Netlink socket.
   #   # Tag `!Netlink` uses `NetlinkConfig` from `sources/netlink.rs`.
@@ -131,7 +131,7 @@ device_configs:
   # This handler reads data from a Csv file instead of a hardware device.
   #
   # - device_id: 2
-  #   stype: Csv
+  #   source_type: Csv
   #
   #   # `!Csv` uses `CsvConfig` from `sources/csv.rs`
   #   source: !Csv
