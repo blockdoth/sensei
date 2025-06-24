@@ -2,7 +2,7 @@
 set -euo pipefail
 
 echo "Running clippy..."
-cargo clippy --allow-dirty --fix --all-targets --all-features -- -D warnings
+cargo clippy --all-targets --all-features -- -D warnings
 
 echo "Running rustfmt..."
 cargo fmt --all --
