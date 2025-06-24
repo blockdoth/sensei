@@ -25,7 +25,7 @@ use lib::network::rpc_message::{
 };
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
-use lib::network::tcp::{ChannelMsg, ConnectionHandler, HostChannel, SubscribeDataChannel, send_message};
+use lib::network::tcp::{ChannelMsg, ConnectionHandler, HostChannel, RegChannel, SubscribeDataChannel, send_message};
 use lib::sinks::{Sink, SinkConfig};
 use lib::sources::tcp::TCPConfig;
 use lib::sources::{DataSourceConfig, DataSourceT};
@@ -332,30 +332,16 @@ impl SystemNode {
     ) -> Result<(), Box<dyn std::error::Error>> {
         match message {
             // regular Host commands
-            HostCtrl::Connect => {
-                Self::connect(request.src_addr).await?;
-            }
-            HostCtrl::Disconnect => {
-                Self::disconnect(request.src_addr, send_channel_msg_channel).await?;
-            }
-            HostCtrl::Subscribe { device_id } => {
-                Self::subscribe(request.src_addr, device_id, send_channel_msg_channel).await?;
-            }
-            HostCtrl::Unsubscribe { device_id } => {
-                Self::unsubscribe(request.src_addr, device_id, send_channel_msg_channel).await?;
-            }
-            HostCtrl::SubscribeTo { target_addr, device_id } => {
-                Self::subscribe_to(target_addr, device_id, self.handlers.clone()).await?;
-            }
+            HostCtrl::Connect => Self::connect(request.src_addr).await?,
+            HostCtrl::Disconnect => Self::disconnect(request.src_addr, send_channel_msg_channel).await?,
+            HostCtrl::Subscribe { device_id } => Self::subscribe(request.src_addr, device_id, send_channel_msg_channel).await?,
+            HostCtrl::Unsubscribe { device_id } => Self::unsubscribe(request.src_addr, device_id, send_channel_msg_channel).await?,
+            HostCtrl::SubscribeTo { target_addr, device_id } => Self::subscribe_to(target_addr, device_id, self.handlers.clone()).await?,
             HostCtrl::UnsubscribeFrom { target_addr: _, device_id } => {
-                Self::unsubscribe(request.src_addr, device_id, send_channel_msg_channel).await?;
+                Self::unsubscribe(request.src_addr, device_id, send_channel_msg_channel).await?
             }
-            HostCtrl::Configure { device_id, cfg_type } => {
-                Self::configure(device_id, cfg_type, self.handlers.clone()).await?;
-            }
-            HostCtrl::Experiment { experiment } => {
-                Self::load_experiment(experiment, self.handlers.clone()).await?;
-            }
+            HostCtrl::Configure { device_id, cfg_type } => Self::configure(device_id, cfg_type, self.handlers.clone()).await?,
+            HostCtrl::Experiment { experiment } => Self::load_experiment(experiment, self.handlers.clone()).await?,
             HostCtrl::Ping => {
                 debug!("Received ping from {:#?}.", request.src_addr);
                 send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Pong))?;
@@ -452,7 +438,15 @@ impl ConnectionHandler for SystemNode {
                 .handle_host_ctrl(request.clone(), command.clone(), send_channel_msg_channel)
                 .await
                 .unwrap_or(()),
-            RpcMessageKind::RegCtrl(command) => todo!(),
+            RpcMessageKind::RegCtrl(command) => match command {
+                RegCtrl::PollHostStatus { host_id } => {
+                    send_channel_msg_channel.send(ChannelMsg::RegChannel(RegChannel::SendHostStatus { host_id: self.host_id }))?
+                }
+                RegCtrl::PollHostStatuses => todo!(),
+                RegCtrl::AnnouncePresence { host_id, host_address } => todo!(),
+                RegCtrl::HostStatus(host_status) => todo!(),
+                RegCtrl::HostStatuses { host_statuses } => todo!(),
+            },
             RpcMessageKind::Data { data_msg, device_id } => {
                 // Data from EXTERNAL source (network)
                 info!("SystemNode received external data for device_id: {device_id}");
@@ -493,7 +487,14 @@ impl ConnectionHandler for SystemNode {
                         .handle_host_channel(host_msg, &mut send_stream, &mut subscribed_ids)
                         .await
                         .unwrap_or(()),
-                    ChannelMsg::RegChannel(reg_msg) => todo!(),
+                    ChannelMsg::RegChannel(reg_msg) => match reg_msg {
+                        RegChannel::SendHostStatus { host_id } if host_id == self.host_id => {
+                            let status = self.get_host_status();
+                            send_message(&mut send_stream, RpcMessageKind::RegCtrl(RegCtrl::HostStatus(status))).await?;
+                        }
+                        RegChannel::SendHostStatus { host_id } => todo!(),
+                        RegChannel::SendHostStatuses => todo!(),
+                    },
                     _ => (),
                 }
             }
@@ -582,7 +583,7 @@ impl Run<SystemNodeConfig> for SystemNode {
                 });
                 client.connect(registry_addr).await?;
                 client.send_message(registry_addr, heartbeat_msg).await?;
-                client.disconnect(registry_addr);
+                client.disconnect(registry_addr).await;
                 info!("Presence announced to registry at {registry_addr}");
             }
         }

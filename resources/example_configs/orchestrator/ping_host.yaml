@@ -1,33 +1,33 @@
-experiment:
-metadata:
-  name: GetHostStatuses
-  output_path: "/dev/null"
-stages:
-  - name: "init"
-    command_blocks:
+- metadata:
+    name: GetHostStatuses
+    output_path: "/dev/null"
+    experiment_host: !Orchestrator
+  stages:
+    - name: "init"
+      command_blocks:
+          - commands:
+            delays:
+              init_delay: 10
+              is_recurring: !NotRecurring
+    - name: "main"
+      command_blocks:
+        - commands:
+            - !Connect
+              target_addr: "127.0.0.1:4101"
+            - !Delay
+              delay: 1000
+            - !Ping
+              target_addr: "127.0.0.1:4100"
+            - !Disconnect
+              target_addr: "127.0.0.1:4101"
+          delays:
+            init_delay: 500
+            command_delay: 200
+            is_recurring: !Recurring
+              recurrence_delay: 1000
+              iterations: 100
+    - name: "endstage"
+      command_blocks:
         - commands:
           delays:
-            init_delay: 10
-            is_recurring: !NotRecurring
-  - name: "main"
-    command_blocks:
-      - commands:
-          - !Connect
-            target_addr: "127.0.0.1:8080"
-          - !Delay
-            delay: 1000
-          - !Ping
-            target_addr: "127.0.0.1:8080"
-          - !Disconnect
-            target_addr: "127.0.0.1:8080"
-        delays:
-          init_delay: 500
-          command_delay: 200
-          is_recurring: !Recurring
-            recurrence_delay: 1000
-            iterations: 100
-  - name: "endstage"
-    command_blocks:
-      - commands:
-        delays:
-          is_recurring: !NotRecurring 
+            is_recurring: !NotRecurring 

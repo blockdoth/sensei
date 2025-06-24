@@ -36,7 +36,7 @@
           toolchain = pkgs.rust-bin.fromRustupToolchainFile ./toolchain.toml;
           target = "aarch64-unknown-linux-musl";
           isLinux = pkgs.stdenv.isLinux;
-                    # get and build this lib from source. Precompiled bins for musl were problematic.
+          # get and build this lib from source. Precompiled bins for musl were problematic.
           libunwindMuslStatic = crossPkgs.stdenv.mkDerivation rec {
             pname = "libunwind";
             version = "1.8.2";
@@ -145,7 +145,7 @@
                 pkgs.gcc
                 pkgs.glibc
                 pkgs.pkg-config
-                pkgs.pkgsCross.aarch64-multiplatform-musl.stdenv  
+                pkgs.pkgsCross.aarch64-multiplatform-musl.stdenv
                 libunwindMuslStatic
               ];
 
@@ -155,9 +155,9 @@
                 pkgs.gcc
                 pkgs.glibc
                 pkgs.pkg-config
-                pkgs.pkgsCross.aarch64-multiplatform-musl.stdenv  
+                pkgs.pkgsCross.aarch64-multiplatform-musl.stdenv
                 libunwindMuslStatic
-              ];              
+              ];
 
               # I hace set most of the flags in the toolchain.
               # Since these flags need adirect reference to the nix store they are set here.
@@ -169,11 +169,11 @@
               doCheck = false;
 
               buildPhase = ''
-              echo 
-              echo
-              echo building using nix build is not supported due to vendoring issues. Use ./scripts/crosscompile-arm.sh.
-              echo
-              echo
+                echo 
+                echo
+                echo building using nix build is not supported due to vendoring issues. Use ./scripts/crosscompile-arm.sh.
+                echo
+                echo
               '';
               # exposed paths for debugging purposes
               MUSL_LIB_PATH = "${muslLib}";

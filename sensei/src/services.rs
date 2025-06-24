@@ -17,14 +17,14 @@
 //!
 //! The module aims to provide a clear and structured way to manage service-specific
 //! settings and their execution flow.
-    #[cfg(any(feature = "sys_node", feature = "visualiser"))]
+#[cfg(any(feature = "sys_node", feature = "visualiser"))]
 use std::net::SocketAddr;
-use std::{path::PathBuf};
+use std::path::PathBuf;
 
 #[cfg(feature = "sys_node")]
 use lib::handler::device_handler::DeviceHandlerConfig;
 #[cfg(feature = "registry")]
-use lib::{network::rpc_message::HostId};
+use lib::network::rpc_message::HostId;
 use log::LevelFilter;
 use serde::{Deserialize, Serialize};
 
@@ -122,7 +122,7 @@ pub struct RegistryConfig {
     /// Holds the ID the registry will use to present themselves to the network
     pub host_id: HostId,
     /// The rate at which the registry will poll the registered hosts, in seconds.
-    pub polling_rate_s: Option<u64>
+    pub polling_rate_s: Option<u64>,
 }
 
 /// Configuration for the Visualiser service.

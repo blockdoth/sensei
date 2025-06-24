@@ -15,7 +15,7 @@ use lib::errors::{NetworkError, RegistryError};
 use lib::network::rpc_message::{DataMsg, DeviceId, DeviceStatus, HostCtrl, HostId, HostStatus, RegCtrl, Responsiveness, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
-use lib::network::tcp::{send_message, ChannelMsg, ConnectionHandler, HostChannel, RegChannel, SubscribeDataChannel};
+use lib::network::tcp::{ChannelMsg, ConnectionHandler, HostChannel, RegChannel, SubscribeDataChannel, send_message};
 use log::{debug, info, trace, warn};
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::watch::{self};
@@ -196,7 +196,7 @@ impl ConnectionHandler for Registry {
                 HostCtrl::Ping => {
                     debug!("Received ping from {:#?}.", request.src_addr);
                     send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Pong))?;
-                },
+                }
                 HostCtrl::Pong => todo!(),
             },
             RpcMessageKind::RegCtrl(reg_ctrl) => match reg_ctrl {
@@ -238,28 +238,45 @@ impl ConnectionHandler for Registry {
     ) -> Result<(), NetworkError> {
         loop {
             recv_command_channel.changed().await?;
-            let reg_channel = match recv_command_channel.borrow_and_update().clone() {
-                ChannelMsg::HostChannel(_) | ChannelMsg::Data { data: _ } => todo!(),
-                ChannelMsg::RegChannel(reg_channel) => reg_channel,
-            };
-            match reg_channel {
-                RegChannel::SendHostStatus { host_id } => {
-                    let host_status = RegCtrl::from(self.get_host_by_id(host_id).await?);
-                    let msg = RpcMessageKind::RegCtrl(host_status);
-                    send_message(&mut send_stream, msg).await?;
-                }
-                RegChannel::SendHostStatuses => {
-                    let mut host_statuses: Vec<HostStatus> = self
-                        .list_host_statuses()
-                        .await
-                        .iter()
-                        .map(|(_, info)| HostStatus::from(RegCtrl::from(info.clone())))
-                        .collect();
-                    let msg = RegCtrl::HostStatuses { host_statuses };
-                    send_message(&mut send_stream, RpcMessageKind::RegCtrl(msg)).await?;
-                }
+            let channel_msg = recv_command_channel.borrow_and_update().clone();
+            match channel_msg {
+                ChannelMsg::HostChannel(host_channel) => match host_channel {
+                    HostChannel::Empty => todo!(),
+                    HostChannel::Disconnect => {
+                        send_message(&mut send_stream, RpcMessageKind::HostCtrl(HostCtrl::Disconnect)).await?;
+                        return Err(NetworkError::Closed);
+                    }
+                    HostChannel::Subscribe { device_id } => todo!(),
+                    HostChannel::Unsubscribe { device_id } => todo!(),
+                    HostChannel::SubscribeTo { target_addr, device_id } => todo!(),
+                    HostChannel::UnsubscribeFrom { target_addr, device_id } => todo!(),
+                    HostChannel::ListenSubscribe { addr } => todo!(),
+                    HostChannel::ListenUnsubscribe { addr } => todo!(),
+                    HostChannel::Configure { device_id, cfg_type } => todo!(),
+                    HostChannel::Pong => send_message(&mut send_stream, RpcMessageKind::HostCtrl(HostCtrl::Pong)).await?,
+                },
+                ChannelMsg::RegChannel(reg_channel) => match reg_channel {
+                    RegChannel::SendHostStatus { host_id } => {
+                        let host_status = RegCtrl::from(self.get_host_by_id(host_id).await?);
+                        let msg = RpcMessageKind::RegCtrl(host_status);
+                        send_message(&mut send_stream, msg).await?;
+                    }
+                    RegChannel::SendHostStatuses => {
+                        let mut host_statuses: Vec<HostStatus> = self
+                            .list_host_statuses()
+                            .await
+                            .iter()
+                            .map(|(_, info)| HostStatus::from(RegCtrl::from(info.clone())))
+                            .collect();
+                        let msg = RegCtrl::HostStatuses { host_statuses };
+                        send_message(&mut send_stream, RpcMessageKind::RegCtrl(msg)).await?;
+                    }
+                },
+                ChannelMsg::Data { data: _ } => todo!(),
             }
         }
+        // Ok(()) is unreachable, but keep for completeness
+        #[allow(unreachable_code)]
         Ok(())
     }
 }
@@ -267,6 +284,7 @@ impl ConnectionHandler for Registry {
 impl Run<RegistryConfig> for Registry {
     /// Constructs a new `Registry` from the given global and node-specific configuration.
     fn new(global_config: GlobalConfig, config: RegistryConfig) -> Self {
+        trace!("{config:#?}");
         let (send_data_channel, _) = broadcast::channel::<(DataMsg, DeviceId)>(16); // magic buffer
         Registry {
             host_id: config.host_id,
@@ -287,7 +305,7 @@ impl Run<RegistryConfig> for Registry {
     /// RegistryConfig: Specifies the target address
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let polling_task = if self.polling_rate_s == 0 {
-            warn!("Polling task was not started.");
+            warn!("Polling task was not started");
             task::spawn(async {}) // dummy task
         } else {
             let connection_handler = Arc::new(self.clone());
@@ -300,7 +318,6 @@ impl Run<RegistryConfig> for Registry {
                     .unwrap();
             })
         };
-
         // Register at provided registries. When a single registry refuses, the client exits.
         if let Some(registries) = &self.registry_addrs {
             let mut client = TcpClient::new();
@@ -313,7 +330,7 @@ impl Run<RegistryConfig> for Registry {
                 });
                 client.connect(registry_addr).await?;
                 client.send_message(registry_addr, heartbeat_msg).await?;
-                client.disconnect(registry_addr);
+                client.disconnect(registry_addr).await;
                 info!("Presence announced to registry at {registry_addr}");
             }
         }

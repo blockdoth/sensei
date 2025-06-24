@@ -26,6 +26,7 @@
 #[cfg(feature = "registry")]
 #[cfg(feature = "sys_node")]
 use std::path::PathBuf;
+
 use argh::FromArgs;
 #[cfg(feature = "sys_node")]
 use lib::handler::device_handler::DeviceHandlerConfig;
@@ -285,8 +286,7 @@ pub struct RegistrySubcommandArgs {
 impl ConfigFromCli<RegistryConfig> for RegistrySubcommandArgs {
     fn parse(&self) -> Result<RegistryConfig, Box<dyn std::error::Error>> {
         use crate::services::FromYaml;
-
-        Ok(RegistryConfig::from_yaml(self.config_path.clone())?)
+        RegistryConfig::from_yaml(self.config_path.clone())
     }
 }
 
