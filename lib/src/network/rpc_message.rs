@@ -54,6 +54,8 @@ pub type DeviceId = u64;
 /// Host control commands for managing device connections and subscriptions.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum HostCtrl {
+    /// An empty message. Used for signaling that a response cannot be generated.
+    Empty,
     /// Simple ping message. Host should respond with Pong.
     Ping,
     /// See ping
