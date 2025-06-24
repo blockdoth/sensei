@@ -145,6 +145,10 @@ pub enum AppError {
     /// No such host
     #[error("No such host exists")]
     NoSuchHost,
+
+    /// Experiment error
+    #[error("Experiment Error")]
+    ExperimentError(#[from] ExperimentError),
 }
 
 /// Common error enum for all CSI adapters (IWL, ESP32, Csv).
@@ -451,6 +455,13 @@ pub enum ConfigError {
     // Error when you trying to serialie
     #[error("Seriliazation error: {0}")]
     Serde(#[from] serde_yaml::Error),
+}
+
+#[derive(Error, Debug)]
+pub enum ExperimentError {
+    /// Could not execute experiment
+    #[error("Execution Error")]
+    ExecutionError
 }
 
 // Allow conversion from Box<NetworkError> to NetworkError

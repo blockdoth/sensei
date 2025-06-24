@@ -14,7 +14,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use lib::FromConfig;
 use lib::adapters::CsiDataAdapter;
-use lib::errors::NetworkError;
+use lib::errors::{AppError, ExperimentError, NetworkError};
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
 use lib::network::experiment_config::IsRecurring::{NotRecurring, Recurring};
 use lib::network::experiment_config::{Block, Command, Experiment, Stage};
@@ -91,12 +91,12 @@ impl SystemNode {
         }
     }
 
-    async fn connect(src_addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
+    async fn connect(src_addr: SocketAddr) -> Result<(), NetworkError> {
         info!("Started connection with {src_addr}");
         Ok(())
     }
 
-    async fn disconnect(src_addr: SocketAddr, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), Box<dyn std::error::Error>> {
+    async fn disconnect(src_addr: SocketAddr, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
         send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Disconnect))?;
         info!("Disconnecting from the connection with {src_addr}");
         Ok(())
@@ -106,7 +106,7 @@ impl SystemNode {
         src_addr: SocketAddr,
         device_id: DeviceId,
         send_channel_msg_channel: watch::Sender<ChannelMsg>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), NetworkError> {
         send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Subscribe { device_id }))?;
         info!("Client {src_addr} subscribed to data stream for device_id: {device_id}");
 
@@ -117,7 +117,7 @@ impl SystemNode {
         src_addr: SocketAddr,
         device_id: DeviceId,
         send_channel_msg_channel: watch::Sender<ChannelMsg>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), NetworkError> {
         send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Unsubscribe { device_id }))?;
         info!("Client {src_addr} unsubscribed from data stream for device_id: {device_id}");
 
@@ -128,7 +128,7 @@ impl SystemNode {
         target_addr: SocketAddr,
         device_id: DeviceId,
         handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), NetworkError> {
         // Create a device handler with a source that will connect to the node server of the target
         // The sink will connect to this nodes server
         // Node servers broadcast all incoming data to all connections, but only relevant sources will process this data
@@ -157,7 +157,7 @@ impl SystemNode {
         Ok(())
     }
 
-    async fn unsubscribe_from(device_id: DeviceId, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), Box<dyn std::error::Error>> {
+    async fn unsubscribe_from(device_id: DeviceId, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), NetworkError> {
         // TODO: Make it target specific, but for now removing based on device id should be fine.
         // Would require extracting the source itself from the device handler
         info!("Removing handler subscribing to {device_id}");
@@ -175,7 +175,7 @@ impl SystemNode {
         device_id: DeviceId,
         cfg_type: CfgType,
         handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), NetworkError> {
         match cfg_type {
             Create { cfg } => {
                 info!("Creating a new device handler for device id {device_id}");
@@ -211,7 +211,7 @@ impl SystemNode {
     async fn load_experiment(
         experiment: Experiment,
         handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), NetworkError> {
         info!("Running {}", experiment.metadata.name.clone());
 
         for (i, stage) in experiment.stages.into_iter().enumerate() {
@@ -224,7 +224,7 @@ impl SystemNode {
         Ok(())
     }
 
-    async fn execute_stage(stage: Stage, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), Box<dyn std::error::Error>> {
+    async fn execute_stage(stage: Stage, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), AppError> {
         let mut tasks = vec![];
 
         for block in stage.command_blocks {
@@ -239,13 +239,14 @@ impl SystemNode {
         let results = futures::future::join_all(tasks).await;
 
         for result in results {
-            result?;
+            if result.is_err() {
+                return Err(ExperimentError::ExecutionError.into())
+            }
         }
-
         Ok(())
     }
 
-    async fn execute_command_block(block: Block, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), Box<dyn std::error::Error>> {
+    async fn execute_command_block(block: Block, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), NetworkError> {
         tokio::time::sleep(std::time::Duration::from_millis(block.delays.init_delay.unwrap_or(0u64))).await;
         let command_delay = block.delays.command_delay.unwrap_or(0u64);
         let command_types = block.commands;
@@ -281,7 +282,7 @@ impl SystemNode {
         commands: Vec<Command>,
         handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
         command_delay: u64,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), NetworkError> {
         for command in commands {
             Self::match_command(command.clone(), handlers.clone()).await?;
             tokio::time::sleep(std::time::Duration::from_millis(command_delay)).await;
@@ -289,7 +290,7 @@ impl SystemNode {
         Ok(())
     }
 
-    async fn match_command(command: Command, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), Box<dyn std::error::Error>> {
+    async fn match_command(command: Command, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), NetworkError> {
         match command {
             Command::Subscribe { target_addr, device_id } => Ok(Self::subscribe_to(target_addr, device_id, handlers).await?),
             Command::Unsubscribe { target_addr, device_id } => Ok(Self::unsubscribe_from(device_id, handlers).await?),
@@ -309,75 +310,14 @@ impl SystemNode {
         }
     }
 
-    /// Handles incoming host control messages and performs the corresponding actions.
-    ///
-    /// # Arguments
-    /// * `request` - The incoming RPC message containing the request details.
-    /// * `message` - The host control command to handle.
-    /// * `send_channel_msg_channel` - A channel to send messages to the connection's sending task.
-    ///
-    /// # Returns
-    /// * `Result<(), NetworkError>` - Returns `Ok(())` if the command was handled successfully, or a `NetworkError` if an error occurred.
-    ///
-    /// # Behavior
-    /// - Handles various `HostCtrl` commands such as `Connect`, `Disconnect`, `Subscribe`, `Unsubscribe`, `SubscribeTo`, `UnsubscribeFrom`, `Configure`.and `Experiment`
-    /// - For `Disconnect`, signals the sending task to disconnect and returns an error to indicate the connection should close.
-    /// - For subscription commands, updates the relevant handlers and logs the actions.
-    /// - For configuration commands, creates, edits, or deletes device handlers as specified.
-    async fn handle_host_ctrl(
-        &self,
-        request: RpcMessage,
-        message: HostCtrl,
-        send_channel_msg_channel: watch::Sender<ChannelMsg>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        match message {
-            // regular Host commands
-            HostCtrl::Connect => Self::connect(request.src_addr).await?,
-            HostCtrl::Disconnect => Self::disconnect(request.src_addr, send_channel_msg_channel).await?,
-            HostCtrl::Subscribe { device_id } => Self::subscribe(request.src_addr, device_id, send_channel_msg_channel).await?,
-            HostCtrl::Unsubscribe { device_id } => Self::unsubscribe(request.src_addr, device_id, send_channel_msg_channel).await?,
-            HostCtrl::SubscribeTo { target_addr, device_id } => Self::subscribe_to(target_addr, device_id, self.handlers.clone()).await?,
-            HostCtrl::UnsubscribeFrom { target_addr: _, device_id } => {
-                Self::unsubscribe(request.src_addr, device_id, send_channel_msg_channel).await?
-            }
-            HostCtrl::Configure { device_id, cfg_type } => Self::configure(device_id, cfg_type, self.handlers.clone()).await?,
-            HostCtrl::Experiment { experiment } => Self::load_experiment(experiment, self.handlers.clone()).await?,
-            HostCtrl::Ping => {
-                debug!("Received ping from {:#?}.", request.src_addr);
-                send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Pong))?;
-            }
-            m => {
-                warn!("Received unhandled HostCtrl: {m:?}");
-            }
-        };
-        Ok(())
-    }
-
     /// Handles channel messages for host actions (subscribe, unsubscribe, disconnect).
     async fn handle_host_channel(
         &self,
         host_msg: HostChannel,
         send_stream: &mut OwnedWriteHalf,
         subscribed_ids: &mut HashSet<HostId>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        match host_msg {
-            HostChannel::Disconnect => {
-                send_message(send_stream, RpcMessageKind::HostCtrl(HostCtrl::Disconnect)).await?;
-                debug!("Send close confirmation");
-                return Err(NetworkError::Closed.into()); // Throwing an error here feels weird, but it's also done in the recv_handler
-            }
-            HostChannel::Subscribe { device_id } => {
-                subscribed_ids.insert(device_id);
-            }
-            HostChannel::Unsubscribe { device_id } => {
-                subscribed_ids.remove(&device_id);
-            }
-            HostChannel::Pong => {
-                debug!("Sending pong...");
-                send_message(send_stream, RpcMessageKind::HostCtrl(HostCtrl::Pong)).await?;
-            }
-            _ => {}
-        };
+    ) -> Result<(), NetworkError> {
+        
         Ok(())
     }
 
@@ -434,10 +374,26 @@ impl ConnectionHandler for SystemNode {
     async fn handle_recv(&self, request: RpcMessage, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
         debug!("Received message {:?} from {:?}", request.msg, request.src_addr);
         match &request.msg {
-            RpcMessageKind::HostCtrl(command) => self
-                .handle_host_ctrl(request.clone(), command.clone(), send_channel_msg_channel)
-                .await
-                .unwrap_or(()),
+            RpcMessageKind::HostCtrl(command) => match command {
+                // regular Host commands
+                HostCtrl::Connect => Self::connect(request.src_addr).await?,
+                HostCtrl::Disconnect => Self::disconnect(request.src_addr, send_channel_msg_channel).await?,
+                HostCtrl::Subscribe { device_id } => Self::subscribe(request.src_addr, *device_id, send_channel_msg_channel).await?,
+                HostCtrl::Unsubscribe { device_id } => Self::unsubscribe(request.src_addr, *device_id, send_channel_msg_channel).await?,
+                HostCtrl::SubscribeTo { target_addr, device_id } => Self::subscribe_to(*target_addr, *device_id, self.handlers.clone()).await?,
+                HostCtrl::UnsubscribeFrom { target_addr: _, device_id } => {
+                    Self::unsubscribe(request.src_addr, *device_id, send_channel_msg_channel).await?
+                }
+                HostCtrl::Configure { device_id, cfg_type } => Self::configure(*device_id, cfg_type.clone(), self.handlers.clone()).await?,
+                HostCtrl::Experiment { experiment } => Self::load_experiment(experiment.clone(), self.handlers.clone()).await?,
+                HostCtrl::Ping => {
+                    debug!("Received ping from {:#?}.", request.src_addr);
+                    send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Pong))?;
+                }
+                m => {
+                    warn!("Received unhandled HostCtrl: {m:?}");
+                }
+            },
             RpcMessageKind::RegCtrl(command) => match command {
                 RegCtrl::PollHostStatus { host_id } => {
                     send_channel_msg_channel.send(ChannelMsg::RegChannel(RegChannel::SendHostStatus { host_id: self.host_id }))?
@@ -459,7 +415,7 @@ impl ConnectionHandler for SystemNode {
                 // 2. Route to configured sinks for this device_id
                 self.route_data_to_sinks(data_msg.clone(), *device_id).await;
             }
-        }
+        };
         Ok(())
     }
 
@@ -483,10 +439,24 @@ impl ConnectionHandler for SystemNode {
                 let msg_opt = recv_command_channel.borrow_and_update().clone();
                 debug!("Received message {msg_opt:?} over channel");
                 match msg_opt {
-                    ChannelMsg::HostChannel(host_msg) => self
-                        .handle_host_channel(host_msg, &mut send_stream, &mut subscribed_ids)
-                        .await
-                        .unwrap_or(()),
+                    ChannelMsg::HostChannel(host_msg) => match host_msg {
+                        HostChannel::Disconnect => {
+                            send_message(&mut send_stream, RpcMessageKind::HostCtrl(HostCtrl::Disconnect)).await?;
+                            debug!("Send close confirmation");
+                            return Err(NetworkError::Closed.into()); // Throwing an error here feels weird, but it's also done in the recv_handler
+                        }
+                        HostChannel::Subscribe { device_id } => {
+                            subscribed_ids.insert(device_id);
+                        }
+                        HostChannel::Unsubscribe { device_id } => {
+                            subscribed_ids.remove(&device_id);
+                        }
+                        HostChannel::Pong => {
+                            debug!("Sending pong...");
+                            send_message(&mut send_stream, RpcMessageKind::HostCtrl(HostCtrl::Pong)).await?;
+                        }
+                        _ => {}
+                    },
                     ChannelMsg::RegChannel(reg_msg) => match reg_msg {
                         RegChannel::SendHostStatus { host_id } if host_id == self.host_id => {
                             let status = self.get_host_status();
