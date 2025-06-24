@@ -258,9 +258,35 @@ impl SystemNode {
             }
         })
     }
-}
+    
+    async fn match_command(
+        command: Command,
+        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+        local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
+    ) -> Result<(), AppError> {
+        match command {
+            Command::Subscribe { target_addr, device_id } => Ok(Self::subscribe_to(target_addr, device_id, handlers, local_data_tx).await?),
+            Command::Unsubscribe { target_addr, device_id } => Ok(Self::unsubscribe_from(device_id, handlers).await?),
+            Command::Configure {
+                target_addr,
+                device_id,
+                cfg_type,
+            } => Ok(Self::configure(device_id, cfg_type, handlers).await?),
+            Command::Delay { delay } => {
+                tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                Ok(())
+            }
+            Command::Start { target_addr, device_id } => Ok(Self::start(device_id, handlers, local_data_tx).await?),
+            Command::StartAll { target_addr } => Ok(Self::start_all(handlers, local_data_tx).await?),
+            Command::Stop { target_addr, device_id } => Ok(Self::stop(device_id, handlers).await?),
+            Command::StopAll { target_addr } => Ok(Self::stop_all(handlers).await?),
+            c => {
+                info!("The system node does not support this command {c:?}");
+                Ok(())
+            }
+        }
+    }
 
-impl SystemNode {
     /// Returns the current host status as a `RegCtrl` message.
     async fn get_host_status(&self) -> HostStatus {
         HostStatus {
@@ -432,127 +458,6 @@ impl SystemNode {
         }
 
         Ok(())
-    }
-
-    async fn load_experiment(
-        experiment: Experiment,
-        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
-        local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
-    ) -> Result<(), AppError> {
-        info!("Running {}", experiment.metadata.name.clone());
-
-        for (i, stage) in experiment.stages.into_iter().enumerate() {
-            let name = stage.name.clone();
-            info!("Executing stage {name}");
-            Self::execute_stage(stage, handlers.clone(), local_data_tx.clone()).await?;
-            info!("Finished stage {name}");
-        }
-
-        Ok(())
-    }
-
-    async fn execute_stage(
-        stage: Stage,
-        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
-        local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
-    ) -> Result<(), ExperimentError> {
-        let mut tasks = vec![];
-
-        for block in stage.blocks {
-            // Have to define the clone outside the tokio task and then move the clone, rather than create the clone inside the tokio task
-            let handlers_clone = handlers.clone();
-            let local_data_tx_clone = local_data_tx.clone();
-            let task = tokio::spawn(async move {
-                Self::execute_command_block(block, handlers_clone, local_data_tx_clone).await;
-            });
-            tasks.push(task);
-        }
-
-        let results = futures::future::join_all(tasks).await;
-
-        for result in results {
-            if result.is_err() {
-                return Err(ExperimentError::ExecutionError);
-            }
-        }
-        Ok(())
-    }
-
-    async fn execute_command_block(
-        block: Block,
-        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
-        local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
-    ) -> Result<(), AppError> {
-        tokio::time::sleep(std::time::Duration::from_millis(block.delays.init_delay.unwrap_or(0u64))).await;
-        let command_delay = block.delays.command_delay.unwrap_or(0u64);
-        let command_types = block.commands;
-
-        match block.delays.delay_type {
-            DelayType::Recurring {
-                recurrence_delay,
-                iterations,
-            } => {
-                let r_delay = recurrence_delay.unwrap_or(0u64);
-                let n = iterations.unwrap_or(0u64);
-                if n == 0 {
-                    loop {
-                        Self::match_commands(command_types.clone(), handlers.clone(), command_delay, local_data_tx.clone()).await?;
-                        tokio::time::sleep(std::time::Duration::from_millis(r_delay)).await;
-                    }
-                } else {
-                    for _ in 0..n {
-                        Self::match_commands(command_types.clone(), handlers.clone(), command_delay, local_data_tx.clone()).await?;
-                        tokio::time::sleep(std::time::Duration::from_millis(r_delay)).await;
-                    }
-                }
-                Ok(())
-            }
-            DelayType::NotRecurring => {
-                Self::match_commands(command_types, handlers, command_delay, local_data_tx).await?;
-                Ok(())
-            }
-        }
-    }
-
-    pub async fn match_commands(
-        commands: Vec<Command>,
-        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
-        command_delay: u64,
-        local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
-    ) -> Result<(), AppError> {
-        for command in commands {
-            Self::match_command(command.clone(), handlers.clone(), local_data_tx.clone()).await?;
-            tokio::time::sleep(std::time::Duration::from_millis(command_delay)).await;
-        }
-        Ok(())
-    }
-
-    async fn match_command(
-        command: Command,
-        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
-        local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
-    ) -> Result<(), AppError> {
-        match command {
-            Command::Subscribe { target_addr, device_id } => Ok(Self::subscribe_to(target_addr, device_id, handlers, local_data_tx).await?),
-            Command::Unsubscribe { target_addr, device_id } => Ok(Self::unsubscribe_from(device_id, handlers).await?),
-            Command::Configure {
-                target_addr,
-                device_id,
-                cfg_type,
-            } => Ok(Self::configure(device_id, cfg_type, handlers).await?),
-            Command::Delay { delay } => {
-                tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
-                Ok(())
-            }
-            Command::Start { target_addr, device_id } => Ok(Self::start(device_id, handlers, local_data_tx).await?),
-            Command::StartAll { target_addr } => Ok(Self::start_all(handlers, local_data_tx).await?),
-            Command::Stop { target_addr, device_id } => Ok(Self::stop(device_id, handlers).await?),
-            Command::StopAll { target_addr } => Ok(Self::stop_all(handlers).await?),
-            c => {
-                info!("The system node does not support this command {c:?}");
-                Ok(())
-            }
-        }
     }
 
     /// Handles incoming host control messages and performs the corresponding actions.
