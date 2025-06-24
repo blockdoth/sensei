@@ -239,7 +239,9 @@ mod tests {
             target_addr: test_addr(),
         };
 
-        mock.expect_wait_for_read_message().with(eq(config.target_addr)).return_once(move |_| Ok(message));
+        mock.expect_wait_for_read_message()
+            .with(eq(config.target_addr))
+            .return_once(move |_| Ok(message));
 
         let mut source = TCPSource { client: mock, config };
 

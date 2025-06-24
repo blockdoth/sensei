@@ -151,7 +151,7 @@ pub enum Command {
     /// Tells the orchestrator to tell a system node to subscribe to all devices on another system node
     SubscribeToAll {
         target_addr: SocketAddr,
-        source_addr: SocketAddr
+        source_addr: SocketAddr,
     },
     /// Tells the orchestrator to tell a system node to unsubscribe from a device on another system node
     UnsubscribeFrom {
@@ -162,7 +162,7 @@ pub enum Command {
     /// Tells the orchestrator to tell a system node to unsubscribe from all devices on another system node
     UnsubscribeFromAll {
         target_addr: SocketAddr,
-        source_addr: SocketAddr
+        source_addr: SocketAddr,
     },
     SendStatus {
         target_addr: SocketAddr,

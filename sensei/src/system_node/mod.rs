@@ -260,9 +260,7 @@ impl SystemNode {
         Ok(())
     }
 
-    async fn stop_all(
-        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn stop_all(handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), Box<dyn std::error::Error>> {
         info!("Stopping all device handlers");
         for (device_id, handler) in handlers.lock().await.iter_mut() {
             info!("Stopping device handler {device_id}");
