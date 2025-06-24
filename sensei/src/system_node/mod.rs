@@ -104,7 +104,7 @@ impl Run<SystemNodeConfig> for SystemNode {
             registry_addrs: config.registries,
             device_configs: config.device_configs,
             sink_configs: config.sinks, // Store sink configurations from SystemNodeConfig
-            registry: Registry::new(config.registry_polling_rate_s),
+            registry: Registry::new(config.registry_polling_interval),
         }
     }
 
@@ -140,22 +140,21 @@ impl Run<SystemNodeConfig> for SystemNode {
                 if *registry == self.addr {
                     continue;
                 }
-                info!("Connecting to registry at {registry}");
+                debug!("Connecting to registry at {registry}");
                 let registry_addr: SocketAddr = *registry;
                 let heartbeat_msg = RpcMessageKind::RegCtrl(RegCtrl::AnnouncePresence {
                     host_id: self.host_id,
                     host_address: self.addr,
                 });
                 if client.connect(registry_addr).await.is_ok() && client.send_message(registry_addr, heartbeat_msg).await.is_ok() {
-                    client.disconnect(registry_addr).await;
                     info!("Presence announced to registry at {registry_addr}");
+                    client.disconnect(registry_addr).await;
                 } else {
                     error!("Failed to connect to registry {:?}", registry_addr);
                 }
             }
         }
-        // Create a TCP host server task
-        info!("Starting TCP server on {}...", self.addr);
+
         let connection_handler = Arc::new(self.clone());
         let tcp_server_task: JoinHandle<()> = task::spawn(async move {
             match TcpServer::serve(connection_handler.addr, connection_handler).await {
@@ -302,7 +301,7 @@ impl SystemNode {
     }
 
     async fn connect(src_addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
-        info!("Started connection with {src_addr}");
+        info!("Connected with {src_addr}");
 
         Ok(())
     }
@@ -310,7 +309,7 @@ impl SystemNode {
     async fn disconnect(src_addr: SocketAddr, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), Box<dyn std::error::Error>> {
         send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Disconnect))?;
 
-        info!("Disconnecting from the connection with {src_addr}");
+        info!("Disconnected from {src_addr}");
 
         Ok(())
     }
@@ -354,7 +353,7 @@ impl SystemNode {
         // For now, we assume it might output to a default or pre-configured sink if necessary.
         let new_handler_config = DeviceHandlerConfig {
             device_id,
-            stype: TCP,
+            source_type: TCP,
             source,
             controller,
             adapter,
@@ -660,7 +659,7 @@ impl SystemNode {
     /// Task to process data from local device handlers.
     async fn process_local_data(&self) {
         let mut rx = self.local_data_rx.lock().await;
-        info!("Starting local data processing task.");
+        info!("Started local stream handler task");
         while let Some((data_msg, device_id)) = rx.recv().await {
             trace!("SystemNode received local data for device_id: {device_id}");
             // 1. Broadcast to connected TCP clients
@@ -800,7 +799,7 @@ mod tests {
             addr,
             host_id,
             registries: None,
-            registry_polling_rate_s: None,
+            registry_polling_interval: None,
             device_configs: vec![],
             sinks: vec![],
         }

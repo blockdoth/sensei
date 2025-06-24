@@ -99,6 +99,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         debug!("Parsed args and initialized CombinedLogger");
     }
     debug!("Parsed args and initialized CombinedLogger");
+
     let global_args = args.parse_global_config()?;
     // This builders allows us to select the number of worker threads based on
     // either compile flags or CLI arguments, instead of statically setting them in the source.
@@ -107,7 +108,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match &args.subcommand {
         None => runtime.block_on(run_example()),
         Some(subcommand) => match subcommand {
-          #[cfg(feature = "sys_node")]
+            #[cfg(feature = "sys_node")]
             SubCommandsArgs::SystemNode(args) => runtime.block_on(
                 SystemNode::new(
                     global_args,
@@ -116,10 +117,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .run(),
             )?,
             #[cfg(feature = "orchestrator")]
-            SubCommandsArgs::Orchestrator(args) => runtime.block_on(Orchestrator::new(global_args, args.overlay_subcommand_args(OrchestratorConfig::from( args.config_path.clone()))?).run())?,
+            SubCommandsArgs::Orchestrator(args) => runtime.block_on(
+                Orchestrator::new(
+                    global_args,
+                    args.overlay_subcommand_args(OrchestratorConfig::from_yaml(args.config_path.clone())?)?,
+                )
+                .run(),
+            )?,
             #[cfg(feature = "visualiser")]
-            SubCommandsArgs::Visualiser(args) => runtime.block_on(Visualiser::new(global_args, args.parse()?)
-            .run())?,
+            SubCommandsArgs::Visualiser(args) => runtime.block_on(Visualiser::new(global_args, args.parse()?).run())?,
             #[cfg(feature = "esp_tool")]
             SubCommandsArgs::EspTool(args) => runtime.block_on(EspTool::new(global_args, args.parse()?).run())?,
             _ => panic!("Unknown option."),
@@ -191,7 +197,7 @@ stages: []";
 
         let args = Args {
             subcommand: Some(SubCommandsArgs::Orchestrator(OrchestratorSubcommandArgs {
-                experiments_folder: exp_path.clone(),
+                experiments_dir: exp_path.clone(),
                 config_path: DEFAULT_HOST_CONFIG.parse().unwrap(),
                 tui: false, // Default tui setting for test
                 polling_interval: 5,

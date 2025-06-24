@@ -87,12 +87,19 @@ pub trait FromYaml: Sized + for<'de> Deserialize<'de> {
     }
 }
 
+#[cfg(feature = "sys_node")]
+impl FromYaml for SystemNodeConfig {}
+
+#[cfg(feature = "orchestrator")]
+impl FromYaml for OrchestratorConfig {}
+
 /// Configuration for the Orchestrator service.
 #[cfg(feature = "orchestrator")]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct OrchestratorConfig {
     /// Path to the experiment configuration file.
-    pub experiments_folder: PathBuf,
-    pub tui: bool,
+    pub experiments_dir: PathBuf,
+    pub tui: Option<bool>,
     pub polling_interval: u64,
     pub default_hosts: Vec<SocketAddr>,
 }
@@ -108,7 +115,7 @@ pub struct SystemNodeConfig {
     pub addr: SocketAddr,
     pub host_id: u64,
     pub registries: Option<Vec<SocketAddr>>,
-    pub registry_polling_rate_s: Option<u64>,
+    pub registry_polling_interval: Option<u64>,
     pub device_configs: Vec<DeviceHandlerConfig>,
     #[serde(default)]
     pub sinks: Vec<SinkConfigWithName>,
@@ -186,9 +193,6 @@ pub trait Run<Config> {
     /// * `Err(Box<dyn std::error::Error>)` if an error occurs during the service's execution.
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>>;
 }
-
-#[cfg(feature = "sys_node")]
-impl FromYaml for SystemNodeConfig {}
 
 #[cfg(test)]
 mod tests {

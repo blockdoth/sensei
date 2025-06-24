@@ -27,7 +27,7 @@ pub struct DeviceHandlerConfig {
     // Unique identifier for the device.
     pub device_id: u64,
     /// The kind of source producing the raw data.
-    pub stype: SourceType,
+    pub source_type: SourceType,
     /// Configuration for the raw data source.
     pub source: DataSourceConfig,
     /// Optional controller parameters to configure the data source.
@@ -323,7 +323,7 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
                     log::error!(
                         "Incorrect controller type {:?} for source type {:?} for device_id {}",
                         controller_cfg,
-                        cg.stype,
+                        cg.source_type,
                         cg.device_id
                     );
                     return Err(TaskError::IncorrectController);
@@ -408,7 +408,7 @@ mod tests {
     fn sample_config() -> DeviceHandlerConfig {
         DeviceHandlerConfig {
             device_id: 1,
-            stype: SourceType::ESP32,
+            source_type: SourceType::ESP32,
             source: DataSourceConfig::Esp32(Default::default()),
             controller: None,
             adapter: None,
@@ -440,7 +440,7 @@ mod tests {
     async fn test_from_config_invalid_controller_combo() {
         let config = DeviceHandlerConfig {
             device_id: 1,
-            stype: SourceType::ESP32,
+            source_type: SourceType::ESP32,
             source: DataSourceConfig::Esp32(Default::default()),
             controller: Some(ControllerParams::Netlink(Default::default())),
             adapter: None,
@@ -471,7 +471,7 @@ mod tests {
 
         let config = DeviceHandlerConfig {
             device_id: 42,
-            stype: SourceType::ESP32,
+            source_type: SourceType::ESP32,
             source: DataSourceConfig::Esp32(Default::default()),
             controller: None,
             adapter: None,

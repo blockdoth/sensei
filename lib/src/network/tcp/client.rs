@@ -177,7 +177,7 @@ impl TcpClient {
                 msg: HostCtrl(HostCtrl::Disconnect),
                 ..
             }) => {
-                info!("Connection with {target_addr} closed gracefully.");
+                debug!("Connection with {target_addr} closed gracefully.");
                 if let Err(e) = connection.write_stream.shutdown().await {
                     error!("Failed to shutdown write stream: {e}");
                 }

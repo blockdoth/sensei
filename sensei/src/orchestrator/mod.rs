@@ -21,7 +21,7 @@ use tokio::sync::{Mutex, mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
-use crate::orchestrator::state::{OrgTuiState, OrgUpdate};
+use crate::orchestrator::state::{Host, OrgTuiState, OrgUpdate};
 use crate::services::{GlobalConfig, OrchestratorConfig, Run};
 
 #[derive(Debug)]
@@ -130,8 +130,8 @@ impl Run<OrchestratorConfig> for Orchestrator {
     fn new(global_config: GlobalConfig, config: OrchestratorConfig) -> Self {
         Orchestrator {
             log_level: global_config.log_level,
-            experiments_folder: config.experiments_folder,
-            tui: config.tui,
+            experiments_folder: config.experiments_dir,
+            tui: config.tui.unwrap_or(true),
             reg_polling_interval: config.polling_interval,
             default_hosts: config.default_hosts,
         }
@@ -165,7 +165,7 @@ impl Run<OrchestratorConfig> for Orchestrator {
                 update_send.clone(),
                 self.reg_polling_interval,
             )),
-            Box::pin(Self::init(update_send.clone())),
+            Box::pin(Self::init(update_send.clone(), self.default_hosts.clone())),
         ];
 
         if self.tui {
@@ -198,13 +198,22 @@ impl Run<OrchestratorConfig> for Orchestrator {
 
 impl Orchestrator {
     /// Initialization function that is able to set everything up using the proper channels (pun intended)
-    async fn init(update_send: Sender<OrgUpdate>) {
+    async fn init(update_send: Sender<OrgUpdate>, default_hosts: Vec<SocketAddr>) {
         update_send.send(OrgUpdate::ConnectRegistry).await;
         sleep(Duration::from_millis(100)).await;
         update_send.send(OrgUpdate::TogglePolling).await;
         sleep(Duration::from_millis(100)).await;
         update_send.send(OrgUpdate::AddAllHosts).await;
-        // update_send.send(OrgUpdate::AddHost())
+        
+        let start_id = 1000;
+        for addr in default_hosts.into_iter() {
+          update_send.send(OrgUpdate::AddHost(Host{
+            id: start_id,
+            addr: addr,
+            devices: vec![],
+            status: state::HostStatus::Unknown,
+        })).await;
+        }
     }
 
     /// Continuously running task responsible for managing registry related functionality
@@ -214,6 +223,7 @@ impl Orchestrator {
         update_send: Sender<OrgUpdate>,
         polling_interval: u64,
     ) {
+        info!("Started registry handler task");
         let mut current_registry_addr: Option<SocketAddr> = None;
         let (poll_signal_send, mut poll_signal_recv) = watch::channel(false);
 

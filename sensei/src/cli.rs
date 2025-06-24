@@ -44,6 +44,13 @@ use crate::services::SystemNodeConfig;
 #[cfg(feature = "visualiser")]
 use crate::services::VisualiserConfig;
 
+/// Default path to the host configuration YAML file.
+pub static DEFAULT_HOST_CONFIG: &str = "examples/default/node.yaml";
+/// Default path to the orchestrator configuration YAML file.
+pub static DEFAULT_ORCHESTRATOR_CONFIG: &str = "examples/default/orchestrator.yaml";
+pub static DEFAULT_EXPERIMENT_CONFIGS: &str = "examples/experiments/";
+pub static DEFAULT_ORG_POLL_INTERVAL: u64 = 5;
+
 /// A trait for overlaying subcommand arguments onto an existing configuration.
 ///
 /// This trait allows reads the config from the YAML file specified in the subcommand arguments,
@@ -65,12 +72,6 @@ pub trait OverlaySubcommandArgs<T> {
     /// value from the YAML configuration. Otherwise, the YAML configuration value is retained.
     fn overlay_subcommand_args(&self, config_file: T) -> Result<T, Box<dyn std::error::Error>>;
 }
-
-/// Default path to the host configuration YAML file.
-pub static DEFAULT_HOST_CONFIG: &str = "resources/testing_configs/minimal.yaml";
-/// Default path to the orchestrator configuration YAML file.
-pub static DEFAULT_EXPERIMENT_CONFIGS: &str = "examples/experiments/";
-pub static DEFAULT_ORCHESTRATOR_CONFIG: &str = "resources/example_configs/orchestrator";
 
 /// A simple app to perform collection from configured sources
 #[derive(FromArgs)]
@@ -157,7 +158,7 @@ impl ConfigFromCli<SystemNodeConfig> for SystemNodeSubcommandArgs {
             device_configs: DeviceHandlerConfig::from_yaml(self.config_path.clone())?,
             host_id: 0,                    // Default host_id, might be overwritten by YAML or other logic
             registries: None,              // Default, might be overwritten by YAML
-            registry_polling_rate_s: None, // Default, might be overwritten by YAML
+            registry_polling_interval: None, // Default, might be overwritten by YAML
             sinks: Vec::new(),             // Initialize with an empty Vec, to be populated from YAML
         })
     }
@@ -169,7 +170,7 @@ impl OverlaySubcommandArgs<SystemNodeConfig> for SystemNodeSubcommandArgs {
     fn overlay_subcommand_args(&self, mut device_config: SystemNodeConfig) -> Result<SystemNodeConfig, Box<dyn std::error::Error>> {
         // Because of the default value we expact that there's always a file to read
         debug!("Loading system node configuration from YAML file: {}", self.config_path.display());
-        // overwrite fields when provided by the subcommand
+        // overwrite fields when set by the CLI while keeping CLI defaults 
         if self.addr != DEFAULT_IP_CLI {
             device_config.addr.set_ip(self.addr.parse().unwrap_or(device_config.addr.ip()));
         }
@@ -191,10 +192,10 @@ pub struct OrchestratorSubcommandArgs {
 
     /// file path of the experiment config
     #[argh(option, default = "DEFAULT_EXPERIMENT_CONFIGS.parse().unwrap()")]
-    pub experiments_folder: PathBuf,
+    pub experiments_dir: PathBuf,
 
     /// polling interval of the registry
-    #[argh(option, default = "5")]
+    #[argh(option, default = "DEFAULT_ORG_POLL_INTERVAL")]
     pub polling_interval: u64,
 
     /// file path of the experiment config
@@ -210,8 +211,8 @@ impl ConfigFromCli<OrchestratorConfig> for OrchestratorSubcommandArgs {
     fn parse(&self) -> Result<OrchestratorConfig, Error> {
         // TODO input validation
         Ok(OrchestratorConfig {
-            experiments_folder: self.experiments_folder.clone(),
-            tui: self.tui,
+            experiments_dir: self.experiments_dir.clone(),
+            tui: Some(self.tui),
             polling_interval: self.polling_interval,
             default_hosts: vec![],
         })
@@ -223,9 +224,15 @@ impl ConfigFromCli<OrchestratorConfig> for OrchestratorSubcommandArgs {
 impl OverlaySubcommandArgs<OrchestratorConfig> for OrchestratorSubcommandArgs {
     fn overlay_subcommand_args(&self, mut device_config: OrchestratorConfig) -> Result<OrchestratorConfig, Box<dyn std::error::Error>> {
         // Because of the default value we expact that there's always a file to read
-        debug!("Loading orchestrator node configuration from YAML file: {}", self.config_path.display());
-        // overwrite fields when provided by the subcommand
-        
+        debug!("Loading orchestrator node configuration from YAML file: {:?}", self.config_path);
+        // overwrite fields when set by the CLI while keeping CLI defaults 
+        if self.polling_interval != DEFAULT_ORG_POLL_INTERVAL {
+          device_config.polling_interval = self.polling_interval;
+        }
+
+        if self.experiments_dir != DEFAULT_EXPERIMENT_CONFIGS.parse::<PathBuf>().unwrap() {
+          device_config.experiments_dir = self.experiments_dir.clone();
+        }
 
         Ok(device_config)
     }
@@ -303,7 +310,7 @@ mod tests {
             host_id: 1,
             registries: Option::None,
             device_configs: vec![],
-            registry_polling_rate_s: Option::None,
+            registry_polling_interval: Option::None,
             sinks: Vec::new(), // Add sinks field
         }
     }

@@ -129,7 +129,6 @@ impl Registry {
             let client = TcpClient::new();
             connection_handler.poll_hosts(client, Duration::from_secs(polling_rate)).await.unwrap();
         })
-
     }
     /// Go though the list of hosts and poll their status
     pub async fn poll_hosts(&self, mut client: TcpClient, poll_interval: Duration) -> Result<(), RegistryError> {
@@ -213,7 +212,7 @@ impl Registry {
                 responsiveness: Responsiveness::Connected,
             },
         );
-        info!("Registered host: {host_id:#?}");
+        info!("Added host {host_address:#?} to the registry, {} hosts registered", self.hosts.lock().await.len());
         Ok(())
     }
     /// Store an update to a host's status in the registry.
