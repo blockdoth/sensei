@@ -76,7 +76,7 @@ impl TcpServer {
 
         loop {
             match listener.accept().await {
-                Ok((stream, peer_addr)) => {
+                Ok((stream, _peer_addr)) => {
                     let local_handler = connection_handler.clone();
                     tokio::spawn(Self::init_connection(stream, local_handler));
                 }
@@ -93,12 +93,12 @@ impl TcpServer {
     where
         H: ConnectionHandler + SubscribeDataChannel + Clone + 'static,
     {
-        let mut read_buffer = vec![0; MAX_MESSAGE_LENGTH];
+        let read_buffer = vec![0; MAX_MESSAGE_LENGTH];
 
         let _peer_addr = stream.peer_addr()?;
         let local_peer_addr = stream.peer_addr()?;
 
-        let (mut read_stream, write_stream) = stream.into_split();
+        let (read_stream, write_stream) = stream.into_split();
 
         let (send_commands_channel, recv_commands_channel) = watch::channel::<ChannelMsg>(ChannelMsg::HostChannel(HostChannel::Empty));
 
@@ -254,11 +254,9 @@ mod tests {
         mock.expect_handle_send().returning(|_, _, _| Ok(()));
         // This test just checks that the mock can be called as expected
         let (tx, _rx) = watch::channel(ChannelMsg::HostChannel(HostChannel::Empty));
-        let (data_tx, data_rx) = broadcast::channel(1);
+        let (_data_tx, data_rx) = broadcast::channel(1);
         let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
         let listener = TcpListener::bind(addr).await.unwrap();
-        let local_addr = listener.local_addr().unwrap();
-        let client = TcpStream::connect(local_addr).await.unwrap();
         let (server, _) = listener.accept().await.unwrap();
         let (_read_half, write_half) = server.into_split();
         let msg = crate::network::rpc_message::RpcMessage {

@@ -171,7 +171,7 @@ mod tests {
         let ctx = TcpClient::new_context();
         ctx.expect().returning(TcpClient::default);
 
-        let mut source = TCPSource::new(config.clone());
+        let source = TCPSource::new(config.clone());
         assert!(source.is_ok());
 
         let source = source.unwrap();

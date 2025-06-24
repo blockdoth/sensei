@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 //! Robust CLI tool for ESP32 CSI monitoring.
 
 mod spam_settings;

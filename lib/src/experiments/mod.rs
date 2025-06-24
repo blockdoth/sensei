@@ -10,6 +10,7 @@ use tokio::sync::mpsc::Sender;
 use tokio::sync::watch;
 use tokio::time::sleep;
 
+use crate::errors::ExperimentError;
 use crate::network::rpc_message::{CfgType, DeviceId, HostId};
 
 impl Experiment {
@@ -250,7 +251,7 @@ where
 
     /// Starts running the currently selected experiment.
     /// Executes all stages and handles cancellation asynchronously.
-    pub async fn run<H, F, Fut>(&mut self, update_send: Sender<UpdateMsg>, update_msg_fn: F, handler: Arc<H>)
+    pub async fn run<H, F, Fut>(&mut self, update_send: Sender<UpdateMsg>, update_msg_fn: F, handler: Arc<H>) -> Result<(), ExperimentError>
     where
         F: Fn(ActiveExperiment) -> UpdateMsg + Send + Sync + 'static,
         H: Fn(Command, Sender<UpdateMsg>) -> Fut + Send + Sync + 'static,
@@ -259,7 +260,10 @@ where
         if let Some(mut active_exp) = self.active_experiment.clone() {
             active_exp.info.status = ExperimentStatus::Running;
             active_exp.info.current_stage = 0;
-            update_send.send(update_msg_fn(active_exp.clone())).await;
+            update_send
+                .send(update_msg_fn(active_exp.clone()))
+                .await
+                .map_err(|_| ExperimentError::ExecutionError)?;
             info!("Running experiment {}", active_exp.experiment.metadata.name);
 
             // active_exp.status = ExperimentStatus::Stopped;
@@ -268,7 +272,7 @@ where
             //       debug!("Finished experiment");
             //       return;
             //   }
-            self.cancel_signal.changed().await; // Clear reset value
+            self.cancel_signal.changed().await.map_err(|_| ExperimentError::ExecutionError)?; // Clear reset value
             let cancel_signal_task = self.cancel_signal.clone();
             let mut cancel_signal_cancel = self.cancel_signal.clone();
             let update_send = update_send.clone();
@@ -298,6 +302,7 @@ where
               }
             }
         }
+        Ok(())
     }
 
     /// Matches and executes a list of commands with a delay between each.
