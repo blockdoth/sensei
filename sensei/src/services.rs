@@ -17,7 +17,7 @@
 //!
 //! The module aims to provide a clear and structured way to manage service-specific
 //! settings and their execution flow.
-    #[cfg(any(feature = "sys_node", feature = "visualiser"))]
+#[cfg(any(feature = "sys_node", feature = "visualiser"))]
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
@@ -94,6 +94,7 @@ pub struct OrchestratorConfig {
     pub experiments_folder: PathBuf,
     pub tui: bool,
     pub polling_interval: u64,
+    pub default_hosts: Vec<SocketAddr>,
 }
 
 /// Configuration for a System Node service.

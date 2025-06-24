@@ -45,6 +45,7 @@ use tokio::runtime::Builder;
 
 #[cfg(feature = "orchestrator")]
 use crate::orchestrator::*;
+use crate::services::OrchestratorConfig;
 #[cfg(feature = "sys_node")]
 use crate::system_node::*;
 #[cfg(feature = "visualiser")]
@@ -106,7 +107,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match &args.subcommand {
         None => runtime.block_on(run_example()),
         Some(subcommand) => match subcommand {
-            #[cfg(feature = "sys_node")]
+          #[cfg(feature = "sys_node")]
             SubCommandsArgs::SystemNode(args) => runtime.block_on(
                 SystemNode::new(
                     global_args,
@@ -115,12 +116,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .run(),
             )?,
             #[cfg(feature = "orchestrator")]
-            SubCommandsArgs::Orchestrator(args) => runtime.block_on(Orchestrator::new(global_args, args.parse()?).run())?,
+            SubCommandsArgs::Orchestrator(args) => runtime.block_on(Orchestrator::new(global_args, args.overlay_subcommand_args(OrchestratorConfig::from( args.config_path.clone()))?).run())?,
             #[cfg(feature = "visualiser")]
-            SubCommandsArgs::Visualiser(args) => runtime.block_on(Visualiser::new(global_args, args.parse()?).run())?,
+            SubCommandsArgs::Visualiser(args) => runtime.block_on(Visualiser::new(global_args, args.parse()?)
+            .run())?,
             #[cfg(feature = "esp_tool")]
             SubCommandsArgs::EspTool(args) => runtime.block_on(EspTool::new(global_args, args.parse()?).run())?,
-            _ => panic!("Unknown option.")
+            _ => panic!("Unknown option."),
         },
     }
     Ok(())
@@ -190,6 +192,7 @@ stages: []";
         let args = Args {
             subcommand: Some(SubCommandsArgs::Orchestrator(OrchestratorSubcommandArgs {
                 experiments_folder: exp_path.clone(),
+                config_path: DEFAULT_HOST_CONFIG.parse().unwrap(),
                 tui: false, // Default tui setting for test
                 polling_interval: 5,
             })),

@@ -1,0 +1,4 @@
+experiments_folder: examples/experiments/
+polling_interval: 5,
+default_hosts: 
+  - 127.0.0.1:5432

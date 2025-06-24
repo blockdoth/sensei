@@ -1,6 +1,6 @@
 experiment:
 metadata:
-  name: Experiment1
+  name: Init CSV Source
   output_path: /dev/null
 stages:
   - name: "init"

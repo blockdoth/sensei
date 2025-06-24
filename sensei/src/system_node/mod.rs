@@ -133,7 +133,7 @@ impl Run<SystemNodeConfig> for SystemNode {
         }
         drop(handlers_map); // Release lock
 
-        // Register at provided registries. When a single registry refuses, the client exits.
+        // Register at provided registries.
         if let Some(registries) = &self.registry_addrs {
             let mut client = TcpClient::new();
             for registry in registries {
@@ -146,10 +146,12 @@ impl Run<SystemNodeConfig> for SystemNode {
                     host_id: self.host_id,
                     host_address: self.addr,
                 });
-                client.connect(registry_addr).await?;
-                client.send_message(registry_addr, heartbeat_msg).await?;
-                client.disconnect(registry_addr);
-                info!("Presence announced to registry at {registry_addr}");
+                if client.connect(registry_addr).await.is_ok() && client.send_message(registry_addr, heartbeat_msg).await.is_ok() {
+                    client.disconnect(registry_addr).await;
+                    info!("Presence announced to registry at {registry_addr}");
+                } else {
+                    error!("Failed to connect to registry {:?}", registry_addr);
+                }
             }
         }
         // Create a TCP host server task
@@ -171,7 +173,7 @@ impl Run<SystemNodeConfig> for SystemNode {
         });
 
         // create registry polling task, if configured
-        let polling_task = self.registry.create_polling_task();
+        // let polling_task = self.registry.create_polling_task(self);
 
         let experiment_task = Self::experiment_handler(
             self.handlers.clone(),
@@ -181,7 +183,7 @@ impl Run<SystemNodeConfig> for SystemNode {
         );
 
         // Run all tasks concurrently
-        tokio::try_join!(tcp_server_task, polling_task, local_data_processing_task, experiment_task)?;
+        tokio::try_join!(tcp_server_task, local_data_processing_task, experiment_task)?;
         Ok(())
     }
 }

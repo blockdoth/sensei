@@ -122,7 +122,8 @@ pub struct Orchestrator {
     log_level: LevelFilter,
     experiments_folder: PathBuf,
     tui: bool,
-    polling_interval: u64,
+    reg_polling_interval: u64,
+    default_hosts: Vec<SocketAddr>,
 }
 
 impl Run<OrchestratorConfig> for Orchestrator {
@@ -131,7 +132,8 @@ impl Run<OrchestratorConfig> for Orchestrator {
             log_level: global_config.log_level,
             experiments_folder: config.experiments_folder,
             tui: config.tui,
-            polling_interval: config.polling_interval,
+            reg_polling_interval: config.polling_interval,
+            default_hosts: config.default_hosts,
         }
     }
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -161,7 +163,7 @@ impl Run<OrchestratorConfig> for Orchestrator {
                 client.clone(),
                 registry_recv,
                 update_send.clone(),
-                self.polling_interval,
+                self.reg_polling_interval,
             )),
             Box::pin(Self::init(update_send.clone())),
         ];
@@ -202,6 +204,7 @@ impl Orchestrator {
         update_send.send(OrgUpdate::TogglePolling).await;
         sleep(Duration::from_millis(100)).await;
         update_send.send(OrgUpdate::AddAllHosts).await;
+        // update_send.send(OrgUpdate::AddHost())
     }
 
     /// Continuously running task responsible for managing registry related functionality

@@ -63,12 +63,13 @@ pub trait OverlaySubcommandArgs<T> {
     ///
     /// If a field is specified in the subcommand arguments, it will override the corresponding
     /// value from the YAML configuration. Otherwise, the YAML configuration value is retained.
-    fn overlay_subcommand_args(&self, full_config: T) -> Result<T, Box<dyn std::error::Error>>;
+    fn overlay_subcommand_args(&self, config_file: T) -> Result<T, Box<dyn std::error::Error>>;
 }
 
 /// Default path to the host configuration YAML file.
 pub static DEFAULT_HOST_CONFIG: &str = "resources/testing_configs/minimal.yaml";
 /// Default path to the orchestrator configuration YAML file.
+pub static DEFAULT_EXPERIMENT_CONFIGS: &str = "examples/experiments/";
 pub static DEFAULT_ORCHESTRATOR_CONFIG: &str = "resources/example_configs/orchestrator";
 
 /// A simple app to perform collection from configured sources
@@ -165,17 +166,17 @@ impl ConfigFromCli<SystemNodeConfig> for SystemNodeSubcommandArgs {
 #[cfg(feature = "sys_node")]
 /// Overlays subcommand arguments onto a SystemNodeConfig, overriding fields if provided.
 impl OverlaySubcommandArgs<SystemNodeConfig> for SystemNodeSubcommandArgs {
-    fn overlay_subcommand_args(&self, mut full_config: SystemNodeConfig) -> Result<SystemNodeConfig, Box<dyn std::error::Error>> {
+    fn overlay_subcommand_args(&self, mut device_config: SystemNodeConfig) -> Result<SystemNodeConfig, Box<dyn std::error::Error>> {
         // Because of the default value we expact that there's always a file to read
         debug!("Loading system node configuration from YAML file: {}", self.config_path.display());
         // overwrite fields when provided by the subcommand
         if self.addr != DEFAULT_IP_CLI {
-            full_config.addr.set_ip(self.addr.parse().unwrap_or(full_config.addr.ip()));
+            device_config.addr.set_ip(self.addr.parse().unwrap_or(device_config.addr.ip()));
         }
         if self.port != DEFAULT_PORT_CLI {
-            full_config.addr.set_port(self.port);
+            device_config.addr.set_port(self.port);
         }
-        Ok(full_config)
+        Ok(device_config)
     }
 }
 
@@ -189,12 +190,16 @@ pub struct OrchestratorSubcommandArgs {
     pub tui: bool,
 
     /// file path of the experiment config
-    #[argh(option, default = "DEFAULT_ORCHESTRATOR_CONFIG.parse().unwrap()")]
+    #[argh(option, default = "DEFAULT_EXPERIMENT_CONFIGS.parse().unwrap()")]
     pub experiments_folder: PathBuf,
 
     /// polling interval of the registry
     #[argh(option, default = "5")]
     pub polling_interval: u64,
+
+    /// file path of the experiment config
+    #[argh(option, default = "DEFAULT_ORCHESTRATOR_CONFIG.parse().unwrap()")]
+    pub config_path: PathBuf,
 }
 
 #[cfg(feature = "orchestrator")]
@@ -208,7 +213,21 @@ impl ConfigFromCli<OrchestratorConfig> for OrchestratorSubcommandArgs {
             experiments_folder: self.experiments_folder.clone(),
             tui: self.tui,
             polling_interval: self.polling_interval,
+            default_hosts: vec![],
         })
+    }
+}
+
+#[cfg(feature = "orchestrator")]
+/// Overlays subcommand arguments onto a SystemNodeConfig, overriding fields if provided.
+impl OverlaySubcommandArgs<OrchestratorConfig> for OrchestratorSubcommandArgs {
+    fn overlay_subcommand_args(&self, mut device_config: OrchestratorConfig) -> Result<OrchestratorConfig, Box<dyn std::error::Error>> {
+        // Because of the default value we expact that there's always a file to read
+        debug!("Loading orchestrator node configuration from YAML file: {}", self.config_path.display());
+        // overwrite fields when provided by the subcommand
+        
+
+        Ok(device_config)
     }
 }
 
