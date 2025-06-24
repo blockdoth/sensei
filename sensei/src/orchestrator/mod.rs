@@ -33,6 +33,11 @@ pub enum OrgChannelMsg {
     Unsubscribe(SocketAddr, Option<SocketAddr>, DeviceId),
     SubscribeAll(SocketAddr, Option<SocketAddr>),
     UnsubscribeAll(SocketAddr, Option<SocketAddr>),
+    Start(SocketAddr, DeviceId),
+    StartAll(SocketAddr),
+    Stop(SocketAddr, DeviceId),
+    StopAll(SocketAddr),
+
     // === Experiments ===
     SelectExperiment(usize),
     StartExperiment,
@@ -82,7 +87,15 @@ impl From<Command> for OrgChannelMsg {
             Command::Delay { delay } => OrgChannelMsg::Delay(delay),
             Command::GetHostStatuses { target_addr } => OrgChannelMsg::GetHostStatuses(target_addr),
             Command::Ping { target_addr } => OrgChannelMsg::Ping(target_addr),
+            Command::Start { target_addr, device_id } => OrgChannelMsg::Start(target_addr, device_id),
+            Command::StartAll { target_addr } => OrgChannelMsg::StartAll(target_addr),
+            Command::Stop { target_addr, device_id } => OrgChannelMsg::Stop(target_addr, device_id),
+            Command::StopAll { target_addr } => OrgChannelMsg::StopAll(target_addr),
             Command::DummyData {} => todo!(),
+            Command::SubscribeAll { target_addr } => OrgChannelMsg::SubscribeAll(target_addr, None),
+            Command::UnsubscribeAll { target_addr } => OrgChannelMsg::UnsubscribeAll(target_addr, None),
+            Command::SubscribeToAll { target_addr, source_addr } => OrgChannelMsg::SubscribeAll(target_addr, Some(source_addr)),
+            Command::UnsubscribeFromAll { target_addr, source_addr } => OrgChannelMsg::UnsubscribeAll(target_addr, Some(source_addr)),
         }
     }
 }
@@ -480,18 +493,20 @@ impl Orchestrator {
             }
             OrgChannelMsg::SubscribeAll(target_addr, msg_origin_addr) => {
                 if let Some(msg_origin_addr) = msg_origin_addr {
+                    todo!("");
                     info!("Subscribing {msg_origin_addr} to all devices of {target_addr}");
 
-                    let msg = HostCtrl::UnsubscribeFromAll { target_addr };
+                    let msg = HostCtrl::SubscribeToAll { target_addr };
                     client.lock().await.send_message(msg_origin_addr, RpcMessageKind::HostCtrl(msg)).await;
                 } else {
                     info!("Subscribing to all devices of {target_addr}");
-                    let msg = HostCtrl::UnsubscribeAll;
+                    let msg = HostCtrl::SubscribeAll;
                     client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await;
                 }
             }
             OrgChannelMsg::UnsubscribeAll(target_addr, msg_origin_addr) => {
                 if let Some(msg_origin_addr) = msg_origin_addr {
+                    todo!("");
                     info!("Unsubscribing {msg_origin_addr} from all devices of {target_addr}");
                     let msg = HostCtrl::UnsubscribeFromAll { target_addr };
                     client.lock().await.send_message(msg_origin_addr, RpcMessageKind::HostCtrl(msg)).await;
@@ -564,6 +579,34 @@ impl Orchestrator {
                 }
             }
 
+            OrgChannelMsg::Start(target_addr, device_id) => {
+                let msg = RpcMessageKind::HostCtrl(HostCtrl::Start { device_id });
+
+                info!("Telling {target_addr} to start the device handler {device_id}");
+
+                client.lock().await.send_message(target_addr, msg).await;
+            }
+            OrgChannelMsg::StartAll(target_addr) => {
+                let msg = RpcMessageKind::HostCtrl(HostCtrl::StartAll);
+
+                info!("Telling {target_addr} to start all device handlers on the node");
+
+                client.lock().await.send_message(target_addr, msg).await;
+            }
+            OrgChannelMsg::Stop(target_addr, device_id) => {
+                let msg = RpcMessageKind::HostCtrl(HostCtrl::Stop { device_id });
+
+                info!("Telling {target_addr} to stop the device handler {device_id}");
+
+                client.lock().await.send_message(target_addr, msg).await;
+            }
+            OrgChannelMsg::StopAll(target_addr) => {
+                let msg = RpcMessageKind::HostCtrl(HostCtrl::StopAll);
+
+                info!("Telling {target_addr} to stop all device handlers on the node");
+
+                client.lock().await.send_message(target_addr, msg).await;
+            }
             // Kinda inefficient, but tech debt
             OrgChannelMsg::ConnectRegistry(socket_addr) => {
                 if let Some(registry_send) = registry_send {

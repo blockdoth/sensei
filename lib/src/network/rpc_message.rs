@@ -62,20 +62,28 @@ pub enum HostCtrl {
     Disconnect,
     /// Configure a device handler.
     Configure { device_id: DeviceId, cfg_type: CfgType },
+    /// Start a device handler on a node
+    Start { device_id: DeviceId },
+    /// Start all device handlers on a node
+    StartAll,
+    /// Stop a device handler on a node
+    Stop { device_id: DeviceId },
+    /// Stop all device handlers on a node
+    StopAll,
     /// Subscribe to a device's data stream.
     Subscribe { device_id: DeviceId },
+    /// Subscribe to all devices on a node
+    SubscribeAll,
     /// Unsubscribe from a device's data stream.
     Unsubscribe { device_id: DeviceId },
-    /// Subscribe to another node's device stream.
-    SubscribeTo { target_addr: SocketAddr, device_id: DeviceId },
-    /// Unsubscribe from another node's device stream.
-    UnsubscribeFrom { target_addr: SocketAddr, device_id: DeviceId },
-    /// Subscribe to all data streams of this host.
-    SubscribeAll,
-    /// Unsubscribe from all data streams of this host.
+    /// Unsubscribe from all devices on a node
     UnsubscribeAll,
-    /// Subscribe to all data streams of another host.
+    /// Subscribes a node to another node's device stream.
+    SubscribeTo { target_addr: SocketAddr, device_id: DeviceId },
+    /// Subscribes a node to all device streams of another node
     SubscribeToAll { target_addr: SocketAddr },
+    /// Unsubscribes a node from another node's device stream.
+    UnsubscribeFrom { target_addr: SocketAddr, device_id: DeviceId },
     /// Unsubscribe from all data streams of another host.
     UnsubscribeFromAll { target_addr: SocketAddr },
     /// Sends an experiment configuration

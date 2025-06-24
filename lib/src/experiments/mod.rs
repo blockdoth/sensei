@@ -61,38 +61,73 @@ pub struct Experiment {
 
 /// `Commands` are the actions that the orchestrator or system node can undertake in an experiment
 ///
-/// These commands are `Connect`, `Disconnect`, `Subscribe`, `Unsubscribe`, `SubscribeTo`, `UnsubscribeFrom`, `SendStatus`, `Configure` and `Delay`
+/// These commands are `Connect`, `Disconnect`, `Subscribe(All)`, `Unsubscribe(All)`, `SubscribeTo`, `UnsubscribeFrom`, `SendStatus`, `Configure`, `Start(All)`, `Stop(All)` and `Delay`
 ///
 /// The orchestrator executes these commands by sending messages to system nodes and telling them to run the commands
 ///
 /// The system node executes these commands by running them locally.
-/// System nodes can only run the `Subscribe`, `Unsubscribe`, `Configure` and `Delay` commands,
+/// System nodes can only run the `Subscribe`, `Unsubscribe`, `Configure`, `Start(All)`, `Stop(All)` and `Delay` commands,
 /// as connecting and disconnecting are not relevant concepts to a system node,
 /// and it is not necessary for a system node to tell another system node to subscribe to a third system node.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum Command {
+    /// Tells the orchestrator to connect to a system node
     Connect {
         target_addr: SocketAddr,
     },
+    /// Tells the orchestrator to disconnect from a system node
     Disconnect {
         target_addr: SocketAddr,
     },
+    /// Tells the orchestrator to subscribe to a system node
+    ///
+    /// Tells a system node to subscribe to a system node
+    ///
+    /// This is done by creating a device handler with a tcp source pointing to the target node.
+    /// This device handler is immediately started
     Subscribe {
         target_addr: SocketAddr,
         device_id: DeviceId,
     },
+    /// Tells the orchestrator to subscribe to all devices of a node
+    ///
+    /// Tells a system node to subscribe to all devices of a node
+    SubscribeAll {
+        target_addr: SocketAddr,
+    },
+    /// Tells the orchestrator to unsubscribe to a system node
+    ///
+    /// Tells a system node to unsubscribe from a system node
     Unsubscribe {
         target_addr: SocketAddr,
         device_id: DeviceId,
     },
+    /// Tells the orchestrator to unsubscribe from all devices of a node
+    ///
+    /// Tells a system node to subscribe to all devices of a node
+    UnsubscribeAll {
+        target_addr: SocketAddr,
+    },
+    /// Tells the orchestrator to tell a system node to subscribe to a device on another system node
     SubscribeTo {
         target_addr: SocketAddr,
         device_id: DeviceId,
         source_addr: SocketAddr,
     },
+    /// Tells the orchestrator to tell a system node to subscribe to all devices on another system node
+    SubscribeToAll {
+        target_addr: SocketAddr,
+        source_addr: SocketAddr,
+    },
+    /// Tells the orchestrator to tell a system node to unsubscribe from a device on another system node
     UnsubscribeFrom {
         target_addr: SocketAddr,
         device_id: DeviceId,
+        source_addr: SocketAddr,
+    },
+    /// Tells the orchestrator to tell a system node to unsubscribe from all devices on another system node
+    UnsubscribeFromAll {
+        target_addr: SocketAddr,
         source_addr: SocketAddr,
     },
     SendStatus {
@@ -102,16 +137,38 @@ pub enum Command {
     GetHostStatuses {
         target_addr: SocketAddr,
     },
+    /// Tells a node how to configure a device handler
+    ///
+    /// Creating or editing a device handler does not start it
     Configure {
         target_addr: SocketAddr,
         device_id: DeviceId,
         cfg_type: CfgType,
     },
+    /// Tells the orchestrator to send a ping message to a node (expected response is Pong)
     Ping {
         target_addr: SocketAddr,
     },
+    /// A manual delay in an experiment command block
     Delay {
         delay: u64,
+    },
+    /// Tells a device handler to start
+    Start {
+        target_addr: SocketAddr,
+        device_id: DeviceId,
+    },
+    /// Starts all devices on a system node
+    StartAll {
+        target_addr: SocketAddr,
+    },
+    /// Tells a device handler to stop
+    Stop {
+        target_addr: SocketAddr,
+        device_id: DeviceId,
+    },
+    StopAll {
+        target_addr: SocketAddr,
     },
     DummyData {},
 }

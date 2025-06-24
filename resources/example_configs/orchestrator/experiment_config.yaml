@@ -1,61 +1,39 @@
-- metadata:
-    name: Experiment1
-    experiment_host: !SystemNode
-      target_addr: "127.0.0.1:8000"
-    output_path: "output.csv"
-  stages:
-    - name: "init"
-      blocks:
-        - commands:
-            - !Connect
-              target_addr: "127.0.0.1:8080"
-          delays:
-            init_delay: 2000
-            delay_type: !NotRecurring
-    - name: "main"
-      blocks:
-        - commands:
-            - !Connect
-              target_addr: "127.0.0.1:8000"
-            - !Subscribe
-              target_addr: "127.0.0.1:8000"
-              device_id: 0
-            - !Delay
-              delay: 5000
-            - !Unsubscribe
-              target_addr: "127.0.0.1:8000"
-              device_id: 0
-            - !Disconnect
-              target_addr: "127.0.0.1:8000"
-          delays:
-            init_delay: 500
-            command_delay: 200
-            delay_type: !Recurring
-              recurrence_delay: 1000
-              iterations: 5
-        - commands:
-            - !Connect
-              target_addr: "127.0.0.1:8080"
-            - !Subscribe
-              target_addr: "127.0.0.1:8080"
-              device_id: 0
-            - !Delay
-              delay: 5000
-            - !Unsubscribe
-              target_addr: "127.0.0.1:8080"
-              device_id: 0
-            - !Disconnect
-              target_addr: "127.0.0.1:8080"
-          delays:
-            init_delay: 500
-            command_delay: 200
-            delay_type: !Recurring
-              recurrence_delay: 1000
-              iterations: 5
-    - name: "endstage"
-      blocks:
-        - commands:
-            - !Disconnect
-              target_addr: "127.0.0.1:8080"
-          delays:
-            delay_type: !NotRecurring
+experiment:
+metadata:
+  name: Experiment1
+  output_path: /dev/null
+stages:
+  - name: "init"
+    blocks:
+      - commands:
+          - !Connect
+            target_addr: "127.0.0.1:6966"
+          - !Connect
+            target_addr: "127.0.0.1:6967"
+          - !Configure
+            target_addr: "127.0.0.1:6966"
+            device_id: 0
+            cfg_type: !Create
+              cfg:
+                device_id: 0
+                stype: !Csv
+                source: !Csv
+                  path: "resources/test_data/csv/csi_data.csv"
+                  header: true
+                  delay: 500
+                  adapter: !Csv
+                  output_to:
+          - !StartAll
+            target_addr: "127.0.0.1:6966"
+          - !SubscribeTo
+            target_addr: "127.0.0.1:6967"
+            device_id: 0
+            source_addr: "127.0.0.1:6966"
+          - !Delay
+            delay: 5000
+          - !StopAll
+            target_addr: "127.0.0.1:6966"
+        delays:
+          init_delay: 2000
+          command_delay: 1000
+          delay_type: !NotRecurring

@@ -13,7 +13,6 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use lib::FromConfig;
-use lib::adapters::CsiDataAdapter;
 use lib::errors::NetworkError;
 use lib::experiments::{ActiveExperiment, Command, Experiment, ExperimentInfo, ExperimentSession, ExperimentStatus};
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
@@ -26,8 +25,8 @@ use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, HostChannel, RegChannel, SubscribeDataChannel, send_message};
 use lib::sinks::{Sink, SinkConfig};
+use lib::sources::DataSourceConfig;
 use lib::sources::tcp::TCPConfig;
-use lib::sources::{DataSourceConfig, DataSourceT};
 use log::*;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -61,10 +60,10 @@ pub struct SystemNode {
     local_data_rx: Arc<Mutex<mpsc::Receiver<(DataMsg, DeviceId)>>>, // Receiver for local data
     experiment_send: Sender<ExperimentChannelMsg>,
     experiment_recv: Arc<Mutex<Receiver<ExperimentChannelMsg>>>,
-    handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+    handlers: Arc<Mutex<HashMap<DeviceId, Box<DeviceHandler>>>>,
     sinks: Arc<Mutex<HashMap<String, Box<dyn Sink>>>>,
     addr: SocketAddr,
-    host_id: u64,
+    host_id: HostId,
     registry_addrs: Option<Vec<SocketAddr>>,
     device_configs: Vec<DeviceHandlerConfig>,
     sink_configs: Vec<SinkConfigWithName>,
@@ -129,17 +128,7 @@ impl Run<SystemNodeConfig> for SystemNode {
         for cfg in &self.device_configs {
             let mut handler = DeviceHandler::from_config(cfg.clone()).await?;
             // Pass the sender for local data to the handler's start method
-            handler
-                .start(
-                    <dyn DataSourceT>::from_config(cfg.source.clone()).await?,
-                    if let Some(adapter_cfg) = cfg.adapter {
-                        Some(<dyn CsiDataAdapter>::from_config(adapter_cfg).await?)
-                    } else {
-                        None
-                    },
-                    self.local_data_tx.clone(),
-                )
-                .await?;
+            handler.start(self.local_data_tx.clone()).await?;
             handlers_map.insert(cfg.device_id, handler);
         }
         drop(handlers_map); // Release lock
@@ -184,7 +173,12 @@ impl Run<SystemNodeConfig> for SystemNode {
         // create registry polling task, if configured
         let polling_task = self.registry.create_polling_task();
 
-        let experiment_task = Self::experiment_handler(self.handlers.clone(), self.experiment_send.clone(), self.experiment_recv.clone());
+        let experiment_task = Self::experiment_handler(
+            self.handlers.clone(),
+            self.experiment_send.clone(),
+            self.experiment_recv.clone(),
+            self.local_data_tx.clone(),
+        );
 
         // Run all tasks concurrently
         tokio::try_join!(tcp_server_task, polling_task, local_data_processing_task, experiment_task)?;
@@ -205,6 +199,7 @@ impl SystemNode {
         handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
         experiment_send: Sender<ExperimentChannelMsg>,
         mut experiment_recv: Arc<Mutex<Receiver<ExperimentChannelMsg>>>,
+        local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
             info!("Started experiment handler task");
@@ -234,12 +229,14 @@ impl SystemNode {
 
                         let handlers = handlers.clone();
                         let experiment_send = experiment_send.clone();
+                        let local_data_tx = local_data_tx.clone();
 
                         let handler = Arc::new(move |command: Command, update_send: Sender<ExperimentChannelMsg>| {
                             let handlers = handlers.clone(); // clone *inside* closure body
+                            let local_data_tx = local_data_tx.clone(); // clone *inside* closure body
                             info!("started experiment task");
                             async move {
-                                Self::match_command(command, handlers).await;
+                                Self::match_command(command, handlers, local_data_tx).await;
                             }
                         });
 
@@ -266,9 +263,13 @@ impl SystemNode {
             }
         })
     }
-    async fn match_command(command: Command, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), Box<dyn std::error::Error>> {
+    async fn match_command(
+        command: Command,
+        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+        local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         match command {
-            Command::Subscribe { target_addr, device_id } => Ok(Self::subscribe_to(target_addr, device_id, handlers).await?),
+            Command::Subscribe { target_addr, device_id } => Ok(Self::subscribe_to(target_addr, device_id, handlers, local_data_tx).await?),
             Command::Unsubscribe { target_addr, device_id } => Ok(Self::unsubscribe_from(device_id, handlers).await?),
             Command::Configure {
                 target_addr,
@@ -289,11 +290,11 @@ impl SystemNode {
 
 impl SystemNode {
     /// Returns the current host status as a `RegCtrl` message.
-    fn get_host_status(&self) -> HostStatus {
+    async fn get_host_status(&self) -> HostStatus {
         HostStatus {
             addr: self.addr,
             host_id: self.host_id,
-            device_statuses: self.device_configs.iter().map(DeviceInfo::from).collect(),
+            device_statuses: self.handlers.lock().await.iter().map(|x| DeviceInfo::from(&x.1.config())).collect(),
             responsiveness: Responsiveness::Connected,
         }
     }
@@ -338,6 +339,7 @@ impl SystemNode {
         target_addr: SocketAddr,
         device_id: DeviceId,
         handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+        local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Create a device handler with a source that will connect to the node server of the target
         // The sink will connect to this nodes server
@@ -358,7 +360,9 @@ impl SystemNode {
         };
 
         // This can be allowed to unwrap, as it will literally always succeed
-        let new_handler = DeviceHandler::from_config(new_handler_config).await.unwrap();
+        let mut new_handler = DeviceHandler::from_config(new_handler_config).await.unwrap();
+
+        new_handler.start(local_data_tx).await?;
 
         info!("Handler created to subscribe to {target_addr}");
 
@@ -373,7 +377,7 @@ impl SystemNode {
         info!("Removing handler subscribing to {device_id}");
         match handlers.lock().await.remove(&device_id) {
             Some(mut handler) => {
-                handler.stop().await;
+                handler.stop().await?;
             }
             _ => info!("This handler does not exist."),
         }
@@ -418,6 +422,61 @@ impl SystemNode {
         Ok(())
     }
 
+    async fn start(
+        device_id: DeviceId,
+        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+        local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        match handlers.lock().await.get_mut(&device_id) {
+            Some(handler) => {
+                info!("Starting device handler {device_id}");
+                handler.start(local_data_tx.clone()).await?;
+            }
+            _ => {
+                info!("There does not exist a device handler {device_id}")
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn start_all(
+        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+        local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        info!("Starting all device handlers");
+        for (device_id, handler) in handlers.lock().await.iter_mut() {
+            info!("Starting device handler {device_id}");
+            handler.start(local_data_tx.clone()).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn stop(device_id: DeviceId, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), Box<dyn std::error::Error>> {
+        match handlers.lock().await.get_mut(&device_id) {
+            Some(handler) => {
+                info!("Stopping device handler {device_id}");
+                handler.stop().await?;
+            }
+            _ => {
+                info!("There does not exist a device handler {device_id}")
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn stop_all(handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), Box<dyn std::error::Error>> {
+        info!("Stopping all device handlers");
+        for (device_id, handler) in handlers.lock().await.iter_mut() {
+            info!("Stopping device handler {device_id}");
+            handler.stop().await?;
+        }
+
+        Ok(())
+    }
+
     /// Handles incoming host control messages and performs the corresponding actions.
     ///
     /// # Arguments
@@ -450,11 +509,21 @@ impl SystemNode {
             HostCtrl::Subscribe { device_id } => {
                 Self::subscribe(request.src_addr, device_id, send_channel_msg_channel).await?;
             }
+            HostCtrl::SubscribeAll => {
+                for device_id in self.handlers.lock().await.keys() {
+                    Self::subscribe(request.src_addr, *device_id, send_channel_msg_channel.clone()).await?;
+                }
+            }
             HostCtrl::Unsubscribe { device_id } => {
                 Self::unsubscribe(request.src_addr, device_id, send_channel_msg_channel).await?;
             }
+            HostCtrl::UnsubscribeAll => {
+                for device_id in self.handlers.lock().await.keys() {
+                    Self::unsubscribe(request.src_addr, *device_id, send_channel_msg_channel.clone()).await?;
+                }
+            }
             HostCtrl::SubscribeTo { target_addr, device_id } => {
-                Self::subscribe_to(target_addr, device_id, self.handlers.clone()).await?;
+                Self::subscribe_to(target_addr, device_id, self.handlers.clone(), self.local_data_tx.clone()).await?;
             }
             HostCtrl::UnsubscribeFrom { target_addr: _, device_id } => {
                 Self::unsubscribe(request.src_addr, device_id, send_channel_msg_channel).await?;
@@ -485,6 +554,18 @@ impl SystemNode {
             }
             HostCtrl::Configure { device_id, cfg_type } => {
                 Self::configure(device_id, cfg_type, self.handlers.clone()).await?;
+            }
+            HostCtrl::Start { device_id } => {
+                Self::start(device_id, self.handlers.clone(), self.local_data_tx.clone()).await?;
+            }
+            HostCtrl::StartAll => {
+                Self::start_all(self.handlers.clone(), self.local_data_tx.clone()).await?;
+            }
+            HostCtrl::Stop { device_id } => {
+                Self::stop(device_id, self.handlers.clone()).await?;
+            }
+            HostCtrl::StopAll => {
+                Self::stop_all(self.handlers.clone()).await?;
             }
             HostCtrl::Ping => {
                 debug!("Received ping from {:#?}.", request.src_addr);
@@ -535,7 +616,7 @@ impl SystemNode {
         match reg_msg {
             RegChannel::SendHostStatus { host_id } => {
                 let host_status = if host_id == self.host_id {
-                    RegCtrl::HostStatus(self.get_host_status())
+                    RegCtrl::HostStatus(self.get_host_status().await)
                 } else {
                     RegCtrl::from(self.registry.get_host_by_id(host_id).await?)
                 };
@@ -543,7 +624,7 @@ impl SystemNode {
                 send_message(send_stream, msg).await?;
             }
             RegChannel::SendHostStatuses => {
-                let own_status = self.get_host_status();
+                let own_status = self.get_host_status().await;
                 let mut host_statuses: Vec<HostStatus> = self.registry.list_host_info().await;
                 host_statuses.push(own_status);
                 let msg = RegCtrl::HostStatuses { host_statuses };
