@@ -257,9 +257,10 @@ impl SystemNode {
                     }
                     ExperimentChannelMsg::UpdateExperimentStatus(experiment_info) => {
                         info!("{experiment_info:?}");
-                        if let Some(ref send_channel) = send_channel_opt {
-                            send_channel.send(ChannelMsg::HostChannel(HostChannel::UpdateExperimentStatus { experiment_info }));
-                        }
+                        // broken
+                        // if let Some(ref send_channel) = send_channel_opt {
+                        //     send_channel.send(ChannelMsg::HostChannel(HostChannel::UpdateExperimentStatus { experiment_info }));
+                        // }
                     }
                 }
             }

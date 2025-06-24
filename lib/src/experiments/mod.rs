@@ -19,13 +19,6 @@ impl Experiment {
     }
 }
 
-/// Represents the host on which the experiment is executed.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub enum ExperimentHost {
-    Orchestrator,
-    SystemNode { target_addr: SocketAddr },
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Delays {
     pub init_delay: Option<u64>,
@@ -55,7 +48,7 @@ pub enum ExperimentStatus {
 pub struct Metadata {
     pub name: String,
     pub output_path: PathBuf,
-    pub experiment_host: Option<ExperimentHost>,
+    pub remote_host: Option<SocketAddr>,
 }
 
 /// Represents a full experiment composed of multiple sequential stages.
@@ -175,6 +168,7 @@ where
     }
     /// Loads all YAML experiment files from the specified folder.
     pub fn load_experiments(&mut self, folder: PathBuf) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.experiments.clear();
         for entry in fs::read_dir(&folder)? {
             let entry = match entry {
                 Ok(e) => e,
@@ -182,7 +176,6 @@ where
             };
 
             let path = entry.path();
-
             if path.is_file() && (path.extension().is_some_and(|ext| ext == "yaml" || ext == "yml")) {
                 match Experiment::from_yaml(path.clone()) {
                     Ok(experiment) => {

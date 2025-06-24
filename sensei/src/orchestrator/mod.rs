@@ -38,6 +38,7 @@ pub enum OrgChannelMsg {
     StartExperiment,
     StartRemoteExperiment(SocketAddr),
     StopExperiment,
+    ReloadExperimentConfigs,
     // === Registry ===
     StopRemoteExperiment(SocketAddr),
     ConnectRegistry(SocketAddr),
@@ -102,6 +103,7 @@ pub enum ExperimentChannelMsg {
     StartRemote(SocketAddr),
     StopRemote(SocketAddr),
     Select(usize),
+    ReloadExperimentConfigs,
 }
 pub struct Orchestrator {
     log_level: LevelFilter,
@@ -351,7 +353,6 @@ impl Orchestrator {
                         info!("Starting experiment on remote")
                     }
                 }
-
                 ExperimentChannelMsg::Stop => {
                     cancel_signal_send.send(true);
                 }
@@ -359,7 +360,6 @@ impl Orchestrator {
                     let msg = RpcMessageKind::HostCtrl(HostCtrl::StopExperiment);
                     client.lock().await.send_message(target_addr, msg).await;
                 }
-
                 ExperimentChannelMsg::Select(i) => {
                     if let Some(exp) = session.experiments.get(i) {
                         session.active_experiment = Some(ActiveExperiment {
@@ -371,11 +371,21 @@ impl Orchestrator {
                         })
                     }
                 }
+                ExperimentChannelMsg::ReloadExperimentConfigs => {
+                    info!("Reloading experiments from {experiment_config_path:?}");
+                    session.load_experiments(experiment_config_path.clone());
+                    update_send
+                        .send(OrgUpdate::UpdateExperimentList(
+                            session.experiments.iter().map(|e| e.metadata.clone()).collect(),
+                        ))
+                        .await;
+                }
             }
-
-            update_send
-                .send(OrgUpdate::ActiveExperiment(session.active_experiment.clone().unwrap()))
-                .await;
+            if session.active_experiment.is_some() {
+                update_send
+                    .send(OrgUpdate::ActiveExperiment(session.active_experiment.clone().unwrap()))
+                    .await;
+            }
         }
     }
 
@@ -532,6 +542,11 @@ impl Orchestrator {
             OrgChannelMsg::GetHostStatuses(target_addr) => {
                 if let Some(experiment_send) = experiment_send {
                     experiment_send.send(ExperimentChannelMsg::Stop).await;
+                }
+            }
+            OrgChannelMsg::ReloadExperimentConfigs => {
+                if let Some(experiment_send) = experiment_send {
+                    experiment_send.send(ExperimentChannelMsg::ReloadExperimentConfigs).await;
                 }
             }
             OrgChannelMsg::Ping(target_addr) => {

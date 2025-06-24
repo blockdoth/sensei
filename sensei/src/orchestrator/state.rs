@@ -112,6 +112,7 @@ pub enum OrgUpdate {
     SelectExperiment(usize),
     ActiveExperiment(ActiveExperiment),
     UpdateExperimentList(Vec<Metadata>),
+    ReloadExperimentConfigs,
 
     // Misc
     Log(LogEntry),
@@ -301,6 +302,7 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
             Focus::Experiments(FocusExp::Select(i)) => match key {
                 KeyCode::Up => Some(OrgUpdate::Up(focus)),
                 KeyCode::Down => Some(OrgUpdate::Down(focus)),
+                KeyCode::Char('r') | KeyCode::Char('R') => Some(OrgUpdate::ReloadExperimentConfigs),
                 KeyCode::Char('e') | KeyCode::Char('E') => {
                     if let Some(exp) = &self.active_experiment {
                         match exp.info.status {
@@ -315,7 +317,7 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                     if let Some(exp) = &self.active_experiment {
                         match exp.info.status {
                             ExperimentStatus::Done | ExperimentStatus::Ready | ExperimentStatus::Stopped => {
-                                Some(OrgUpdate::StartExperiment(self.selected_host))
+                                Some(OrgUpdate::StartExperiment(exp.experiment.metadata.remote_host))
                             }
                             _ => None,
                         }
@@ -405,7 +407,10 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                 self.active_experiment = Some(active_experiment);
             }
             OrgUpdate::UpdateExperimentList(experiments) => {
-                self.experiments.extend(experiments);
+                self.experiments = experiments;
+            }
+            OrgUpdate::ReloadExperimentConfigs => {
+                command_send.send(OrgChannelMsg::ReloadExperimentConfigs).await;
             }
             OrgUpdate::ClearLogs => self.logs.clear(),
             OrgUpdate::ClearCsi => self.csi.clear(),

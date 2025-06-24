@@ -359,7 +359,7 @@ fn render_experiments(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
             _ => Color::White,
         };
         let stage_names: Vec<String> = active_exp.experiment.stages.iter().map(|f| f.name.clone()).collect();
-        let running_on = if let Some(addr) = tui_state.selected_host {
+        let running_on = if let Some(addr) = active_exp.experiment.metadata.remote_host {
             format!("{addr:?}")
         } else {
             "Current Device".to_owned()
@@ -478,14 +478,14 @@ fn footer_text(tui_state: &OrgTuiState) -> String {
             Some(experiment) => {
               match experiment.info.status {
                 ExperimentStatus::Running => {
-                  "[E]nd Experiment | [Tab] Next | [Shft+Tab] Prev | [↑↓] Move | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit"
+                  "[E]nd Experiment | [R]eload  | [Tab] Next | [Shft+Tab] Prev | [↑↓] Move | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit"
                 },
                 _ => {
-                  "[B]egin experiment | [S]elect Experiment | [Tab] Next | [Shft+Tab] Prev | [↑↓] Move | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit"
+                  "[B]egin experiment | [S]elect Experiment | [R]eload | [Tab] Next | [Shft+Tab] Prev | [↑↓] Move | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit"
                 }
               }
             },
-            None => "[S]elect Experiment | [Tab] Next | [Shft+Tab] Prev | [↑↓] Move | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit"
+            None => "[S]elect Experiment | [R]eload | [Tab] Next | [Shft+Tab] Prev | [↑↓] Move | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit"
           }
         },
         Focus::Logs | Focus::Csi => "[↑↓] Move | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit",
