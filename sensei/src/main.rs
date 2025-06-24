@@ -125,6 +125,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             SubCommandsArgs::EspTool(args) => runtime.block_on(EspTool::new(global_args, args.parse()?).run())?,
             #[cfg(feature = "registry")]
             SubCommandsArgs::Registry(args) => runtime.block_on(Registry::new(global_args, args.parse()?).run())?,
+            #[allow(unreachable_patterns)] // this case is only needed when doing a compile with 0 features
             _ => panic!("Unknown option."),
         },
     }

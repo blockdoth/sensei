@@ -243,8 +243,6 @@ fn render_registry(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     lines.push(Line::from("Manually add Host: "));
     lines.push(divider(area));
 
-    let ip_input = Line::from(" [IP:Port] ___.___.___.___:______");
-
     let mut add_addr = vec![Span::from(" IP:Port ")];
     add_addr.extend(edit_address(&tui_state.focussed_panel, tui_state.add_host_input_socket));
     lines.push(Line::from(add_addr));
@@ -274,7 +272,7 @@ fn render_hosts(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     for (host_idx, host) in tui_state.known_hosts.iter().enumerate() {
         // Handles host style
         let host_style = {
-            let mut style = match tui_state.focussed_panel {
+            let style = match tui_state.focussed_panel {
                 Focus::Hosts(FocusHost::HostTree(h, 0)) if h == host_idx => Style::default().bg(Color::Gray),
                 _ => Style::default(),
             };
@@ -358,7 +356,6 @@ fn render_experiments(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
             ExperimentStatus::Done => Color::Green,
             _ => Color::White,
         };
-        let stage_names: Vec<String> = active_exp.experiment.stages.iter().map(|f| f.name.clone()).collect();
         let running_on = if let Some(addr) = active_exp.experiment.metadata.remote_host {
             format!("{addr:?}")
         } else {
@@ -441,8 +438,6 @@ fn render_experiments(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
 
 /// Renders the footer panel with keybindings or contextual help based on the current focused panel.
 fn render_footer(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
-    let footer = Block::default().title("Info").borders(Borders::ALL);
-
     let widget = Paragraph::new(footer_text(tui_state)).wrap(Wrap { trim: true }).block(
         Block::default()
             .borders(Borders::ALL)

@@ -139,34 +139,37 @@ impl DeviceHandler {
         let controller_config = self.config.controller.clone();
         let (shutdown_tx, mut shutdown_rx) = watch::channel(());
 
-        let mut source_outside = Arc::clone(&self.source);
-        let mut adapter_outside = Arc::clone(&self.adapter);
+        let source_outside = Arc::clone(&self.source);
+        let adapter_outside = Arc::clone(&self.adapter);
 
         let handle = tokio::spawn(async move {
             let mut source = source_outside.lock().await;
             let mut adapter = adapter_outside.lock().await;
 
             // Start the source.
-            source.start().await.map_err(|e| {
+            if let Err(e) = source.start().await {
                 log::error!("Device {device_id} source start failed: {e:?}");
-                TaskError::DataSourceError(e)
-            });
+                return;
+            }
             log::info!("Device {device_id} source started successfully.");
 
             // Apply controller if configured, now that the source is started.
             if let Some(controller_cfg) = controller_config {
                 log::info!("Applying controller for device {device_id}.");
-                let controller: Box<dyn Controller> = <dyn Controller>::from_config(controller_cfg.clone())
-                    .await
-                    .map_err(|e| {
+                let controller_res: Result<Box<dyn Controller>, TaskError> = <dyn Controller>::from_config(controller_cfg.clone()).await;
+                let controller = match controller_res {
+                    Ok(ctrl) => ctrl,
+                    Err(e) => {
                         log::error!("Device {device_id} controller instantiation failed: {e:?}");
-                        e // Assuming TaskError::Controller will be handled by `?` or caller
-                    })
-                    .unwrap();
-                controller.apply(source.as_mut()).await.map_err(|e| {
+                        let _ = source.stop().await;
+                        return;
+                    }
+                };
+                if let Err(e) = controller.apply(source.as_mut()).await {
                     log::error!("Device {device_id} controller apply failed: {e:?}");
-                    TaskError::ControllerError(e)
-                });
+                    let _ = source.stop().await;
+                    return;
+                }
                 log::info!("Device {device_id} controller applied successfully.");
             }
 
@@ -481,7 +484,7 @@ mod tests {
 
         let mut handler = DeviceHandler::from_config(config).await.unwrap();
 
-        let (tx, mut rx) = mpsc::channel(10);
+        let (tx, _rx) = mpsc::channel(10);
         handler.start(tx).await.unwrap();
 
         // let (msg, dev_id) = rx.recv().await.unwrap();

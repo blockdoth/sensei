@@ -22,6 +22,7 @@ use crate::network::rpc_message::DataMsg;
 use crate::sinks::{Sink, SinkConfig, ToConfig};
 pub struct CsvSink {
     writer: BufWriter<File>,
+    path: PathBuf,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
@@ -31,11 +32,14 @@ pub struct CsvSinkConfig {
 
 impl CsvSink {
     pub async fn new(config: CsvSinkConfig) -> Result<Self, SinkError> {
-        let file = File::create(config.path)?;
+        let file = File::create(&config.path)?;
         let mut writer = BufWriter::new(file);
         // Write header
         writeln!(writer, "timestamp,sequence_number,num_cores,num_streams,num_subcarriers,rssi,csi")?;
-        Ok(CsvSink { writer })
+        Ok(CsvSink {
+            writer,
+            path: config.path.clone(),
+        })
     }
 
     fn write(&mut self, data: &CsiData) -> Result<(), SinkError> {
@@ -62,7 +66,7 @@ impl CsvSink {
             "{},{},{},{},{},\"{}\",\"{}\"",
             data.timestamp, data.sequence_number, num_cores, num_antennas, num_subcarriers, rssi_str, csi_str
         )?;
-        self.flush();
+        self.flush()?;
         Ok(())
     }
 
@@ -78,7 +82,7 @@ impl CsvSink {
 impl ToConfig<SinkConfig> for CsvSink {
     async fn to_config(&self) -> Result<SinkConfig, TaskError> {
         // You may need to adjust this depending on your SinkConfig definition
-        Ok(SinkConfig::Csv(CsvSinkConfig { path: todo!() }))
+        Ok(SinkConfig::Csv(CsvSinkConfig { path: self.path.clone() }))
     }
 }
 
@@ -174,7 +178,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_parse_read_adapt_and_compare() {
-        let mut file = NamedTempFile::new().unwrap();
+        let file = NamedTempFile::new().unwrap();
         let csv_file_option = test_utils::generate_csv_data_file();
         if csv_file_option.is_none() {
             error!("Skipped test, could not generate a Csv file");
@@ -206,7 +210,7 @@ mod tests {
             };
             // Might not return a data packet
             if let Some(data) = adapter.produce(raw_data_message).await.unwrap() {
-                sink.provide(data).await;
+                sink.provide(data).await.unwrap();
             }
         }
         sink.flush().unwrap();
@@ -218,7 +222,7 @@ mod tests {
         let mut written_contents = String::new();
         written_file.read_to_string(&mut written_contents).unwrap();
 
-        csv_file.rewind();
+        csv_file.rewind().unwrap();
         let mut csv_contents = String::new();
         csv_file.read_to_string(&mut csv_contents).unwrap();
 
@@ -235,7 +239,7 @@ mod tests {
             "Csv sink output and original data have different number of lines"
         );
 
-        for (i, (written, original)) in written_lines.iter().zip(original_lines.iter()).enumerate() {
+        for (written, original) in written_lines.iter().zip(original_lines.iter()) {
             // Sometimes the flp to string conversion yields slightly different strings. Especially once scientific notation is used.
             // Therefore this test is kinda weird and tires to see if the contents of the string at the very least mean the same things.
             // Since comparing String to String is faster than parsing every string, that's checked first.

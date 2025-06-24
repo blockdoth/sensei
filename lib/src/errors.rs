@@ -479,6 +479,25 @@ pub enum ExperimentError {
     TaskError(#[from] TaskError),
 }
 
+#[derive(Error, Debug)]
+pub enum OrchestratorError<T> {
+    /// Could not execute something.
+    #[error("Execution Error")]
+    ExecutionError,
+
+    /// Network Error
+    #[error("Network Error")]
+    NetworkError(#[from] NetworkError),
+
+    /// Send Error
+    #[error("An error caused by Tokio")]
+    GenericSendError,
+
+    /// Mpsc error
+    #[error("Error caused by Tokio mpsc")]
+    MpscError(#[from] tokio::sync::mpsc::error::SendError<T>),
+}
+
 // Allow conversion from Box<NetworkError> to NetworkError
 impl From<Box<NetworkError>> for NetworkError {
     fn from(err: Box<NetworkError>) -> Self {
