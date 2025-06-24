@@ -194,10 +194,22 @@ impl Orchestrator {
         info!("Subscribing to {target_addr} for device id {device_id}");
         Ok(client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?)
     }
+    
+    async fn subscribe_all(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
+        let msg = HostCtrl::SubscribeAll;
+        info!("Subscribing to all devices on {target_addr}");
+        Ok(client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?)
+    }
 
     async fn unsubscribe(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: u64) -> Result<(), Box<dyn std::error::Error>> {
         let msg = HostCtrl::Unsubscribe { device_id };
         info!("Unsubscribing from {target_addr} for device id {device_id}");
+        Ok(client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?)
+    }
+    
+    async fn unsubscribe_all(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
+        let msg = HostCtrl::UnsubscribeAll;
+        info!("Unsubscribing from all devices on {target_addr}");
         Ok(client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?)
     }
 

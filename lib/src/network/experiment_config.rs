@@ -100,7 +100,7 @@ pub enum IsRecurring {
 /// The orchestrator executes these commands by sending messages to system nodes and telling them to run the commands
 ///
 /// The system node executes these commands by running them locally.
-/// System nodes can only run the `Subscribe`, `Unsubscribe`, `Configure`, `Start`, `Stop` and `Delay` commands,
+/// System nodes can only run the `Subscribe(All)`, `Unsubscribe`, `Configure`, `Start(All)`, `Stop(All)` and `Delay` commands,
 /// as connecting and disconnecting are not relevant concepts to a system node,
 /// and it is not necessary for a system node to tell another system node to subscribe to a third system node.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -123,12 +123,24 @@ pub enum Command {
         target_addr: SocketAddr,
         device_id: DeviceId,
     },
+    /// Tells the orchestrator to subscribe to all devices of a node
+    ///
+    /// Tells a system node to subscribe to all devices of a node
+    SubscribeAll {
+        target_addr: SocketAddr,
+    },
     /// Tells the orchestrator to unsubscribe to a system node
     ///
-    /// Tells a system node to unsubscribe to a system node
+    /// Tells a system node to unsubscribe from a system node
     Unsubscribe {
         target_addr: SocketAddr,
         device_id: DeviceId,
+    },
+    /// Tells the orchestrator to unsubscribe from all devices of a node
+    ///
+    /// Tells a system node to subscribe to all devices of a node
+    UnsubscribeAll {
+        target_addr: SocketAddr,
     },
     /// Tells the orchestrator to tell a system node to subscribe to another system node
     SubscribeTo {
@@ -170,10 +182,17 @@ pub enum Command {
         target_addr: SocketAddr,
         device_id: DeviceId,
     },
+    /// Starts all devices on a system node
+    StartAll {
+        target_addr: SocketAddr,
+    },
     /// Tells a device handler to stop
     Stop {
         target_addr: SocketAddr,
         device_id: DeviceId,
+    },
+    StopAll {
+        target_addr: SocketAddr,
     },
     DummyData {},
 }
