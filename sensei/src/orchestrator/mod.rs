@@ -172,7 +172,7 @@ impl Run<OrchestratorConfig> for Orchestrator {
                 let client = client.clone();
                 let registry_recv = registry_recv;
                 let update_send = update_send.clone();
-                let polling_interval = self.polling_interval.clone();
+                let polling_interval = self.polling_interval;
                 Box::pin(async move {
                     match Self::registry_handler(client, registry_recv, update_send, polling_interval).await {
                         Ok(_) => {}

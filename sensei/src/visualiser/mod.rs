@@ -44,7 +44,7 @@ pub struct Visualiser {
 }
 
 impl Run<VisualiserConfig> for Visualiser {
-    fn new(global_config: GlobalConfig, config: VisualiserConfig) -> Self {
+    fn new(_global_config: GlobalConfig, config: VisualiserConfig) -> Self {
         Visualiser {
             data: Arc::new(Default::default()),
             target: config.target,
@@ -57,7 +57,7 @@ impl Run<VisualiserConfig> for Visualiser {
         // At the moment, it is sufficient to connect to one target node on startup
         // Manually start the subscription by typing subscribe
         let client = Arc::new(Mutex::new(TcpClient::new()));
-        self.client_task(client.clone(), self.target).await;
+        self.client_task(client.clone(), self.target).await?;
         self.receive_data_task(self.data.clone(), client.clone(), self.target);
 
         io::stdout().flush().await?;

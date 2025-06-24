@@ -78,7 +78,7 @@ impl Registry {
                 let res: Result<(), RegistryError> = async {
                     debug!("Polling host: {host_id:#?} at address: {target_addr}");
                     if !client.is_connected(target_addr).await {
-                        client.connect(target_addr).await;
+                        client.connect(target_addr).await?;
                     }
                     client
                         .send_message(target_addr, RpcMessageKind::RegCtrl(RegCtrl::PollHostStatus { host_id }))
@@ -206,8 +206,8 @@ impl ConnectionHandler for Registry {
                 RegCtrl::HostStatus(HostStatus {
                     host_id,
                     device_statuses: device_status,
-                    responsiveness,
-                    addr,
+                    responsiveness: _,
+                    addr: _,
                 }) => self
                     .store_host_update(host_id, request.src_addr, device_status)
                     .await
@@ -219,12 +219,13 @@ impl ConnectionHandler for Registry {
                             .map_err(|err| NetworkError::ProcessingError(err.to_string()))?
                     }
                 }
+                #[allow(unreachable_patterns)]
                 _ => {
                     warn!("The client received an unsupported request. Responding with an empty message.");
                     send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Empty))?;
                 }
             },
-            RpcMessageKind::Data { data_msg, device_id } => panic!("A registry can't handle data messages."),
+            RpcMessageKind::Data { data_msg: _, device_id: _ } => panic!("A registry can't handle data messages."),
         };
         Ok(())
     }
@@ -262,7 +263,7 @@ impl ConnectionHandler for Registry {
                         send_message(&mut send_stream, msg).await?;
                     }
                     RegChannel::SendHostStatuses => {
-                        let mut host_statuses: Vec<HostStatus> = self.list_host_statuses().await.iter().map(|(_, info)| info.clone()).collect();
+                        let host_statuses: Vec<HostStatus> = self.list_host_statuses().await.iter().map(|(_, info)| info.clone()).collect();
                         let msg = RegCtrl::HostStatuses { host_statuses };
                         send_message(&mut send_stream, RpcMessageKind::RegCtrl(msg)).await?;
                     }
@@ -278,7 +279,7 @@ impl ConnectionHandler for Registry {
 
 impl Run<RegistryConfig> for Registry {
     /// Constructs a new `Registry` from the given global and node-specific configuration.
-    fn new(global_config: GlobalConfig, config: RegistryConfig) -> Self {
+    fn new(_global_config: GlobalConfig, config: RegistryConfig) -> Self {
         trace!("{config:#?}");
         let (send_data_channel, _) = broadcast::channel::<(DataMsg, DeviceId)>(16); // magic buffer
         Registry {
@@ -325,7 +326,7 @@ impl Run<RegistryConfig> for Registry {
                 });
                 client.connect(registry_addr).await?;
                 client.send_message(registry_addr, heartbeat_msg).await?;
-                client.disconnect(registry_addr).await;
+                client.disconnect(registry_addr).await?;
                 info!("Presence announced to registry at {registry_addr}");
             }
         }
@@ -341,7 +342,7 @@ impl Run<RegistryConfig> for Registry {
             };
         });
 
-        try_join!(tcp_server_task, polling_task);
+        try_join!(tcp_server_task, polling_task)?;
 
         Ok(())
     }
@@ -353,7 +354,7 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::sync::Arc;
 
-    use lib::network::rpc_message::{DeviceInfo, HostId, HostStatus, RegCtrl, Responsiveness, RpcMessageKind, SourceType};
+    use lib::network::rpc_message::{DeviceInfo, HostId, Responsiveness, SourceType};
     use tokio::sync::{Mutex, broadcast};
 
     use super::Registry;
@@ -474,12 +475,6 @@ mod tests {
             id: 42,
             dev_type: SourceType::ESP32,
         }];
-        let msg_kind = RpcMessageKind::RegCtrl(RegCtrl::HostStatus(HostStatus {
-            addr,
-            host_id,
-            device_statuses: device_status.clone(),
-            responsiveness: Responsiveness::Connected,
-        }));
         // Extract device_status from msg_kind and pass it to store_host_update
         registry.store_host_update(host_id, addr, device_status.clone()).await.unwrap();
 

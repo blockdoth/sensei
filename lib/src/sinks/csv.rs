@@ -239,7 +239,7 @@ mod tests {
             "Csv sink output and original data have different number of lines"
         );
 
-        for (_, (written, original)) in written_lines.iter().zip(original_lines.iter()).enumerate() {
+        for (written, original) in written_lines.iter().zip(original_lines.iter()) {
             // Sometimes the flp to string conversion yields slightly different strings. Especially once scientific notation is used.
             // Therefore this test is kinda weird and tires to see if the contents of the string at the very least mean the same things.
             // Since comparing String to String is faster than parsing every string, that's checked first.
