@@ -121,13 +121,20 @@ impl Registry {
 
     /// Updates hosts responsiveness in the registry.
     pub async fn handle_unresponsive_host(&self, host_id: HostId) -> Result<(), RegistryError> {
-        warn!("Could not reach host: {host_id:?}");
         let mut host_info_table = self.hosts.lock().await;
         let info = host_info_table.get_mut(&host_id).ok_or(RegistryError::NoSuchHost)?;
         match info.status.responsiveness {
-            Responsiveness::Connected => info.status.responsiveness = Responsiveness::Lossy,
-            Responsiveness::Lossy => info.status.responsiveness = Responsiveness::Disconnected,
-            Responsiveness::Disconnected => (),
+            Responsiveness::Connected => {
+                info.status.responsiveness = Responsiveness::Lossy;
+                warn!("Could not reach host: {host_id:?}.");
+            }
+            Responsiveness::Lossy => {
+                info.status.responsiveness = Responsiveness::Disconnected;
+                warn!("Could not reach host: {host_id:?}. Won't log untill a connection can be established again.");
+            }
+            Responsiveness::Disconnected => {
+                trace!("Could not reach host: {host_id:?}");
+            }
         }
         Ok(())
     }
@@ -187,17 +194,15 @@ impl ConnectionHandler for Registry {
             RpcMessageKind::HostCtrl(host_ctrl) => match host_ctrl {
                 HostCtrl::Connect => info!("Started connection with {}", request.src_addr),
                 HostCtrl::Disconnect => send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Disconnect))?,
-                HostCtrl::Configure { device_id, cfg_type } => todo!(),
-                HostCtrl::Subscribe { device_id } => todo!(),
-                HostCtrl::Unsubscribe { device_id } => todo!(),
-                HostCtrl::SubscribeTo { target_addr, device_id } => todo!(),
-                HostCtrl::UnsubscribeFrom { target_addr, device_id } => todo!(),
-                HostCtrl::Experiment { experiment } => todo!(),
                 HostCtrl::Ping => {
                     debug!("Received ping from {:#?}.", request.src_addr);
                     send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Pong))?;
                 }
-                HostCtrl::Pong => todo!(),
+                HostCtrl::Pong => info!("Received pong from {}", request.src_addr),
+                _ => {
+                    warn!("The client received an unsupported request. Responding with an empty message.");
+                    send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Empty))?;
+                }
             },
             RpcMessageKind::RegCtrl(reg_ctrl) => match reg_ctrl {
                 RegCtrl::AnnouncePresence { host_id, host_address } => {
@@ -220,7 +225,10 @@ impl ConnectionHandler for Registry {
                             .await?
                     }
                 }
-                _ => {}
+                _ => {
+                    warn!("The client received an unsupported request. Responding with an empty message.");
+                    send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Empty))?;
+                }
             },
             RpcMessageKind::Data { data_msg, device_id } => todo!(),
         };
@@ -241,19 +249,13 @@ impl ConnectionHandler for Registry {
             let channel_msg = recv_command_channel.borrow_and_update().clone();
             match channel_msg {
                 ChannelMsg::HostChannel(host_channel) => match host_channel {
-                    HostChannel::Empty => todo!(),
+                    HostChannel::Empty => send_message(&mut send_stream, RpcMessageKind::HostCtrl(HostCtrl::Empty)).await?,
                     HostChannel::Disconnect => {
                         send_message(&mut send_stream, RpcMessageKind::HostCtrl(HostCtrl::Disconnect)).await?;
                         return Err(NetworkError::Closed);
                     }
-                    HostChannel::Subscribe { device_id } => todo!(),
-                    HostChannel::Unsubscribe { device_id } => todo!(),
-                    HostChannel::SubscribeTo { target_addr, device_id } => todo!(),
-                    HostChannel::UnsubscribeFrom { target_addr, device_id } => todo!(),
-                    HostChannel::ListenSubscribe { addr } => todo!(),
-                    HostChannel::ListenUnsubscribe { addr } => todo!(),
-                    HostChannel::Configure { device_id, cfg_type } => todo!(),
                     HostChannel::Pong => send_message(&mut send_stream, RpcMessageKind::HostCtrl(HostCtrl::Pong)).await?,
+                    _ => panic!("Received an unsupported channel message."),
                 },
                 ChannelMsg::RegChannel(reg_channel) => match reg_channel {
                     RegChannel::SendHostStatus { host_id } => {
@@ -272,7 +274,7 @@ impl ConnectionHandler for Registry {
                         send_message(&mut send_stream, RpcMessageKind::RegCtrl(msg)).await?;
                     }
                 },
-                ChannelMsg::Data { data: _ } => todo!(),
+                _ => panic!("Received an unsupported channel message."),
             }
         }
         // Ok(()) is unreachable, but keep for completeness
