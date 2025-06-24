@@ -30,8 +30,8 @@ pub enum NetworkError {
     Timeout(#[from] tokio::time::error::Elapsed),
 
     /// Processing Error
-    #[error("Processing Error")]
-    ProcessingError,
+    #[error("Processing Error: {0}")]
+    ProcessingError(String),
 
     /// Failed during serialization or deserialization.
     #[error("Error during (De)Serialization")]

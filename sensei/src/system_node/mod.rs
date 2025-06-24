@@ -15,7 +15,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use lib::FromConfig;
 use lib::errors::{AppError, ExperimentError, NetworkError};
-use lib::experiments::{ActiveExperiment, Block, Command, DelayType, Experiment, ExperimentInfo, ExperimentSession, ExperimentStatus, Stage};
+use lib::experiments::{ActiveExperiment, Command, Experiment, ExperimentInfo, ExperimentSession, ExperimentStatus};
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
 use lib::network::rpc_message::CfgType::{Create, Delete, Edit};
 use lib::network::rpc_message::SourceType::*;
@@ -258,7 +258,7 @@ impl SystemNode {
             }
         })
     }
-    
+
     async fn match_command(
         command: Command,
         handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
@@ -460,107 +460,6 @@ impl SystemNode {
         Ok(())
     }
 
-    /// Handles incoming host control messages and performs the corresponding actions.
-    ///
-    /// # Arguments
-    /// * `request` - The incoming RPC message containing the request details.
-    /// * `message` - The host control command to handle.
-    /// * `send_channel_msg_channel` - A channel to send messages to the connection's sending task.
-    ///
-    /// # Returns
-    /// * `Result<(), NetworkError>` - Returns `Ok(())` if the command was handled successfully, or a `NetworkError` if an error occurred.
-    ///
-    /// # Behavior
-    /// - Handles various `HostCtrl` commands such as `Connect`, `Disconnect`, `Subscribe`, `Unsubscribe`, `SubscribeTo`, `UnsubscribeFrom`, `Configure`.and `Experiment`
-    /// - For `Disconnect`, signals the sending task to disconnect and returns an error to indicate the connection should close.
-    /// - For subscription commands, updates the relevant handlers and logs the actions.
-    /// - For configuration commands, creates, edits, or deletes device handlers as specified.
-    async fn handle_host_ctrl(
-        &self,
-        request: RpcMessage,
-        message: HostCtrl,
-        send_channel_msg_channel: watch::Sender<ChannelMsg>,
-    ) -> Result<(), AppError> {
-        match message {
-            // regular Host commands
-            HostCtrl::Connect => {
-                Self::connect(request.src_addr).await?;
-            }
-            HostCtrl::Disconnect => {
-                Self::disconnect(request.src_addr, send_channel_msg_channel).await?;
-            }
-            HostCtrl::Subscribe { device_id } => {
-                Self::subscribe(request.src_addr, device_id, send_channel_msg_channel).await?;
-            }
-            HostCtrl::SubscribeAll => {
-                for device_id in self.handlers.lock().await.keys() {
-                    Self::subscribe(request.src_addr, *device_id, send_channel_msg_channel.clone()).await?;
-                }
-            }
-            HostCtrl::Unsubscribe { device_id } => {
-                Self::unsubscribe(request.src_addr, device_id, send_channel_msg_channel).await?;
-            }
-            HostCtrl::UnsubscribeAll => {
-                for device_id in self.handlers.lock().await.keys() {
-                    Self::unsubscribe(request.src_addr, *device_id, send_channel_msg_channel.clone()).await?;
-                }
-            }
-            HostCtrl::SubscribeTo { target_addr, device_id } => {
-                Self::subscribe_to(target_addr, device_id, self.handlers.clone(), self.local_data_tx.clone()).await?;
-            }
-            HostCtrl::UnsubscribeFrom { target_addr: _, device_id } => {
-                Self::unsubscribe(request.src_addr, device_id, send_channel_msg_channel).await?;
-            }
-            HostCtrl::SubscribeAll => {
-                todo!();
-                // Self::subscribe_all(request.src_addr, send_channel_msg_channel).await?;
-            }
-            HostCtrl::UnsubscribeAll => {
-                todo!();
-                // Self::unsubscribe_all(request.src_addr, send_channel_msg_channel).await?;
-            }
-            HostCtrl::SubscribeToAll { target_addr } => {
-                todo!();
-                // Self::subscribe_to_all(target_addr, self.handlers.clone()).await?;
-            }
-            HostCtrl::UnsubscribeFromAll { target_addr: _ } => {
-                todo!();
-                // Self::unsubscribe_all(request.src_addr, send_channel_msg_channel).await?;
-            }
-            HostCtrl::StartExperiment { experiment } => {
-                self.experiment_send
-                    .send(ExperimentChannelMsg::Start(experiment, send_channel_msg_channel.clone()))
-                    .await;
-            }
-            HostCtrl::StopExperiment => {
-                self.experiment_send.send(ExperimentChannelMsg::Stop).await;
-            }
-            HostCtrl::Configure { device_id, cfg_type } => {
-                Self::configure(device_id, cfg_type, self.handlers.clone()).await?;
-            }
-            HostCtrl::Start { device_id } => {
-                Self::start(device_id, self.handlers.clone(), self.local_data_tx.clone()).await?;
-            }
-            HostCtrl::StartAll => {
-                Self::start_all(self.handlers.clone(), self.local_data_tx.clone()).await?;
-            }
-            HostCtrl::Stop { device_id } => {
-                Self::stop(device_id, self.handlers.clone()).await?;
-            }
-            HostCtrl::StopAll => {
-                Self::stop_all(self.handlers.clone()).await?;
-            }
-            HostCtrl::Ping => {
-                debug!("Received ping from {:#?}.", request.src_addr);
-                send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Pong))?;
-            }
-            m => {
-                warn!("Received unhandled HostCtrl: {m:?}");
-            }
-        };
-        Ok(())
-    }
-
     /// Helper function to route data (from local or external sources) to configured sinks.
     async fn route_data_to_sinks(&self, data_msg: DataMsg, device_id: DeviceId) {
         let handlers_guard = self.handlers.lock().await;
@@ -614,38 +513,88 @@ impl ConnectionHandler for SystemNode {
     async fn handle_recv(&self, request: RpcMessage, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
         debug!("Received message {:?} from {:?}", request.msg, request.src_addr);
         match &request.msg {
-            RpcMessageKind::HostCtrl(command) => match command {
-                // regular Host commands
-                HostCtrl::Connect => Self::connect(request.src_addr).await.map_err(|_| NetworkError::ProcessingError)?,
-                HostCtrl::Disconnect => Self::disconnect(request.src_addr, send_channel_msg_channel)
-                    .await
-                    .map_err(|_| NetworkError::ProcessingError)?,
-                HostCtrl::Subscribe { device_id } => Self::subscribe(request.src_addr, *device_id, send_channel_msg_channel)
-                    .await
-                    .map_err(|_| NetworkError::ProcessingError)?,
-                HostCtrl::Unsubscribe { device_id } => Self::unsubscribe(request.src_addr, *device_id, send_channel_msg_channel)
-                    .await
-                    .map_err(|_| NetworkError::ProcessingError)?,
-                HostCtrl::SubscribeTo { target_addr, device_id } => {
-                    Self::subscribe_to(*target_addr, *device_id, self.handlers.clone(), self.local_data_tx.clone())
-                        .await
-                        .map_err(|_| NetworkError::ProcessingError)?
-                }
-                HostCtrl::UnsubscribeFrom { target_addr: _, device_id } => Self::unsubscribe(request.src_addr, *device_id, send_channel_msg_channel)
-                    .await
-                    .map_err(|_| NetworkError::ProcessingError)?,
-                HostCtrl::Configure { device_id, cfg_type } => Self::configure(*device_id, cfg_type.clone(), self.handlers.clone())
-                    .await
-                    .map_err(|_| NetworkError::ProcessingError)?,
-                HostCtrl::Ping => {
-                    debug!("Received ping from {:#?}.", request.src_addr);
-                    send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Pong))?;
-                }
-                _ => {
-                    warn!("The client received an unsupported request. Responding with an empty message.");
-                    send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Empty))?;
-                }
-            },
+            RpcMessageKind::HostCtrl(command) => async move {
+                match command {
+                    // regular Host commands
+                    HostCtrl::Connect => {
+                        Self::connect(request.src_addr).await?;
+                    }
+                    HostCtrl::Disconnect => {
+                        Self::disconnect(request.src_addr, send_channel_msg_channel).await?;
+                    }
+                    HostCtrl::Subscribe { device_id } => {
+                        Self::subscribe(request.src_addr, *device_id, send_channel_msg_channel).await?;
+                    }
+                    HostCtrl::SubscribeAll => {
+                        for device_id in self.handlers.lock().await.keys() {
+                            Self::subscribe(request.src_addr, *device_id, send_channel_msg_channel.clone()).await?;
+                        }
+                    }
+                    HostCtrl::Unsubscribe { device_id } => {
+                        Self::unsubscribe(request.src_addr, *device_id, send_channel_msg_channel).await?;
+                    }
+                    HostCtrl::UnsubscribeAll => {
+                        for device_id in self.handlers.lock().await.keys() {
+                            Self::unsubscribe(request.src_addr, *device_id, send_channel_msg_channel.clone()).await?;
+                        }
+                    }
+                    HostCtrl::SubscribeTo { target_addr, device_id } => {
+                        Self::subscribe_to(*target_addr, *device_id, self.handlers.clone(), self.local_data_tx.clone()).await?;
+                    }
+                    HostCtrl::UnsubscribeFrom { target_addr: _, device_id } => {
+                        Self::unsubscribe(request.src_addr, *device_id, send_channel_msg_channel).await?;
+                    }
+                    HostCtrl::SubscribeAll => {
+                        todo!();
+                        // Self::subscribe_all(request.src_addr, send_channel_msg_channel).await?;
+                    }
+                    HostCtrl::UnsubscribeAll => {
+                        todo!();
+                        // Self::unsubscribe_all(request.src_addr, send_channel_msg_channel).await?;
+                    }
+                    HostCtrl::SubscribeToAll { target_addr } => {
+                        todo!();
+                        // Self::subscribe_to_all(target_addr, self.handlers.clone()).await?;
+                    }
+                    HostCtrl::UnsubscribeFromAll { target_addr: _ } => {
+                        todo!();
+                        // Self::unsubscribe_all(request.src_addr, send_channel_msg_channel).await?;
+                    }
+                    HostCtrl::StartExperiment { experiment } => {
+                        self.experiment_send
+                            .send(ExperimentChannelMsg::Start(experiment.clone(), send_channel_msg_channel.clone()))
+                            .await;
+                    }
+                    HostCtrl::StopExperiment => {
+                        self.experiment_send.send(ExperimentChannelMsg::Stop).await;
+                    }
+                    HostCtrl::Configure { device_id, cfg_type } => {
+                        Self::configure(*device_id, cfg_type.clone(), self.handlers.clone()).await?;
+                    }
+                    HostCtrl::Start { device_id } => {
+                        Self::start(*device_id, self.handlers.clone(), self.local_data_tx.clone()).await?;
+                    }
+                    HostCtrl::StartAll => {
+                        Self::start_all(self.handlers.clone(), self.local_data_tx.clone()).await?;
+                    }
+                    HostCtrl::Stop { device_id } => {
+                        Self::stop(*device_id, self.handlers.clone()).await?;
+                    }
+                    HostCtrl::StopAll => {
+                        Self::stop_all(self.handlers.clone()).await?;
+                    }
+                    HostCtrl::Ping => {
+                        debug!("Received ping from {:#?}.", request.src_addr);
+                        send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Pong))?;
+                    }
+                    m => {
+                        warn!("Received unhandled HostCtrl: {m:?}");
+                    }
+                };
+                Ok::<(), Box<dyn std::error::Error>>(())
+            }
+            .await
+            .map_err(|err| NetworkError::ProcessingError(err.to_string()))?,
             RpcMessageKind::RegCtrl(command) => match command {
                 RegCtrl::PollHostStatus { host_id } => {
                     send_channel_msg_channel.send(ChannelMsg::RegChannel(RegChannel::SendHostStatus { host_id: self.host_id }))?
