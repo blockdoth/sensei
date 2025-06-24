@@ -31,7 +31,6 @@ pub struct CsvSourceConfig {
 pub struct CsvSource {
     config: CsvSourceConfig,
     reader: BufReader<File>,
-    cell_delimiter: u8,
     row_delimiter: u8,
 }
 
@@ -55,7 +54,6 @@ impl CsvSource {
         Ok(Self {
             config,
             reader,
-            cell_delimiter,
             row_delimiter,
         })
     }

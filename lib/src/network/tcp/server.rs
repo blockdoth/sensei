@@ -208,11 +208,6 @@ mod tests {
         ) -> Result<(), NetworkError>;
     }
 
-    #[automock]
-    trait MockSubscribeDataChannel: Send + Sync {
-        fn subscribe_data_channel(&self) -> broadcast::Receiver<(crate::network::rpc_message::DataMsg, u64)>;
-    }
-
     #[derive(Clone)]
     struct DummyHandler;
     #[async_trait::async_trait]

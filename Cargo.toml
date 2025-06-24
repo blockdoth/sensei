@@ -9,4 +9,4 @@ resolver = "2"
 [workspace.lints.rust]
 unused_imports = "warn" 
 unused = { level = "allow", priority = -1 } 
-dead_code = "allow"
+dead_code = "warn"

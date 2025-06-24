@@ -177,7 +177,6 @@ stages: []";
         let args = Args {
             subcommand: Some(SubCommandsArgs::Orchestrator(OrchestratorSubcommandArgs {
                 experiment_config: exp_path.clone(),
-                tui: false, // Default tui setting for test
             })),
             level: LevelFilter::Error,
             num_workers: 4,

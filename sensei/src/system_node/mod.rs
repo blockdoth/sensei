@@ -655,41 +655,7 @@ impl Run<SystemNodeConfig> for SystemNode {
 mod tests {
     use std::net::SocketAddr;
 
-    use async_trait::async_trait;
-    use tokio::net::tcp::OwnedWriteHalf;
-    use tokio::sync::{broadcast, watch};
-
     use super::*;
-
-    #[derive(Clone)]
-    struct MockConnectionHandler {
-        host_status_sender: broadcast::Sender<(DataMsg, DeviceId)>,
-    }
-    impl MockConnectionHandler {
-        fn new() -> Self {
-            let (host_status_sender, _) = broadcast::channel(16);
-            Self { host_status_sender }
-        }
-    }
-    #[async_trait]
-    impl ConnectionHandler for MockConnectionHandler {
-        async fn handle_recv(&self, _msg: RpcMessage, _send_commands_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
-            Ok(())
-        }
-        async fn handle_send(
-            &self,
-            _recv_commands_channel: watch::Receiver<ChannelMsg>,
-            _recv_data_channel: broadcast::Receiver<(DataMsg, DeviceId)>,
-            _write_stream: OwnedWriteHalf,
-        ) -> Result<(), NetworkError> {
-            Ok(())
-        }
-    }
-    impl SubscribeDataChannel for MockConnectionHandler {
-        fn subscribe_data_channel(&self) -> broadcast::Receiver<(DataMsg, DeviceId)> {
-            self.host_status_sender.subscribe()
-        }
-    }
 
     fn create_system_node_config(addr: SocketAddr, host_id: u64) -> SystemNodeConfig {
         SystemNodeConfig {

@@ -178,10 +178,6 @@ impl OverlaySubcommandArgs<SystemNodeConfig> for SystemNodeSubcommandArgs {
 #[derive(FromArgs)]
 #[argh(subcommand, name = "orchestrator")]
 pub struct OrchestratorSubcommandArgs {
-    /// whether to enable tui input
-    #[argh(option, default = "true")]
-    pub tui: bool,
-
     /// file path of the experiment config
     #[argh(option, default = "DEFAULT_ORCHESTRATOR_CONFIG.parse().unwrap()")]
     pub experiment_config: PathBuf,
@@ -208,14 +204,6 @@ pub struct VisualiserSubcommandArgs {
     /// server port (default: 6969)
     #[argh(option, default = "String::from(\"127.0.0.1:6969\")")]
     pub target: String,
-
-    /// height of the eventual window
-    #[argh(option, default = "600")]
-    pub height: usize,
-
-    /// width of the eventual window
-    #[argh(option, default = "800")]
-    pub width: usize,
 
     /// using tui (ratatui, default) or gui (plotters, minifb)
     #[argh(option, default = "String::from(\"tui\")")]

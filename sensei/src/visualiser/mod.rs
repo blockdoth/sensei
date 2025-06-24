@@ -178,10 +178,6 @@ impl Visualiser {
         });
     }
 
-    async fn output_data(&self) -> HashMap<SocketAddr, HashMap<u64, Vec<CsiData>>> {
-        self.data.lock().await.clone()
-    }
-
     async fn process_amplitude_data(&self, device_data: &[CsiData], core: usize, stream: usize, subcarrier: usize) -> (Vec<(f64, f64)>, Option<f64>) {
         let latest_timestamp = device_data.last().map(|x| x.timestamp);
         let data = device_data.iter().map(|x| (x.timestamp, x.csi[core][stream][subcarrier].re)).collect();

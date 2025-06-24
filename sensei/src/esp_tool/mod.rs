@@ -29,6 +29,7 @@ const LOG_BUFFER_CAPACITY: usize = 200;
 /// Capacity of the TUI CSI data buffer.
 const CSI_DATA_BUFFER_CAPACITY: usize = 50000;
 /// Refresh interval for the TUI in milliseconds.
+#[allow(dead_code)]
 const UI_REFRESH_INTERVAL_MS: u64 = 20;
 /// Capacity of the actor channel for ESP commands.
 /// This channel is used to send commands from the TUI to the ESP32 actor task.
@@ -87,8 +88,8 @@ impl Run<EspToolConfig> for EspTool {
     /// # Errors
     /// Returns a boxed `Error` if initialization or runtime encounters a failure.
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let (command_send, command_recv) = mpsc::channel::<EspChannelCommand>(1000);
-        let (update_send, update_recv) = mpsc::channel::<EspUpdate>(1000);
+        let (command_send, command_recv) = mpsc::channel::<EspChannelCommand>(ACTOR_CHANNEL_CAPACITY);
+        let (update_send, update_recv) = mpsc::channel::<EspUpdate>(ACTOR_CHANNEL_CAPACITY);
 
         let update_send_clone = update_send.clone();
 
