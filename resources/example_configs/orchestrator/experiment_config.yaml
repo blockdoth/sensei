@@ -1,61 +1,38 @@
 - metadata:
     name: Experiment1
-    experiment_host: !SystemNode
-      target_addr: "127.0.0.1:8000"
-    output_path: "output.csv"
+    experiment_host: !Orchestrator
   stages:
     - name: "init"
       command_blocks:
         - commands:
             - !Connect
-              target_addr: "127.0.0.1:8080"
+              target_addr: "127.0.0.1:42000"
+            - !Connect
+              target_addr: "127.0.0.1:12345"
+            - !Configure
+              target_addr: "127.0.0.1:12345"
+              device_id: 0
+              cfg_type: !Create
+                cfg:
+                  device_id: 0
+                  stype: !Csv
+                  source: !Csv
+                    path: "scripts/csv_data.csv"
+                    header: true
+                    delay: 500
+                    adapter: !Csv
+                    output_to:
+            - !StartAll
+              target_addr: "127.0.0.1:12345"
+            - !SubscribeTo
+              target_addr: "127.0.0.1:42000"
+              device_id: 0
+              source_addr: "127.0.0.1:12345"
+            - !Delay
+              delay: 5000
+            - !StopAll
+              target_addr: "127.0.0.1:12345"
           delays:
             init_delay: 2000
-            is_recurring: !NotRecurring
-    - name: "main"
-      command_blocks:
-        - commands:
-            - !Connect
-              target_addr: "127.0.0.1:8000"
-            - !Subscribe
-              target_addr: "127.0.0.1:8000"
-              device_id: 0
-            - !Delay
-              delay: 5000
-            - !Unsubscribe
-              target_addr: "127.0.0.1:8000"
-              device_id: 0
-            - !Disconnect
-              target_addr: "127.0.0.1:8000"
-          delays:
-            init_delay: 500
-            command_delay: 200
-            is_recurring: !Recurring
-              recurrence_delay: 1000
-              iterations: 5
-        - commands:
-            - !Connect
-              target_addr: "127.0.0.1:8080"
-            - !Subscribe
-              target_addr: "127.0.0.1:8080"
-              device_id: 0
-            - !Delay
-              delay: 5000
-            - !Unsubscribe
-              target_addr: "127.0.0.1:8080"
-              device_id: 0
-            - !Disconnect
-              target_addr: "127.0.0.1:8080"
-          delays:
-            init_delay: 500
-            command_delay: 200
-            is_recurring: !Recurring
-              recurrence_delay: 1000
-              iterations: 5
-    - name: "endstage"
-      command_blocks:
-        - commands:
-            - !Disconnect
-              target_addr: "127.0.0.1:8080"
-          delays:
+            command_delay: 1000
             is_recurring: !NotRecurring

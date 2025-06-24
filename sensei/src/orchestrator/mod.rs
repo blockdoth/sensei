@@ -141,17 +141,21 @@ impl Orchestrator {
             Command::Connect { target_addr } => Ok(Self::connect(&client, target_addr).await?),
             Command::Disconnect { target_addr } => Ok(Self::disconnect(&client, target_addr).await?),
             Command::Subscribe { target_addr, device_id } => Ok(Self::subscribe(&client, target_addr, device_id).await?),
+            Command::SubscribeAll { target_addr } => Ok(Self::subscribe_all(&client, target_addr).await?),
             Command::Unsubscribe { target_addr, device_id } => Ok(Self::unsubscribe(&client, target_addr, device_id).await?),
+            Command::UnsubscribeAll { target_addr } => Ok(Self::unsubscribe_all(&client, target_addr).await?),
             Command::SubscribeTo {
                 target_addr,
                 source_addr,
                 device_id,
             } => Ok(Self::subscribe_to(&client, target_addr, source_addr, device_id).await?),
+            Command::SubscribeToAll { target_addr, source_addr } => Ok(Self::subscribe_to_all(&client, target_addr, source_addr).await?),
             Command::UnsubscribeFrom {
                 target_addr,
                 source_addr,
                 device_id,
             } => Ok(Self::unsubscribe_from(&client, target_addr, source_addr, device_id).await?),
+            Command::UnsubscribeFromAll { target_addr, source_addr } => Ok(Self::unsubscribe_from_all(&client, target_addr, source_addr).await?),
             Command::SendStatus { target_addr, host_id } => Ok(Self::send_status(&client, target_addr, host_id).await?),
             Command::GetHostStatuses { target_addr } => {
                 let statuses = Self::request_statuses(&client, target_addr).await?;
@@ -173,6 +177,10 @@ impl Orchestrator {
                 tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
                 Ok(())
             }
+            Command::Start { target_addr, device_id } => Ok(Self::start(&client, target_addr, device_id).await?),
+            Command::StartAll { target_addr } => Ok(Self::start_all(&client, target_addr).await?),
+            Command::Stop { target_addr, device_id } => Ok(Self::stop(&client, target_addr, device_id).await?),
+            Command::StopAll { target_addr } => Ok(Self::stop_all(&client, target_addr).await?),
             Command::DummyData {} => {
                 todo!()
             }
@@ -193,9 +201,21 @@ impl Orchestrator {
         Ok(client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?)
     }
 
+    async fn subscribe_all(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
+        let msg = HostCtrl::SubscribeAll;
+        info!("Subscribing to all devices on {target_addr}");
+        Ok(client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?)
+    }
+
     async fn unsubscribe(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: u64) -> Result<(), Box<dyn std::error::Error>> {
         let msg = HostCtrl::Unsubscribe { device_id };
         info!("Unsubscribing from {target_addr} for device id {device_id}");
+        Ok(client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?)
+    }
+
+    async fn unsubscribe_all(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
+        let msg = HostCtrl::UnsubscribeAll;
+        info!("Unsubscribing from all devices on {target_addr}");
         Ok(client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?)
     }
 
@@ -215,6 +235,18 @@ impl Orchestrator {
         Ok(client.lock().await.send_message(target_addr, msg).await?)
     }
 
+    async fn subscribe_to_all(
+        client: &Arc<Mutex<TcpClient>>,
+        target_addr: SocketAddr,
+        source_addr: SocketAddr,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let msg = RpcMessageKind::HostCtrl(HostCtrl::SubscribeToAll { target_addr: source_addr });
+
+        info!("Telling {target_addr} to subscribe to all devices on {source_addr}");
+
+        Ok(client.lock().await.send_message(target_addr, msg).await?)
+    }
+
     async fn unsubscribe_from(
         client: &Arc<Mutex<TcpClient>>,
         target_addr: SocketAddr,
@@ -227,6 +259,18 @@ impl Orchestrator {
         });
 
         info!("Telling {target_addr} to unsubscribe from device id {device_id} from {source_addr}");
+
+        Ok(client.lock().await.send_message(target_addr, msg).await?)
+    }
+
+    async fn unsubscribe_from_all(
+        client: &Arc<Mutex<TcpClient>>,
+        target_addr: SocketAddr,
+        source_addr: SocketAddr,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let msg = RpcMessageKind::HostCtrl(HostCtrl::UnsubscribeFromAll { target_addr: source_addr });
+
+        info!("Telling {target_addr} to unsubscribe from all devices on {source_addr}");
 
         Ok(client.lock().await.send_message(target_addr, msg).await?)
     }
@@ -270,7 +314,39 @@ impl Orchestrator {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let msg = RpcMessageKind::HostCtrl(HostCtrl::Configure { device_id, cfg_type });
 
-        info!("Telling {target_addr} to configure the device handler");
+        info!("Telling {target_addr} to configure the device handler {device_id}");
+
+        Ok(client.lock().await.send_message(target_addr, msg).await?)
+    }
+
+    async fn start(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: DeviceId) -> Result<(), Box<dyn std::error::Error>> {
+        let msg = RpcMessageKind::HostCtrl(HostCtrl::Start { device_id });
+
+        info!("Telling {target_addr} to start the device handler {device_id}");
+
+        Ok(client.lock().await.send_message(target_addr, msg).await?)
+    }
+
+    async fn start_all(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
+        let msg = RpcMessageKind::HostCtrl(HostCtrl::StartAll);
+
+        info!("Telling {target_addr} to start all device handlers on the node");
+
+        Ok(client.lock().await.send_message(target_addr, msg).await?)
+    }
+
+    async fn stop(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr, device_id: DeviceId) -> Result<(), Box<dyn std::error::Error>> {
+        let msg = RpcMessageKind::HostCtrl(HostCtrl::Stop { device_id });
+
+        info!("Telling {target_addr} to stop the device handler {device_id}");
+
+        Ok(client.lock().await.send_message(target_addr, msg).await?)
+    }
+
+    async fn stop_all(client: &Arc<Mutex<TcpClient>>, target_addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
+        let msg = RpcMessageKind::HostCtrl(HostCtrl::StopAll);
+
+        info!("Telling {target_addr} to stop all device handlers on the node");
 
         Ok(client.lock().await.send_message(target_addr, msg).await?)
     }
