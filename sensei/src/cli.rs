@@ -69,7 +69,7 @@ pub trait OverlaySubcommandArgs<T> {
 /// Default path to the host configuration YAML file.
 pub static DEFAULT_HOST_CONFIG: &str = "resources/testing_configs/minimal.yaml";
 /// Default path to the orchestrator configuration YAML file.
-pub static DEFAULT_ORCHESTRATOR_CONFIG: &str = "resources/example_configs/orchestrator/experiment_config.yaml";
+pub static DEFAULT_ORCHESTRATOR_CONFIG: &str = "resources/example_configs/orchestrator";
 
 /// A simple app to perform collection from configured sources
 #[derive(FromArgs)]
@@ -122,17 +122,20 @@ pub enum SubCommandsArgs {
     EspTool(EspToolSubcommandArgs),
 }
 
+const DEFAULT_PORT_CLI: u16 = 6969;
+const DEFAULT_IP_CLI: &str = "127.0.0.1";
+
 /// System node commands
 #[cfg(feature = "sys_node")]
 #[derive(FromArgs)]
 #[argh(subcommand, name = "node")]
 pub struct SystemNodeSubcommandArgs {
     /// server address (default: 127.0.0.1)
-    #[argh(option, default = "String::from(\"127.0.0.1\")")]
+    #[argh(option, default = "DEFAULT_IP_CLI.to_owned()")]
     pub addr: String,
 
-    /// server port (default: 42000)
-    #[argh(option, default = "42000")]
+    /// server port (default: 6969)
+    #[argh(option, default = "DEFAULT_PORT_CLI")]
     pub port: u16,
 
     /// location of config file
@@ -162,14 +165,17 @@ impl ConfigFromCli<SystemNodeConfig> for SystemNodeSubcommandArgs {
 #[cfg(feature = "sys_node")]
 /// Overlays subcommand arguments onto a SystemNodeConfig, overriding fields if provided.
 impl OverlaySubcommandArgs<SystemNodeConfig> for SystemNodeSubcommandArgs {
-    fn overlay_subcommand_args(&self, full_config: SystemNodeConfig) -> Result<SystemNodeConfig, Box<dyn std::error::Error>> {
+    fn overlay_subcommand_args(&self, mut full_config: SystemNodeConfig) -> Result<SystemNodeConfig, Box<dyn std::error::Error>> {
         // Because of the default value we expact that there's always a file to read
         debug!("Loading system node configuration from YAML file: {}", self.config_path.display());
-        let mut config = full_config.clone();
         // overwrite fields when provided by the subcommand
-        config.addr = format!("{}:{}", self.addr, self.port).parse().unwrap_or(config.addr);
-
-        Ok(config)
+        if self.addr != DEFAULT_IP_CLI {
+            full_config.addr.set_ip(self.addr.parse().unwrap_or(full_config.addr.ip()));
+        }
+        if self.port != DEFAULT_PORT_CLI {
+            full_config.addr.set_port(self.port);
+        }
+        Ok(full_config)
     }
 }
 
@@ -184,7 +190,11 @@ pub struct OrchestratorSubcommandArgs {
 
     /// file path of the experiment config
     #[argh(option, default = "DEFAULT_ORCHESTRATOR_CONFIG.parse().unwrap()")]
-    pub experiment_config: PathBuf,
+    pub experiments_folder: PathBuf,
+
+    /// polling interval of the registry
+    #[argh(option, default = "5")]
+    pub polling_interval: u64,
 }
 
 #[cfg(feature = "orchestrator")]
@@ -195,7 +205,9 @@ impl ConfigFromCli<OrchestratorConfig> for OrchestratorSubcommandArgs {
     fn parse(&self) -> Result<OrchestratorConfig, Error> {
         // TODO input validation
         Ok(OrchestratorConfig {
-            experiment_config: self.experiment_config.clone(),
+            experiments_folder: self.experiments_folder.clone(),
+            tui: self.tui,
+            polling_interval: self.polling_interval,
         })
     }
 }
@@ -262,11 +274,13 @@ impl ConfigFromCli<EspToolConfig> for EspToolSubcommandArgs {
 
 #[cfg(test)]
 mod tests {
+    use std::net::{IpAddr, SocketAddr};
+
     use super::*;
 
     fn create_testing_config() -> SystemNodeConfig {
         SystemNodeConfig {
-            addr: "127.0.0.1:8080".parse().unwrap(),
+            addr: SocketAddr::new(IpAddr::V4(DEFAULT_IP_CLI.parse().unwrap()), DEFAULT_PORT_CLI),
             host_id: 1,
             registries: Option::None,
             device_configs: vec![],
@@ -291,8 +305,8 @@ mod tests {
     #[test]
     fn test_overlay_subcommand_args_uses_yaml_when_no_override() {
         let args = SystemNodeSubcommandArgs {
-            addr: "".to_string(),
-            port: 0,
+            addr: DEFAULT_IP_CLI.to_string(),
+            port: DEFAULT_PORT_CLI,
             config_path: PathBuf::from("does_not_matter.yaml"), // This will not be used
         };
 
@@ -312,8 +326,9 @@ mod tests {
         };
 
         // "invalid_addr:1234" is not a valid SocketAddr, so should fallback to YAML
-        let base_cfg = create_testing_config();
+        let mut base_cfg = create_testing_config();
         let config = args.overlay_subcommand_args(base_cfg.clone()).unwrap();
+        base_cfg.addr.set_port(1234); // Port is always valid
         assert_eq!(config.addr, base_cfg.addr);
     }
 }

@@ -15,6 +15,7 @@ use crate::errors::TaskError;
 pub mod adapters;
 pub mod csi_types;
 pub mod errors;
+pub mod experiments;
 pub mod handler;
 pub mod network;
 pub mod sinks;

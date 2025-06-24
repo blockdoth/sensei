@@ -53,18 +53,29 @@ use crate::visualiser::*;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Args = argh::from_env();
 
-    let is_esp_tool = {
-        #[cfg(feature = "esp_tool")]
+    let tui_enabled = {
+        #[cfg(all(feature = "esp_tool", feature = "orchestrator"))]
+        {
+            matches!(
+                &args.subcommand,
+                Some(SubCommandsArgs::EspTool(_)) | Some(SubCommandsArgs::Orchestrator(_))
+            )
+        }
+        #[cfg(all(feature = "esp_tool", not(feature = "orchestrator")))]
         {
             matches!(&args.subcommand, Some(SubCommandsArgs::EspTool(_)))
         }
-        #[cfg(not(feature = "esp_tool"))]
+        #[cfg(all(not(feature = "esp_tool"), feature = "orchestrator"))]
+        {
+            matches!(&args.subcommand, Some(SubCommandsArgs::Orchestrator(_)))
+        }
+        #[cfg(all(not(feature = "esp_tool"), not(feature = "orchestrator")))]
         {
             false
         }
     };
 
-    if args.subcommand.is_some() && !is_esp_tool {
+    if args.subcommand.is_some() && !tui_enabled {
         CombinedLogger::init(vec![
             TermLogger::new(
                 args.level,
@@ -178,8 +189,9 @@ stages: []";
 
         let args = Args {
             subcommand: Some(SubCommandsArgs::Orchestrator(OrchestratorSubcommandArgs {
-                experiment_config: exp_path.clone(),
+                experiments_folder: exp_path.clone(),
                 tui: false, // Default tui setting for test
+                polling_interval: 5,
             })),
             level: LevelFilter::Error,
             num_workers: 4,

@@ -35,6 +35,7 @@ use tokio::sync::watch::{self};
 
 use super::rpc_message::{CfgType, DataMsg, DeviceId, RpcMessage, RpcMessageKind};
 use crate::errors::NetworkError;
+use crate::experiments::ExperimentInfo;
 use crate::network::rpc_message::{HostId, make_msg};
 
 pub mod client;
@@ -220,6 +221,7 @@ pub enum ChannelMsg {
 #[derive(Debug, Clone, Deserialize)]
 pub enum HostChannel {
     Empty,
+    Shutdown,
     Disconnect,
     Subscribe { device_id: DeviceId },
     Unsubscribe { device_id: DeviceId },
@@ -229,6 +231,7 @@ pub enum HostChannel {
     ListenUnsubscribe { addr: SocketAddr },
     Configure { device_id: DeviceId, cfg_type: CfgType },
     Pong,
+    UpdateExperimentStatus { experiment_info: ExperimentInfo },
 }
 
 #[derive(Debug, Clone, Deserialize)]
