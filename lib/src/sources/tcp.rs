@@ -9,6 +9,8 @@ use mockall_double::double;
 use crate::ToConfig;
 use crate::errors::{DataSourceError, TaskError};
 use crate::network::rpc_message::{DataMsg, DeviceId, RpcMessage, RpcMessageKind};
+use crate::network::rpc_message::HostCtrl::{Subscribe, Unsubscribe};
+use crate::network::rpc_message::RpcMessageKind::HostCtrl;
 #[cfg_attr(test, double)]
 use crate::network::tcp::client::TcpClient;
 use crate::sources::{DataSourceConfig, DataSourceT};
@@ -47,8 +49,10 @@ impl TCPSource {
     /// Returns a [`DataSourceError`] if construction fails (e.g., invalid config).
     pub fn new(config: TCPConfig) -> Result<Self, DataSourceError> {
         trace!("Creating new TCPSource for {}", config.target_addr);
+        let mut client = TcpClient::new();
+        client.connect(config.target_addr);
         Ok(Self {
-            client: TcpClient::new(),
+            client,
             config,
         })
     }
@@ -62,10 +66,8 @@ impl DataSourceT for TCPSource {
     /// Returns a [`DataSourceError`] if the connection fails.
     async fn start(&mut self) -> Result<(), DataSourceError> {
         trace!("Connecting to TCP socket at {}", self.config.target_addr);
-        self.client
-            .connect(self.config.target_addr)
-            .await
-            .map_err(|e| DataSourceError::from(Box::new(e)))?;
+        let msg = HostCtrl(Subscribe { device_id: self.config.device_id });
+        self.client.send_message(self.config.target_addr, msg).await;
         Ok(())
     }
 
@@ -75,10 +77,8 @@ impl DataSourceT for TCPSource {
     /// Returns a [`DataSourceError`] if disconnection fails.
     async fn stop(&mut self) -> Result<(), DataSourceError> {
         trace!("Disconnecting from TCP socket at {}", self.config.target_addr);
-        self.client
-            .disconnect(self.config.target_addr)
-            .await
-            .map_err(|e| DataSourceError::from(Box::new(e)))?;
+        let msg = HostCtrl(Unsubscribe { device_id: self.config.device_id });
+        self.client.send_message(self.config.target_addr, msg).await;
         Ok(())
     }
 
@@ -153,6 +153,7 @@ mod tests {
     use super::*;
     use crate::errors::DataSourceError;
     use crate::network::rpc_message::*;
+    use crate::network::rpc_message::HostCtrl::Connect;
 
     fn test_addr() -> SocketAddr {
         SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 12345)
@@ -285,7 +286,7 @@ mod tests {
         let mut mock = TcpClient::default();
         mock.expect_wait_for_read_message().returning(|_| {
             Ok(RpcMessage {
-                msg: RpcMessageKind::HostCtrl(HostCtrl::Connect),
+                msg: RpcMessageKind::HostCtrl(Connect),
                 src_addr: test_addr(),
                 target_addr: test_addr(),
             })
