@@ -157,7 +157,7 @@
                 pkgs.pkg-config
                 pkgs.pkgsCross.aarch64-multiplatform-musl.stdenv  
                 libunwindMuslStatic
-              ];              
+              ];
 
               # I hace set most of the flags in the toolchain.
               # Since these flags need adirect reference to the nix store they are set here.
@@ -168,6 +168,13 @@
               ";
               doCheck = false;
 
+              # When trying to build this environment a version error is thrown by the standard library
+              # error: failed to select a version for the requirement `cfg-if = "^1.0"` (locked to 1.0.0)
+              # std v0.0.0.
+              # Whe have not been able to figure out why this error is being thrown. By using crates-io insteaf of the 
+              # Nix/Rust builder vendor this issue is resolved, so the binary has to be built in online mode.
+              # Perhaps someoneone can figure out how to resolve this offline problem in the futre. For now the crosscompile script is necessary.
+              # The crosscompile script depends on this environment, but indead of a launchign it as a build environment, it launches it as a dev env.
               buildPhase = ''
               echo 
               echo
