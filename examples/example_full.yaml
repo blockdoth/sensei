@@ -21,7 +21,7 @@
 
 # --- SystemNodeConfig Top-Level Fields ---
 
-# `addr`: The IP address and port this System Node will listen on for incoming
+# `address`: The IP address and port this System Node will listen on for incoming
 # connections from other nodes or clients (like a Visualiser).
 addr: "127.0.0.1:6969"
 

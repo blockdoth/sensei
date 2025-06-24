@@ -1,7 +1,7 @@
-addr: 127.0.0.1:6968
+address: 127.0.0.1:6968
 host_id: 3
-registries:
- - 127.0.0.1:6969
+registry: 127.0.0.1:6969
+
 sinks:
   - id: stdout
     config: !File

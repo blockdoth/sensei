@@ -2,8 +2,8 @@ procs:
   node_1:
     cmd: ["sh", "-c", "sleep 1 && cargo run node --config-path node_1.yaml"]
   node_2:
-    cmd: ["sh", "-c", "sleep 1 && cargo run node --config-path node_2.yaml"]
+    cmd: ["sh", "-c", "sleep 2 && cargo run node --config-path node_2.yaml"]
   node_3:
-    cmd: ["sh", "-c", "sleep 1 && cargo run node --config-path node_3.yaml"]
+    cmd: ["sh", "-c", "sleep 3 && cargo run node --config-path node_3.yaml"]
   reg:
-    cmd: ["sh", "-c", "cargo run node --config-path registry.yaml"]
+    cmd: ["sh", "-c", "cargo run registry --config-path registry.yaml"]

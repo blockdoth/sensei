@@ -204,15 +204,17 @@ impl Orchestrator {
         update_send.send(OrgUpdate::TogglePolling).await;
         sleep(Duration::from_millis(100)).await;
         update_send.send(OrgUpdate::AddAllHosts).await;
-        
+
         let start_id = 1000;
         for addr in default_hosts.into_iter() {
-          update_send.send(OrgUpdate::AddHost(Host{
-            id: start_id,
-            addr,
-            devices: vec![],
-            status: state::HostStatus::Unknown,
-        })).await;
+            update_send
+                .send(OrgUpdate::AddHost(Host {
+                    id: start_id,
+                    addr,
+                    devices: vec![],
+                    status: state::HostStatus::Unknown,
+                }))
+                .await;
         }
     }
 

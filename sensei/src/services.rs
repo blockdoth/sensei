@@ -23,8 +23,10 @@ use std::path::PathBuf;
 
 #[cfg(feature = "sys_node")]
 use lib::handler::device_handler::DeviceHandlerConfig;
+#[cfg(feature = "registry")]
+use lib::network::rpc_message::HostId;
 use log::LevelFilter;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "sys_node")]
 use crate::system_node::SinkConfigWithName;
@@ -93,6 +95,9 @@ impl FromYaml for SystemNodeConfig {}
 #[cfg(feature = "orchestrator")]
 impl FromYaml for OrchestratorConfig {}
 
+#[cfg(feature = "registry")]
+impl FromYaml for RegistryConfig {}
+
 /// Configuration for the Orchestrator service.
 #[cfg(feature = "orchestrator")]
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
@@ -110,15 +115,27 @@ pub struct OrchestratorConfig {
 /// including its network address, unique ID, registry information,
 /// device configurations, and sink configurations.
 #[cfg(feature = "sys_node")]
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SystemNodeConfig {
-    pub addr: SocketAddr,
-    pub host_id: u64,
-    pub registries: Option<Vec<SocketAddr>>,
+    pub address: SocketAddr,
+    pub host_id: HostId,
+    pub registry: Option<SocketAddr>,
     pub registry_polling_interval: Option<u64>,
     pub device_configs: Vec<DeviceHandlerConfig>,
     #[serde(default)]
     pub sinks: Vec<SinkConfigWithName>,
+}
+
+/// Configuration for a registry
+#[cfg(feature = "registry")]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct RegistryConfig {
+    /// Holds the address and port the registry will listen on
+    pub address: SocketAddr,
+    /// Holds the ID the registry will use to present themselves to the network
+    pub host_id: HostId,
+    /// The rate at which the registry will poll the registered hosts, in seconds.
+    pub polling_interval: u64,
 }
 
 /// Configuration for the Visualiser service.
@@ -164,6 +181,9 @@ pub enum ServiceConfig {
     /// Configuration for the ESP Tool service.
     #[cfg(feature = "esp_tool")]
     EspTool(EspToolConfig),
+    /// Configuration for the registry.
+    #[cfg(feature = "registry")]
+    Registry(RegistryConfig),
 }
 
 /// A trait defining the runnable lifecycle of a service.
@@ -261,8 +281,8 @@ device_configs: []
         .unwrap();
 
         let config = SystemNodeConfig::from_yaml(file_path).unwrap();
-        assert_eq!(config.addr, "127.0.0.1:8080".parse().unwrap());
+        assert_eq!(config.address, "127.0.0.1:8080".parse().unwrap());
         assert_eq!(config.host_id, 1);
-        assert!(config.registries.is_none()); // Ensure default is handled
+        assert!(config.registry.is_none()); // Ensure default is handled
     }
 }

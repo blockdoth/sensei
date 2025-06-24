@@ -36,7 +36,7 @@
           toolchain = pkgs.rust-bin.fromRustupToolchainFile ./toolchain.toml;
           target = "aarch64-unknown-linux-musl";
           isLinux = pkgs.stdenv.isLinux;
-                    # get and build this lib from source. Precompiled bins for musl were problematic.
+          # get and build this lib from source. Precompiled bins for musl were problematic.
           libunwindMuslStatic = crossPkgs.stdenv.mkDerivation rec {
             pname = "libunwind";
             version = "1.8.2";
@@ -116,8 +116,6 @@
               ++ lib.optionals isLinux [
                 pkgs.glibc
                 udev
-                valgrind
-                llvmPackages_latest.llvm
                 cargo-llvm-cov
               ];
 
@@ -129,68 +127,81 @@
             LLVM_PROFDATA = "${pkgs.llvmPackages_latest.llvm}/bin/llvm-profdata";
           };
 
-          packages.cross-aarch64 = lib.mkIf (system == "x86_64-linux" || system == "aarch64-linux" || system == "aarch64-darwin" || system == "x86_64-darwin") (
-            pkgs.rustPlatform.buildRustPackage {
-              pname = "sensei";
-              version = "0.1.0";
-              src = ./.;
-              cargoLock = {
-                lockFile = ./Cargo.lock;
-              };
-              cargoToml = ./Cargo.toml;
+          packages.cross-aarch64 =
+            lib.mkIf
+              (
+                system == "x86_64-linux"
+                || system == "aarch64-linux"
+                || system == "aarch64-darwin"
+                || system == "x86_64-darwin"
+              )
+              (
+                pkgs.rustPlatform.buildRustPackage {
+                  pname = "sensei";
+                  version = "0.1.0";
+                  src = ./.;
+                  cargoLock = {
+                    lockFile = ./Cargo.lock;
+                  };
+                  cargoToml = ./Cargo.toml;
 
-              packages = with pkgs; [
-                toolchain
-                pkgs.upx
-                pkgs.gcc
-                pkgs.pkg-config
-                pkgs.pkgsCross.aarch64-multiplatform-musl.stdenv  
-                libunwindMuslStatic
-              ] ++ lib.optionals isLinux [
-                pkgs.glibc
-              ];
+                  packages =
+                    with pkgs;
+                    [
+                      toolchain
+                      pkgs.upx
+                      pkgs.gcc
+                      pkgs.pkg-config
+                      pkgs.pkgsCross.aarch64-multiplatform-musl.stdenv
+                      libunwindMuslStatic
+                    ]
+                    ++ lib.optionals isLinux [
+                      pkgs.glibc
+                    ];
 
-              nativeBuildInputs = [
-                toolchain
-                pkgs.upx
-                pkgs.gcc
-                pkgs.pkg-config
-                pkgs.pkgsCross.aarch64-multiplatform-musl.stdenv  
-                libunwindMuslStatic
-              ] ++ lib.optionals isLinux [
-                pkgs.glibc
-              ];              
+                  nativeBuildInputs =
+                    [
+                      toolchain
+                      pkgs.upx
+                      pkgs.gcc
+                      pkgs.pkg-config
+                      pkgs.pkgsCross.aarch64-multiplatform-musl.stdenv
+                      libunwindMuslStatic
+                    ]
+                    ++ lib.optionals isLinux [
+                      pkgs.glibc
+                    ];
 
-              # I hace set most of the flags in the toolchain.
-              # Since these flags need adirect reference to the nix store they are set here.
-              RUSTFLAGS = "-C linker=${linker}
+                  # I hace set most of the flags in the toolchain.
+                  # Since these flags need adirect reference to the nix store they are set here.
+                  RUSTFLAGS = "-C linker=${linker}
               -L${muslLib}
               -L${gccLibPath}
               -L${libunwindMusl}
               ";
-              doCheck = false;
+                  doCheck = false;
 
-              # When trying to build this environment a version error is thrown by the standard library
-              # error: failed to select a version for the requirement `cfg-if = "^1.0"` (locked to 1.0.0)
-              # std v0.0.0.
-              # Whe have not been able to figure out why this error is being thrown. By using crates-io insteaf of the 
-              # Nix/Rust builder vendor this issue is resolved, so the binary has to be built in online mode.
-              # Perhaps someoneone can figure out how to resolve this offline problem in the futre. For now the crosscompile script is necessary.
-              # The crosscompile script depends on this environment, but indead of a launchign it as a build environment, it launches it as a dev env.
-              buildPhase = ''
-              echo 
-              echo
-              echo building using nix build is not supported due to vendoring issues. Use ./scripts/crosscompile-arm.sh.
-              echo
-              echo
-              '';
-              # exposed paths for debugging purposes
-              MUSL_LIB_PATH = "${muslLib}";
-              MUSL_GCC_LIB_PATH = "${gccLibPath}";
-              MUSL_GCC_PATH = "${muslGcc}";
-              MUSL_UNWIND_PATH = "${libunwindMusl}";
-            }
-          );
+                  # When trying to build this environment a version error is thrown by the standard library
+                  # error: failed to select a version for the requirement `cfg-if = "^1.0"` (locked to 1.0.0)
+                  # std v0.0.0.
+                  # Whe have not been able to figure out why this error is being thrown. By using crates-io insteaf of the
+                  # Nix/Rust builder vendor this issue is resolved, so the binary has to be built in online mode.
+                  # Perhaps someoneone can figure out how to resolve this offline problem in the futre. For now the crosscompile script is necessary.
+                  # The crosscompile script depends on this environment, but indead of a launchign it as a build environment, it launches it as a dev env.
+                  buildPhase = ''
+                    echo 
+                    echo
+                    echo building using nix build is not supported due to vendoring issues. Use ./scripts/crosscompile-arm.sh.
+                    echo
+                    echo
+                  '';
+                  # exposed paths for debugging purposes
+                  MUSL_LIB_PATH = "${muslLib}";
+                  MUSL_GCC_LIB_PATH = "${gccLibPath}";
+                  MUSL_GCC_PATH = "${muslGcc}";
+                  MUSL_UNWIND_PATH = "${libunwindMusl}";
+                }
+              );
 
           # Default native build
           packages.default = pkgs.rustPlatform.buildRustPackage {

@@ -1,9 +1,6 @@
-addr: 127.0.0.1:6969
+address: 127.0.0.1:6969
 host_id: 4
-registry_polling_rate_s: 1
-sinks:
-  - id: stdout
-    config: !File
-      file: /dev/null
+polling_interval: 1
 
+sinks:
 device_configs:

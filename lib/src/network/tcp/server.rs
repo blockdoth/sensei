@@ -123,7 +123,7 @@ impl TcpServer {
         ));
 
         let _ = tokio::join!(read_task, write_task);
-        info!("Gracefully closed connection with {local_peer_addr:?}");
+        debug!("Cleaned up all resources for connection {local_peer_addr:?}");
         Ok(())
     }
 
@@ -143,7 +143,7 @@ impl TcpServer {
                         break;
                     }
                 }
-                Ok(None) => {
+                Ok(None) | Err(NetworkError::Closed) => {
                     info!("Connection with {local_peer_addr:?} closed gracefully");
                     break;
                 }

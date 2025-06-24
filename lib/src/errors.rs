@@ -1,5 +1,4 @@
 use std::num::{ParseFloatError, ParseIntError};
-use std::sync::PoisonError;
 
 use thiserror::Error;
 
@@ -29,9 +28,9 @@ pub enum NetworkError {
     #[error("Communication timed out")]
     Timeout(#[from] tokio::time::error::Elapsed),
 
-    /// There's a problem that originated from the App
-    #[error("There's an error in the App")]
-    App(#[from] AppError),
+    /// Processing Error
+    #[error("Processing Error: {0}")]
+    ProcessingError(String),
 
     /// Failed during serialization or deserialization.
     #[error("Error during (De)Serialization")]
@@ -52,10 +51,6 @@ pub enum NetworkError {
     /// The response could not be parsed.
     #[error("Message could not be parsed")]
     MessageError,
-
-    /// Registry error
-    #[error("The registry produced an error")]
-    RegistryError(#[from] RegistryError),
 
     /// Other error type
     #[error("An error occurred")]
@@ -145,6 +140,22 @@ pub enum AppError {
     /// No such host
     #[error("No such host exists")]
     NoSuchHost,
+
+    /// Experiment error
+    #[error("Experiment Error")]
+    ExperimentError(#[from] ExperimentError),
+
+    /// Tokio was unable to send the message
+    #[error("Message could not be sent due to a broadcast error")]
+    TokioBroadcastSendingError(#[from] tokio::sync::broadcast::error::SendError<(DataMsg, HostId)>),
+
+    /// Tokio was unable to send the message
+    #[error("Message could not be sent due to a Watch error")]
+    TokioWatchSendingError(#[from] tokio::sync::watch::error::SendError<ChannelMsg>),
+
+    /// TaskError
+    #[error("An error executing the tasks")]
+    TaskError(#[from] TaskError),
 }
 
 /// Common error enum for all CSI adapters (IWL, ESP32, Csv).
@@ -363,7 +374,7 @@ pub enum TaskError {
     Io(#[from] std::io::Error),
 
     // Error when you trying to serialie
-    #[error("Seriliazation error: {0}")]
+    #[error("Serialization error: {0}")]
     Serde(#[from] serde_yaml::Error),
 
     /// Not implemented error
@@ -406,17 +417,16 @@ pub enum RegistryError {
     #[error("A generic error. Should not be used in finalized features")]
     GenericError,
 
-    /// A poisonerror`
-    #[error("Poisonerror")]
-    PosonError(#[from] PoisonError<()>),
-
     /// No such host
     #[error("No such host")]
     NoSuchHost,
 
+    // /// Network Error
+    // #[error("Network Error")]
+    // NetworkError(#[from] Box<NetworkError>),
     /// Netowrk Error
     #[error("Network Error")]
-    NetworkError(#[from] Box<NetworkError>),
+    NetworkError(#[from] NetworkError),
 
     /// No Standalone
     #[error("The registry cannot be ran as a standalone process.")]
@@ -433,8 +443,8 @@ pub enum CommandError {
     #[error("The command is missing an argument")]
     MissingArgument,
 
-    /// The command argument is invallid.
-    #[error("The command argument is invallid.")]
+    /// The command argument is invalid.
+    #[error("The command argument is invalid.")]
     InvalidArgument,
 
     /// There was an error in parsing a config.
@@ -448,9 +458,24 @@ pub enum ConfigError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
-    // Error when you trying to serialie
-    #[error("Seriliazation error: {0}")]
+    // Error when you trying to serialize
+    #[error("Serialization error: {0}")]
     Serde(#[from] serde_yaml::Error),
+
+    /// The configuration is invalid.
+    #[error("The config is invalid")]
+    InvalidConfig(String),
+}
+
+#[derive(Error, Debug)]
+pub enum ExperimentError {
+    /// Could not execute experiment
+    #[error("Execution Error")]
+    ExecutionError,
+
+    /// TaskError
+    #[error("An error executing the tasks")]
+    TaskError(#[from] TaskError),
 }
 
 // Allow conversion from Box<NetworkError> to NetworkError
