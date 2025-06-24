@@ -149,6 +149,18 @@ pub enum AppError {
     /// Experiment error
     #[error("Experiment Error")]
     ExperimentError(#[from] ExperimentError),
+
+    /// Tokio was unable to send the message
+    #[error("Message could not be sent due to a broadcast error")]
+    TokioBroadcastSendingError(#[from] tokio::sync::broadcast::error::SendError<(DataMsg, HostId)>),
+
+    /// Tokio was unable to send the message
+    #[error("Message could not be sent due to a Watch error")]
+    TokioWatchSendingError(#[from] tokio::sync::watch::error::SendError<ChannelMsg>),
+
+    /// TaskError
+    #[error("An error executing the tasks")]
+    TaskError(#[from] TaskError),
 }
 
 /// Common error enum for all CSI adapters (IWL, ESP32, Csv).
@@ -462,6 +474,10 @@ pub enum ExperimentError {
     /// Could not execute experiment
     #[error("Execution Error")]
     ExecutionError,
+
+    /// TaskError
+    #[error("An error executing the tasks")]
+    TaskError(#[from] TaskError),
 }
 
 // Allow conversion from Box<NetworkError> to NetworkError

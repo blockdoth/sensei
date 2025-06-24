@@ -91,25 +91,25 @@ impl SystemNode {
         }
     }
 
-    async fn connect(src_addr: SocketAddr) -> Result<(), NetworkError> {
+    async fn connect(src_addr: SocketAddr) -> Result<(), AppError> {
         info!("Started connection with {src_addr}");
         Ok(())
     }
 
-    async fn disconnect(src_addr: SocketAddr, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
+    async fn disconnect(src_addr: SocketAddr, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), AppError> {
         send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Disconnect))?;
         info!("Disconnecting from the connection with {src_addr}");
         Ok(())
     }
 
-    async fn subscribe(src_addr: SocketAddr, device_id: DeviceId, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
+    async fn subscribe(src_addr: SocketAddr, device_id: DeviceId, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), AppError> {
         send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Subscribe { device_id }))?;
         info!("Client {src_addr} subscribed to data stream for device_id: {device_id}");
 
         Ok(())
     }
 
-    async fn unsubscribe(src_addr: SocketAddr, device_id: DeviceId, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
+    async fn unsubscribe(src_addr: SocketAddr, device_id: DeviceId, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), AppError> {
         send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Unsubscribe { device_id }))?;
         info!("Client {src_addr} unsubscribed from data stream for device_id: {device_id}");
 
@@ -120,7 +120,8 @@ impl SystemNode {
         target_addr: SocketAddr,
         device_id: DeviceId,
         handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
-    ) -> Result<(), NetworkError> {
+        local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
+    ) -> Result<(), AppError> {
         // Create a device handler with a source that will connect to the node server of the target
         // The sink will connect to this nodes server
         // Node servers broadcast all incoming data to all connections, but only relevant sources will process this data
@@ -151,7 +152,7 @@ impl SystemNode {
         Ok(())
     }
 
-    async fn unsubscribe_from(device_id: DeviceId, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), NetworkError> {
+    async fn unsubscribe_from(device_id: DeviceId, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), AppError> {
         // TODO: Make it target specific, but for now removing based on device id should be fine.
         // Would require extracting the source itself from the device handler
         info!("Removing handler subscribing to {device_id}");
@@ -165,7 +166,7 @@ impl SystemNode {
         Ok(())
     }
 
-    async fn configure(device_id: DeviceId, cfg_type: CfgType, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), NetworkError> {
+    async fn configure(device_id: DeviceId, cfg_type: CfgType, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), AppError> {
         match cfg_type {
             Create { cfg } => {
                 info!("Creating a new device handler for device id {device_id}");
@@ -202,7 +203,7 @@ impl SystemNode {
         device_id: DeviceId,
         handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
         local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), ExperimentError> {
         match handlers.lock().await.get_mut(&device_id) {
             Some(handler) => {
                 info!("Starting device handler {device_id}");
@@ -219,7 +220,7 @@ impl SystemNode {
     async fn start_all(
         handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
         local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), ExperimentError> {
         info!("Starting all device handlers");
         for (device_id, handler) in handlers.lock().await.iter_mut() {
             info!("Starting device handler {device_id}");
@@ -229,7 +230,7 @@ impl SystemNode {
         Ok(())
     }
 
-    async fn stop(device_id: DeviceId, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), Box<dyn std::error::Error>> {
+    async fn stop(device_id: DeviceId, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), ExperimentError> {
         match handlers.lock().await.get_mut(&device_id) {
             Some(handler) => {
                 info!("Stopping device handler {device_id}");
@@ -243,7 +244,7 @@ impl SystemNode {
         Ok(())
     }
 
-    async fn stop_all(handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), Box<dyn std::error::Error>> {
+    async fn stop_all(handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), ExperimentError> {
         info!("Stopping all device handlers");
         for (device_id, handler) in handlers.lock().await.iter_mut() {
             info!("Stopping device handler {device_id}");
@@ -257,7 +258,7 @@ impl SystemNode {
         experiment: Experiment,
         handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
         local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), AppError> {
         info!("Running {}", experiment.metadata.name.clone());
 
         for (i, stage) in experiment.stages.into_iter().enumerate() {
@@ -270,7 +271,11 @@ impl SystemNode {
         Ok(())
     }
 
-    async fn execute_stage(stage: Stage, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), AppError> {
+    async fn execute_stage(
+        stage: Stage,
+        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+        local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
+    ) -> Result<(), ExperimentError> {
         let mut tasks = vec![];
 
         for block in stage.command_blocks {
@@ -287,13 +292,17 @@ impl SystemNode {
 
         for result in results {
             if result.is_err() {
-                return Err(ExperimentError::ExecutionError.into());
+                return Err(ExperimentError::ExecutionError);
             }
         }
         Ok(())
     }
 
-    async fn execute_command_block(block: Block, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), NetworkError> {
+    async fn execute_command_block(
+        block: Block,
+        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+        local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
+    ) -> Result<(), AppError> {
         tokio::time::sleep(std::time::Duration::from_millis(block.delays.init_delay.unwrap_or(0u64))).await;
         let command_delay = block.delays.command_delay.unwrap_or(0u64);
         let command_types = block.commands;
@@ -329,7 +338,8 @@ impl SystemNode {
         commands: Vec<Command>,
         handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
         command_delay: u64,
-    ) -> Result<(), NetworkError> {
+        local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
+    ) -> Result<(), AppError> {
         for command in commands {
             Self::match_command(command.clone(), handlers.clone(), local_data_tx.clone()).await?;
             tokio::time::sleep(std::time::Duration::from_millis(command_delay)).await;
@@ -337,7 +347,11 @@ impl SystemNode {
         Ok(())
     }
 
-    async fn match_command(command: Command, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), NetworkError> {
+    async fn match_command(
+        command: Command,
+        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+        local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
+    ) -> Result<(), AppError> {
         match command {
             Command::Subscribe { target_addr, device_id } => Ok(Self::subscribe_to(target_addr, device_id, handlers, local_data_tx).await?),
             Command::Unsubscribe { target_addr, device_id } => Ok(Self::unsubscribe_from(device_id, handlers).await?),
@@ -359,6 +373,86 @@ impl SystemNode {
                 Ok(())
             }
         }
+    }
+
+    /// Handles incoming host control messages and performs the corresponding actions.
+    ///
+    /// # Arguments
+    /// * `request` - The incoming RPC message containing the request details.
+    /// * `message` - The host control command to handle.
+    /// * `send_channel_msg_channel` - A channel to send messages to the connection's sending task.
+    ///
+    /// # Returns
+    /// * `Result<(), NetworkError>` - Returns `Ok(())` if the command was handled successfully, or a `NetworkError` if an error occurred.
+    ///
+    /// # Behavior
+    /// - Handles various `HostCtrl` commands such as `Connect`, `Disconnect`, `Subscribe`, `Unsubscribe`, `SubscribeTo`, `UnsubscribeFrom`, `Configure`.and `Experiment`
+    /// - For `Disconnect`, signals the sending task to disconnect and returns an error to indicate the connection should close.
+    /// - For subscription commands, updates the relevant handlers and logs the actions.
+    /// - For configuration commands, creates, edits, or deletes device handlers as specified.
+    async fn handle_host_ctrl(
+        &self,
+        request: RpcMessage,
+        message: HostCtrl,
+        send_channel_msg_channel: watch::Sender<ChannelMsg>,
+    ) -> Result<(), AppError> {
+        match message {
+            // regular Host commands
+            HostCtrl::Connect => {
+                Self::connect(request.src_addr).await?;
+            }
+            HostCtrl::Disconnect => {
+                Self::disconnect(request.src_addr, send_channel_msg_channel).await?;
+            }
+            HostCtrl::Subscribe { device_id } => {
+                Self::subscribe(request.src_addr, device_id, send_channel_msg_channel).await?;
+            }
+            HostCtrl::SubscribeAll => {
+                for device_id in self.handlers.lock().await.keys() {
+                    Self::subscribe(request.src_addr, *device_id, send_channel_msg_channel.clone()).await?;
+                }
+            }
+            HostCtrl::Unsubscribe { device_id } => {
+                Self::unsubscribe(request.src_addr, device_id, send_channel_msg_channel).await?;
+            }
+            HostCtrl::UnsubscribeAll => {
+                for device_id in self.handlers.lock().await.keys() {
+                    Self::unsubscribe(request.src_addr, *device_id, send_channel_msg_channel.clone()).await?;
+                }
+            }
+            HostCtrl::SubscribeTo { target_addr, device_id } => {
+                Self::subscribe_to(target_addr, device_id, self.handlers.clone(), self.local_data_tx.clone()).await?;
+            }
+            HostCtrl::UnsubscribeFrom { target_addr: _, device_id } => {
+                Self::unsubscribe(request.src_addr, device_id, send_channel_msg_channel).await?;
+            }
+            HostCtrl::Configure { device_id, cfg_type } => {
+                Self::configure(device_id, cfg_type, self.handlers.clone()).await?;
+            }
+            HostCtrl::Start { device_id } => {
+                Self::start(device_id, self.handlers.clone(), self.local_data_tx.clone()).await?;
+            }
+            HostCtrl::StartAll => {
+                Self::start_all(self.handlers.clone(), self.local_data_tx.clone()).await?;
+            }
+            HostCtrl::Stop { device_id } => {
+                Self::stop(device_id, self.handlers.clone()).await?;
+            }
+            HostCtrl::StopAll => {
+                Self::stop_all(self.handlers.clone()).await?;
+            }
+            HostCtrl::Experiment { experiment } => {
+                Self::load_experiment(experiment, self.handlers.clone(), self.local_data_tx.clone()).await?;
+            }
+            HostCtrl::Ping => {
+                debug!("Received ping from {:#?}.", request.src_addr);
+                send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Pong))?;
+            }
+            m => {
+                warn!("Received unhandled HostCtrl: {m:?}");
+            }
+        };
+        Ok(())
     }
 
     /// Handles channel messages for host actions (subscribe, unsubscribe, disconnect).
@@ -430,12 +524,16 @@ impl ConnectionHandler for SystemNode {
                 HostCtrl::Disconnect => Self::disconnect(request.src_addr, send_channel_msg_channel).await?,
                 HostCtrl::Subscribe { device_id } => Self::subscribe(request.src_addr, *device_id, send_channel_msg_channel).await?,
                 HostCtrl::Unsubscribe { device_id } => Self::unsubscribe(request.src_addr, *device_id, send_channel_msg_channel).await?,
-                HostCtrl::SubscribeTo { target_addr, device_id } => Self::subscribe_to(*target_addr, *device_id, self.handlers.clone()).await?,
+                HostCtrl::SubscribeTo { target_addr, device_id } => {
+                    Self::subscribe_to(*target_addr, *device_id, self.handlers.clone(), self.local_data_tx.clone()).await?
+                }
                 HostCtrl::UnsubscribeFrom { target_addr: _, device_id } => {
                     Self::unsubscribe(request.src_addr, *device_id, send_channel_msg_channel).await?
                 }
                 HostCtrl::Configure { device_id, cfg_type } => Self::configure(*device_id, cfg_type.clone(), self.handlers.clone()).await?,
-                HostCtrl::Experiment { experiment } => Self::load_experiment(experiment.clone(), self.handlers.clone()).await?,
+                HostCtrl::Experiment { experiment } => {
+                    Self::load_experiment(experiment.clone(), self.handlers.clone(), self.local_data_tx.clone()).await?
+                }
                 HostCtrl::Ping => {
                     debug!("Received ping from {:#?}.", request.src_addr);
                     send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Pong))?;
