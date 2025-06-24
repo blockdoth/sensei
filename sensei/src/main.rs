@@ -125,7 +125,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             SubCommandsArgs::EspTool(args) => runtime.block_on(EspTool::new(global_args, args.parse()?).run())?,
             #[cfg(feature = "registry")]
             SubCommandsArgs::Registry(args) => runtime.block_on(Registry::new(global_args, args.parse()?).run())?,
-            #[allow(unreachable_patterns)]
+            #[allow(unreachable_patterns)] // this case is only needed when doing a compile with 0 features
             _ => panic!("Unknown option."),
         },
     }
@@ -196,7 +196,7 @@ stages: []";
         let args = Args {
             subcommand: Some(SubCommandsArgs::Orchestrator(OrchestratorSubcommandArgs {
                 experiments_folder: exp_path.clone(),
-                tui: true,
+                tui: false, // Default tui setting for test
                 polling_interval: 5,
             })),
             level: LevelFilter::Error,

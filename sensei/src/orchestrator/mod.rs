@@ -24,6 +24,9 @@ use tokio::time::sleep;
 use crate::orchestrator::state::{OrgTuiState, OrgUpdate};
 use crate::services::{GlobalConfig, OrchestratorConfig, Run};
 
+static ORG_CHANNEL_COUNT: usize = 100;
+static EXPERIMENT_CHANNEL_COUNT: usize = 5;
+
 #[derive(Debug)]
 pub enum OrgChannelMsg {
     // === Host ===
@@ -135,15 +138,17 @@ impl Run<OrchestratorConfig> for Orchestrator {
         }
     }
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let (command_send, command_recv) = mpsc::channel::<OrgChannelMsg>(100);
-        let (update_send, update_recv) = mpsc::channel::<OrgUpdate>(100);
-        let (experiment_send, experiment_recv) = mpsc::channel::<ExperimentChannelMsg>(5);
-        let (registry_send, registry_recv) = mpsc::channel::<RegistryChannelMsg>(5);
+        let (command_send, command_recv) = mpsc::channel::<OrgChannelMsg>(ORG_CHANNEL_COUNT);
+        let (update_send, update_recv) = mpsc::channel::<OrgUpdate>(ORG_CHANNEL_COUNT);
+        let (experiment_send, experiment_recv) = mpsc::channel::<ExperimentChannelMsg>(EXPERIMENT_CHANNEL_COUNT);
+        let (registry_send, registry_recv) = mpsc::channel::<RegistryChannelMsg>(EXPERIMENT_CHANNEL_COUNT);
 
         let client = Arc::new(Mutex::new(TcpClient::new()));
 
         // Tasks needs to be boxed and pinned in order to make the type checker happy
         let tasks: Vec<Pin<Box<dyn Future<Output = ()> + Send>>> = vec![
+            // If errors are thrown in any o these tasks, they will be sent upwards and crash the program whereas before they'd be silently ignored
+            // In the case that panic! is not the preferred behaviour, an error! would work as well. In any case, this informs the user of a problem
             {
                 let client = client.clone();
                 let update_send = update_send.clone();

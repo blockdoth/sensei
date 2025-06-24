@@ -190,13 +190,13 @@ impl OverlaySubcommandArgs<SystemNodeConfig> for SystemNodeSubcommandArgs {
 #[derive(FromArgs)]
 #[argh(subcommand, name = "orchestrator")]
 pub struct OrchestratorSubcommandArgs {
-    /// file path of the experiment config
-    #[argh(option, default = "DEFAULT_ORCHESTRATOR_CONFIG.parse().unwrap()")]
-    pub experiments_folder: PathBuf,
-
     /// whether to enable tui input
     #[argh(option, default = "true")]
     pub tui: bool,
+
+    /// file path of the experiment config
+    #[argh(option, default = "DEFAULT_ORCHESTRATOR_CONFIG.parse().unwrap()")]
+    pub experiments_folder: PathBuf,
 
     /// polling interval of the registry
     #[argh(option, default = "5")]

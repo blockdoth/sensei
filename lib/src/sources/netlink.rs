@@ -69,7 +69,7 @@ const NLMSG_DONE: u16 = 0x3; // End of Netlink message sequence
 
 /// Parsed representation of a netlink message header.
 /// Netlink header: https://docs.huihoo.com/doxygen/linux/kernel/3.7/structnlmsghdr.html
-#[allow(unused)]
+#[allow(unused)] // might as well parse the entire header, even if we don't use it.
 #[derive(Debug)]
 struct NetlinkHeader {
     length: u32,
