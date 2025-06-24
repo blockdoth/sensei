@@ -37,7 +37,7 @@ pub mod tcp;
 /// otherwise returns None
 #[cfg_attr(test, automock)]
 #[async_trait::async_trait]
-pub trait CsiDataAdapter: Send + ToConfig<DataAdapterConfig> {
+pub trait CsiDataAdapter: Send + Sync + ToConfig<DataAdapterConfig> {
     /// Attempts to consume a DataMsg and produce a CsiFrame variant.
     ///
     /// # Arguments
