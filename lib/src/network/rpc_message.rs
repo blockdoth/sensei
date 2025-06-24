@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
 use crate::csi_types::CsiData;
+use crate::experiments::{Experiment, ExperimentInfo};
 use crate::handler::device_handler::DeviceHandlerConfig;
-use crate::network::experiment_config::Experiment;
 
 /// The default address used for network communication (localhost:6969).
 pub const DEFAULT_ADDRESS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6969));
@@ -83,7 +83,7 @@ pub enum HostCtrl {
     /// Stops an running experiment
     StopExperiment,
     /// Updates the status of an experiment
-    UpdateExperimentInfo { status: String },
+    UpdateExperimentInfo { info: ExperimentInfo },
 }
 
 /// Registration and control messages for orchestrator and node communication.

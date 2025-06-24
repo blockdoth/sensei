@@ -1,4 +1,3 @@
-mod experiment;
 mod state;
 mod tui;
 
@@ -8,8 +7,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use std::vec;
+
 use lib::errors::NetworkError;
-use lib::network::experiment_config::{Block, Delays, Experiment, ExperimentHost, IsRecurring, Metadata, Stage};
+use lib::experiments::{ActiveExperiment, Command, ExperimentInfo, ExperimentSession, ExperimentStatus};
 use lib::network::rpc_message::RpcMessageKind::Data;
 use lib::network::rpc_message::{CfgType, DataMsg, DeviceId, HostCtrl, HostId, HostStatus, RegCtrl, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
@@ -21,7 +21,6 @@ use tokio::sync::{Mutex, mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
-use crate::orchestrator::experiment::{ActiveExperiment, DelayType, ExperimentChannelMsg, ExperimentSession, ExperimentStatus};
 use crate::orchestrator::state::{OrgTuiState, OrgUpdate};
 use crate::services::{GlobalConfig, OrchestratorConfig, Run};
 
@@ -55,6 +54,38 @@ pub enum OrgChannelMsg {
     Ping(SocketAddr),
 }
 
+impl From<Command> for OrgChannelMsg {
+    /// Converts a `Command` into a corresponding `OrgChannelMsg` for orchestrator control.
+    fn from(cmd: Command) -> Self {
+        match cmd {
+            Command::Connect { target_addr } => OrgChannelMsg::Connect(target_addr),
+            Command::Disconnect { target_addr } => OrgChannelMsg::Disconnect(target_addr),
+            Command::Subscribe { target_addr, device_id } => OrgChannelMsg::Subscribe(target_addr, None, device_id),
+            Command::Unsubscribe { target_addr, device_id } => OrgChannelMsg::Unsubscribe(target_addr, None, device_id),
+            Command::SubscribeTo {
+                target_addr,
+                source_addr,
+                device_id,
+            } => OrgChannelMsg::Subscribe(target_addr, Some(source_addr), device_id),
+            Command::UnsubscribeFrom {
+                target_addr,
+                source_addr,
+                device_id,
+            } => OrgChannelMsg::Unsubscribe(target_addr, Some(source_addr), device_id),
+            Command::SendStatus { target_addr, host_id } => OrgChannelMsg::SendStatus(target_addr, host_id),
+            Command::Configure {
+                target_addr,
+                device_id,
+                cfg_type,
+            } => OrgChannelMsg::Configure(target_addr, device_id, cfg_type),
+            Command::Delay { delay } => OrgChannelMsg::Delay(delay),
+            Command::GetHostStatuses { target_addr } => OrgChannelMsg::GetHostStatuses(target_addr),
+            Command::Ping { target_addr } => OrgChannelMsg::Ping(target_addr),
+            Command::DummyData {} => todo!(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum RegistryChannelMsg {
     Connect(SocketAddr),
@@ -64,6 +95,14 @@ pub enum RegistryChannelMsg {
     StopPolling,
 }
 
+#[derive(Debug)]
+pub enum ExperimentChannelMsg {
+    Start,
+    Stop,
+    StartRemote(SocketAddr),
+    StopRemote(SocketAddr),
+    Select(usize),
+}
 pub struct Orchestrator {
     log_level: LevelFilter,
     experiments_folder: PathBuf,
@@ -88,8 +127,6 @@ impl Run<OrchestratorConfig> for Orchestrator {
 
         let client = Arc::new(Mutex::new(TcpClient::new()));
 
-        let (cancel_signal_send, cancel_signal_recv) = watch::channel(false);
-        let session = ExperimentSession::new(client.clone(), update_send.clone(), cancel_signal_recv);
         // Tasks needs to be boxed and pinned in order to make the type checker happy
         let tasks: Vec<Pin<Box<dyn Future<Output = ()> + Send>>> = vec![
             Box::pin(Self::command_handler(
@@ -100,12 +137,10 @@ impl Run<OrchestratorConfig> for Orchestrator {
                 client.clone(),
             )),
             Box::pin(Self::experiment_handler(
-                session,
-                self.experiments_folder.clone(),
                 client.clone(),
+                self.experiments_folder.clone(),
                 experiment_recv,
                 update_send.clone(),
-                cancel_signal_send,
             )),
             Box::pin(Self::registry_handler(
                 client.clone(),
@@ -259,14 +294,14 @@ impl Orchestrator {
 
     /// Continuously running task responsible for managing experiment related functionality
     async fn experiment_handler(
-        mut session: ExperimentSession,
-        experiment_config_path: PathBuf,
         client: Arc<Mutex<TcpClient>>,
+        experiment_config_path: PathBuf,
         mut experiment_recv: Receiver<ExperimentChannelMsg>,
         update_send: Sender<OrgUpdate>,
-        cancel_signal_send: watch::Sender<bool>,
     ) {
         info!("Started experiment handler task");
+        let (cancel_signal_send, cancel_signal_recv) = watch::channel(false);
+        let mut session = ExperimentSession::new(update_send.clone(), cancel_signal_recv);
 
         session.load_experiments(experiment_config_path.clone());
         info!("Loaded {} experiments from {experiment_config_path:?}", session.experiments.len());
@@ -280,7 +315,7 @@ impl Orchestrator {
             match msg {
                 ExperimentChannelMsg::Start => {
                     if let Some(active) = &session.active_experiment {
-                        match active.status {
+                        match active.info.status {
                             ExperimentStatus::Running => {
                                 debug!("Can't start experiment while another is running");
                             }
@@ -289,8 +324,18 @@ impl Orchestrator {
                                 let mut session = session.clone();
                                 let client = client.clone();
                                 let update_send = update_send.clone();
+
+                                let handler = Arc::new(move |command: Command, update_send: Sender<OrgUpdate>| {
+                                    let client = client.clone(); // clone *inside* closure body
+                                    async move {
+                                        Orchestrator::handle_msg(client, command.into(), update_send, None, None).await;
+                                    }
+                                });
+
+                                let converter = |exp| OrgUpdate::ActiveExperiment(exp);
+
                                 tokio::spawn(async move {
-                                    session.run(client, update_send).await;
+                                    session.run(update_send, converter, handler).await;
                                 });
                             }
                         }
@@ -300,48 +345,16 @@ impl Orchestrator {
                     if let Some(active) = &session.active_experiment {
                         // TODO make better
                         let msg = RpcMessageKind::HostCtrl(HostCtrl::StartExperiment {
-                            experiment: Experiment {
-                                metadata: Metadata {
-                                    name: active.experiment.metadata.name.clone(),
-                                    experiment_host: ExperimentHost::SystemNode { target_addr },
-                                    output_path: Some(active.experiment.metadata.output_path.clone()),
-                                },
-                                stages: active
-                                    .experiment
-                                    .stages
-                                    .iter()
-                                    .map(|s| Stage {
-                                        name: s.name.clone(),
-                                        command_blocks: s
-                                            .blocks
-                                            .iter()
-                                            .map(|b| Block {
-                                                commands: b.commands.clone(),
-                                                delays: Delays {
-                                                    init_delay: b.delays.init_delay,
-                                                    command_delay: b.delays.command_delay,
-                                                    is_recurring: match b.delays.delay_type {
-                                                        DelayType::Recurring {
-                                                            recurrence_delay,
-                                                            iterations,
-                                                        } => IsRecurring::Recurring {
-                                                            recurrence_delay,
-                                                            iterations,
-                                                        },
-                                                        DelayType::NotRecurring => IsRecurring::NotRecurring,
-                                                    },
-                                                },
-                                            })
-                                            .collect(),
-                                    })
-                                    .collect(),
-                            },
+                            experiment: active.experiment.clone(),
                         });
                         client.lock().await.send_message(target_addr, msg).await;
+                        info!("Starting experiment on remote")
                     }
                 }
 
-                ExperimentChannelMsg::Stop => {}
+                ExperimentChannelMsg::Stop => {
+                    cancel_signal_send.send(true);
+                }
                 ExperimentChannelMsg::StopRemote(target_addr) => {
                     let msg = RpcMessageKind::HostCtrl(HostCtrl::StopExperiment);
                     client.lock().await.send_message(target_addr, msg).await;
@@ -351,8 +364,10 @@ impl Orchestrator {
                     if let Some(exp) = session.experiments.get(i) {
                         session.active_experiment = Some(ActiveExperiment {
                             experiment: exp.clone(),
-                            status: ExperimentStatus::Ready,
-                            current_stage: 0,
+                            info: ExperimentInfo {
+                                status: ExperimentStatus::Ready,
+                                current_stage: 0,
+                            },
                         })
                     }
                 }

@@ -1,4 +1,5 @@
 use chrono::{TimeZone, Utc};
+use lib::experiments::ExperimentStatus;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -6,7 +7,6 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Padding, Paragraph, Wrap};
 
 use super::state::OrgTuiState;
-use crate::orchestrator::experiment::ExperimentStatus;
 use crate::orchestrator::state::{DeviceStatus, Focus, FocusExp, FocusHost, FocusReg, HostStatus, RegistryStatus};
 
 const HEADER_STYLE: Style = Style {
@@ -352,7 +352,7 @@ fn render_hosts(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
 /// Displays current experiment status and metadata, as well as a list of selectable experiments.
 fn render_experiments(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     let mut lines = if let Some(active_exp) = &tui_state.active_experiment {
-        let status_color = match active_exp.status {
+        let status_color = match active_exp.info.status {
             ExperimentStatus::Running => Color::Yellow,
             ExperimentStatus::Stopped => Color::Red,
             ExperimentStatus::Done => Color::Green,
@@ -377,17 +377,17 @@ fn render_experiments(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
             ]),
             Line::from(vec![
                 Span::raw("Status:       "),
-                Span::styled(format!("{:?}", active_exp.status), Style::default().fg(status_color)),
+                Span::styled(format!("{:?}", active_exp.info.status), Style::default().fg(status_color)),
             ]),
             Line::from(vec![
                 Span::raw("Stages:       "),
-                Span::raw(format!("{}/{}", active_exp.current_stage, active_exp.experiment.stages.len())),
+                Span::raw(format!("{}/{}", active_exp.info.current_stage, active_exp.experiment.stages.len())),
             ]),
         ];
         for (idx, stage) in active_exp.experiment.stages.iter().enumerate() {
-            let style = if idx < active_exp.current_stage {
+            let style = if idx < active_exp.info.current_stage {
                 Style::default().fg(Color::Green)
-            } else if idx == active_exp.current_stage {
+            } else if idx == active_exp.info.current_stage {
                 Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
@@ -476,7 +476,7 @@ fn footer_text(tui_state: &OrgTuiState) -> String {
         Focus::Experiments(focused_experiment_panel) => match focused_experiment_panel {
           FocusExp::Select(_) => match &tui_state.active_experiment {
             Some(experiment) => {
-              match experiment.status {
+              match experiment.info.status {
                 ExperimentStatus::Running => {
                   "[E]nd Experiment | [Tab] Next | [Shft+Tab] Prev | [↑↓] Move | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit"
                 },

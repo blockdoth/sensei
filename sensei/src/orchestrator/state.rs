@@ -3,7 +3,8 @@ use std::net::SocketAddr;
 use async_trait::async_trait;
 use crossterm::event::{KeyCode, KeyEvent};
 use lib::csi_types::CsiData;
-use lib::network::rpc_message::{HostId, HostStatus as RegHostStatus, Responsiveness, SourceType, DEFAULT_ADDRESS};
+use lib::experiments::{ActiveExperiment, ExperimentStatus, Metadata};
+use lib::network::rpc_message::{DEFAULT_ADDRESS, HostId, HostStatus as RegHostStatus, Responsiveness, SourceType};
 use lib::tui::Tui;
 use lib::tui::logs::{FromLog, LogEntry};
 use log::info;
@@ -12,7 +13,6 @@ use tokio::sync::mpsc::{Receiver, Sender};
 
 use super::tui::ui;
 use crate::orchestrator::OrgChannelMsg;
-use crate::orchestrator::experiment::{ActiveExperiment, ExperimentMetadata, ExperimentStatus};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Host {
@@ -85,7 +85,7 @@ pub enum FocusHost {
 type DeviceID = u64;
 
 /// Enum representing different types of updates/events in the TUI state.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum OrgUpdate {
     // === Hosts ===
     Connect(SocketAddr),
@@ -111,7 +111,7 @@ pub enum OrgUpdate {
     StopExperiment(Option<SocketAddr>),
     SelectExperiment(usize),
     ActiveExperiment(ActiveExperiment),
-    UpdateExperimentList(Vec<ExperimentMetadata>),
+    UpdateExperimentList(Vec<Metadata>),
 
     // Misc
     Log(LogEntry),
@@ -153,7 +153,7 @@ pub struct OrgTuiState {
     pub add_host_input_socket: [char; 21],
     pub selected_host: Option<SocketAddr>,
     pub active_experiment: Option<ActiveExperiment>,
-    pub experiments: Vec<ExperimentMetadata>,
+    pub experiments: Vec<Metadata>,
     pub logs_scroll_offset: usize,
     pub csi_scroll_offset: usize,
 }
@@ -303,7 +303,7 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                 KeyCode::Down => Some(OrgUpdate::Down(focus)),
                 KeyCode::Char('e') | KeyCode::Char('E') => {
                     if let Some(exp) = &self.active_experiment {
-                        match exp.status {
+                        match exp.info.status {
                             ExperimentStatus::Running => Some(OrgUpdate::StopExperiment(self.selected_host)),
                             _ => None,
                         }
@@ -313,7 +313,7 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                 }
                 KeyCode::Char('b') | KeyCode::Char('B') => {
                     if let Some(exp) = &self.active_experiment {
-                        match exp.status {
+                        match exp.info.status {
                             ExperimentStatus::Done | ExperimentStatus::Ready | ExperimentStatus::Stopped => {
                                 Some(OrgUpdate::StartExperiment(self.selected_host))
                             }
@@ -325,7 +325,7 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                 }
                 KeyCode::Char('s') | KeyCode::Char('S') => {
                     if let Some(exp) = &self.active_experiment {
-                        match exp.status {
+                        match exp.info.status {
                             ExperimentStatus::Done | ExperimentStatus::Ready | ExperimentStatus::Stopped => Some(OrgUpdate::SelectExperiment(*i)),
                             _ => None,
                         }
