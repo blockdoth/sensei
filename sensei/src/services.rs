@@ -93,7 +93,9 @@ pub trait FromYaml: Sized + for<'de> Deserialize<'de> {
 #[cfg(feature = "orchestrator")]
 pub struct OrchestratorConfig {
     /// Path to the experiment configuration file.
-    pub experiment_config: PathBuf,
+    pub experiments_folder: PathBuf,
+    pub tui: bool,
+    pub polling_interval: u64,
 }
 
 /// Configuration for a System Node service.

@@ -11,12 +11,13 @@ use crossterm::event::{Event, EventStream, KeyEvent};
 use crossterm::execute;
 use crossterm::terminal::{Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
 use futures::StreamExt;
-use log::{LevelFilter, debug, info};
+use log::{LevelFilter, debug, info, trace};
 use logs::{FromLog, LogEntry, init_logger};
 use ratatui::prelude::CrosstermBackend;
 use ratatui::{Frame, Terminal};
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::task::JoinHandle;
+use tokio::time::sleep;
 
 /// A configurable and generic runner that manages the entire lifecycle of a TUI application.
 /// It handles input events, log streaming, periodic ticks, and state updates.
@@ -102,7 +103,7 @@ where
                 self.app.handle_update(update, &self.command_send, &mut self.update_recv).await;
               }
 
-              _ = tokio::time::sleep(Duration::from_millis(0)) => {
+              _ = tokio::time::sleep(Duration::from_millis(10)) => {
                 self.app.on_tick().await;
               }
             }
@@ -122,7 +123,7 @@ where
     /// using the `FromLog` trait. These updates are then forwarded into the update stream.
     async fn log_handler_task(mut log_recv_channel: Receiver<LogEntry>, update_send_channel: Sender<U>) -> JoinHandle<()> {
         tokio::spawn(async move {
-            info!("Log processor task started.");
+            info!("Started log processor task");
             loop {
                 tokio::select! {
                     log = log_recv_channel.recv() => {
@@ -139,10 +140,9 @@ where
                             }
                         }
                     }
-                    // This breaks it for some reason
-                    // _ = sleep(Duration::from_millis(10)) => {
-                    //   trace!("tick");
-                    // }
+                    _ = sleep(Duration::from_millis(50)) => {
+                      trace!("tick");
+                    }
                 }
             }
             info!("Log processor task stopped.")

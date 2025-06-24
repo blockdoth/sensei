@@ -110,7 +110,7 @@ pub enum FocussedInput {
 
 /// Holds the entire state of the TUI, including configurations, logs, and mode information.
 #[derive(Debug)]
-pub struct TuiState {
+pub struct EspTuiState {
     pub connection_status: String,
     pub should_quit: bool,
     pub focused_panel: FocusedPanel,
@@ -133,7 +133,7 @@ pub struct TuiState {
 }
 
 #[async_trait]
-impl Tui<EspUpdate, EspChannelCommand> for TuiState {
+impl Tui<EspUpdate, EspChannelCommand> for EspTuiState {
     /// Draws the UI based on the state of the TUI, should not change any state by itself
     fn draw_ui(&self, f: &mut Frame) {
         ui(f, self);
@@ -391,7 +391,7 @@ impl Tui<EspUpdate, EspChannelCommand> for TuiState {
     }
 }
 
-impl TuiState {
+impl EspTuiState {
     /// Constructs a new `TuiState` with default configurations.
     pub fn new() -> Self {
         Self {
@@ -467,7 +467,7 @@ mod tests {
 
     #[test]
     fn test_tui_state_new() {
-        let state = TuiState::new();
+        let state = EspTuiState::new();
         assert_eq!(state.connection_status, "INITIALIZING...");
         assert!(!state.should_quit);
         assert_eq!(state.focused_panel, FocusedPanel::Main);
@@ -486,7 +486,7 @@ mod tests {
 
     #[test]
     fn test_handle_keyboard_event_main_panel() {
-        let state = TuiState::new(); // focused_panel is Main by default
+        let state = EspTuiState::new(); // focused_panel is Main by default
 
         assert_eq!(
             state.handle_keyboard_event(create_key_event(KeyCode::Char('m'))),
@@ -530,7 +530,7 @@ mod tests {
 
     #[test]
     fn test_handle_keyboard_event_spam_config_panel() {
-        let mut state = TuiState::new();
+        let mut state = EspTuiState::new();
         state.focused_panel = FocusedPanel::SpamConfig;
 
         assert_eq!(
@@ -588,7 +588,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_update_log() {
-        let mut state = TuiState::new();
+        let mut state = EspTuiState::new();
         let timestamp = chrono::Local::now();
         let log_entry = LogEntry {
             timestamp,
@@ -621,7 +621,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_update_status() {
-        let mut state = TuiState::new();
+        let mut state = EspTuiState::new();
         let (cmd_tx, _) = mpsc::channel(1);
         let (_, mut update_rx) = mpsc::channel(1);
         state
@@ -632,7 +632,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_update_csi_data() {
-        let mut state = TuiState::new();
+        let mut state = EspTuiState::new();
         let csi_data_entry = CsiData::default();
         let (cmd_tx, _) = mpsc::channel(1);
         let (_, mut update_rx) = mpsc::channel(1);
@@ -651,7 +651,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_update_mode_change() {
-        let mut state = TuiState::new();
+        let mut state = EspTuiState::new();
         let (cmd_tx, mut cmd_rx) = mpsc::channel(1);
         let (_, mut update_rx) = mpsc::channel(1);
 
@@ -682,7 +682,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_update_edit_spam_config() {
-        let mut state = TuiState::new();
+        let mut state = EspTuiState::new();
         state.tool_mode = ToolMode::Spam; // Prerequisite
         let (cmd_tx, _) = mpsc::channel(1);
         let (_, mut update_rx) = mpsc::channel(1);
@@ -700,7 +700,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_update_exit() {
-        let mut state = TuiState::new();
+        let mut state = EspTuiState::new();
         let (cmd_tx, mut cmd_rx) = mpsc::channel(1);
         let (_, mut update_rx) = mpsc::channel(1);
 
@@ -711,7 +711,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_update_spam_config_edit() {
-        let mut state = TuiState::new();
+        let mut state = EspTuiState::new();
         state.focused_panel = FocusedPanel::SpamConfig;
         let (cmd_tx, _) = mpsc::channel(1);
         let (_, mut update_rx) = mpsc::channel(1);
@@ -760,7 +760,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_update_spam_config_delete() {
-        let mut state = TuiState::new();
+        let mut state = EspTuiState::new();
         state.focused_panel = FocusedPanel::SpamConfig;
         let (cmd_tx, _) = mpsc::channel(1);
         let (_, mut update_rx) = mpsc::channel(1);
@@ -784,7 +784,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_update_spam_config_enter() {
-        let mut state = TuiState::new();
+        let mut state = EspTuiState::new();
         state.focused_panel = FocusedPanel::SpamConfig;
         state.unsaved_changes = true; // Simulate some changes
         let (cmd_tx, mut cmd_rx) = mpsc::channel(1);
@@ -800,7 +800,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_update_spam_config_escape() {
-        let mut state = TuiState::new();
+        let mut state = EspTuiState::new();
         state.focused_panel = FocusedPanel::SpamConfig;
         state.focused_input = FocussedInput::SrcMac(0);
         let (cmd_tx, _) = mpsc::channel(1);
@@ -815,7 +815,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_update_change_bandwidth() {
-        let mut state = TuiState::new();
+        let mut state = EspTuiState::new();
         let (cmd_tx, mut cmd_rx) = mpsc::channel(1);
         let (_, mut update_rx) = mpsc::channel(1);
 
@@ -840,7 +840,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_update_increment_channel() {
-        let mut state = TuiState::new();
+        let mut state = EspTuiState::new();
         let (cmd_tx, mut cmd_rx) = mpsc::channel(1);
         let (_, mut update_rx) = mpsc::channel(1);
 
@@ -861,7 +861,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_apply_changes() {
-        let mut state = TuiState::new();
+        let mut state = EspTuiState::new();
         let (cmd_tx, mut cmd_rx) = mpsc::channel(1);
 
         state.unsaved_changes = false;

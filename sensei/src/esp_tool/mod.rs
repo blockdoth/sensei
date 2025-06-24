@@ -18,9 +18,8 @@ use lib::sources::esp32::{Esp32Source, Esp32SourceConfig};
 use lib::tui::TuiRunner;
 use lib::tui::logs::{FromLog, LogEntry};
 use log::{LevelFilter, debug, error, info, warn};
-use state::{EspUpdate, TuiState};
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::{Receiver, Sender};
+use state::{EspTuiState, EspUpdate};
+use tokio::sync::mpsc::{self, Receiver, Sender};
 
 use crate::services::{EspToolConfig, GlobalConfig, Run};
 
@@ -102,8 +101,8 @@ impl Run<EspToolConfig> for EspTool {
         let esp_task = Self::esp_source_task(esp_src_config, esp_device_config, update_send_clone, command_recv);
         let tasks = vec![esp_task];
 
-        let tui_runner = TuiRunner::new(TuiState::new(), command_send, update_recv, update_send, self.log_level);
-        tui_runner.run(tasks).await?;
+        let tui_runner = TuiRunner::new(EspTuiState::new(), command_send, update_recv, update_send, self.log_level);
+        tui_runner.run(tasks).await;
         Ok(())
     }
 }
