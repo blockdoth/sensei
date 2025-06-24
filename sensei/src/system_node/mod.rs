@@ -552,14 +552,6 @@ impl ConnectionHandler for SystemNode {
                     HostCtrl::UnsubscribeFrom { target_addr: _, device_id } => {
                         Self::unsubscribe(request.src_addr, *device_id, send_channel_msg_channel).await?;
                     }
-                    HostCtrl::SubscribeToAll { target_addr: _ } => {
-                        todo!();
-                        // Self::subscribe_to_all(target_addr, self.handlers.clone()).await?;
-                    }
-                    HostCtrl::UnsubscribeFromAll { target_addr: _ } => {
-                        todo!();
-                        // Self::unsubscribe_all(request.src_addr, send_channel_msg_channel).await?;
-                    }
                     HostCtrl::StartExperiment { experiment } => {
                         self.experiment_send
                             .send(ExperimentChannelMsg::Start(experiment.clone(), send_channel_msg_channel.clone()))
