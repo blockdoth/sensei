@@ -20,6 +20,7 @@ mod cli;
 mod esp_tool;
 #[cfg(feature = "orchestrator")]
 mod orchestrator;
+#[cfg(feature = "registry")]
 mod registry;
 mod services;
 #[cfg(feature = "sys_node")]
