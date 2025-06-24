@@ -16,7 +16,7 @@ use lib::network::rpc_message::{DataMsg, DeviceId, DeviceStatus, HostCtrl, HostI
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, HostChannel, RegChannel, SubscribeDataChannel, send_message};
-use log::{debug, info, trace, warn};
+use log::{debug, error, info, trace, warn};
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::watch::{self};
 use tokio::sync::{Mutex, broadcast};
@@ -230,7 +230,7 @@ impl ConnectionHandler for Registry {
                     send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Empty))?;
                 }
             },
-            RpcMessageKind::Data { data_msg, device_id } => todo!(),
+            RpcMessageKind::Data { data_msg, device_id } => error!("A registry can't handle data messages."),
         };
         Ok(())
     }
@@ -274,7 +274,7 @@ impl ConnectionHandler for Registry {
                         send_message(&mut send_stream, RpcMessageKind::RegCtrl(msg)).await?;
                     }
                 },
-                _ => panic!("Received an unsupported channel message."),
+                _ => error!("Received an unsupported channel message."),
             }
         }
         // Ok(()) is unreachable, but keep for completeness

@@ -7,6 +7,7 @@
 //!
 //! The System Node also interacts with registries to announce its presence and can periodically poll other nodes when functioning as a registry.
 
+use core::panic;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -374,18 +375,19 @@ impl ConnectionHandler for SystemNode {
                     debug!("Received ping from {:#?}.", request.src_addr);
                     send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Pong))?;
                 }
-                m => {
-                    warn!("Received unhandled HostCtrl: {m:?}");
+                _ => {
+                    warn!("The client received an unsupported request. Responding with an empty message.");
+                    send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Empty))?;
                 }
             },
             RpcMessageKind::RegCtrl(command) => match command {
                 RegCtrl::PollHostStatus { host_id } => {
                     send_channel_msg_channel.send(ChannelMsg::RegChannel(RegChannel::SendHostStatus { host_id: self.host_id }))?
                 }
-                RegCtrl::PollHostStatuses => todo!(),
-                RegCtrl::AnnouncePresence { host_id, host_address } => todo!(),
-                RegCtrl::HostStatus(host_status) => todo!(),
-                RegCtrl::HostStatuses { host_statuses } => todo!(),
+                _ => {
+                    warn!("The client received an unsupported request. Responding with an empty message.");
+                    send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Empty))?;
+                }
             },
             RpcMessageKind::Data { data_msg, device_id } => {
                 // Data from EXTERNAL source (network)
@@ -439,17 +441,14 @@ impl ConnectionHandler for SystemNode {
                             debug!("Sending pong...");
                             send_message(&mut send_stream, RpcMessageKind::HostCtrl(HostCtrl::Pong)).await?;
                         }
-                        _ => {}
+                        HostChannel::Empty => send_message(&mut send_stream, RpcMessageKind::HostCtrl(HostCtrl::Empty)).await?,
+                        _ => error!("Received an unsupported channel message."),
                     },
-                    ChannelMsg::RegChannel(reg_msg) => match reg_msg {
-                        RegChannel::SendHostStatus { host_id } if host_id == self.host_id => {
-                            let status = self.get_host_status();
-                            send_message(&mut send_stream, RpcMessageKind::RegCtrl(RegCtrl::HostStatus(status))).await?;
-                        }
-                        RegChannel::SendHostStatus { host_id } => todo!(),
-                        RegChannel::SendHostStatuses => todo!(),
-                    },
-                    _ => (),
+                    ChannelMsg::RegChannel(RegChannel::SendHostStatus { host_id }) if host_id == self.host_id => {
+                        let status = self.get_host_status();
+                        send_message(&mut send_stream, RpcMessageKind::RegCtrl(RegCtrl::HostStatus(status))).await?;
+                    }
+                    _ => error!("Received an unsupported channel message."),
                 }
             }
 
