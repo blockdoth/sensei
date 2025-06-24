@@ -84,14 +84,13 @@ impl Registry {
                     }
                     client
                         .send_message(target_addr, RpcMessageKind::RegCtrl(RegCtrl::PollHostStatus { host_id }))
-                        .await
-                        .map_err(|e| RegistryError::from(Box::new(e)))?;
-                    let msg = client.read_message(target_addr).await.map_err(|e| RegistryError::from(Box::new(e)))?;
-                    debug!("msg: {msg:?}");
+                        .await?;
+                    let msg = client.read_message(target_addr).await?;
                     if let RpcMessageKind::RegCtrl(RegCtrl::HostStatus(host_status)) = msg.msg {
                         self.store_host_update(host_id, target_addr, host_status.device_statuses).await?;
                     } else {
-                        return Err(RegistryError::NetworkError(Box::from(NetworkError::MessageError)));
+                        error!("Received an unexpected response from {host_id:#?} at address: {target_addr}\n{msg:?}");
+                        return Err(RegistryError::NetworkError(NetworkError::MessageError));
                     }
                     // client.disconnect(target_addr).await.map_err(|e| RegistryError::from(Box::new(e)))?;
                     Ok(())
@@ -215,11 +214,15 @@ impl ConnectionHandler for Registry {
                     device_statuses: device_status,
                     responsiveness,
                     addr,
-                }) => self.store_host_update(host_id, request.src_addr, device_status).await?,
+                }) => self
+                    .store_host_update(host_id, request.src_addr, device_status)
+                    .await
+                    .map_err(|_| NetworkError::ProcessingError)?,
                 RegCtrl::HostStatuses { host_statuses } => {
                     for host_status in host_statuses {
                         self.store_host_update(host_status.host_id, request.src_addr, host_status.device_statuses)
-                            .await?
+                            .await
+                            .map_err(|_| NetworkError::ProcessingError)?
                     }
                 }
                 _ => {
@@ -227,7 +230,7 @@ impl ConnectionHandler for Registry {
                     send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Empty))?;
                 }
             },
-            RpcMessageKind::Data { data_msg, device_id } => error!("A registry can't handle data messages."),
+            RpcMessageKind::Data { data_msg, device_id } => panic!("A registry can't handle data messages."),
         };
         Ok(())
     }
@@ -256,7 +259,7 @@ impl ConnectionHandler for Registry {
                 },
                 ChannelMsg::RegChannel(reg_channel) => match reg_channel {
                     RegChannel::SendHostStatus { host_id } => {
-                        let host_status = RegCtrl::from(self.get_host_by_id(host_id).await?);
+                        let host_status = RegCtrl::from(self.get_host_by_id(host_id).await.map_err(|_| NetworkError::ProcessingError)?);
                         let msg = RpcMessageKind::RegCtrl(host_status);
                         send_message(&mut send_stream, msg).await?;
                     }
@@ -266,7 +269,7 @@ impl ConnectionHandler for Registry {
                         send_message(&mut send_stream, RpcMessageKind::RegCtrl(msg)).await?;
                     }
                 },
-                _ => error!("Received an unsupported channel message."),
+                ChannelMsg::Data { data: _ } => panic!("Registry produced a data message?"),
             }
         }
         // Ok(()) is unreachable, but keep for completeness

@@ -711,17 +711,27 @@ impl ConnectionHandler for SystemNode {
         match &request.msg {
             RpcMessageKind::HostCtrl(command) => match command {
                 // regular Host commands
-                HostCtrl::Connect => Self::connect(request.src_addr).await?,
-                HostCtrl::Disconnect => Self::disconnect(request.src_addr, send_channel_msg_channel).await?,
-                HostCtrl::Subscribe { device_id } => Self::subscribe(request.src_addr, *device_id, send_channel_msg_channel).await?,
-                HostCtrl::Unsubscribe { device_id } => Self::unsubscribe(request.src_addr, *device_id, send_channel_msg_channel).await?,
+                HostCtrl::Connect => Self::connect(request.src_addr).await.map_err(|_| NetworkError::ProcessingError)?,
+                HostCtrl::Disconnect => Self::disconnect(request.src_addr, send_channel_msg_channel)
+                    .await
+                    .map_err(|_| NetworkError::ProcessingError)?,
+                HostCtrl::Subscribe { device_id } => Self::subscribe(request.src_addr, *device_id, send_channel_msg_channel)
+                    .await
+                    .map_err(|_| NetworkError::ProcessingError)?,
+                HostCtrl::Unsubscribe { device_id } => Self::unsubscribe(request.src_addr, *device_id, send_channel_msg_channel)
+                    .await
+                    .map_err(|_| NetworkError::ProcessingError)?,
                 HostCtrl::SubscribeTo { target_addr, device_id } => {
-                    Self::subscribe_to(*target_addr, *device_id, self.handlers.clone(), self.local_data_tx.clone()).await?
+                    Self::subscribe_to(*target_addr, *device_id, self.handlers.clone(), self.local_data_tx.clone())
+                        .await
+                        .map_err(|_| NetworkError::ProcessingError)?
                 }
-                HostCtrl::UnsubscribeFrom { target_addr: _, device_id } => {
-                    Self::unsubscribe(request.src_addr, *device_id, send_channel_msg_channel).await?
-                }
-                HostCtrl::Configure { device_id, cfg_type } => Self::configure(*device_id, cfg_type.clone(), self.handlers.clone()).await?,
+                HostCtrl::UnsubscribeFrom { target_addr: _, device_id } => Self::unsubscribe(request.src_addr, *device_id, send_channel_msg_channel)
+                    .await
+                    .map_err(|_| NetworkError::ProcessingError)?,
+                HostCtrl::Configure { device_id, cfg_type } => Self::configure(*device_id, cfg_type.clone(), self.handlers.clone())
+                    .await
+                    .map_err(|_| NetworkError::ProcessingError)?,
                 HostCtrl::Ping => {
                     debug!("Received ping from {:#?}.", request.src_addr);
                     send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Pong))?;
@@ -805,11 +815,11 @@ impl ConnectionHandler for SystemNode {
 
             if !recv_data_channel.is_empty() {
                 let (data_msg, device_id) = recv_data_channel.recv().await.unwrap();
-
-                debug!("Sending data {data_msg:?} for {device_id} to {send_stream:?}");
-                let msg = RpcMessageKind::Data { data_msg, device_id };
-
-                send_message(&mut send_stream, msg).await?;
+                if subscribed_ids.contains(&device_id) {
+                    debug!("Sending data {data_msg:?} for {device_id} to {send_stream:?}");
+                    let msg = RpcMessageKind::Data { data_msg, device_id };
+                    send_message(&mut send_stream, msg).await?;
+                }
             }
         }
     }

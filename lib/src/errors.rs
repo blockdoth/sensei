@@ -29,9 +29,9 @@ pub enum NetworkError {
     #[error("Communication timed out")]
     Timeout(#[from] tokio::time::error::Elapsed),
 
-    /// There's a problem that originated from the App
-    #[error("There's an error in the App")]
-    App(#[from] AppError),
+    /// Processing Error
+    #[error("Processing Error")]
+    ProcessingError,
 
     /// Failed during serialization or deserialization.
     #[error("Error during (De)Serialization")]
@@ -52,10 +52,6 @@ pub enum NetworkError {
     /// The response could not be parsed.
     #[error("Message could not be parsed")]
     MessageError,
-
-    /// Registry error
-    #[error("The registry produced an error")]
-    RegistryError(#[from] RegistryError),
 
     /// Other error type
     #[error("An error occurred")]
@@ -430,9 +426,12 @@ pub enum RegistryError {
     #[error("No such host")]
     NoSuchHost,
 
+    // /// Netowrk Error
+    // #[error("Network Error")]
+    // NetworkError(#[from] Box<NetworkError>),
     /// Netowrk Error
     #[error("Network Error")]
-    NetworkError(#[from] Box<NetworkError>),
+    NetworkError(#[from] NetworkError),
 
     /// No Standalone
     #[error("The registry cannot be ran as a standalone process.")]
