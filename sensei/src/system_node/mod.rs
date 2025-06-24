@@ -14,7 +14,6 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use lib::FromConfig;
-use lib::adapters::CsiDataAdapter;
 use lib::errors::{AppError, ExperimentError, NetworkError};
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
 use lib::network::experiment_config::IsRecurring::{NotRecurring, Recurring};
@@ -28,8 +27,8 @@ use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
 use lib::network::tcp::{ChannelMsg, ConnectionHandler, HostChannel, RegChannel, SubscribeDataChannel, send_message};
 use lib::sinks::{Sink, SinkConfig};
+use lib::sources::DataSourceConfig;
 use lib::sources::tcp::TCPConfig;
-use lib::sources::{DataSourceConfig, DataSourceT};
 use log::*;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::{Mutex, broadcast, mpsc, watch};
@@ -59,10 +58,10 @@ pub struct SystemNode {
     send_data_channel: broadcast::Sender<(DataMsg, DeviceId)>,      // For external TCP clients
     local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,               // For local DeviceHandler data
     local_data_rx: Arc<Mutex<mpsc::Receiver<(DataMsg, DeviceId)>>>, // Receiver for local data
-    handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+    handlers: Arc<Mutex<HashMap<DeviceId, Box<DeviceHandler>>>>,
     sinks: Arc<Mutex<HashMap<String, Box<dyn Sink>>>>,
     addr: SocketAddr,
-    host_id: u64,
+    host_id: HostId,
     registry_addrs: Option<Vec<SocketAddr>>,
     device_configs: Vec<DeviceHandlerConfig>,
     sink_configs: Vec<SinkConfigWithName>,
@@ -141,7 +140,9 @@ impl SystemNode {
         };
 
         // This can be allowed to unwrap, as it will literally always succeed
-        let new_handler = DeviceHandler::from_config(new_handler_config).await.unwrap();
+        let mut new_handler = DeviceHandler::from_config(new_handler_config).await.unwrap();
+
+        new_handler.start(local_data_tx).await?;
 
         info!("Handler created to subscribe to {target_addr}");
 
@@ -156,7 +157,7 @@ impl SystemNode {
         info!("Removing handler subscribing to {device_id}");
         match handlers.lock().await.remove(&device_id) {
             Some(mut handler) => {
-                handler.stop().await;
+                handler.stop().await?;
             }
             _ => info!("This handler does not exist."),
         }
@@ -197,13 +198,72 @@ impl SystemNode {
         Ok(())
     }
 
-    async fn load_experiment(experiment: Experiment, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), NetworkError> {
+    async fn start(
+        device_id: DeviceId,
+        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+        local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        match handlers.lock().await.get_mut(&device_id) {
+            Some(handler) => {
+                info!("Starting device handler {device_id}");
+                handler.start(local_data_tx.clone()).await?;
+            }
+            _ => {
+                info!("There does not exist a device handler {device_id}")
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn start_all(
+        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+        local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        info!("Starting all device handlers");
+        for (device_id, handler) in handlers.lock().await.iter_mut() {
+            info!("Starting device handler {device_id}");
+            handler.start(local_data_tx.clone()).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn stop(device_id: DeviceId, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), Box<dyn std::error::Error>> {
+        match handlers.lock().await.get_mut(&device_id) {
+            Some(handler) => {
+                info!("Stopping device handler {device_id}");
+                handler.stop().await?;
+            }
+            _ => {
+                info!("There does not exist a device handler {device_id}")
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn stop_all(handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), Box<dyn std::error::Error>> {
+        info!("Stopping all device handlers");
+        for (device_id, handler) in handlers.lock().await.iter_mut() {
+            info!("Stopping device handler {device_id}");
+            handler.stop().await?;
+        }
+
+        Ok(())
+    }
+
+    async fn load_experiment(
+        experiment: Experiment,
+        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+        local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         info!("Running {}", experiment.metadata.name.clone());
 
         for (i, stage) in experiment.stages.into_iter().enumerate() {
             let name = stage.name.clone();
             info!("Executing stage {name}");
-            Self::execute_stage(stage, handlers.clone()).await?;
+            Self::execute_stage(stage, handlers.clone(), local_data_tx.clone()).await?;
             info!("Finished stage {name}");
         }
 
@@ -216,8 +276,9 @@ impl SystemNode {
         for block in stage.command_blocks {
             // Have to define the clone outside the tokio task and then move the clone, rather than create the clone inside the tokio task
             let handlers_clone = handlers.clone();
+            let local_data_tx_clone = local_data_tx.clone();
             let task = tokio::spawn(async move {
-                Self::execute_command_block(block, handlers_clone).await;
+                Self::execute_command_block(block, handlers_clone, local_data_tx_clone).await;
             });
             tasks.push(task);
         }
@@ -246,19 +307,19 @@ impl SystemNode {
                 let n = iterations.unwrap_or(0u64);
                 if n == 0 {
                     loop {
-                        Self::match_commands(command_types.clone(), handlers.clone(), command_delay).await?;
+                        Self::match_commands(command_types.clone(), handlers.clone(), command_delay, local_data_tx.clone()).await?;
                         tokio::time::sleep(std::time::Duration::from_millis(r_delay)).await;
                     }
                 } else {
                     for _ in 0..n {
-                        Self::match_commands(command_types.clone(), handlers.clone(), command_delay).await?;
+                        Self::match_commands(command_types.clone(), handlers.clone(), command_delay, local_data_tx.clone()).await?;
                         tokio::time::sleep(std::time::Duration::from_millis(r_delay)).await;
                     }
                 }
                 Ok(())
             }
             NotRecurring => {
-                Self::match_commands(command_types, handlers, command_delay).await?;
+                Self::match_commands(command_types, handlers, command_delay, local_data_tx).await?;
                 Ok(())
             }
         }
@@ -270,7 +331,7 @@ impl SystemNode {
         command_delay: u64,
     ) -> Result<(), NetworkError> {
         for command in commands {
-            Self::match_command(command.clone(), handlers.clone()).await?;
+            Self::match_command(command.clone(), handlers.clone(), local_data_tx.clone()).await?;
             tokio::time::sleep(std::time::Duration::from_millis(command_delay)).await;
         }
         Ok(())
@@ -278,7 +339,7 @@ impl SystemNode {
 
     async fn match_command(command: Command, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), NetworkError> {
         match command {
-            Command::Subscribe { target_addr, device_id } => Ok(Self::subscribe_to(target_addr, device_id, handlers).await?),
+            Command::Subscribe { target_addr, device_id } => Ok(Self::subscribe_to(target_addr, device_id, handlers, local_data_tx).await?),
             Command::Unsubscribe { target_addr, device_id } => Ok(Self::unsubscribe_from(device_id, handlers).await?),
             Command::Configure {
                 target_addr,
@@ -289,6 +350,10 @@ impl SystemNode {
                 tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
                 Ok(())
             }
+            Command::Start { target_addr, device_id } => Ok(Self::start(device_id, handlers, local_data_tx).await?),
+            Command::StartAll { target_addr } => Ok(Self::start_all(handlers, local_data_tx).await?),
+            Command::Stop { target_addr, device_id } => Ok(Self::stop(device_id, handlers).await?),
+            Command::StopAll { target_addr } => Ok(Self::stop_all(handlers).await?),
             c => {
                 info!("The system node does not support this command {c:?}");
                 Ok(())
@@ -509,17 +574,7 @@ impl Run<SystemNodeConfig> for SystemNode {
         for cfg in &self.device_configs {
             let mut handler = DeviceHandler::from_config(cfg.clone()).await?;
             // Pass the sender for local data to the handler's start method
-            handler
-                .start(
-                    <dyn DataSourceT>::from_config(cfg.source.clone()).await?,
-                    if let Some(adapter_cfg) = cfg.adapter {
-                        Some(<dyn CsiDataAdapter>::from_config(adapter_cfg).await?)
-                    } else {
-                        None
-                    },
-                    self.local_data_tx.clone(),
-                )
-                .await?;
+            handler.start(self.local_data_tx.clone()).await?;
             handlers_map.insert(cfg.device_id, handler);
         }
         drop(handlers_map); // Release lock

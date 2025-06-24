@@ -4,9 +4,10 @@ use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{Mutex, mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::adapters::*;
@@ -99,6 +100,10 @@ pub struct DeviceHandler {
     /// Handle of the thread
     handle: Option<JoinHandle<()>>,
     // data_output_tx: Option<mpsc::Sender<(DataMsg, DeviceId)>>, // To send data to SystemNode - This will be passed to start()
+    /// A reference to the data source
+    source: Arc<Mutex<Box<dyn DataSourceT>>>,
+    /// A reference to the adapter
+    adapter: Arc<Mutex<Option<Box<dyn CsiDataAdapter>>>>,
 }
 
 impl DeviceHandler {
@@ -129,37 +134,42 @@ impl DeviceHandler {
     /// 4. Passes the frame through the adapter (if present).
     /// 5. Logs and continues on adapter errors, breaks the loop on source read error.
     ///    Aditionally provides functionality for shutting down the thread
-    pub async fn start(
-        &mut self,
-        mut source: Box<dyn DataSourceT>,
-        mut adapter: Option<Box<dyn CsiDataAdapter>>,
-        data_output_tx: mpsc::Sender<(DataMsg, DeviceId)>,
-    ) -> Result<(), TaskError> {
+    pub async fn start(&mut self, data_output_tx: mpsc::Sender<(DataMsg, DeviceId)>) -> Result<(), TaskError> {
         let device_id = self.config.device_id;
+        let controller_config = self.config.controller.clone();
         let (shutdown_tx, mut shutdown_rx) = watch::channel(());
 
-        // Start the source.
-        source.start().await.map_err(|e| {
-            log::error!("Device {device_id} source start failed: {e:?}");
-            TaskError::DataSourceError(e)
-        })?;
-        log::info!("Device {device_id} source started successfully.");
-
-        // Apply controller if configured, now that the source is started.
-        if let Some(controller_cfg) = self.config.controller.clone() {
-            log::info!("Applying controller for device {device_id}.");
-            let controller: Box<dyn Controller> = <dyn Controller>::from_config(controller_cfg.clone()).await.map_err(|e| {
-                log::error!("Device {device_id} controller instantiation failed: {e:?}");
-                e // Assuming TaskError::Controller will be handled by `?` or caller
-            })?;
-            controller.apply(source.as_mut()).await.map_err(|e| {
-                log::error!("Device {device_id} controller apply failed: {e:?}");
-                TaskError::ControllerError(e)
-            })?;
-            log::info!("Device {device_id} controller applied successfully.");
-        }
+        let mut source_outside = Arc::clone(&self.source);
+        let mut adapter_outside = Arc::clone(&self.adapter);
 
         let handle = tokio::spawn(async move {
+            let mut source = source_outside.lock().await;
+            let mut adapter = adapter_outside.lock().await;
+
+            // Start the source.
+            source.start().await.map_err(|e| {
+                log::error!("Device {device_id} source start failed: {e:?}");
+                TaskError::DataSourceError(e)
+            });
+            log::info!("Device {device_id} source started successfully.");
+
+            // Apply controller if configured, now that the source is started.
+            if let Some(controller_cfg) = controller_config {
+                log::info!("Applying controller for device {device_id}.");
+                let controller: Box<dyn Controller> = <dyn Controller>::from_config(controller_cfg.clone())
+                    .await
+                    .map_err(|e| {
+                        log::error!("Device {device_id} controller instantiation failed: {e:?}");
+                        e // Assuming TaskError::Controller will be handled by `?` or caller
+                    })
+                    .unwrap();
+                controller.apply(source.as_mut()).await.map_err(|e| {
+                    log::error!("Device {device_id} controller apply failed: {e:?}");
+                    TaskError::ControllerError(e)
+                });
+                log::info!("Device {device_id} controller applied successfully.");
+            }
+
             log::info!("Device handler task starting for {device_id}.");
             loop {
                 tokio::select! {
@@ -247,7 +257,7 @@ impl DeviceHandler {
     /// Reconfigures the device handler with a new configuration.
     ///
     /// This function stops the current task, applies the new configuration,
-    /// and starts a new task using the updated parameters.
+    /// and does not start a new task using the updated parameters.
     ///
     /// # Arguments
     ///
@@ -292,7 +302,12 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
     /// - Adapter instantiation fails
     /// - Starting the handler’s background task fails
     async fn from_config(cg: DeviceHandlerConfig) -> Result<Box<Self>, TaskError> {
-        // Source and adapter are instantiated by the caller (SystemNode) and passed to start().
+        let source = <dyn DataSourceT>::from_config(cg.source.clone()).await?;
+
+        let adapter = match cg.adapter {
+            Some(adapter_cfg) => Some(<dyn CsiDataAdapter>::from_config(adapter_cfg).await?),
+            _ => None,
+        };
 
         // Validate controller configuration if present.
         if let Some(controller_cfg) = &cg.controller {
@@ -321,6 +336,8 @@ impl FromConfig<DeviceHandlerConfig> for DeviceHandler {
             config: cg,
             shutdown_tx: None,
             handle: None,
+            source: Arc::new(Mutex::new(source)),
+            adapter: Arc::new(Mutex::new(adapter)),
         });
 
         Ok(handler)
@@ -465,7 +482,7 @@ mod tests {
         let mut handler = DeviceHandler::from_config(config).await.unwrap();
 
         let (tx, mut rx) = mpsc::channel(10);
-        handler.start(Box::new(mock_source), None, tx).await.unwrap();
+        handler.start(tx).await.unwrap();
 
         // let (msg, dev_id) = rx.recv().await.unwrap();
         // assert_eq!(dev_id, 42);

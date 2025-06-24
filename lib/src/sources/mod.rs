@@ -33,7 +33,7 @@ use crate::errors::{DataSourceError, TaskError};
 use crate::network::rpc_message::DataMsg;
 use crate::{FromConfig, ToConfig};
 
-pub const BUFSIZE: usize = 65535;
+pub const BUFSIZE: usize = 4096;
 
 /// Data Source Trait
 /// -----------------
@@ -43,7 +43,7 @@ pub const BUFSIZE: usize = 65535;
 /// sensibly with an adapter.
 #[cfg_attr(test, automock)]
 #[async_trait::async_trait]
-pub trait DataSourceT: Send + Any + ToConfig<DataSourceConfig> {
+pub trait DataSourceT: Send + Sync + Any + ToConfig<DataSourceConfig> {
     /// Start collecting data
     /// ---------------------
     /// Must activate the source, such that we can read from it. For example, starting

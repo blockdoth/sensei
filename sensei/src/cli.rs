@@ -134,11 +134,11 @@ pub enum SubCommandsArgs {
 #[argh(subcommand, name = "node")]
 pub struct SystemNodeSubcommandArgs {
     /// server address (default: 127.0.0.1)
-    #[argh(option, default = "String::from(\"\")")]
+    #[argh(option, default = "String::from(\"127.0.0.1\")")]
     pub addr: String,
 
-    /// server port (default: 6969)
-    #[argh(option, default = "0")]
+    /// server port (default: 42000)
+    #[argh(option, default = "42000")]
     pub port: u16,
 
     /// location of config file
