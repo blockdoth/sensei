@@ -106,7 +106,6 @@
                 python3
                 toolchain
                 pkgs.gcc
-                pkgs.glibc
                 ruff
                 shellcheck
                 nixfmt-rfc-style
@@ -115,6 +114,7 @@
                 pkg-config
               ]
               ++ lib.optionals isLinux [
+                pkgs.glibc
                 udev
                 valgrind
                 llvmPackages_latest.llvm
@@ -129,7 +129,7 @@
             LLVM_PROFDATA = "${pkgs.llvmPackages_latest.llvm}/bin/llvm-profdata";
           };
 
-          packages.cross-aarch64 = lib.mkIf (system == "x86_64-linux" || system == "aarch64-linux") (
+          packages.cross-aarch64 = lib.mkIf (system == "x86_64-linux" || system == "aarch64-linux" || system == "aarch64-darwin" || system == "x86_64-darwin") (
             pkgs.rustPlatform.buildRustPackage {
               pname = "sensei";
               version = "0.1.0";
@@ -143,21 +143,23 @@
                 toolchain
                 pkgs.upx
                 pkgs.gcc
-                pkgs.glibc
                 pkgs.pkg-config
                 pkgs.pkgsCross.aarch64-multiplatform-musl.stdenv  
                 libunwindMuslStatic
+              ] ++ lib.optionals isLinux [
+                pkgs.glibc
               ];
 
               nativeBuildInputs = [
                 toolchain
                 pkgs.upx
                 pkgs.gcc
-                pkgs.glibc
                 pkgs.pkg-config
                 pkgs.pkgsCross.aarch64-multiplatform-musl.stdenv  
                 libunwindMuslStatic
-              ];
+              ] ++ lib.optionals isLinux [
+                pkgs.glibc
+              ];              
 
               # I hace set most of the flags in the toolchain.
               # Since these flags need adirect reference to the nix store they are set here.
