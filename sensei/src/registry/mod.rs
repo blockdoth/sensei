@@ -372,7 +372,7 @@ mod tests {
             send_data_channel: broadcast::channel(10).0,
             polling_rate_s: 0,
             host_id: 1,
-            addr: "127.0.0.1:4100".parse().unwrap(),
+            addr: "127.0.0.1:6969".parse().unwrap(),
             registry_addrs: None,
         }
     }

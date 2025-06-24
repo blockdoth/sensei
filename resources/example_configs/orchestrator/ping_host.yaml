@@ -7,13 +7,13 @@ stages:
     blocks:
         - commands:
             - !Connect
-              target_addr: "127.0.0.1:4101"
+              target_addr: "127.0.0.1:6969"
             - !Delay
               delay: 1000
             - !Ping
-              target_addr: "127.0.0.1:4100"
+              target_addr: "127.0.0.1:6969"
             - !Disconnect
-              target_addr: "127.0.0.1:4101"
+              target_addr: "127.0.0.1:6969"
           delays:
             init_delay: 10
             delay_type: !NotRecurring
@@ -21,13 +21,13 @@ stages:
     blocks:
       - commands:
           - !Connect
-            target_addr: "127.0.0.1:8080"
+            target_addr: "127.0.0.1:6969"
           - !Delay
             delay: 1000
           - !Ping
-            target_addr: "127.0.0.1:8080"
+            target_addr: "127.0.0.1:6969"
           - !Disconnect
-            target_addr: "127.0.0.1:8080"
+            target_addr: "127.0.0.1:6969"
         delays:
           init_delay: 500
           command_delay: 200

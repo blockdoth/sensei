@@ -6,4 +6,4 @@ procs:
   node_3:
     cmd: ["sh", "-c", "sleep 1 && cargo run node --config-path resources/example_configs/host/reg_test/node_3.yaml"]
   reg:
-    cmd: ["cargo", "run", "node", "--config-path", "resources/example_configs/host/reg_test/reg.yaml"]
+    cmd: ["cargo", "run", "registry"]
