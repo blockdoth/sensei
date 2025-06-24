@@ -116,8 +116,6 @@
               ++ lib.optionals isLinux [
                 pkgs.glibc
                 udev
-                valgrind
-                llvmPackages_latest.llvm
                 cargo-llvm-cov
               ];
 
