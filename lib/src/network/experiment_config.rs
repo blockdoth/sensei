@@ -95,12 +95,12 @@ pub enum IsRecurring {
 
 /// `Commands` are the actions that the orchestrator or system node can undertake in an experiment
 ///
-/// These commands are `Connect`, `Disconnect`, `Subscribe`, `Unsubscribe`, `SubscribeTo`, `UnsubscribeFrom`, `SendStatus`, `Configure` and `Delay`
+/// These commands are `Connect`, `Disconnect`, `Subscribe(All)`, `Unsubscribe(All)`, `SubscribeTo`, `UnsubscribeFrom`, `SendStatus`, `Configure`, `Start(All)`, `Stop(All)` and `Delay`
 ///
 /// The orchestrator executes these commands by sending messages to system nodes and telling them to run the commands
 ///
 /// The system node executes these commands by running them locally.
-/// System nodes can only run the `Subscribe(All)`, `Unsubscribe`, `Configure`, `Start(All)`, `Stop(All)` and `Delay` commands,
+/// System nodes can only run the `Subscribe`, `Unsubscribe`, `Configure`, `Start(All)`, `Stop(All)` and `Delay` commands,
 /// as connecting and disconnecting are not relevant concepts to a system node,
 /// and it is not necessary for a system node to tell another system node to subscribe to a third system node.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]

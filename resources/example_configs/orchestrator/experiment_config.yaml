@@ -22,13 +22,16 @@
                     delay: 500
                     adapter: !Csv
                     output_to:
-            - !Start
+            - !StartAll
               target_addr: "127.0.0.1:12345"
-              device_id: 0
             - !SubscribeTo
               target_addr: "127.0.0.1:42000"
               device_id: 0
               source_addr: "127.0.0.1:12345"
+            - !Delay
+              delay: 5000
+            - !StopAll
+              target_addr: "127.0.0.1:12345"
           delays:
             init_delay: 2000
             command_delay: 1000

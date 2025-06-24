@@ -8,7 +8,7 @@ use mockall_double::double;
 
 use crate::ToConfig;
 use crate::errors::{DataSourceError, TaskError};
-use crate::network::rpc_message::{DataMsg, RpcMessage, RpcMessageKind};
+use crate::network::rpc_message::{DataMsg, DeviceId, RpcMessage, RpcMessageKind};
 #[cfg_attr(test, double)]
 use crate::network::tcp::client::TcpClient;
 use crate::sources::{DataSourceConfig, DataSourceT};
@@ -22,7 +22,7 @@ pub struct TCPConfig {
     pub target_addr: SocketAddr,
 
     /// device id to which this is relevant
-    pub device_id: u64,
+    pub device_id: DeviceId,
 }
 
 /// TCP-based data source for receiving `DataMsg` payloads over a network.
