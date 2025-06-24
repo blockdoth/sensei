@@ -461,7 +461,7 @@ pub enum ConfigError {
 pub enum ExperimentError {
     /// Could not execute experiment
     #[error("Execution Error")]
-    ExecutionError
+    ExecutionError,
 }
 
 // Allow conversion from Box<NetworkError> to NetworkError

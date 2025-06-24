@@ -102,22 +102,14 @@ impl SystemNode {
         Ok(())
     }
 
-    async fn subscribe(
-        src_addr: SocketAddr,
-        device_id: DeviceId,
-        send_channel_msg_channel: watch::Sender<ChannelMsg>,
-    ) -> Result<(), NetworkError> {
+    async fn subscribe(src_addr: SocketAddr, device_id: DeviceId, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
         send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Subscribe { device_id }))?;
         info!("Client {src_addr} subscribed to data stream for device_id: {device_id}");
 
         Ok(())
     }
 
-    async fn unsubscribe(
-        src_addr: SocketAddr,
-        device_id: DeviceId,
-        send_channel_msg_channel: watch::Sender<ChannelMsg>,
-    ) -> Result<(), NetworkError> {
+    async fn unsubscribe(src_addr: SocketAddr, device_id: DeviceId, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
         send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Unsubscribe { device_id }))?;
         info!("Client {src_addr} unsubscribed from data stream for device_id: {device_id}");
 
@@ -171,11 +163,7 @@ impl SystemNode {
         Ok(())
     }
 
-    async fn configure(
-        device_id: DeviceId,
-        cfg_type: CfgType,
-        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
-    ) -> Result<(), NetworkError> {
+    async fn configure(device_id: DeviceId, cfg_type: CfgType, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), NetworkError> {
         match cfg_type {
             Create { cfg } => {
                 info!("Creating a new device handler for device id {device_id}");
@@ -208,10 +196,7 @@ impl SystemNode {
         Ok(())
     }
 
-    async fn load_experiment(
-        experiment: Experiment,
-        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
-    ) -> Result<(), NetworkError> {
+    async fn load_experiment(experiment: Experiment, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), NetworkError> {
         info!("Running {}", experiment.metadata.name.clone());
 
         for (i, stage) in experiment.stages.into_iter().enumerate() {
@@ -240,7 +225,7 @@ impl SystemNode {
 
         for result in results {
             if result.is_err() {
-                return Err(ExperimentError::ExecutionError.into())
+                return Err(ExperimentError::ExecutionError.into());
             }
         }
         Ok(())
@@ -317,7 +302,6 @@ impl SystemNode {
         send_stream: &mut OwnedWriteHalf,
         subscribed_ids: &mut HashSet<HostId>,
     ) -> Result<(), NetworkError> {
-        
         Ok(())
     }
 
@@ -443,7 +427,7 @@ impl ConnectionHandler for SystemNode {
                         HostChannel::Disconnect => {
                             send_message(&mut send_stream, RpcMessageKind::HostCtrl(HostCtrl::Disconnect)).await?;
                             debug!("Send close confirmation");
-                            return Err(NetworkError::Closed.into()); // Throwing an error here feels weird, but it's also done in the recv_handler
+                            return Err(NetworkError::Closed); // Throwing an error here feels weird, but it's also done in the recv_handler
                         }
                         HostChannel::Subscribe { device_id } => {
                             subscribed_ids.insert(device_id);
