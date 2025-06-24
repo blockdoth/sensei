@@ -23,10 +23,10 @@
 //! ```
 //!
 //! This command sets the system node address and port, overriding the defaults.
+#[cfg(feature = "registry")]
 #[cfg(feature = "sys_node")]
 use std::path::PathBuf;
 
-use anyhow::Error;
 use argh::FromArgs;
 #[cfg(feature = "sys_node")]
 use lib::handler::device_handler::DeviceHandlerConfig;
@@ -39,6 +39,8 @@ use crate::services::EspToolConfig;
 use crate::services::GlobalConfig;
 #[cfg(feature = "orchestrator")]
 use crate::services::OrchestratorConfig;
+#[cfg(feature = "registry")]
+use crate::services::RegistryConfig;
 #[cfg(feature = "sys_node")]
 use crate::services::SystemNodeConfig;
 #[cfg(feature = "visualiser")]
@@ -70,6 +72,8 @@ pub trait OverlaySubcommandArgs<T> {
 pub static DEFAULT_HOST_CONFIG: &str = "resources/testing_configs/minimal.yaml";
 /// Default path to the orchestrator configuration YAML file.
 pub static DEFAULT_ORCHESTRATOR_CONFIG: &str = "resources/example_configs/orchestrator";
+/// Default path for registry config.
+pub static DEFAULT_REGISTRY_CONFIG: &str = "resources/example_configs/registry/registry_config.yaml";
 
 /// A simple app to perform collection from configured sources
 #[derive(FromArgs)]
@@ -91,7 +95,7 @@ impl Args {
     /// Parses the global configuration from the command-line arguments.
     ///
     /// Currently, this primarily involves extracting the log level.
-    pub fn parse_global_config(&self) -> Result<GlobalConfig, Error> {
+    pub fn parse_global_config(&self) -> Result<GlobalConfig, Box<dyn std::error::Error>> {
         Ok(GlobalConfig {
             log_level: self.level,
             num_workers: self.num_workers,
@@ -106,7 +110,7 @@ impl Args {
 /// configuration object (e.g., `SystemNodeConfig`, `OrchestratorConfig`).
 pub trait ConfigFromCli<Config> {
     /// Parses the command-line arguments into a configuration object.
-    fn parse(&self) -> Result<Config, Error>;
+    fn parse(&self) -> Result<Config, Box<dyn std::error::Error>>;
 }
 
 #[derive(FromArgs)]
@@ -120,6 +124,8 @@ pub enum SubCommandsArgs {
     Visualiser(VisualiserSubcommandArgs),
     #[cfg(feature = "esp_tool")]
     EspTool(EspToolSubcommandArgs),
+    #[cfg(feature = "registry")]
+    Registry(RegistrySubcommandArgs),
 }
 
 const DEFAULT_PORT_CLI: u16 = 6969;
@@ -150,7 +156,7 @@ impl ConfigFromCli<SystemNodeConfig> for SystemNodeSubcommandArgs {
     /// This involves constructing an address from `addr` and `port` fields,
     /// and loading device configurations from the specified `config_path`.
     /// Default values are used for fields not directly provided by arguments.
-    fn parse(&self) -> Result<SystemNodeConfig, Error> {
+    fn parse(&self) -> Result<SystemNodeConfig, Box<dyn std::error::Error>> {
         Ok(SystemNodeConfig {
             addr: format!("{}:{}", self.addr, self.port).parse()?,
             device_configs: DeviceHandlerConfig::from_yaml(self.config_path.clone())?,
@@ -202,7 +208,7 @@ impl ConfigFromCli<OrchestratorConfig> for OrchestratorSubcommandArgs {
     /// Parses orchestrator subcommand arguments into an `OrchestratorConfig`.
     ///
     /// This primarily involves setting the path to the experiment configuration file.
-    fn parse(&self) -> Result<OrchestratorConfig, Error> {
+    fn parse(&self) -> Result<OrchestratorConfig, Box<dyn std::error::Error>> {
         // TODO input validation
         Ok(OrchestratorConfig {
             experiments_folder: self.experiments_folder.clone(),
@@ -239,7 +245,7 @@ impl ConfigFromCli<VisualiserConfig> for VisualiserSubcommandArgs {
     /// Parses visualiser subcommand arguments into a `VisualiserConfig`.
     ///
     /// This involves setting the target address and UI type for the visualiser.
-    fn parse(&self) -> Result<VisualiserConfig, Error> {
+    fn parse(&self) -> Result<VisualiserConfig, Box<dyn std::error::Error>> {
         // TODO input validation
         Ok(VisualiserConfig {
             target: self.target.parse()?,
@@ -263,10 +269,50 @@ impl ConfigFromCli<EspToolConfig> for EspToolSubcommandArgs {
     /// Parses ESP tool subcommand arguments into an `EspToolConfig`.
     ///
     /// This involves setting the serial port for communication with the ESP device.
-    fn parse(&self) -> Result<EspToolConfig, Error> {
+    fn parse(&self) -> Result<EspToolConfig, Box<dyn std::error::Error>> {
         Ok(EspToolConfig {
             serial_port: self.serial_port.clone(), // TODO remove clone
         })
+    }
+}
+
+/// Registry node commands
+#[cfg(feature = "registry")]
+#[derive(FromArgs)]
+#[argh(subcommand, name = "registry")]
+pub struct RegistrySubcommandArgs {
+    /// registry address (default: 127.0.0.1:9000)
+    #[argh(option, default = "String::from(\"127.0.0.1:9000\")")]
+    pub addr: String,
+
+    /// server port (default: 6969)
+    #[argh(option, default = "0")]
+    pub port: u16,
+
+    /// path to registry config file
+    #[argh(option, default = "PathBuf::from(DEFAULT_REGISTRY_CONFIG)")]
+    pub config_path: PathBuf,
+}
+
+#[cfg(feature = "registry")]
+impl ConfigFromCli<RegistryConfig> for RegistrySubcommandArgs {
+    fn parse(&self) -> Result<RegistryConfig, Box<dyn std::error::Error>> {
+        use crate::services::FromYaml;
+        RegistryConfig::from_yaml(self.config_path.clone())
+    }
+}
+
+#[cfg(feature = "sys_node")]
+/// Overlays subcommand arguments onto a SystemNodeConfig, overriding fields if provided.
+impl OverlaySubcommandArgs<RegistryConfig> for RegistrySubcommandArgs {
+    fn overlay_subcommand_args(&self, full_config: RegistryConfig) -> Result<RegistryConfig, Box<dyn std::error::Error>> {
+        // Because of the default value we expact that there's always a file to read
+        debug!("Loading system node configuration from YAML file: {}", self.config_path.display());
+        let mut config = full_config.clone();
+        // overwrite fields when provided by the subcommand
+        config.addr = format!("{}:{}", self.addr, self.port).parse().unwrap_or(config.addr);
+
+        Ok(config)
     }
 }
 

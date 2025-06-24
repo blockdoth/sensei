@@ -98,7 +98,7 @@
                 "TRACE",
                 "node",
                 "--config-path",
-                "resources/example_configs/host/dummy_registry_node.yaml"
+                "resources/testing_configs/dummy_registry_node.yaml"
             ],
             "cwd": "${workspaceFolder}"
         },
@@ -122,7 +122,7 @@
                 "INFO",
                 "node",
                 "--config-path",
-                "resources/example_configs/host/dummy_registry_node.yaml"
+                "resources/testing_configs/ummy_registry_node.yaml"
             ],
             "cwd": "${workspaceFolder}"
         },
@@ -144,7 +144,7 @@
             "args": [
                 "node",
                 "--config-path",
-                "resources/example_configs/host/dummy_node.yaml"
+                "resources/testing_configs/dummy_node.yaml"
             ],
             "cwd": "${workspaceFolder}"
         },
@@ -166,7 +166,7 @@
             "args": [
                 "node",
                 "--config-path",
-                "resources/example_configs/host/minimal.yaml"
+                "resources/testing_configs/minimal.yaml"
             ],
             "cwd": "${workspaceFolder}"
         },
@@ -188,7 +188,7 @@
             "args": [
                 "node",
                 "--config",
-                "sensei/src/system_node/example_config.yaml"
+                "resources/testing_configs/example_config.yaml"
             ],
             "cwd": "${workspaceFolder}"
         },
