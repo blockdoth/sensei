@@ -36,6 +36,7 @@ use lib::tui::example::run_example;
 use log::*;
 #[cfg(feature = "sys_node")]
 use services::FromYaml;
+#[cfg(any(feature = "esp_tool", feature = "sys_node", feature = "orchestrator", feature = "visualiser"))]
 use services::Run;
 #[cfg(feature = "sys_node")]
 use services::SystemNodeConfig;
@@ -108,6 +109,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             SubCommandsArgs::Visualiser(args) => runtime.block_on(Visualiser::new(global_args, args.parse()?).run())?,
             #[cfg(feature = "esp_tool")]
             SubCommandsArgs::EspTool(args) => runtime.block_on(EspTool::new(global_args, args.parse()?).run())?,
+            _ => panic!("Unknown option.")
         },
     }
     Ok(())

@@ -17,7 +17,7 @@
 //!
 //! The module aims to provide a clear and structured way to manage service-specific
 //! settings and their execution flow.
-
+    #[cfg(any(feature = "sys_node", feature = "visualiser"))]
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
