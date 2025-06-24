@@ -257,6 +257,8 @@ mod tests {
         let (_data_tx, data_rx) = broadcast::channel(1);
         let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
         let listener = TcpListener::bind(addr).await.unwrap();
+        let local_addr = listener.local_addr().unwrap();
+        let _client = TcpStream::connect(local_addr).await.unwrap();
         let (server, _) = listener.accept().await.unwrap();
         let (_read_half, write_half) = server.into_split();
         let msg = crate::network::rpc_message::RpcMessage {
