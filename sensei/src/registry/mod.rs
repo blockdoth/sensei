@@ -125,7 +125,7 @@ impl Registry {
         let mut client = TcpClient::new();
         loop {
             interval.tick().await;
-            let hosts =  self.list_hosts().await;
+            let hosts = self.list_hosts().await;
             let hosts_len = hosts.len();
             for (host_id, target_addr) in hosts {
                 let res: Result<(), RegistryError> = async {

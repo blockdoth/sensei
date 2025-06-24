@@ -103,40 +103,63 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     debug!("Parsed args and initialized CombinedLogger");
 
-    let global_args = args.parse_global_config()?;
+    let global_config = args.parse_global_config()?;
     // This builders allows us to select the number of worker threads based on
     // either compile flags or CLI arguments, instead of statically setting them in the source.
-    let runtime = Builder::new_multi_thread().worker_threads(global_args.num_workers).enable_all().build()?;
-    debug!("Created a builder with {} workers", global_args.num_workers);
-    match &args.subcommand {
-        None => runtime.block_on(run_example()),
-        Some(subcommand) => match subcommand {
-            #[cfg(feature = "sys_node")]
-            SubCommandsArgs::SystemNode(args) => runtime.block_on(
-                SystemNode::new(
-                    global_args,
-                    args.overlay_subcommand_args(SystemNodeConfig::from_yaml(args.config_path.clone())?)?,
-                )
-                .run(),
-            )?,
-            #[cfg(feature = "orchestrator")]
-            SubCommandsArgs::Orchestrator(args) => runtime.block_on(
-                Orchestrator::new(
-                    global_args,
-                    args.overlay_subcommand_args(OrchestratorConfig::from_yaml(args.config_path.clone())?)?,
-                )
-                .run(),
-            )?,
-            #[cfg(feature = "visualiser")]
-            SubCommandsArgs::Visualiser(args) => runtime.block_on(Visualiser::new(global_args, args.parse()?).run())?,
-            #[cfg(feature = "esp_tool")]
-            SubCommandsArgs::EspTool(args) => runtime.block_on(EspTool::new(global_args, args.parse()?).run())?,
-            #[cfg(feature = "registry")]
-            SubCommandsArgs::Registry(args) => runtime.block_on(Registry::new(global_args, args.parse()?).run())?,
-            _ => panic!("Unknown option."),
-        },
-    }
-    Ok(())
+    let runtime = Builder::new_multi_thread()
+        .worker_threads(global_config.num_workers)
+        .enable_all()
+        .build()?;
+    debug!("Created a builder with {} workers", global_config.num_workers);
+    runtime.block_on(async {
+        match &args.subcommand {
+            None => run_example().await,
+            Some(subcommand) => match subcommand {
+                #[cfg(feature = "sys_node")]
+                SubCommandsArgs::SystemNode(args) => {
+                    let config = match SystemNodeConfig::from_yaml(args.config_path.clone()) {
+                        Ok(config_yaml) => args.merge_with_config(config_yaml),
+                        Err(e) => {
+                            error!("Unable to parse system node config file: {e}");
+                            args.into()
+                        }
+                    };
+                    SystemNode::new(global_config, config).run().await;
+                }
+
+                #[cfg(feature = "orchestrator")]
+                SubCommandsArgs::Orchestrator(args) => {
+                    let config = match OrchestratorConfig::from_yaml(args.config_path.clone()) {
+                        Ok(config_yaml) => args.merge_with_config(config_yaml),
+                        Err(e) => {
+                            error!("Unable to parse orchestrator node config file: {e}");
+                            args.into()
+                        }
+                    };
+                    Orchestrator::new(global_config, config).run().await;
+                }
+
+                #[cfg(feature = "visualiser")]
+                SubCommandsArgs::Visualiser(args) => {
+                    Visualiser::new(global_config, args.parse()?).run().await;
+                }
+
+                #[cfg(feature = "esp_tool")]
+                SubCommandsArgs::EspTool(args) => {
+                    EspTool::new(global_config, args.parse()?).run().await;
+                }
+
+                #[cfg(feature = "registry")]
+                SubCommandsArgs::Registry(args) => {
+                    Registry::new(global_config, args.parse()?).run().await;
+                }
+
+                _ => panic!("Unknown option."),
+            },
+        }
+
+        Ok::<_, Box<dyn std::error::Error>>(()) // ensure the block_on closure has a Result type
+    })
 }
 
 #[cfg(test)]
@@ -160,7 +183,7 @@ mod tests {
     async fn test_main_system_node_subcommand() {
         let temp_dir = tempdir().unwrap();
         let config_content = r#"
-addr: "127.0.0.1:9090"
+address: "127.0.0.1:9090"
 host_id: 1
 device_configs: []
 "#;
@@ -181,7 +204,7 @@ device_configs: []
         match &args.subcommand {
             Some(SubCommandsArgs::SystemNode(sn_args)) => {
                 let sn_config_from_file = SystemNodeConfig::from_yaml(sn_args.config_path.clone()).unwrap();
-                let final_config = sn_args.overlay_subcommand_args(sn_config_from_file).unwrap();
+                let final_config = sn_args.merge_with_config(sn_config_from_file);
                 // Instantiate SystemNode to ensure config processing works
                 let _system_node = SystemNode::new(global_args, final_config);
                 // Cannot assert on private fields like _system_node.config.addr directly.
@@ -214,7 +237,7 @@ stages: []";
 
         match &args.subcommand {
             Some(SubCommandsArgs::Orchestrator(orch_args)) => {
-                let orch_config = orch_args.parse().unwrap();
+                let orch_config: OrchestratorConfig = orch_args.into();
                 let _orchestrator = Orchestrator::new(global_args, orch_config);
                 // Cannot assert on private field _orchestrator.experiment_config directly.
             }

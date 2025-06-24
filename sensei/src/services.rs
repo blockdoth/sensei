@@ -273,7 +273,7 @@ mod tests {
         writeln!(
             file,
             r#"
-addr: "127.0.0.1:8080"
+address: "127.0.0.1:8080"
 host_id: 1
 device_configs: []
 "#

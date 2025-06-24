@@ -11,7 +11,6 @@ use core::panic;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::thread::sleep;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -36,7 +35,6 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{Mutex, broadcast, mpsc, watch};
 use tokio::task::{self, JoinHandle};
 
-use crate::registry;
 use crate::services::{GlobalConfig, Run, SystemNodeConfig};
 
 /// The System Node is a sender and a receiver in the network of Sensei.
