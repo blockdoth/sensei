@@ -278,7 +278,6 @@ where
             let update_send = update_send.clone();
 
             let task = async {
-
                 for stage in &active_exp.experiment.stages {
                     debug!("Starting stage {}", active_exp.info.current_stage);
                     stage.execute(update_send.clone(), cancel_signal_task.clone(), handler.clone()).await;

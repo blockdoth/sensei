@@ -11,7 +11,6 @@ use core::panic;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
 
 use async_trait::async_trait;
 use lib::FromConfig;
@@ -177,21 +176,18 @@ pub enum ExperimentChannelMsg {
 impl SystemNode {
     // Continuously running task responsible for managing experiment related functionality
 
-    async fn announce_presence_to_registry(registry_addr: SocketAddr, self_addr: SocketAddr, self_id: HostId) {
+    async fn announce_presence_to_registry(registry_addr: SocketAddr, self_addr: SocketAddr, self_id: HostId) -> Result<(), NetworkError> {
         let mut client = TcpClient::new();
         let msg = RpcMessageKind::RegCtrl(RegCtrl::AnnouncePresence {
             host_id: self_id,
             host_address: self_addr,
         });
         debug!("Connecting to registry at {registry_addr}");
-
-        if client.connect(registry_addr).await.is_ok() && client.send_message(registry_addr, msg).await.is_ok() {
-            info!("Presence announced to registry at {registry_addr}");
-            tokio::time::sleep(Duration::from_millis(1000)).await;
-            client.disconnect(registry_addr).await;
-        } else {
-            error!("Failed to connect to registry {registry_addr:?}");
-        }
+        client.connect(registry_addr).await?;
+        client.send_message(registry_addr, msg).await?;
+        info!("Presence announced to registry at {registry_addr}");
+        client.disconnect(registry_addr).await?;
+        Ok(())
     }
 
     fn experiment_handler(

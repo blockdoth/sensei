@@ -37,6 +37,7 @@ use crate::services::{GlobalConfig, RegistryConfig, Run};
 #[derive(Clone)]
 pub struct Registry {
     /// Host ID
+    #[allow(unused,)]
     host_id: HostId,
     /// Server address
     addr: SocketAddr,
@@ -57,7 +58,7 @@ impl SubscribeDataChannel for Registry {
 
 impl Run<RegistryConfig> for Registry {
     /// Constructs a new `Registry` from the given global and node-specific configuration.
-    fn new(global_config: GlobalConfig, config: RegistryConfig) -> Self {
+    fn new(_global_config: GlobalConfig, config: RegistryConfig) -> Self {
         trace!("{config:#?}");
         let (send_data_channel, _) = broadcast::channel::<(DataMsg, DeviceId)>(16); // magic buffer
         Registry {
@@ -86,7 +87,9 @@ impl Run<RegistryConfig> for Registry {
         let self_clone = Arc::new(self.clone());
         let polling_task = task::spawn(async move {
             info!("Starting TCP client to poll hosts...");
-            self_clone.poll_hosts(polling_interval).await;
+            if let Err(e) = self_clone.poll_hosts(polling_interval).await {
+                error!("Polling hosts failed: {e:?}");
+            }
         });
 
         // Create a TCP host server task
@@ -101,7 +104,7 @@ impl Run<RegistryConfig> for Registry {
             };
         });
 
-        try_join!(tcp_server_task, polling_task);
+        try_join!(tcp_server_task, polling_task)?;
 
         Ok(())
     }

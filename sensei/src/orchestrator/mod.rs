@@ -126,6 +126,7 @@ pub struct Orchestrator {
     experiments_folder: PathBuf,
     tui: bool,
     reg_polling_interval: u64,
+    #[allow(unused)]
     default_hosts: Vec<SocketAddr>,
 }
 
@@ -148,7 +149,7 @@ impl Run<OrchestratorConfig> for Orchestrator {
         let client = Arc::new(Mutex::new(TcpClient::new()));
 
         // Tasks needs to be boxed and pinned in order to make the type checker happy
-        // The reason why its so fucky and ugly is because we do not have a toplevel error which would 
+        // The reason why its so fucky and ugly is because we do not have a toplevel error which would
         // allow these futures to be passed directly to the TUI framework without an ugly async block to catch their errors
         let tasks: Vec<Pin<Box<dyn Future<Output = ()> + Send>>> = vec![
             // If errors are thrown in any o these tasks, they will be sent upwards and crash the program whereas before they'd be silently ignored
@@ -392,7 +393,7 @@ impl Orchestrator {
                                 let handler = Arc::new(move |command: Command, update_send: Sender<OrgUpdate>| {
                                     let client = client.clone(); // clone *inside* closure body
                                     async move {
-                                        info!("{:?}", command);
+                                        info!("{command:?}");
                                         match Orchestrator::handle_msg(client, command.into(), update_send, None, None).await {
                                             Ok(_) => {}
                                             Err(e) => error!("{e}"),

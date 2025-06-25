@@ -124,7 +124,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             args.into()
                         }
                     };
-                    SystemNode::new(global_config, config).run().await;
+                    SystemNode::new(global_config, config).run().await?;
                 }
 
                 #[cfg(feature = "orchestrator")]
@@ -136,24 +136,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             args.into()
                         }
                     };
-                    Orchestrator::new(global_config, config).run().await;
+                    Orchestrator::new(global_config, config).run().await?;
                 }
 
                 #[cfg(feature = "visualiser")]
                 SubCommandsArgs::Visualiser(args) => {
-                    Visualiser::new(global_config, args.parse()?).run().await;
+                    Visualiser::new(global_config, args.parse()?).run().await?;
                 }
 
                 #[cfg(feature = "esp_tool")]
                 SubCommandsArgs::EspTool(args) => {
-                    EspTool::new(global_config, args.parse()?).run().await;
+                    EspTool::new(global_config, args.parse()?).run().await?;
                 }
 
                 #[cfg(feature = "registry")]
                 SubCommandsArgs::Registry(args) => {
-                    Registry::new(global_config, args.parse()?).run().await;
+                    Registry::new(global_config, args.parse()?).run().await?;
                 }
-
+                #[allow(unreachable_patterns)] // only needed when compiling without features
                 _ => panic!("Unknown option."),
             },
         }
