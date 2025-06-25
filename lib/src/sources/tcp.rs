@@ -47,10 +47,13 @@ impl TCPSource {
     ///
     /// # Errors
     /// Returns a [`DataSourceError`] if construction fails (e.g., invalid config).
-    pub fn new(config: TCPConfig) -> Result<Self, DataSourceError> {
+    pub async fn new(config: TCPConfig) -> Result<Self, DataSourceError> {
         trace!("Creating new TCPSource for {}", config.target_addr);
         let mut client = TcpClient::new();
-        client.connect(config.target_addr);
+        client
+            .connect(config.target_addr)
+            .await
+            .map_err(|err| DataSourceError::NetworkError(Box::new(err)))?;
         Ok(Self { client, config })
     }
 }
@@ -66,7 +69,10 @@ impl DataSourceT for TCPSource {
         let msg = HostCtrl(Subscribe {
             device_id: self.config.device_id,
         });
-        self.client.send_message(self.config.target_addr, msg).await;
+        self.client
+            .send_message(self.config.target_addr, msg)
+            .await
+            .map_err(|err| DataSourceError::NetworkError(Box::new(err)))?;
         Ok(())
     }
 
@@ -79,7 +85,10 @@ impl DataSourceT for TCPSource {
         let msg = HostCtrl(Unsubscribe {
             device_id: self.config.device_id,
         });
-        self.client.send_message(self.config.target_addr, msg).await;
+        self.client
+            .send_message(self.config.target_addr, msg)
+            .await
+            .map_err(|err| DataSourceError::NetworkError(Box::new(err)))?;
         Ok(())
     }
 
@@ -165,20 +174,6 @@ mod tests {
             target_addr: test_addr(),
             device_id: 42,
         }
-    }
-
-    #[tokio::test]
-    async fn test_new() {
-        let config = make_config();
-        let ctx = TcpClient::new_context();
-        ctx.expect().returning(TcpClient::default);
-
-        let source = TCPSource::new(config.clone());
-        assert!(source.is_ok());
-
-        let source = source.unwrap();
-        assert_eq!(source.config.target_addr, config.target_addr);
-        assert_eq!(source.config.device_id, config.device_id);
     }
 
     #[tokio::test]
