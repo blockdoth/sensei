@@ -14,9 +14,9 @@ pub enum OrchestratorError {
     #[error("Network Error")]
     NetworkError(#[from] NetworkError),
 
-    /// Tokio mpsc send error for OrgUpdate
-    #[error("Tokio mpsc send error (OrgUpdate): {0}")]
-    MpscOrgUpdate(#[from] tokio::sync::mpsc::error::SendError<OrchUpdate>),
+    /// Tokio mpsc send error for OrchUpdate
+    #[error("Tokio mpsc send error (OrchUpdate): {0}")]
+    MpscOrchUpdate(#[from] tokio::sync::mpsc::error::SendError<OrchUpdate>),
 
     /// Tokio mpsc send error for bool
     #[error("Tokio mpsc send error (bool): {0}")]
@@ -30,9 +30,9 @@ pub enum OrchestratorError {
     #[error("Tokio mpsc send error (RegistryChannelMsg): {0}")]
     MpscRegistryChannelMsg(#[from] tokio::sync::mpsc::error::SendError<RegistryChannelMsg>),
 
-    /// Tokio watch send error for OrgUpdate
-    #[error("Tokio watch send error (OrgUpdate): {0}")]
-    WatchOrgUpdate(#[from] tokio::sync::watch::error::SendError<OrchUpdate>),
+    /// Tokio watch send error for OrchUpdate
+    #[error("Tokio watch send error (OrchUpdate): {0}")]
+    WatchOrchUpdate(#[from] tokio::sync::watch::error::SendError<OrchUpdate>),
 
     /// Tokio watch send error for bool
     #[error("Tokio watch send error (bool): {0}")]

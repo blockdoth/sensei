@@ -384,19 +384,23 @@ impl SystemNode {
         Ok(())
     }
 
-    async fn unsubscribe_from(target_addr: SocketAddr, device_id: DeviceId, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), AppError> {
+    async fn unsubscribe_from(
+        target_addr: SocketAddr,
+        device_id: DeviceId,
+        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+    ) -> Result<(), AppError> {
         info!("Removing handler subscribing to {device_id}");
         match handlers.lock().await.remove(&device_id) {
-            Some(mut handler) => {
-                match handler.config().source {
-                    DataSourceConfig::Tcp(config) => {
-                        if config.target_addr == target_addr {
-                            handler.stop().await?;
-                        }
+            Some(mut handler) => match handler.config().source {
+                DataSourceConfig::Tcp(config) => {
+                    if config.target_addr == target_addr {
+                        handler.stop().await?;
                     }
-                    _ => { info!("This device_id {device_id} is not a subscription")}
                 }
-            }
+                _ => {
+                    info!("This device_id {device_id} is not a subscription")
+                }
+            },
             _ => info!("This handler does not exist."),
         }
 
