@@ -132,8 +132,6 @@ pub struct SystemNodeConfig {
 pub struct RegistryConfig {
     /// Holds the address and port the registry will listen on
     pub address: SocketAddr,
-    /// Holds the ID the registry will use to present themselves to the network
-    pub host_id: HostId,
     /// The rate at which the registry will poll the registered hosts, in seconds.
     pub polling_interval: u64,
 }

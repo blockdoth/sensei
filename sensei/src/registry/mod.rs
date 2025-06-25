@@ -36,9 +36,6 @@ use crate::services::{GlobalConfig, RegistryConfig, Run};
 /// - `store_host_update`: Stores an update to a host's status in the registry.
 #[derive(Clone)]
 pub struct Registry {
-    /// Host ID
-    #[allow(unused,)]
-    host_id: HostId,
     /// Server address
     addr: SocketAddr,
     /// The polling rate a registry will use. As indicated in the method field, the integer represents the number of seconds between polls.
@@ -62,7 +59,6 @@ impl Run<RegistryConfig> for Registry {
         trace!("{config:#?}");
         let (send_data_channel, _) = broadcast::channel::<(DataMsg, DeviceId)>(16); // magic buffer
         Registry {
-            host_id: config.host_id,
             addr: config.address,
             polling_interval: config.polling_interval,
             hosts: Arc::from(Mutex::from(HashMap::new())),
@@ -360,7 +356,6 @@ mod tests {
             hosts: Arc::new(Mutex::new(HashMap::new())),
             send_data_channel: broadcast::channel(10).0,
             polling_interval: 0,
-            host_id: 1,
             addr: "127.0.0.1:6969".parse().unwrap(),
         }
     }

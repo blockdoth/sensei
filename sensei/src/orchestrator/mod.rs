@@ -21,7 +21,7 @@ use tokio::sync::{Mutex, mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
-use crate::orchestrator::state::{OrgTuiState, OrgUpdate};
+use crate::orchestrator::state::{Host, OrgTuiState, OrgUpdate};
 use crate::services::{GlobalConfig, OrchestratorConfig, Run};
 
 static ORG_CHANNEL_COUNT: usize = 100;
@@ -190,7 +190,7 @@ impl Run<OrchestratorConfig> for Orchestrator {
                     };
                 })
             },
-            Box::pin(Self::init(update_send.clone())),
+            Box::pin(Self::init(update_send.clone(), self.default_hosts.clone())),
         ];
 
         if self.tui {
@@ -223,13 +223,24 @@ impl Run<OrchestratorConfig> for Orchestrator {
 
 impl Orchestrator {
     /// Initialization function that is able to set everything up using the proper channels (pun intended)
-    async fn init(update_send: Sender<OrgUpdate>) {
+    async fn init(update_send: Sender<OrgUpdate>, default_hosts: Vec<SocketAddr>) {
         match async {
             update_send.send(OrgUpdate::ConnectRegistry).await?;
             sleep(Duration::from_millis(100)).await;
             update_send.send(OrgUpdate::TogglePolling).await?;
             sleep(Duration::from_millis(100)).await;
             update_send.send(OrgUpdate::AddAllHosts).await?;
+
+            for (i, addr) in default_hosts.into_iter().enumerate() {
+                let host = Host {
+                    id: 1000 + i as u64,
+                    addr,
+                    devices: vec![],
+                    status: state::HostStatus::Unknown,
+                };
+
+                update_send.send(OrgUpdate::AddHost(host)).await?;
+            }
             Ok(()) as Result<(), Box<dyn std::error::Error>>
         }
         .await

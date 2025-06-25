@@ -153,8 +153,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 SubCommandsArgs::Registry(args) => {
                     Registry::new(global_config, args.parse()?).run().await?;
                 }
-                #[allow(unreachable_patterns)] // only needed when compiling without features
-                _ => panic!("Unknown option."),
             },
         }
 
