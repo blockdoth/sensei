@@ -112,7 +112,7 @@ impl FromConfig<DataSourceConfig> for dyn DataSourceT {
             DataSourceConfig::Netlink(cfg) => Box::new(netlink::NetlinkSource::new(cfg).map_err(TaskError::DataSourceError)?),
             #[cfg(feature = "esp_tool")]
             DataSourceConfig::Esp32(cfg) => Box::new(esp32::Esp32Source::new(cfg).map_err(TaskError::DataSourceError)?),
-            DataSourceConfig::Tcp(cfg) => Box::new(tcp::TCPSource::new(cfg).map_err(TaskError::DataSourceError)?),
+            DataSourceConfig::Tcp(cfg) => Box::new(tcp::TCPSource::new(cfg).await.map_err(TaskError::DataSourceError)?),
             #[cfg(feature = "csv")]
             DataSourceConfig::Csv(cfg) => Box::new(csv::CsvSource::new(cfg).map_err(TaskError::DataSourceError)?),
         };
