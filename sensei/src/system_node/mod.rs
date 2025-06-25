@@ -275,7 +275,7 @@ impl SystemNode {
     ) -> Result<(), AppError> {
         match command {
             Command::Subscribe { target_addr, device_id } => Ok(Self::subscribe_to(target_addr, device_id, handlers, local_data_tx).await?),
-            Command::Unsubscribe { target_addr: _, device_id } => Ok(Self::unsubscribe_from(device_id, handlers).await?),
+            Command::Unsubscribe { target_addr, device_id } => Ok(Self::unsubscribe_from(target_addr, device_id, handlers).await?),
             Command::Configure {
                 target_addr: _,
                 device_id,
@@ -384,13 +384,18 @@ impl SystemNode {
         Ok(())
     }
 
-    async fn unsubscribe_from(device_id: DeviceId, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), AppError> {
-        // TODO: Make it target specific, but for now removing based on device id should be fine.
-        // Would require extracting the source itself from the device handler
+    async fn unsubscribe_from(target_addr: SocketAddr, device_id: DeviceId, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), AppError> {
         info!("Removing handler subscribing to {device_id}");
         match handlers.lock().await.remove(&device_id) {
             Some(mut handler) => {
-                handler.stop().await?;
+                match handler.config().source {
+                    DataSourceConfig::Tcp(config) => {
+                        if config.target_addr == target_addr {
+                            handler.stop().await?;
+                        }
+                    }
+                    _ => { info!("This device_id {device_id} is not a subscription")}
+                }
             }
             _ => info!("This handler does not exist."),
         }
@@ -563,8 +568,8 @@ impl ConnectionHandler for SystemNode {
                     HostCtrl::SubscribeTo { target_addr, device_id } => {
                         Self::subscribe_to(*target_addr, *device_id, self.handlers.clone(), self.local_data_tx.clone()).await?;
                     }
-                    HostCtrl::UnsubscribeFrom { target_addr: _, device_id } => {
-                        Self::unsubscribe(request.src_addr, *device_id, send_channel_msg_channel).await?;
+                    HostCtrl::UnsubscribeFrom { target_addr, device_id } => {
+                        Self::unsubscribe_from(*target_addr, *device_id, self.handlers.clone()).await?;
                     }
                     HostCtrl::StartExperiment { experiment } => {
                         self.experiment_send
