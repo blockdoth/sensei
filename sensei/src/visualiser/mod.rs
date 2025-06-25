@@ -7,9 +7,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use charming::Chart as CharmingChart; // Alias for charming::Chart
-use charming::HtmlRenderer;
-use charming::theme::Theme;
+// Alias for charming::Chart
 use lib::csi_types::Complex as LibComplex; // Alias to avoid confusion
 use lib::csi_types::CsiData;
 use lib::network::rpc_message::DataMsg::*;
@@ -31,7 +29,7 @@ use ratatui::widgets::{Axis, Block, Borders, Chart, Dataset};
 use rustfft::FftPlanner;
 use rustfft::num_complex::Complex as FftComplex;
 use tokio::io;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 
 use crate::services::{GlobalConfig, Run, VisualiserConfig};
@@ -40,7 +38,6 @@ pub struct Visualiser {
     #[allow(clippy::type_complexity)]
     data: Arc<Mutex<HashMap<SocketAddr, HashMap<u64, Vec<CsiData>>>>>,
     target: SocketAddr,
-    ui_type: String,
 }
 
 impl Run<VisualiserConfig> for Visualiser {
@@ -48,7 +45,6 @@ impl Run<VisualiserConfig> for Visualiser {
         Visualiser {
             data: Arc::new(Default::default()),
             target: config.target,
-            ui_type: config.ui_type,
         }
     }
 
@@ -62,11 +58,7 @@ impl Run<VisualiserConfig> for Visualiser {
 
         io::stdout().flush().await?;
 
-        if self.ui_type == "tui" {
-            self.plot_data_tui().await?;
-        } else {
-            self.plot_data_gui().await?;
-        }
+        self.plot_data_tui().await?;
 
         Ok(())
     }
@@ -635,59 +627,6 @@ impl Visualiser {
         }
     }
 
-    async fn plot_data_gui(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let tick_rate = Duration::from_millis(2000);
-        let mut last_tick = Instant::now();
-
-        // Source address, device id, core, stream, subcarrier
-        let graphs: Arc<Mutex<Vec<Graph>>> = Arc::new(Mutex::new(Vec::new()));
-        let graphs_2 = graphs.clone();
-
-        tokio::spawn(async move {
-            let stdin: BufReader<io::Stdin> = BufReader::new(io::stdin());
-            let mut lines = stdin.lines();
-            info!("GUI command listener started. Enter commands like: add pdp <addr> <dev_id> <core> <stream> 0");
-
-            while let Ok(Some(line)) = lines.next_line().await {
-                let line = line.trim();
-                if line.is_empty() {
-                    continue;
-                }
-                info!("GUI Command received: {line}");
-                Self::execute_command(line.parse().unwrap(), graphs.clone()).await;
-            }
-        });
-
-        loop {
-            if last_tick.elapsed() >= tick_rate {
-                for (i, graph_spec) in graphs_2.lock().await.clone().into_iter().enumerate() {
-                    let processed_data = self.process_data(graph_spec).await;
-                    if processed_data.0.is_empty() {
-                        info!("No data to plot for graph {i}");
-                        continue;
-                    }
-                    let chart = generate_chart_from_data(processed_data.0, &graph_spec.graph_type.to_string());
-                    let filename = format!(
-                        "{}_{}_{}_{}_c{}_s{}_chart.html",
-                        i,
-                        graph_spec.graph_type.to_string().to_lowercase(),
-                        graph_spec.target_addr.to_string().replace(':', "-"),
-                        graph_spec.device,
-                        graph_spec.core,
-                        graph_spec.stream
-                    );
-                    HtmlRenderer::new(format!("{} Plot", graph_spec.graph_type), 800, 600)
-                        .theme(Theme::Default)
-                        .save(&chart, &filename)
-                        .expect("Failed to save chart");
-                    info!("Saved chart to {filename}");
-                }
-
-                last_tick = Instant::now();
-            }
-        }
-    }
-
     async fn client_task(&self, client: Arc<Mutex<TcpClient>>, target_addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
         info!("Client task");
 
@@ -704,21 +643,6 @@ impl Visualiser {
             Ok(())
         }
     }
-}
-
-fn generate_chart_from_data(data: Vec<(f64, f64)>, title_str: &str) -> CharmingChart {
-    use charming::component::Title;
-    use charming::element::AxisType;
-    use charming::series::Line;
-
-    let x_data: Vec<String> = data.iter().map(|(x, _)| x.to_string()).collect(); // Convert f64 to String for x_axis data
-    let y_data: Vec<f64> = data.iter().map(|(_, y)| *y).collect();
-
-    CharmingChart::new()
-        .title(Title::new().text(title_str))
-        .x_axis(charming::component::Axis::new().type_(AxisType::Category).data(x_data))
-        .y_axis(charming::component::Axis::new().type_(AxisType::Value))
-        .series(Line::new().data(y_data))
 }
 
 #[cfg(test)]
@@ -1007,7 +931,6 @@ mod tests {
         };
         let visualiser_config = VisualiserConfig {
             target: "127.0.0.1:1234".parse().unwrap(),
-            ui_type: "tui".to_string(),
         };
         Visualiser::new(global_config, visualiser_config)
     }

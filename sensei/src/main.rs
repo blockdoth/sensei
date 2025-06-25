@@ -48,7 +48,7 @@ use tokio::runtime::Builder;
 use crate::orchestrator::*;
 #[cfg(feature = "registry")]
 use crate::registry::Registry;
-use crate::services::OrchestratorConfig;
+use crate::services::{OrchestratorConfig, VisualiserConfig};
 #[cfg(feature = "sys_node")]
 use crate::system_node::*;
 #[cfg(feature = "visualiser")]
@@ -141,17 +141,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 #[cfg(feature = "visualiser")]
                 SubCommandsArgs::Visualiser(args) => {
-                    Visualiser::new(global_config, args.parse()?).run().await?;
+                    let config = match VisualiserConfig::from_yaml(args.config_path.clone()) {
+                        Ok(config_yaml) => args.merge_with_config(config_yaml),
+                        Err(e) => {
+                            error!("Unable to parse orchestrator node config file: {e}");
+                            args.into()
+                        }
+                    };
+                    Visualiser::new(global_config, config).run().await?;
                 }
 
                 #[cfg(feature = "esp_tool")]
                 SubCommandsArgs::EspTool(args) => {
-                    EspTool::new(global_config, args.parse()?).run().await?;
+                    EspTool::new(global_config, args.into()).run().await?;
                 }
 
                 #[cfg(feature = "registry")]
                 SubCommandsArgs::Registry(args) => {
-                    Registry::new(global_config, args.parse()?).run().await?;
+                    Registry::new(global_config, args.into()).run().await?;
                 }
             },
         }

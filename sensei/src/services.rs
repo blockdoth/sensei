@@ -52,7 +52,7 @@ use crate::system_node::SinkConfigWithName;
 /// # Example
 ///
 /// ```rust,ignore
-/// use std::path::PathBuf;
+/// use std::path::PathBuf;            ui_type: self.ui_type.clone(),
 /// use serde::Deserialize;
 /// use sensei::services::FromYaml; // Assuming FromYaml is in a crate named sensei
 ///
@@ -98,6 +98,9 @@ impl FromYaml for OrchestratorConfig {}
 #[cfg(feature = "registry")]
 impl FromYaml for RegistryConfig {}
 
+#[cfg(feature = "visualiser")]
+impl FromYaml for VisualiserConfig {}
+
 /// Configuration for the Orchestrator service.
 #[cfg(feature = "orchestrator")]
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
@@ -138,12 +141,11 @@ pub struct RegistryConfig {
 
 /// Configuration for the Visualiser service.
 #[cfg(feature = "visualiser")]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VisualiserConfig {
     /// The network address of the target service (e.g., a System Node or Orchestrator)
     /// from which the visualiser will fetch data.
     pub target: SocketAddr,
-    /// The type of user interface to use for visualization (e.g., "tui", "gui").
-    pub ui_type: String,
 }
 
 /// Configuration for the ESP Tool service.

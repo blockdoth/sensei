@@ -52,6 +52,7 @@ pub static DEFAULT_HOST_CONFIG: &str = "examples/default/node.yaml";
 /// Default path to the orchestrator configuration YAML file.
 pub static DEFAULT_ORCHESTRATOR_CONFIG: &str = "examples/default/orchestrator.yaml";
 pub static DEFAULT_REGISTRY_CONFIG: &str = "examples/default/registry.yaml";
+pub static DEFAULT_VISUALIZER_CONFIG: &str = "examples/default/visualiser.yaml";
 pub static DEFAULT_EXPERIMENT_CONFIGS: &str = "examples/experiments/";
 pub static DEFAULT_ORG_POLL_INTERVAL: u64 = 5;
 
@@ -103,16 +104,6 @@ impl Args {
             num_workers: self.num_workers,
         })
     }
-}
-
-/// A trait for parsing command-line arguments into a specific configuration type.
-///
-/// Implementors of this trait define how to convert raw command-line arguments
-/// (typically a dedicated struct derived with `argh::FromArgs`) into a structured
-/// configuration object (e.g., `SystemNodeConfig`, `OrchestratorConfig`).
-pub trait ConfigFromCli<Config> {
-    /// Parses the command-line arguments into a configuration object.
-    fn parse(&self) -> Result<Config, Box<dyn std::error::Error>>;
 }
 
 #[derive(FromArgs)]
@@ -249,22 +240,34 @@ pub struct VisualiserSubcommandArgs {
     #[argh(option, default = "String::from(\"127.0.0.1:6969\")")]
     pub target: String,
 
-    /// using tui (ratatui, default) or gui (plotters, minifb)
-    #[argh(option, default = "String::from(\"tui\")")]
-    pub ui_type: String,
+    /// file path of the visualiser config
+    #[argh(option, default = "DEFAULT_VISUALIZER_CONFIG.parse().unwrap()")]
+    pub config_path: PathBuf,
 }
 
 #[cfg(feature = "visualiser")]
-impl ConfigFromCli<VisualiserConfig> for VisualiserSubcommandArgs {
-    /// Parses visualiser subcommand arguments into a `VisualiserConfig`.
-    ///
-    /// This involves setting the target address and UI type for the visualiser.
-    fn parse(&self) -> Result<VisualiserConfig, Box<dyn std::error::Error>> {
-        // TODO input validation
-        Ok(VisualiserConfig {
-            target: self.target.parse()?,
-            ui_type: self.ui_type.clone(),
-        })
+impl From<&VisualiserSubcommandArgs> for VisualiserConfig {
+    fn from(args: &VisualiserSubcommandArgs) -> Self {
+        VisualiserConfig {
+            target: args.target.parse().unwrap_or(DEFAULT_ADDRESS),
+        }
+    }
+}
+
+#[cfg(feature = "visualiser")]
+/// Overlays subcommand arguments onto a VisualiserConfig, overriding fields if provided.
+impl MergeWithConfig<VisualiserConfig> for VisualiserSubcommandArgs {
+    fn merge_with_config(&self, mut full_config: VisualiserConfig) -> VisualiserConfig {
+        // Because of the default value we expact that there's always a file to read
+        debug!("Loading system node configuration from YAML file: {}", self.config_path.display());
+
+        if self.target != DEFAULT_ADDRESS.to_string()
+            && let Ok(target) = self.target.parse()
+        {
+            full_config.target = target
+        }
+
+        full_config
     }
 }
 
@@ -278,15 +281,12 @@ pub struct EspToolSubcommandArgs {
     pub serial_port: String,
 }
 
-#[cfg(feature = "esp_tool")]
-impl ConfigFromCli<EspToolConfig> for EspToolSubcommandArgs {
-    /// Parses ESP tool subcommand arguments into an `EspToolConfig`.
-    ///
-    /// This involves setting the serial port for communication with the ESP device.
-    fn parse(&self) -> Result<EspToolConfig, Box<dyn std::error::Error>> {
-        Ok(EspToolConfig {
-            serial_port: self.serial_port.clone(), // TODO remove clone
-        })
+#[cfg(feature = "registry")]
+impl From<&EspToolSubcommandArgs> for EspToolConfig {
+    fn from(args: &EspToolSubcommandArgs) -> Self {
+        EspToolConfig {
+            serial_port: args.serial_port.clone(),
+        }
     }
 }
 
@@ -313,10 +313,12 @@ pub struct RegistrySubcommandArgs {
 }
 
 #[cfg(feature = "registry")]
-impl ConfigFromCli<RegistryConfig> for RegistrySubcommandArgs {
-    fn parse(&self) -> Result<RegistryConfig, Box<dyn std::error::Error>> {
-        use crate::services::FromYaml;
-        RegistryConfig::from_yaml(self.config_path.clone())
+impl From<&RegistrySubcommandArgs> for RegistryConfig {
+    fn from(args: &RegistrySubcommandArgs) -> Self {
+        RegistryConfig {
+            address: args.address.parse().unwrap_or(DEFAULT_ADDRESS),
+            polling_interval: args.polling_interval,
+        }
     }
 }
 
