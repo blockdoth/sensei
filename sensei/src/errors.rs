@@ -5,7 +5,7 @@ use lib::network::rpc_message::{DataMsg, HostId};
 use lib::network::tcp::ChannelMsg;
 use thiserror::Error;
 
-use crate::orchestrator::state::OrgUpdate;
+use crate::orchestrator::state::OrchUpdate;
 use crate::orchestrator::{ExperimentChannelMsg, RegistryChannelMsg};
 
 #[derive(Error, Debug)]
@@ -16,7 +16,7 @@ pub enum OrchestratorError {
 
     /// Tokio mpsc send error for OrgUpdate
     #[error("Tokio mpsc send error (OrgUpdate): {0}")]
-    MpscOrgUpdate(#[from] tokio::sync::mpsc::error::SendError<OrgUpdate>),
+    MpscOrgUpdate(#[from] tokio::sync::mpsc::error::SendError<OrchUpdate>),
 
     /// Tokio mpsc send error for bool
     #[error("Tokio mpsc send error (bool): {0}")]
@@ -32,7 +32,7 @@ pub enum OrchestratorError {
 
     /// Tokio watch send error for OrgUpdate
     #[error("Tokio watch send error (OrgUpdate): {0}")]
-    WatchOrgUpdate(#[from] tokio::sync::watch::error::SendError<OrgUpdate>),
+    WatchOrgUpdate(#[from] tokio::sync::watch::error::SendError<OrchUpdate>),
 
     /// Tokio watch send error for bool
     #[error("Tokio watch send error (bool): {0}")]
