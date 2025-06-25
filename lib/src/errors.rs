@@ -1,5 +1,4 @@
 use std::num::{ParseFloatError, ParseIntError};
-use std::sync::PoisonError;
 
 use thiserror::Error;
 
@@ -375,7 +374,7 @@ pub enum TaskError {
     Io(#[from] std::io::Error),
 
     // Error when you trying to serialie
-    #[error("Seriliazation error: {0}")]
+    #[error("Serialization error: {0}")]
     Serde(#[from] serde_yaml::Error),
 
     /// Not implemented error
@@ -418,15 +417,11 @@ pub enum RegistryError {
     #[error("A generic error. Should not be used in finalized features")]
     GenericError,
 
-    /// A poisonerror`
-    #[error("Poisonerror")]
-    PosonError(#[from] PoisonError<()>),
-
     /// No such host
     #[error("No such host")]
     NoSuchHost,
 
-    // /// Netowrk Error
+    // /// Network Error
     // #[error("Network Error")]
     // NetworkError(#[from] Box<NetworkError>),
     /// Netowrk Error
@@ -448,8 +443,8 @@ pub enum CommandError {
     #[error("The command is missing an argument")]
     MissingArgument,
 
-    /// The command argument is invallid.
-    #[error("The command argument is invallid.")]
+    /// The command argument is invalid.
+    #[error("The command argument is invalid.")]
     InvalidArgument,
 
     /// There was an error in parsing a config.
@@ -463,9 +458,13 @@ pub enum ConfigError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
-    // Error when you trying to serialie
-    #[error("Seriliazation error: {0}")]
+    // Error when you trying to serialize
+    #[error("Serialization error: {0}")]
     Serde(#[from] serde_yaml::Error),
+
+    /// The configuration is invalid.
+    #[error("The config is invalid")]
+    InvalidConfig(String),
 }
 
 #[derive(Error, Debug)]
