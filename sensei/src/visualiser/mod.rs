@@ -1,3 +1,6 @@
+mod state;
+mod tui;
+
 use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::fmt;
@@ -7,6 +10,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use async_trait::async_trait;
+use crossterm::event::KeyEvent;
 // Alias for charming::Chart
 use lib::csi_types::Complex as LibComplex; // Alias to avoid confusion
 use lib::csi_types::CsiData;
@@ -14,8 +19,9 @@ use lib::network::rpc_message::DataMsg::*;
 use lib::network::rpc_message::RpcMessageKind::Data;
 use lib::network::rpc_message::{HostCtrl, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
-use log::{debug, info};
-use ratatui::Terminal;
+use lib::tui::example::Update;
+use lib::tui::{Tui, TuiRunner};
+use log::{LevelFilter, debug, error, info};
 use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::crossterm::cursor::{Hide, Show};
 use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture, Event, KeyCode};
@@ -26,18 +32,26 @@ use ratatui::prelude::Direction;
 use ratatui::style::{Color, Style};
 use ratatui::text::Span;
 use ratatui::widgets::{Axis, Block, Borders, Chart, Dataset};
+use ratatui::{Frame, Terminal};
 use rustfft::FftPlanner;
 use rustfft::num_complex::Complex as FftComplex;
 use tokio::io;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
+use tokio::sync::mpsc::{self, Receiver, Sender};
 
 use crate::services::{GlobalConfig, Run, VisualiserConfig};
+use crate::visualiser::state::{Graph, GraphDisplayState, GraphType, VisCommand, VisState, VisUpdate};
+use crate::visualiser::tui::ui;
+
+const ACTOR_CHANNEL_CAPACITY: usize = 100;
 
 pub struct Visualiser {
     #[allow(clippy::type_complexity)]
     data: Arc<Mutex<HashMap<SocketAddr, HashMap<u64, Vec<CsiData>>>>>,
     target: SocketAddr,
+    log_level: LevelFilter,
+    graph_display_states: Arc<Mutex<Vec<Option<GraphDisplayState>>>>,
 }
 
 impl Run<VisualiserConfig> for Visualiser {
@@ -45,6 +59,8 @@ impl Run<VisualiserConfig> for Visualiser {
         Visualiser {
             data: Arc::new(Default::default()),
             target: config.target,
+            log_level: LevelFilter::Info,
+            graph_display_states: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -52,131 +68,76 @@ impl Run<VisualiserConfig> for Visualiser {
         // Technically, the visualiser has cli tools for connecting to multiple nodes
         // At the moment, it is sufficient to connect to one target node on startup
         // Manually start the subscription by typing subscribe
-        let client = Arc::new(Mutex::new(TcpClient::new()));
-        self.client_task(client.clone(), self.target).await?;
-        self.receive_data_task(self.data.clone(), client.clone(), self.target);
 
-        io::stdout().flush().await?;
+        let (command_send, command_recv) = mpsc::channel::<VisCommand>(ACTOR_CHANNEL_CAPACITY);
+        let (update_send, update_recv) = mpsc::channel::<VisUpdate>(ACTOR_CHANNEL_CAPACITY);
 
-        self.plot_data_tui().await?;
+        let tasks = vec![Self::listen_task(self.data.clone(), self.target)];
+
+        let tui_runner = TuiRunner::new(VisState::new(), command_send, update_recv, update_send, self.log_level);
+        tui_runner.run(tasks).await;
 
         Ok(())
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct Graph {
-    graph_type: GraphType,
-    target_addr: SocketAddr,
-    device: u64,
-    core: usize,
-    stream: usize,
-    subcarrier: usize,
-    time_interval: usize,            // For Amplitude plots: x-axis time window in ms
-    y_axis_bounds: Option<[f64; 2]>, // For PDP plots: fixed y-axis bounds [min, max]
-}
+impl Visualiser {
+    #[allow(clippy::type_complexity)]
+    async fn listen_task(data: Arc<Mutex<HashMap<SocketAddr, HashMap<u64, Vec<CsiData>>>>>, target_addr: SocketAddr) {
+        let mut client = TcpClient::new();
+        if client.connect(target_addr).await.is_err() {
+            error!("Failed to connect to {target_addr:?}");
+            return;
+        };
 
-impl PartialEq for Graph {
-    fn eq(&self, other: &Self) -> bool {
-        self.graph_type == other.graph_type
-            && self.target_addr == other.target_addr
-            && self.device == other.device
-            && self.core == other.core
-            && self.stream == other.stream
-            && self.subcarrier == other.subcarrier
-        // time_interval is intentionally omitted for robust state tracking against graph spec changes
-        // y_axis_bounds is also omitted for the same reason
-    }
-}
+        let msg = HostCtrl::Subscribe { device_id: 0 };
+        if client.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await.is_err() {
+            error!("Failed to send message to {target_addr:?}");
+            return;
+        };
+        info!("Subscribed to node {target_addr}");
 
-#[derive(Clone, Debug)]
-struct GraphDisplayState {
-    data_points: Vec<(f64, f64)>,
-    csi_timestamp: f64,             // Timestamp of the CsiData this state is based on
-    last_loop_update_time: Instant, // When this state was last updated or checked in the tui_loop
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum GraphType {
-    Amplitude,
-    #[allow(clippy::upper_case_acronyms)]
-    PDP,
-}
-
-impl FromStr for GraphType {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "amp" => Ok(GraphType::Amplitude),
-            "amplitude" => Ok(GraphType::Amplitude),
-            "pdp" => Ok(GraphType::PDP),
-            _ => Err(()),
-        }
-    }
-}
-
-impl fmt::Display for GraphType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{self:?}")
-    }
-}
-
-impl PartialEq for GraphType {
-    fn eq(&self, other: &Self) -> bool {
-        self.to_string() == other.to_string()
+        async move {
+            loop {
+                match client.read_message(target_addr).await {
+                    Ok(RpcMessage {
+                        msg:
+                            Data {
+                                data_msg: CsiFrame { csi },
+                                device_id,
+                            },
+                        src_addr,
+                        target_addr: _,
+                    }) => {
+                        data.lock()
+                            .await
+                            .entry(src_addr)
+                            .and_modify(|devices| {
+                                devices
+                                    .entry(device_id)
+                                    .and_modify(|csi_data| csi_data.push(csi.clone()))
+                                    .or_insert(vec![csi.clone()]);
+                            })
+                            .or_insert(HashMap::new());
+                    }
+                    _ => {
+                        error!("Some shit is fucked up");
+                        break;
+                    }
+                }
+            }
+        };
     }
 }
 
 impl Visualiser {
-    #[allow(clippy::type_complexity)]
-    fn receive_data_task(
-        &self,
-        data: Arc<Mutex<HashMap<SocketAddr, HashMap<u64, Vec<CsiData>>>>>,
-        client: Arc<Mutex<TcpClient>>,
-        target_addr: SocketAddr,
-    ) {
-        tokio::spawn(async move {
-            debug!("Receive task");
-            loop {
-                let mut client = client.lock().await;
-                match client.read_message(target_addr).await {
-                    Ok(msg) => {
-                        let RpcMessage {
-                            msg,
-                            src_addr,
-                            target_addr: _,
-                        } = msg;
-                        if let Data {
-                            data_msg: CsiFrame { csi },
-                            device_id,
-                        } = msg
-                        {
-                            data.lock()
-                                .await
-                                .entry(src_addr)
-                                .and_modify(|devices| {
-                                    devices
-                                        .entry(device_id)
-                                        .and_modify(|csi_data| csi_data.push(csi.clone()))
-                                        .or_insert(vec![csi.clone()]);
-                                })
-                                .or_insert(HashMap::new());
-                        }
-                    }
-                    _ => return, // Connection with node is not established, ends the process
-                }
-            }
-        });
-    }
-
-    async fn process_amplitude_data(&self, device_data: &[CsiData], core: usize, stream: usize, subcarrier: usize) -> (Vec<(f64, f64)>, Option<f64>) {
+    async fn process_amplitude_data(device_data: &[CsiData], core: usize, stream: usize, subcarrier: usize) -> (Vec<(f64, f64)>, Option<f64>) {
         let latest_timestamp = device_data.last().map(|x| x.timestamp);
         let data = device_data.iter().map(|x| (x.timestamp, x.csi[core][stream][subcarrier].re)).collect();
         (data, latest_timestamp)
     }
 
-    async fn process_pdp_data(&self, device_data: &[CsiData], core: usize, stream: usize) -> (Vec<(f64, f64)>, Option<f64>) {
+    async fn process_pdp_data(device_data: &[CsiData], core: usize, stream: usize) -> (Vec<(f64, f64)>, Option<f64>) {
         if let Some(latest_csi_data) = device_data.last() {
             let csi_timestamp = latest_csi_data.timestamp;
             if core < latest_csi_data.csi.len() && stream < latest_csi_data.csi[core].len() {
@@ -202,69 +163,48 @@ impl Visualiser {
         } else {
             (vec![], None)
         }
-    }
+        /// Processing data turns each data point into a vec of tuples (timestamp, datapoint), such that it can be charted easily.
+        /// For PDP, it returns (delay_bin, power) for the latest CSI packet.
+        /// Returns the processed data and an Option containing the timestamp of the CSI data used.
+        async fn process_data(&self, graph: Graph) -> (Vec<(f64, f64)>, Option<f64>) {
+            let data_map = self.data.lock().await;
+            let device_data_map = match data_map.get(&graph.target_addr).and_then(|node_data| node_data.get(&graph.device)) {
+                Some(data) => data.clone(),
+                None => return (vec![], None),
+            };
 
-    /// Processing data turns each data point into a vec of tuples (timestamp, datapoint), such that it can be charted easily.
-    /// For PDP, it returns (delay_bin, power) for the latest CSI packet.
-    /// Returns the processed data and an Option containing the timestamp of the CSI data used.
-    async fn process_data(&self, graph: Graph) -> (Vec<(f64, f64)>, Option<f64>) {
-        let data_map = self.data.lock().await;
-        let device_data_map = match data_map.get(&graph.target_addr).and_then(|node_data| node_data.get(&graph.device)) {
-            Some(data) => data.clone(),
-            None => return (vec![], None),
-        };
-
-        if device_data_map.is_empty() {
-            return (vec![], None);
-        }
-
-        match graph.graph_type {
-            GraphType::Amplitude => {
-                self.process_amplitude_data(&device_data_map, graph.core, graph.stream, graph.subcarrier)
-                    .await
+            if device_data_map.is_empty() {
+                return (vec![], None);
             }
-            GraphType::PDP => self.process_pdp_data(&device_data_map, graph.core, graph.stream).await,
+
+            match graph.graph_type {
+                GraphType::Amplitude => Self::process_amplitude_data(&device_data_map, graph.core, graph.stream, graph.subcarrier).await,
+                GraphType::PDP => Self::process_pdp_data(&device_data_map, graph.core, graph.stream).await,
+            }
         }
-    }
 
-    fn perform_ifft(csi_subcarriers: &[LibComplex]) -> Vec<FftComplex<f64>> {
-        if csi_subcarriers.is_empty() {
-            return vec![];
+        fn perform_ifft(csi_subcarriers: &[LibComplex]) -> Vec<FftComplex<f64>> {
+            if csi_subcarriers.is_empty() {
+                return vec![];
+            }
+            let mut planner = FftPlanner::<f64>::new();
+            let fft = planner.plan_fft_inverse(csi_subcarriers.len());
+
+            let mut buffer: Vec<FftComplex<f64>> = csi_subcarriers.iter().map(|c| FftComplex::new(c.re, c.im)).collect();
+
+            fft.process(&mut buffer);
+
+            // Normalize IFFT output
+            let norm_factor = 1.0 / (buffer.len() as f64);
+            for val in buffer.iter_mut() {
+                *val *= norm_factor;
+            }
+            buffer
         }
-        let mut planner = FftPlanner::<f64>::new();
-        let fft = planner.plan_fft_inverse(csi_subcarriers.len());
+    
+}
 
-        let mut buffer: Vec<FftComplex<f64>> = csi_subcarriers.iter().map(|c| FftComplex::new(c.re, c.im)).collect();
-
-        fft.process(&mut buffer);
-
-        // Normalize IFFT output
-        let norm_factor = 1.0 / (buffer.len() as f64);
-        for val in buffer.iter_mut() {
-            *val *= norm_factor;
-        }
-        buffer
-    }
-
-    async fn plot_data_tui(&self) -> Result<(), Box<dyn std::error::Error>> {
-        enable_raw_mode()?;
-        let mut stdout = stdout();
-        execute!(stdout, EnterAlternateScreen, EnableMouseCapture, Hide)?;
-        let backend = CrosstermBackend::new(stdout);
-        let mut terminal = Terminal::new(backend)?;
-
-        let graph_display_states: Arc<Mutex<Vec<Option<GraphDisplayState>>>> = Arc::new(Mutex::new(Vec::new()));
-
-        self.tui_loop(&mut terminal, graph_display_states.clone()).await?;
-
-        // Shutdown process
-        disable_raw_mode()?;
-        execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture, Show,)?;
-        terminal.show_cursor()?;
-
-        Ok(())
-    }
-
+impl Visualiser {
     fn update_pdp_display_state(
         current_display_state_slot: &mut Option<GraphDisplayState>,
         points_from_processor: Vec<(f64, f64)>,
@@ -325,127 +265,31 @@ impl Visualiser {
         }
     }
 
-    fn get_x_axis_config(graph_type: GraphType, data_points: &[(f64, f64)], time_interval: usize) -> (String, [f64; 2], Vec<Span>) {
-        match graph_type {
-            GraphType::Amplitude => {
-                let time_max = data_points.iter().max_by(|x, y| x.0.total_cmp(&y.0)).unwrap_or(&(0f64, 0f64)).0;
-                let bounds = [(time_max - time_interval as f64 - 1f64).round(), (time_max + 1f64).round()];
-                let labels = bounds.iter().map(|n| Span::from(n.to_string())).collect();
-                ("Time".to_string(), bounds, labels)
-            }
-            GraphType::PDP => {
-                let num_delay_bins = data_points.len();
-                let max_delay_bin_idx = if num_delay_bins == 0 { 0.0 } else { (num_delay_bins - 1) as f64 };
-                let bounds = [0.0, max_delay_bin_idx.max(0.0)];
-                let mut labels = vec![Span::from(bounds[0].floor().to_string()), Span::from(bounds[1].floor().to_string())];
-                labels.dedup_by(|a, b| a.content == b.content);
-                if labels.is_empty() {
-                    labels.push(Span::from("0"));
-                }
-                ("Delay Bin".to_string(), bounds, labels)
-            }
-        }
-    }
-
-    fn calculate_dynamic_bounds(data_points: &[(f64, f64)]) -> [f64; 2] {
-        let (min_val, max_val) = data_points
-            .iter()
-            .fold((f64::INFINITY, f64::NEG_INFINITY), |(min_acc, max_acc), &(_, y)| {
-                (min_acc.min(y), max_acc.max(y))
-            });
-
-        if min_val.is_infinite() || max_val.is_infinite() {
-            // Handle empty data: return default bounds [0.0, 1.0] directly.
-            // This fixes the test case for empty_data expecting [0.0, 1.0].
-            [0.0, 1.0]
-        } else if (max_val - min_val).abs() < f64::EPSILON {
-            // Handle data with all same y-values: return [y - 0.5, y + 0.5] directly.
-            // This fixes the test case for same_data expecting [y - 0.5, y + 0.5].
-            [min_val - 0.5, max_val + 0.5] // min_val can be used as it's same as max_val
-        } else {
-            // Normal case: data has a range of y-values.
-            // Calculate padding based on the original min_val and max_val from fold.
-            let data_range = max_val - min_val;
-            let padding = (data_range * 0.05).max(0.1); // Ensure a minimum padding of 0.1
-            [min_val - padding, max_val + padding]
-        }
-    }
-
-    fn get_y_axis_config(graph_type: GraphType, data_points: &[(f64, f64)], y_axis_bounds_spec: Option<[f64; 2]>) -> (String, [f64; 2], Vec<Span>) {
-        let y_bounds_to_use = if graph_type == GraphType::PDP {
-            if let Some(bounds) = y_axis_bounds_spec {
-                bounds
-            } else {
-                // Default behavior for PDP if y_axis_bounds_spec is None
-                Self::calculate_dynamic_bounds(data_points)
-            }
-        } else {
-            Self::calculate_dynamic_bounds(data_points)
-        };
-
-        let data_labels: Vec<Span> = vec![
-            Span::from(format!("{:.2}", y_bounds_to_use[0])),
-            Span::from(format!("{:.2}", y_bounds_to_use[1])),
-        ];
-
-        let y_axis_title_str = match graph_type {
-            GraphType::Amplitude => graph_type.to_string(),
-            GraphType::PDP => "Power".to_string(),
-        };
-
-        (y_axis_title_str, y_bounds_to_use, data_labels)
-    }
-
     async fn tui_loop<B: Backend>(
         &self,
         terminal: &mut Terminal<B>,
         graph_display_states: Arc<Mutex<Vec<Option<GraphDisplayState>>>>,
     ) -> io::Result<()> {
-        let tick_rate = Duration::from_millis(10);
-        let mut last_tick = Instant::now();
-        let mut text_input: String = String::new();
-
         // Source address, device id, core, stream, subcarrier
         let graphs: Arc<Mutex<Vec<Graph>>> = Arc::new(Mutex::new(Vec::new()));
 
         loop {
-            let timeout = tick_rate.checked_sub(last_tick.elapsed()).unwrap_or_else(|| Duration::from_secs(0));
-
-            if event::poll(timeout)? {
-                if let Event::Key(key) = event::read()? {
-                    match key.code {
-                        KeyCode::Char(c) => {
-                            text_input.push(c);
-                        }
-                        KeyCode::Backspace => {
-                            text_input.pop();
-                        }
-                        KeyCode::Enter => {
-                            Self::execute_command(text_input.clone(), graphs.clone()).await;
-                            text_input.clear();
-                        }
-                        KeyCode::Esc => return Ok(()),
-                        _ => {}
-                    }
-                }
-            }
-
             if last_tick.elapsed() >= tick_rate {
-                let graphs_snapshot: Vec<Graph> = graphs.lock().await.iter().cloned().collect();
+                // let graphs_snapshot: Vec<Graph> = graphs.lock().await.iter().cloned().collect();
                 let mut display_states_locked = graph_display_states.lock().await;
 
-                // Reconcile display_states_locked length with graphs_snapshot length
-                if display_states_locked.len() > graphs_snapshot.len() {
-                    display_states_locked.truncate(graphs_snapshot.len());
-                } else if display_states_locked.len() < graphs_snapshot.len() {
-                    display_states_locked.resize_with(graphs_snapshot.len(), || None);
-                }
+                // // Reconcile display_states_locked length with graphs_snapshot length
+                // if display_states_locked.len() > graphs_snapshot.len() {
+                //     display_states_locked.truncate(graphs_snapshot.len());
+                // } else if display_states_locked.len() < graphs_snapshot.len() {
+                //     display_states_locked.resize_with(graphs_snapshot.len(), || None);
+                // }
 
-                let mut data_to_render_this_frame = Vec::new();
-                let now = Instant::now();
+                let mut data_to_render_this_frame: Vec<Vec<(f64, f64)>> = Vec::new();
+                // let now = Instant::now();
 
                 for (i, graph_spec) in graphs_snapshot.iter().enumerate() {
-                    let (points_from_processor, opt_timestamp_from_processor) = self.process_data(*graph_spec).await;
+                    let (points_from_processor, opt_timestamp_from_processor) = Self::process_data(*graph_spec).await;
 
                     if graph_spec.graph_type == GraphType::PDP {
                         let processed_points_for_render =
@@ -458,78 +302,12 @@ impl Visualiser {
                         }
                     }
                 }
-                // Drop the lock before drawing, as drawing slow slow slow
-                drop(display_states_locked);
-
-                terminal.draw(|f| {
-                    let size = f.area();
-
-                    let chunks = Layout::default()
-                        .direction(Direction::Vertical)
-                        .margin(1)
-                        .constraints([Constraint::Percentage(80), Constraint::Length(3)].as_ref())
-                        .split(size);
-
-                    // Use data_to_render_this_frame for graph_count and iteration
-                    let graph_count = if data_to_render_this_frame.is_empty() { 1 } else { data_to_render_this_frame.len() };
-                    let constraints = vec![Constraint::Percentage(100 / graph_count as u16); graph_count];
-                    let chart_area = Layout::default()
-                        .direction(Direction::Horizontal)
-                        .margin(1)
-                        .constraints(constraints)
-                        .split(chunks[0]);
-
-                    for (i, data_points) in data_to_render_this_frame.iter().enumerate() { // Iterate over data_to_render_this_frame
-                        // graphs_snapshot still provides the spec (title, type, etc.)
-                        let current_graph_spec = &graphs_snapshot[i];
-
-                        let dataset = Dataset::default()
-                            .name(format!("Graph #{i}"))
-                            .marker(ratatui::symbols::Marker::Braille)
-                            .graph_type(ratatui::widgets::GraphType::Line)
-                            .style(Style::default().fg(Color::Cyan))
-                            .data(data_points);
-
-                        let (x_axis_title_str, x_bounds_arr, x_labels_vec) = Self::get_x_axis_config(
-                            current_graph_spec.graph_type,
-                            data_points,
-                            current_graph_spec.time_interval,
-                        );
-
-                        let (y_axis_title_str, y_bounds_to_use, y_labels_vec) = Self::get_y_axis_config(
-                            current_graph_spec.graph_type,
-                            data_points,
-                            current_graph_spec.y_axis_bounds,
-                        );
-                        let chart_block_title = format!(
-                            "Chart {} - {} @ {} dev {} C{} S{}",
-                            i,
-                            current_graph_spec.graph_type,
-                            current_graph_spec.target_addr,
-                            current_graph_spec.device,
-                            current_graph_spec.core,
-                            current_graph_spec.stream
-                        );
-
-                        let chart = Chart::new(vec![dataset])
-                            .block(
-                                Block::default()
-                                    .title(chart_block_title)
-                                    .borders(Borders::ALL)
-                            )
-                            .x_axis(Axis::default().title(x_axis_title_str).bounds(x_bounds_arr).labels(x_labels_vec))
-                            .y_axis(Axis::default().title(y_axis_title_str).bounds(y_bounds_to_use).labels(y_labels_vec));
-                        f.render_widget(chart, chart_area[i]);
-                    }
-
-                    let input = ratatui::widgets::Paragraph::new(text_input.as_str()).block(Block::default().title("Command (add <type> <addr> <dev_id> <core> <stream> <subcarrier_or_ignored_for_pdp> | remove <idx> | interval <idx> <value> | clear)").borders(Borders::ALL));
-                    f.render_widget(input, chunks[1]);
-                })?;
-                last_tick = Instant::now();
             }
         }
     }
+}
 
+impl Visualiser {
     fn entry_from_command(parts: Vec<&str>) -> Option<Graph> {
         let graph_type: GraphType = match parts[1].parse() {
             Ok(addr) => addr,
@@ -624,23 +402,6 @@ impl Visualiser {
                 graphs.lock().await.clear();
             }
             _ => {} // Dont execute on invalid input
-        }
-    }
-
-    async fn client_task(&self, client: Arc<Mutex<TcpClient>>, target_addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
-        info!("Client task");
-
-        // Visualiser connects and subscribes to the target node on startup
-        {
-            // Locking the client within this lifetime ensures that the receiver task
-            // only starts once the lock in this lifetime has been released
-            let mut client = client.lock().await;
-            client.connect(target_addr).await?;
-
-            let msg = HostCtrl::Subscribe { device_id: 0 };
-            client.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?;
-            info!("Subscribed to node {target_addr}");
-            Ok(())
         }
     }
 }
