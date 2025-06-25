@@ -326,9 +326,23 @@ impl SystemNode {
         Ok(())
     }
 
+    async fn subscribe_all(src_addr: SocketAddr, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), AppError> {
+        send_channel_msg_channel.send(ChannelMsg::from(HostChannel::SubscribeAll))?;
+        info!("Client {src_addr} subscribed to data stream for all devices");
+
+        Ok(())
+    }
+
     async fn unsubscribe(src_addr: SocketAddr, device_id: DeviceId, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), AppError> {
         send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Unsubscribe { device_id }))?;
         info!("Client {src_addr} unsubscribed from data stream for device_id: {device_id}");
+
+        Ok(())
+    }
+
+    async fn unsubscribe_all(src_addr: SocketAddr, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), AppError> {
+        send_channel_msg_channel.send(ChannelMsg::from(HostChannel::UnsubscribeAll))?;
+        info!("Client {src_addr} unsubscribed from all devices");
 
         Ok(())
     }
@@ -537,17 +551,13 @@ impl ConnectionHandler for SystemNode {
                         Self::subscribe(request.src_addr, *device_id, send_channel_msg_channel).await?;
                     }
                     HostCtrl::SubscribeAll => {
-                        for device_id in self.handlers.lock().await.keys() {
-                            Self::subscribe(request.src_addr, *device_id, send_channel_msg_channel.clone()).await?;
-                        }
+                        Self::subscribe_all(request.src_addr, send_channel_msg_channel).await?;
                     }
                     HostCtrl::Unsubscribe { device_id } => {
                         Self::unsubscribe(request.src_addr, *device_id, send_channel_msg_channel).await?;
                     }
                     HostCtrl::UnsubscribeAll => {
-                        for device_id in self.handlers.lock().await.keys() {
-                            Self::unsubscribe(request.src_addr, *device_id, send_channel_msg_channel.clone()).await?;
-                        }
+                        Self::unsubscribe_all(request.src_addr, send_channel_msg_channel).await?;
                     }
                     HostCtrl::SubscribeTo { target_addr, device_id } => {
                         Self::subscribe_to(*target_addr, *device_id, self.handlers.clone(), self.local_data_tx.clone()).await?;
@@ -625,6 +635,7 @@ impl ConnectionHandler for SystemNode {
         mut send_stream: OwnedWriteHalf,
     ) -> Result<(), NetworkError> {
         let mut subscribed_ids: HashSet<HostId> = HashSet::new();
+        let mut is_all_subscribed: bool = false;
         loop {
             // This loop continues execution untill a client disconnects.
             // Since tokio only yiels execution back to the scheduler once a task finishes
@@ -644,8 +655,14 @@ impl ConnectionHandler for SystemNode {
                         HostChannel::Subscribe { device_id } => {
                             subscribed_ids.insert(device_id);
                         }
+                        HostChannel::SubscribeAll => {
+                            is_all_subscribed = true;
+                        }
                         HostChannel::Unsubscribe { device_id } => {
                             subscribed_ids.remove(&device_id);
+                        }
+                        HostChannel::UnsubscribeAll => {
+                            is_all_subscribed = false;
                         }
                         HostChannel::Pong => {
                             debug!("Sending pong...");
@@ -664,7 +681,7 @@ impl ConnectionHandler for SystemNode {
 
             if !recv_data_channel.is_empty() {
                 let (data_msg, device_id) = recv_data_channel.recv().await.unwrap();
-                if subscribed_ids.contains(&device_id) {
+                if is_all_subscribed || subscribed_ids.contains(&device_id) {
                     debug!("Sending data {data_msg:?} for {device_id} to {send_stream:?}");
                     let msg = RpcMessageKind::Data { data_msg, device_id };
                     send_message(&mut send_stream, msg).await?;

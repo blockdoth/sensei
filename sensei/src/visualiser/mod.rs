@@ -150,6 +150,7 @@ impl Visualiser {
                 let mut client = client.lock().await;
                 match client.read_message(target_addr).await {
                     Ok(msg) => {
+                        info!("{msg:?}");
                         let RpcMessage {
                             msg,
                             src_addr,
@@ -698,7 +699,7 @@ impl Visualiser {
             let mut client = client.lock().await;
             client.connect(target_addr).await?;
 
-            let msg = HostCtrl::Subscribe { device_id: 0 };
+            let msg = HostCtrl::SubscribeAll;
             client.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?;
             info!("Subscribed to node {target_addr}");
             Ok(())
