@@ -30,6 +30,7 @@ pub struct Device {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[allow(unused)] // Expecting more host statuses to be implemented in the future
 pub enum HostStatus {
     Available,
     Connected,
@@ -40,12 +41,14 @@ pub enum HostStatus {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[allow(unused)] // Expecting more device statuses to be implemented in the future
 pub enum DeviceStatus {
     Subscribed,
     NotSubscribed,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[allow(unused)] // Expecting more registry statuses to be implemented in the future
 pub enum RegistryStatus {
     Connected,
     Disconnected,
@@ -86,6 +89,7 @@ type DeviceID = u64;
 
 /// Enum representing different types of updates/events in the TUI state.
 #[derive(Debug, Clone)]
+#[allow(unused)] // Updates might get used in the future
 pub enum OrgUpdate {
     // === Hosts ===
     Connect(SocketAddr),
@@ -238,7 +242,7 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
                     KeyCode::Char('m') | KeyCode::Char('M') => Some(OrgUpdate::FocusChange(Focus::Registry(FocusReg::AddHost(0)))),
                     _ => None,
                 },
-                FocusReg::AddHost(idx) => match key {
+                FocusReg::AddHost(_) => match key {
                     KeyCode::Up => Some(OrgUpdate::Up(focus)),
                     KeyCode::Down => Some(OrgUpdate::Down(focus)),
                     KeyCode::Right => Some(OrgUpdate::Right(focus)),
@@ -346,7 +350,8 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
     }
 
     /// Applies updates and potentially sends commands to background tasks.
-    async fn handle_update(&mut self, update: OrgUpdate, command_send: &Sender<OrgChannelMsg>, update_recv: &mut Receiver<OrgUpdate>) {
+    async fn handle_update(&mut self, update: OrgUpdate, command_send: &Sender<OrgChannelMsg>, _update_recv: &mut Receiver<OrgUpdate>) {
+        #[allow(unused_variables, unused_must_use)] // Not touching this monstrous match. TODO
         match update {
             OrgUpdate::Exit => {
                 self.should_quit = true;
@@ -633,7 +638,7 @@ impl FocusHost {
     }
 
     /// BackTab (shift+tab) behavior
-    fn back_tab(&self, connected_hosts: &[Host]) -> FocusHost {
+    fn back_tab(&self, _connected_hosts: &[Host]) -> FocusHost {
         match self {
             FocusHost::HostTree(0, 0) => FocusHost::HostTree(0, 0),
             FocusHost::HostTree(h, 0) if *h > 0 => FocusHost::HostTree(h - 1, 0),

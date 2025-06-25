@@ -86,10 +86,10 @@ impl SubscribeDataChannel for SystemNode {
 
 impl Run<SystemNodeConfig> for SystemNode {
     /// Constructs a new `SystemNode` from the given global and node-specific configuration.
-    fn new(global_config: GlobalConfig, config: SystemNodeConfig) -> Self {
+    fn new(_global_config: GlobalConfig, config: SystemNodeConfig) -> Self {
         let (send_data_channel, _) = broadcast::channel::<(DataMsg, DeviceId)>(16);
         let (local_data_tx, local_data_rx) = mpsc::channel::<(DataMsg, DeviceId)>(100); // Channel for local data
-        let (experiment_send, mut experiment_recv) = mpsc::channel::<ExperimentChannelMsg>(5);
+        let (experiment_send, experiment_recv) = mpsc::channel::<ExperimentChannelMsg>(5);
 
         SystemNode {
             send_data_channel,
@@ -197,25 +197,27 @@ impl SystemNode {
     fn experiment_handler(
         handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
         experiment_send: Sender<ExperimentChannelMsg>,
-        mut experiment_recv: Arc<Mutex<Receiver<ExperimentChannelMsg>>>,
+        experiment_recv: Arc<Mutex<Receiver<ExperimentChannelMsg>>>,
         local_data_tx: mpsc::Sender<(DataMsg, DeviceId)>,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
             info!("Started experiment handler task");
             let (cancel_signal_send, cancel_signal_recv) = watch::channel(false);
-            let mut session = ExperimentSession::new(experiment_send.clone(), cancel_signal_recv);
+            let session = ExperimentSession::new(experiment_send.clone(), cancel_signal_recv);
 
             let mut experiment_recv = experiment_recv.lock().await;
             let mut is_running_experiment = false;
-            let mut send_channel_opt = None;
+            // let mut send_channel_opt = None;
 
             while let Some(msg) = experiment_recv.recv().await {
                 match msg {
-                    ExperimentChannelMsg::Start(experiment, send_channel) if !is_running_experiment => {
+                    ExperimentChannelMsg::Start(experiment, _send_channel) if !is_running_experiment => {
                         info!("starting experiment");
-                        send_channel_opt = Some(send_channel); // Very hacky solution
+                        // send_channel_opt = Some(send_channel); // Very hacky solution
                         is_running_experiment = true;
-                        cancel_signal_send.send(false);
+                        if let Err(err) = cancel_signal_send.send(false) {
+                            panic!("{err}");
+                        };
                         let mut session = session.clone();
                         session.active_experiment = Some(ActiveExperiment {
                             experiment: experiment.clone(),
@@ -230,17 +232,21 @@ impl SystemNode {
                         let experiment_send = experiment_send.clone();
                         let local_data_tx = local_data_tx.clone();
 
-                        let handler = Arc::new(move |command: Command, update_send: Sender<ExperimentChannelMsg>| {
+                        let handler = Arc::new(move |command: Command, _update_send: Sender<ExperimentChannelMsg>| {
                             let handlers = handlers.clone(); // clone *inside* closure body
                             let local_data_tx = local_data_tx.clone(); // clone *inside* closure body
                             info!("started experiment task");
                             async move {
-                                Self::match_command(command, handlers, local_data_tx).await;
+                                if let Err(err) = Self::match_command(command, handlers, local_data_tx).await {
+                                    panic!("{err}");
+                                };
                             }
                         });
 
                         tokio::spawn(async move {
-                            session.run(experiment_send, converter, handler).await;
+                            if let Err(err) = session.run(experiment_send, converter, handler).await {
+                                panic!("{err}");
+                            };
                         });
                     }
                     ExperimentChannelMsg::Start(_, _) => {
@@ -248,7 +254,9 @@ impl SystemNode {
                     }
                     ExperimentChannelMsg::Stop => {
                         is_running_experiment = false;
-                        cancel_signal_send.send(true);
+                        if let Err(err) = cancel_signal_send.send(true) {
+                            panic!("{err}");
+                        };
                         info!("Stopped exp");
                     }
                     ExperimentChannelMsg::UpdateExperimentStatus(experiment_info) => {
@@ -270,9 +278,9 @@ impl SystemNode {
     ) -> Result<(), AppError> {
         match command {
             Command::Subscribe { target_addr, device_id } => Ok(Self::subscribe_to(target_addr, device_id, handlers, local_data_tx).await?),
-            Command::Unsubscribe { target_addr, device_id } => Ok(Self::unsubscribe_from(device_id, handlers).await?),
+            Command::Unsubscribe { target_addr: _, device_id } => Ok(Self::unsubscribe_from(device_id, handlers).await?),
             Command::Configure {
-                target_addr,
+                target_addr: _,
                 device_id,
                 cfg_type,
             } => Ok(Self::configure(device_id, cfg_type, handlers).await?),
@@ -280,10 +288,10 @@ impl SystemNode {
                 tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
                 Ok(())
             }
-            Command::Start { target_addr, device_id } => Ok(Self::start(device_id, handlers, local_data_tx).await?),
-            Command::StartAll { target_addr } => Ok(Self::start_all(handlers, local_data_tx).await?),
-            Command::Stop { target_addr, device_id } => Ok(Self::stop(device_id, handlers).await?),
-            Command::StopAll { target_addr } => Ok(Self::stop_all(handlers).await?),
+            Command::Start { target_addr: _, device_id } => Ok(Self::start(device_id, handlers, local_data_tx).await?),
+            Command::StartAll { target_addr: _ } => Ok(Self::start_all(handlers, local_data_tx).await?),
+            Command::Stop { target_addr: _, device_id } => Ok(Self::stop(device_id, handlers).await?),
+            Command::StopAll { target_addr: _ } => Ok(Self::stop_all(handlers).await?),
             c => {
                 info!("The system node does not support this command {c:?}");
                 Ok(())
@@ -551,29 +559,13 @@ impl ConnectionHandler for SystemNode {
                     HostCtrl::UnsubscribeFrom { target_addr: _, device_id } => {
                         Self::unsubscribe(request.src_addr, *device_id, send_channel_msg_channel).await?;
                     }
-                    HostCtrl::SubscribeAll => {
-                        todo!();
-                        // Self::subscribe_all(request.src_addr, send_channel_msg_channel).await?;
-                    }
-                    HostCtrl::UnsubscribeAll => {
-                        todo!();
-                        // Self::unsubscribe_all(request.src_addr, send_channel_msg_channel).await?;
-                    }
-                    HostCtrl::SubscribeToAll { target_addr } => {
-                        todo!();
-                        // Self::subscribe_to_all(target_addr, self.handlers.clone()).await?;
-                    }
-                    HostCtrl::UnsubscribeFromAll { target_addr: _ } => {
-                        todo!();
-                        // Self::unsubscribe_all(request.src_addr, send_channel_msg_channel).await?;
-                    }
                     HostCtrl::StartExperiment { experiment } => {
                         self.experiment_send
                             .send(ExperimentChannelMsg::Start(experiment.clone(), send_channel_msg_channel.clone()))
-                            .await;
+                            .await?;
                     }
                     HostCtrl::StopExperiment => {
-                        self.experiment_send.send(ExperimentChannelMsg::Stop).await;
+                        self.experiment_send.send(ExperimentChannelMsg::Stop).await?;
                     }
                     HostCtrl::Configure { device_id, cfg_type } => {
                         Self::configure(*device_id, cfg_type.clone(), self.handlers.clone()).await?;
@@ -603,7 +595,7 @@ impl ConnectionHandler for SystemNode {
             .await
             .map_err(|err| NetworkError::ProcessingError(err.to_string()))?,
             RpcMessageKind::RegCtrl(command) => match command {
-                RegCtrl::PollHostStatus { host_id } => {
+                RegCtrl::PollHostStatus { host_id: _ } => {
                     send_channel_msg_channel.send(ChannelMsg::RegChannel(RegChannel::SendHostStatus { host_id: self.host_id }))?
                 }
                 _ => {
@@ -690,41 +682,7 @@ impl ConnectionHandler for SystemNode {
 mod tests {
     use std::net::SocketAddr;
 
-    use async_trait::async_trait;
-    use tokio::net::tcp::OwnedWriteHalf;
-    use tokio::sync::{broadcast, watch};
-
     use super::*;
-
-    #[derive(Clone)]
-    struct MockConnectionHandler {
-        host_status_sender: broadcast::Sender<(DataMsg, DeviceId)>,
-    }
-    impl MockConnectionHandler {
-        fn new() -> Self {
-            let (host_status_sender, _) = broadcast::channel(16);
-            Self { host_status_sender }
-        }
-    }
-    #[async_trait]
-    impl ConnectionHandler for MockConnectionHandler {
-        async fn handle_recv(&self, _msg: RpcMessage, _send_commands_channel: watch::Sender<ChannelMsg>) -> Result<(), NetworkError> {
-            Ok(())
-        }
-        async fn handle_send(
-            &self,
-            _recv_commands_channel: watch::Receiver<ChannelMsg>,
-            _recv_data_channel: broadcast::Receiver<(DataMsg, DeviceId)>,
-            _write_stream: OwnedWriteHalf,
-        ) -> Result<(), NetworkError> {
-            Ok(())
-        }
-    }
-    impl SubscribeDataChannel for MockConnectionHandler {
-        fn subscribe_data_channel(&self) -> broadcast::Receiver<(DataMsg, DeviceId)> {
-            self.host_status_sender.subscribe()
-        }
-    }
 
     fn create_system_node_config(addr: SocketAddr, host_id: u64) -> SystemNodeConfig {
         SystemNodeConfig {

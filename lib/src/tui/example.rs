@@ -117,7 +117,7 @@ impl Tui<Update, Command> for TuiState {
     async fn on_tick(&mut self) {}
 
     /// Applies updates and potentially sends commands to background tasks.
-    async fn handle_update(&mut self, update: Update, command_send: &Sender<Command>, update_recv: &mut Receiver<Update>) {
+    async fn handle_update(&mut self, update: Update, command_send: &Sender<Command>, _update_recv: &mut Receiver<Update>) {
         match update {
             Update::Quit => {
                 self.should_quit = true;
@@ -158,7 +158,7 @@ pub async fn run_example() {
     // Showcases messages going both ways
     let other_task = vec![async move {
         loop {
-            update_send_clone.send(Update::Foo).await;
+            update_send_clone.send(Update::Foo).await.unwrap();
             if command_recv.try_recv().is_ok() {
                 warn!("Foo has been touched");
             }
@@ -168,5 +168,5 @@ pub async fn run_example() {
     let tui = TuiState::new();
     let tui_runner = TuiRunner::new(tui, command_send, update_recv, update_send, log::LevelFilter::Info);
 
-    tui_runner.run(other_task).await;
+    tui_runner.run(other_task).await.unwrap();
 }
