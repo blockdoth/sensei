@@ -229,7 +229,7 @@ impl Orchestrator {
         }
         .await
         {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(err) => panic!("Could not start ochestrator. {err:?}"),
         }
     }
