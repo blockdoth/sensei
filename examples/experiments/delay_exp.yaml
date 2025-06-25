@@ -2,7 +2,7 @@ experiment:
 metadata:
   name: Delays
   output_path: /dev/null
-  remote_host: "127.0.0.1:6969"
+  remote_host: "127.0.0.1:6966"
 stages:
   - name: slow
     blocks:

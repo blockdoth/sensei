@@ -28,7 +28,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use log::{debug, error, info};
+use log::{debug, error, info, trace};
 #[cfg(test)]
 use mockall::automock;
 use tokio::io::AsyncWriteExt;
@@ -226,7 +226,7 @@ impl TcpClient {
             }
             Some(connection) => match super::send_message(&mut connection.write_stream, msg).await {
                 Ok(_) => {
-                    debug!("Message sent successfully.");
+                    trace!("Message sent successfully.");
                     Ok(())
                 }
                 Err(e) => {

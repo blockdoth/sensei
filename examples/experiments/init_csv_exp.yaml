@@ -8,8 +8,6 @@ stages:
       - commands:
           - !Connect
             target_addr: 127.0.0.1:6966
-          - !Connect
-            target_addr: 127.0.0.1:6967
           - !Configure
             target_addr: 127.0.0.1:6966
             device_id: 0
@@ -18,17 +16,13 @@ stages:
                 device_id: 0
                 source_type: !Csv
                 source: !Csv
-                  path: resources/test_data/csv/csi_data.csv
+                  path: ../../../resources/test_data/csv/csi_data.csv
                   header: true
                   delay: 500
                   adapter: !Csv
                   output_to:
           - !StartAll
             target_addr: 127.0.0.1:6966
-          - !SubscribeTo
-            target_addr: 127.0.0.1:6967
-            device_id: 0
-            source_addr: 127.0.0.1:6966
           - !Delay
             delay: 5000
           - !StopAll

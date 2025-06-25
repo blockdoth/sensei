@@ -278,7 +278,9 @@ where
             let update_send = update_send.clone();
 
             let task = async {
+
                 for stage in &active_exp.experiment.stages {
+                    debug!("Starting stage {}", active_exp.info.current_stage);
                     stage.execute(update_send.clone(), cancel_signal_task.clone(), handler.clone()).await;
                     active_exp.info.current_stage += 1;
                     let _ = update_send.send(update_msg_fn(active_exp.clone())).await;
@@ -314,7 +316,8 @@ where
         Fut: Future<Output = ()> + Send + 'static,
     {
         for command in commands {
-            handler(command, update_send.clone());
+            info!("{command:?} running");
+            handler(command, update_send.clone()).await;
             sleep(Duration::from_millis(command_delay)).await;
         }
     }
@@ -370,7 +373,7 @@ impl Block {
                     if *cancel_signal.borrow() {
                         break;
                     }
-
+                    info!("Ran thing for {n} time");
                     tokio::select! {
                         _ = ExperimentSession::match_commands(self.commands.clone(), command_delay, update_send.clone(), handler.clone()) => {},
                         _ = cancel_signal.changed() => {

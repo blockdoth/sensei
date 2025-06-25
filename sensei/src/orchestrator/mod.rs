@@ -173,7 +173,7 @@ impl Run<OrchestratorConfig> for Orchestrator {
                 Box::pin(async move {
                     match Self::experiment_handler(client, experiment_config_path, experiment_recv, update_send).await {
                         Ok(_) => {}
-                        Err(err) => panic!("{err}"),
+                        Err(err) => error!("{err}"),
                     };
                 })
             },
@@ -392,9 +392,10 @@ impl Orchestrator {
                                 let handler = Arc::new(move |command: Command, update_send: Sender<OrgUpdate>| {
                                     let client = client.clone(); // clone *inside* closure body
                                     async move {
+                                        info!("{:?}", command);
                                         match Orchestrator::handle_msg(client, command.into(), update_send, None, None).await {
                                             Ok(_) => {}
-                                            Err(e) => panic!("{e}"),
+                                            Err(e) => error!("{e}"),
                                         };
                                     }
                                 });
