@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use lib::FromConfig;
-use lib::errors::{AppError, ExperimentError, NetworkError};
+use lib::errors::{ExperimentError, NetworkError};
 use lib::experiments::{ActiveExperiment, Command, Experiment, ExperimentInfo, ExperimentSession, ExperimentStatus};
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
 use lib::network::rpc_message::CfgType::{Create, Delete, Edit};
@@ -34,6 +34,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{Mutex, broadcast, mpsc, watch};
 use tokio::task::{self, JoinHandle};
 
+use crate::errors::AppError;
 use crate::services::{GlobalConfig, Run, SystemNodeConfig};
 
 /// The System Node is a sender and a receiver in the network of Sensei.

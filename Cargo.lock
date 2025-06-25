@@ -1284,6 +1284,7 @@ dependencies = [
  "serde_yaml",
  "simplelog",
  "tempfile",
+ "thiserror 2.0.12",
  "tokio",
 ]
 

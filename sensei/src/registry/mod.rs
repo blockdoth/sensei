@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::try_join;
-use lib::errors::{ConfigError, NetworkError, RegistryError};
+use lib::errors::{ConfigError, NetworkError};
 use lib::network::rpc_message::{DataMsg, DeviceId, DeviceInfo, HostCtrl, HostId, HostStatus, RegCtrl, Responsiveness, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
@@ -23,6 +23,7 @@ use tokio::sync::{Mutex, broadcast};
 use tokio::task::{self, JoinHandle};
 use tokio::time::{Duration, interval};
 
+use crate::errors::RegistryError;
 use crate::services::{GlobalConfig, RegistryConfig, Run};
 
 /// The `Registry` struct manages a collection of hosts, providing asynchronous methods to poll their status,

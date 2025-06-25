@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::vec;
 
-use lib::errors::{NetworkError, OrchestratorError};
+use lib::errors::{NetworkError};
 use lib::experiments::{ActiveExperiment, Command, ExperimentInfo, ExperimentSession, ExperimentStatus};
 use lib::network::rpc_message::RpcMessageKind::Data;
 use lib::network::rpc_message::{CfgType, DataMsg, DeviceId, HostCtrl, HostId, HostStatus, RegCtrl, RpcMessage, RpcMessageKind};
@@ -21,6 +21,7 @@ use tokio::sync::{Mutex, mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
+use crate::errors::OrchestratorError;
 use crate::orchestrator::state::{Host, OrgTuiState, OrgUpdate};
 use crate::services::{GlobalConfig, OrchestratorConfig, Run};
 

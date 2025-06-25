@@ -16,6 +16,7 @@
 //! - `visualiser`: Visualization tools for representing system status and logs.
 
 mod cli;
+mod errors;
 #[cfg(feature = "esp_tool")]
 mod esp_tool;
 #[cfg(feature = "orchestrator")]
