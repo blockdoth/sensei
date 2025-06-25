@@ -150,7 +150,6 @@ impl Visualiser {
                 let mut client = client.lock().await;
                 match client.read_message(target_addr).await {
                     Ok(msg) => {
-                        info!("{msg:?}");
                         let RpcMessage {
                             msg,
                             src_addr,
