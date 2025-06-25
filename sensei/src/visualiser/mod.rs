@@ -41,26 +41,21 @@ use tokio::sync::Mutex;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 
 use crate::services::{GlobalConfig, Run, VisualiserConfig};
-use crate::visualiser::state::{Graph, GraphDisplayState, GraphType, VisCommand, VisState, VisUpdate};
+use crate::visualiser::state::{GraphState, GraphDisplayState, GraphType, VisCommand, VisState, VisUpdate};
 use crate::visualiser::tui::ui;
 
 const ACTOR_CHANNEL_CAPACITY: usize = 100;
 
 pub struct Visualiser {
-    #[allow(clippy::type_complexity)]
-    data: Arc<Mutex<HashMap<SocketAddr, HashMap<u64, Vec<CsiData>>>>>,
     target: SocketAddr,
     log_level: LevelFilter,
-    graph_display_states: Arc<Mutex<Vec<Option<GraphDisplayState>>>>,
 }
 
 impl Run<VisualiserConfig> for Visualiser {
     fn new(_global_config: GlobalConfig, config: VisualiserConfig) -> Self {
-        Visualiser {
-            data: Arc::new(Default::default()),
-            target: config.target,
-            log_level: LevelFilter::Info,
-            graph_display_states: Arc::new(Mutex::new(Vec::new())),
+      Visualiser {
+        target: config.target,
+        log_level: LevelFilter::Info,
         }
     }
 
@@ -131,13 +126,25 @@ impl Visualiser {
 }
 
 impl Visualiser {
-    async fn process_amplitude_data(device_data: &[CsiData], core: usize, stream: usize, subcarrier: usize) -> (Vec<(f64, f64)>, Option<f64>) {
+  /// Processing data turns each data point into a vec of tuples (timestamp, datapoint), such that it can be charted easily.
+  /// For PDP, it returns (delay_bin, power) for the latest CSI packet.
+  /// Returns the processed data and an Option containing the timestamp of the CSI data used.
+  async fn process_data(csi_data:&[CsiData], graph : GraphState) -> (Vec<(f64, f64)>, Option<f64>) {
+      if csi_data.is_empty() {
+          return (vec![], None);
+      }
+      match graph.graph_type {
+          GraphType::Amplitude => Self::process_amplitude_data(&csi_data, graph.core, graph.stream, graph.subcarrier),
+          GraphType::PDP => Self::process_pdp_data(&csi_data, graph.core, graph.stream),
+      }
+  }
+    fn process_amplitude_data(device_data: &[CsiData], core: usize, stream: usize, subcarrier: usize) -> (Vec<(f64, f64)>, Option<f64>) {
         let latest_timestamp = device_data.last().map(|x| x.timestamp);
         let data = device_data.iter().map(|x| (x.timestamp, x.csi[core][stream][subcarrier].re)).collect();
         (data, latest_timestamp)
     }
 
-    async fn process_pdp_data(device_data: &[CsiData], core: usize, stream: usize) -> (Vec<(f64, f64)>, Option<f64>) {
+    fn process_pdp_data(device_data: &[CsiData], core: usize, stream: usize) -> (Vec<(f64, f64)>, Option<f64>) {
         if let Some(latest_csi_data) = device_data.last() {
             let csi_timestamp = latest_csi_data.timestamp;
             if core < latest_csi_data.csi.len() && stream < latest_csi_data.csi[core].len() {
@@ -163,65 +170,44 @@ impl Visualiser {
         } else {
             (vec![], None)
         }
-        /// Processing data turns each data point into a vec of tuples (timestamp, datapoint), such that it can be charted easily.
-        /// For PDP, it returns (delay_bin, power) for the latest CSI packet.
-        /// Returns the processed data and an Option containing the timestamp of the CSI data used.
-        async fn process_data(&self, graph: Graph) -> (Vec<(f64, f64)>, Option<f64>) {
-            let data_map = self.data.lock().await;
-            let device_data_map = match data_map.get(&graph.target_addr).and_then(|node_data| node_data.get(&graph.device)) {
-                Some(data) => data.clone(),
-                None => return (vec![], None),
-            };
+    }
 
-            if device_data_map.is_empty() {
-                return (vec![], None);
-            }
 
-            match graph.graph_type {
-                GraphType::Amplitude => Self::process_amplitude_data(&device_data_map, graph.core, graph.stream, graph.subcarrier).await,
-                GraphType::PDP => Self::process_pdp_data(&device_data_map, graph.core, graph.stream).await,
-            }
+    fn perform_ifft(csi_subcarriers: &[LibComplex]) -> Vec<FftComplex<f64>> {
+        if csi_subcarriers.is_empty() {
+            return vec![];
         }
+        let mut planner = FftPlanner::<f64>::new();
+        let fft = planner.plan_fft_inverse(csi_subcarriers.len());
 
-        fn perform_ifft(csi_subcarriers: &[LibComplex]) -> Vec<FftComplex<f64>> {
-            if csi_subcarriers.is_empty() {
-                return vec![];
-            }
-            let mut planner = FftPlanner::<f64>::new();
-            let fft = planner.plan_fft_inverse(csi_subcarriers.len());
+        let mut buffer: Vec<FftComplex<f64>> = csi_subcarriers.iter().map(|c| FftComplex::new(c.re, c.im)).collect();
 
-            let mut buffer: Vec<FftComplex<f64>> = csi_subcarriers.iter().map(|c| FftComplex::new(c.re, c.im)).collect();
+        fft.process(&mut buffer);
 
-            fft.process(&mut buffer);
-
-            // Normalize IFFT output
-            let norm_factor = 1.0 / (buffer.len() as f64);
-            for val in buffer.iter_mut() {
-                *val *= norm_factor;
-            }
-            buffer
+        // Normalize IFFT output
+        let norm_factor = 1.0 / (buffer.len() as f64);
+        for val in buffer.iter_mut() {
+            *val *= norm_factor;
         }
-    
+        buffer
+    }
 }
 
 impl Visualiser {
     fn update_pdp_display_state(
         current_display_state_slot: &mut Option<GraphDisplayState>,
-        points_from_processor: Vec<(f64, f64)>,
         opt_timestamp_from_processor: Option<f64>,
+        data: Vec<(f64, f64)>,
         now: Instant,
     ) -> Vec<(f64, f64)> {
-        const DECAY_RATE: f64 = 0.9;
-        const STALE_THRESHOLD: Duration = Duration::from_millis(200);
-        const MIN_POWER_THRESHOLD: f64 = 0.015;
 
         match (opt_timestamp_from_processor, current_display_state_slot.as_mut()) {
             (Some(timestamp_proc), Some(state)) => {
-                if timestamp_proc > state.csi_timestamp || points_from_processor.len() != state.data_points.len() {
-                    state.data_points = points_from_processor.clone();
+                if timestamp_proc > state.csi_timestamp || data.len() != state.data_points.len() {
+                    state.data_points = data.clone();
                     state.csi_timestamp = timestamp_proc;
                     state.last_loop_update_time = now;
-                    points_from_processor
+                    data
                 } else {
                     if now.duration_since(state.last_loop_update_time) > STALE_THRESHOLD {
                         state.data_points = state
@@ -239,11 +225,11 @@ impl Visualiser {
             }
             (Some(timestamp_proc), None) => {
                 *current_display_state_slot = Some(GraphDisplayState {
-                    data_points: points_from_processor.clone(),
+                    data_points: data.clone(),
                     csi_timestamp: timestamp_proc,
                     last_loop_update_time: now,
                 });
-                points_from_processor
+                data
             }
             (None, Some(state)) => {
                 if now.duration_since(state.last_loop_update_time) > STALE_THRESHOLD {
@@ -271,7 +257,7 @@ impl Visualiser {
         graph_display_states: Arc<Mutex<Vec<Option<GraphDisplayState>>>>,
     ) -> io::Result<()> {
         // Source address, device id, core, stream, subcarrier
-        let graphs: Arc<Mutex<Vec<Graph>>> = Arc::new(Mutex::new(Vec::new()));
+        let graphs: Arc<Mutex<Vec<GraphState>>> = Arc::new(Mutex::new(Vec::new()));
 
         loop {
             if last_tick.elapsed() >= tick_rate {
@@ -308,7 +294,7 @@ impl Visualiser {
 }
 
 impl Visualiser {
-    fn entry_from_command(parts: Vec<&str>) -> Option<Graph> {
+    fn entry_from_command(parts: Vec<&str>) -> Option<GraphState> {
         let graph_type: GraphType = match parts[1].parse() {
             Ok(addr) => addr,
             Err(_) => return None, // Exit on invalid input
@@ -343,7 +329,7 @@ impl Visualiser {
             0 // Default or indicate all subcarriers for PDP if not provided
         };
 
-        Some(Graph {
+        Some(GraphState {
             graph_type,
             target_addr: addr,
             device: device_id,
@@ -355,7 +341,7 @@ impl Visualiser {
         })
     }
 
-    async fn execute_command(text_input: String, graphs: Arc<Mutex<Vec<Graph>>>) {
+    async fn execute_command(text_input: String, graphs: Arc<Mutex<Vec<GraphState>>>) {
         let parts: Vec<&str> = text_input.split_whitespace().collect();
         if parts.is_empty() {
             return;
@@ -425,7 +411,7 @@ mod tests {
     #[tokio::test]
     async fn test_graph_partial_eq() {
         let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
-        let graph1 = Graph {
+        let graph1 = GraphState {
             graph_type: GraphType::Amplitude,
             target_addr: addr,
             device: 1,
@@ -436,7 +422,7 @@ mod tests {
             y_axis_bounds: None,
         };
 
-        let graph2 = Graph {
+        let graph2 = GraphState {
             time_interval: 2000,
             y_axis_bounds: Some([0.0, 1.0]),
             ..graph1
@@ -507,7 +493,7 @@ mod tests {
         data_guard.insert(addr, device_map);
         drop(data_guard);
 
-        let pdp_graph = Graph {
+        let pdp_graph = GraphState {
             graph_type: GraphType::PDP,
             target_addr: addr,
             device: 1,
@@ -520,7 +506,7 @@ mod tests {
         let (pdp_data, _) = visualiser.process_data(pdp_graph).await;
         assert_eq!(pdp_data.len(), 2);
 
-        let amp_graph = Graph {
+        let amp_graph = GraphState {
             graph_type: GraphType::Amplitude,
             target_addr: addr,
             device: 1,

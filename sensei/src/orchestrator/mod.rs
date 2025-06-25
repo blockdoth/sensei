@@ -544,7 +544,6 @@ impl Orchestrator {
                 client.lock().await.disconnect(target_addr).await?;
             }
             OrgChannelMsg::Subscribe(target_addr, msg_origin_addr, device_id) => {
-                
                 if let Some(msg_origin_addr) = msg_origin_addr {
                     info!("Subscribing to {target_addr} for device id {device_id}");
                     let msg = HostCtrl::SubscribeTo { target_addr, device_id };

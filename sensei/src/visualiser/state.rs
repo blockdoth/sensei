@@ -1,21 +1,29 @@
 use core::fmt;
 use std::net::SocketAddr;
 use std::str::FromStr;
-use std::time::Instant;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use crossterm::event::{KeyCode, KeyEvent};
+use lib::csi_types::CsiData;
 use lib::tui::Tui;
 use lib::tui::example::Update;
 use lib::tui::logs::{FromLog, LogEntry};
 use log::info;
 use ratatui::Frame;
 use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::Mutex;
+use std::collections::HashMap;
 
 use crate::visualiser::tui::ui;
 
+const DECAY_RATE: f64 = 0.9;
+const STALE_THRESHOLD: Duration = Duration::from_millis(200);
+const MIN_POWER_THRESHOLD: f64 = 0.015;
+
 #[derive(Debug, Clone, Copy)]
-pub struct Graph {
+pub struct GraphState {
     pub graph_type: GraphType,
     pub target_addr: SocketAddr,
     pub device: u64,
@@ -26,7 +34,7 @@ pub struct Graph {
     pub y_axis_bounds: Option<[f64; 2]>, // For PDP plots: fixed y-axis bounds [min, max]
 }
 
-impl PartialEq for Graph {
+impl PartialEq for GraphState {
     fn eq(&self, other: &Self) -> bool {
         self.graph_type == other.graph_type
             && self.target_addr == other.target_addr
@@ -41,9 +49,9 @@ impl PartialEq for Graph {
 
 #[derive(Clone, Debug)]
 pub struct GraphDisplayState {
-    data_points: Vec<(f64, f64)>,
-    csi_timestamp: f64,             // Timestamp of the CsiData this state is based on
-    last_loop_update_time: Instant, // When this state was last updated or checked in the tui_loop
+    pub data_points: Vec<(f64, f64)>,
+    pub csi_timestamp: f64,             // Timestamp of the CsiData this state is based on
+    pub last_loop_update_time: Instant, // When this state was last updated or checked in the tui_loop
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -78,12 +86,6 @@ impl PartialEq for GraphType {
     }
 }
 
-pub struct VisState {
-    pub should_quit: bool,
-    pub logs: Vec<LogEntry>,
-    pub graph_data: Vec<Vec<(f64, f64)>>,
-}
-
 pub enum VisUpdate {
     Log(LogEntry),
     Quit,
@@ -95,6 +97,32 @@ impl FromLog for VisUpdate {
         VisUpdate::Log(log)
     }
 }
+
+pub struct VisState {
+    pub should_quit: bool,
+    pub logs: Vec<LogEntry>,
+    #[allow(clippy::type_complexity)]
+    pub data: Arc<Mutex<HashMap<SocketAddr, HashMap<u64, Vec<CsiData>>>>>,
+    pub graph_display_states: Arc<Mutex<Vec<Option<GraphDisplayState>>>>,    
+    pub graph_data: Vec<Vec<(f64, f64)>>,
+    pub graph_state: GraphState,
+    
+}
+
+
+impl VisState {
+    /// Constructs a new `TuiState` with default configurations.
+    pub fn new() -> Self {
+        Self {
+            should_quit: false,
+            logs: vec![],
+            data: Arc::new(Default::default()),
+            graph_display_states: Arc::new(Mutex::new(Vec::new())),            
+        }
+    }
+}
+
+
 
 pub enum VisCommand {}
 
@@ -117,7 +145,9 @@ impl Tui<VisUpdate, VisCommand> for VisState {
         self.should_quit
     }
 
-    async fn on_tick(&mut self) {}
+    async fn on_tick(&mut self) {
+        self.graph_data;
+    }
 
     /// Applies updates and potentially sends commands to background tasks.
     async fn handle_update(&mut self, update: VisUpdate, command_send: &Sender<VisCommand>, update_recv: &mut Receiver<VisUpdate>) {
@@ -126,17 +156,6 @@ impl Tui<VisUpdate, VisCommand> for VisState {
                 self.logs.push(entry);
             }
             VisUpdate::Quit => todo!(),
-        }
-    }
-}
-
-impl VisState {
-    /// Constructs a new `TuiState` with default configurations.
-    pub fn new() -> Self {
-        Self {
-            should_quit: false,
-            logs: vec![],
-            graph_data: vec![],
         }
     }
 }

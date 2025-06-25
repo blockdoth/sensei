@@ -19,7 +19,7 @@ pub fn ui(f: &mut Frame, tui_state: &VisState) {
     let graph_count = tui_state.graph_data.len();
 
     let constraints = vec![Constraint::Percentage(100 / graph_count as u16); graph_count];
-    
+
     let chart_area = Layout::default()
         .direction(Direction::Horizontal)
         .margin(1)
@@ -29,7 +29,7 @@ pub fn ui(f: &mut Frame, tui_state: &VisState) {
     for (i, data_points) in tui_state.graph_data.iter().enumerate() {
         // Iterate over data_to_render_this_frame
         // graphs_snapshot still provides the spec (title, type, etc.)
-        let current_graph_spec = &graphs_snapshot[i];
+        let current_graph_spec = &data_points[i];
 
         let dataset = Dataset::default()
             .name(format!("Graph #{i}"))
@@ -39,18 +39,18 @@ pub fn ui(f: &mut Frame, tui_state: &VisState) {
             .data(data_points);
 
         let (x_axis_title_str, x_bounds_arr, x_labels_vec) =
-            Self::get_x_axis_config(current_graph_spec.graph_type, data_points, current_graph_spec.time_interval);
+            Self::get_x_axis_config(tui_state.graph_state.graph_type, data_points, tui_state.graph_state.time_interval);
 
         let (y_axis_title_str, y_bounds_to_use, y_labels_vec) =
-            Self::get_y_axis_config(current_graph_spec.graph_type, data_points, current_graph_spec.y_axis_bounds);
+            Self::get_y_axis_config(current_graph_spec.graph_type, data_points, tui_state.graph_state.y_axis_bounds);
         let chart_block_title = format!(
             "Chart {} - {} @ {} dev {} C{} S{}",
             i,
-            current_graph_spec.graph_type,
-            current_graph_spec.target_addr,
-            current_graph_spec.device,
-            current_graph_spec.core,
-            current_graph_spec.stream
+            tui_state.graph_state.graph_type,
+            tui_state.graph_state.target_addr,
+            tui_state.graph_state.device,
+            tui_state.graph_state.core,
+            tui_state.graph_state.stream
         );
 
         let chart = Chart::new(vec![dataset])
