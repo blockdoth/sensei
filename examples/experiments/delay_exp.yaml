@@ -1,22 +1,22 @@
 experiment:
 metadata:
   name: Delays
-  output_path: "/dev/null"
-  remote_host: "127.0.0.1:6969"
+  output_path: /dev/null
+  remote_host: "127.0.0.1:6966"
 stages:
-  - name: "slow"
+  - name: slow
     blocks:
         - commands:
           delays:
             init_delay: 2000
             delay_type: !NotRecurring
-  - name: "slower"
+  - name: slower
     blocks:
       - commands:
         delays:
           init_delay: 5000
           delay_type: !NotRecurring
-  - name: "slowest"
+  - name: slowest
     blocks:
       - commands:
         delays:

@@ -21,7 +21,7 @@ use tokio::sync::{Mutex, mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
-use crate::orchestrator::state::{OrgTuiState, OrgUpdate};
+use crate::orchestrator::state::{Host, OrgTuiState, OrgUpdate};
 use crate::services::{GlobalConfig, OrchestratorConfig, Run};
 
 static ORG_CHANNEL_COUNT: usize = 100;
@@ -125,16 +125,19 @@ pub struct Orchestrator {
     log_level: LevelFilter,
     experiments_folder: PathBuf,
     tui: bool,
-    polling_interval: u64,
+    reg_polling_interval: u64,
+    #[allow(unused)]
+    default_hosts: Vec<SocketAddr>,
 }
 
 impl Run<OrchestratorConfig> for Orchestrator {
     fn new(global_config: GlobalConfig, config: OrchestratorConfig) -> Self {
         Orchestrator {
             log_level: global_config.log_level,
-            experiments_folder: config.experiments_folder,
-            tui: config.tui,
-            polling_interval: config.polling_interval,
+            experiments_folder: config.experiments_dir,
+            tui: config.tui.unwrap_or(true),
+            reg_polling_interval: config.polling_interval,
+            default_hosts: config.default_hosts,
         }
     }
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -146,6 +149,8 @@ impl Run<OrchestratorConfig> for Orchestrator {
         let client = Arc::new(Mutex::new(TcpClient::new()));
 
         // Tasks needs to be boxed and pinned in order to make the type checker happy
+        // The reason why its so fucky and ugly is because we do not have a toplevel error which would
+        // allow these futures to be passed directly to the TUI framework without an ugly async block to catch their errors
         let tasks: Vec<Pin<Box<dyn Future<Output = ()> + Send>>> = vec![
             // If errors are thrown in any o these tasks, they will be sent upwards and crash the program whereas before they'd be silently ignored
             // In the case that panic! is not the preferred behaviour, an error! would work as well. In any case, this informs the user of a problem
@@ -169,7 +174,7 @@ impl Run<OrchestratorConfig> for Orchestrator {
                 Box::pin(async move {
                     match Self::experiment_handler(client, experiment_config_path, experiment_recv, update_send).await {
                         Ok(_) => {}
-                        Err(err) => panic!("{err}"),
+                        Err(err) => error!("{err}"),
                     };
                 })
             },
@@ -177,7 +182,7 @@ impl Run<OrchestratorConfig> for Orchestrator {
                 let client = client.clone();
                 let registry_recv = registry_recv;
                 let update_send = update_send.clone();
-                let polling_interval = self.polling_interval;
+                let polling_interval = self.reg_polling_interval;
                 Box::pin(async move {
                     match Self::registry_handler(client, registry_recv, update_send, polling_interval).await {
                         Ok(_) => {}
@@ -185,7 +190,7 @@ impl Run<OrchestratorConfig> for Orchestrator {
                     };
                 })
             },
-            Box::pin(Self::init(update_send.clone())),
+            Box::pin(Self::init(update_send.clone(), self.default_hosts.clone())),
         ];
 
         if self.tui {
@@ -218,18 +223,29 @@ impl Run<OrchestratorConfig> for Orchestrator {
 
 impl Orchestrator {
     /// Initialization function that is able to set everything up using the proper channels (pun intended)
-    async fn init(update_send: Sender<OrgUpdate>) {
+    async fn init(update_send: Sender<OrgUpdate>, default_hosts: Vec<SocketAddr>) {
         match async {
             update_send.send(OrgUpdate::ConnectRegistry).await?;
             sleep(Duration::from_millis(100)).await;
             update_send.send(OrgUpdate::TogglePolling).await?;
             sleep(Duration::from_millis(100)).await;
             update_send.send(OrgUpdate::AddAllHosts).await?;
+
+            for (i, addr) in default_hosts.into_iter().enumerate() {
+                let host = Host {
+                    id: 1000 + i as u64,
+                    addr,
+                    devices: vec![],
+                    status: state::HostStatus::Unknown,
+                };
+
+                update_send.send(OrgUpdate::AddHost(host)).await?;
+            }
             Ok(()) as Result<(), Box<dyn std::error::Error>>
         }
         .await
         {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(err) => panic!("Could not start ochestrator. {err:?}"),
         }
     }
@@ -388,9 +404,10 @@ impl Orchestrator {
                                 let handler = Arc::new(move |command: Command, update_send: Sender<OrgUpdate>| {
                                     let client = client.clone(); // clone *inside* closure body
                                     async move {
+                                        info!("{command:?}");
                                         match Orchestrator::handle_msg(client, command.into(), update_send, None, None).await {
                                             Ok(_) => {}
-                                            Err(e) => panic!("{e}"),
+                                            Err(e) => error!("{e}"),
                                         };
                                     }
                                 });

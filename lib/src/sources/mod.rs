@@ -112,10 +112,216 @@ impl FromConfig<DataSourceConfig> for dyn DataSourceT {
             DataSourceConfig::Netlink(cfg) => Box::new(netlink::NetlinkSource::new(cfg).map_err(TaskError::DataSourceError)?),
             #[cfg(feature = "esp_tool")]
             DataSourceConfig::Esp32(cfg) => Box::new(esp32::Esp32Source::new(cfg).map_err(TaskError::DataSourceError)?),
-            DataSourceConfig::Tcp(cfg) => Box::new(tcp::TCPSource::new(cfg).map_err(TaskError::DataSourceError)?),
+            DataSourceConfig::Tcp(cfg) => Box::new(tcp::TCPSource::new(cfg).await.map_err(TaskError::DataSourceError)?),
             #[cfg(feature = "csv")]
             DataSourceConfig::Csv(cfg) => Box::new(csv::CsvSource::new(cfg).map_err(TaskError::DataSourceError)?),
         };
         Ok(source)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::SocketAddr;
+    use std::path::PathBuf;
+
+    use super::*;
+
+    #[test]
+    fn test_data_source_config_debug() {
+        let tcp_config = DataSourceConfig::Tcp(crate::sources::tcp::TCPConfig {
+            target_addr: "127.0.0.1:8080".parse::<SocketAddr>().unwrap(),
+            device_id: 123,
+        });
+        let debug_str = format!("{tcp_config:?}");
+        assert!(debug_str.contains("Tcp"));
+        assert!(debug_str.contains("127.0.0.1:8080"));
+        assert!(debug_str.contains("123"));
+    }
+
+    #[test]
+    fn test_data_source_config_clone() {
+        let tcp_config = DataSourceConfig::Tcp(crate::sources::tcp::TCPConfig {
+            target_addr: "127.0.0.1:8080".parse::<SocketAddr>().unwrap(),
+            device_id: 123,
+        });
+        let cloned_config = tcp_config.clone();
+        assert_eq!(tcp_config, cloned_config);
+    }
+
+    #[test]
+    fn test_data_source_config_partial_eq() {
+        let tcp_config1 = DataSourceConfig::Tcp(crate::sources::tcp::TCPConfig {
+            target_addr: "127.0.0.1:8080".parse::<SocketAddr>().unwrap(),
+            device_id: 123,
+        });
+        let tcp_config2 = DataSourceConfig::Tcp(crate::sources::tcp::TCPConfig {
+            target_addr: "127.0.0.1:8080".parse::<SocketAddr>().unwrap(),
+            device_id: 123,
+        });
+        let tcp_config3 = DataSourceConfig::Tcp(crate::sources::tcp::TCPConfig {
+            target_addr: "127.0.0.1:8080".parse::<SocketAddr>().unwrap(),
+            device_id: 456,
+        });
+
+        assert_eq!(tcp_config1, tcp_config2);
+        assert_ne!(tcp_config1, tcp_config3);
+    }
+
+    #[test]
+    fn test_data_source_config_serialization() {
+        let tcp_config = DataSourceConfig::Tcp(crate::sources::tcp::TCPConfig {
+            target_addr: "127.0.0.1:8080".parse::<SocketAddr>().unwrap(),
+            device_id: 123,
+        });
+
+        let serialized = serde_json::to_string(&tcp_config).unwrap();
+        let deserialized: DataSourceConfig = serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(tcp_config, deserialized);
+    }
+
+    #[cfg(feature = "esp_tool")]
+    #[test]
+    fn test_data_source_config_esp32() {
+        let esp32_config = DataSourceConfig::Esp32(crate::sources::esp32::Esp32SourceConfig {
+            port_name: "/dev/ttyUSB0".to_string(),
+            baud_rate: 115200,
+            csi_buffer_size: 100,
+            ack_timeout_ms: 2000,
+        });
+
+        let debug_str = format!("{esp32_config:?}");
+        assert!(debug_str.contains("Esp32"));
+        assert!(debug_str.contains("/dev/ttyUSB0"));
+        assert!(debug_str.contains("115200"));
+    }
+
+    #[cfg(feature = "csv")]
+    #[test]
+    fn test_data_source_config_csv() {
+        let csv_config = DataSourceConfig::Csv(crate::sources::csv::CsvSourceConfig {
+            path: PathBuf::from("/tmp/test.csv"),
+            cell_delimiter: Some(b','),
+            row_delimiter: Some(b'\n'),
+            header: true,
+            delay: 100,
+        });
+
+        let debug_str = format!("{csv_config:?}");
+        assert!(debug_str.contains("Csv"));
+        assert!(debug_str.contains("/tmp/test.csv"));
+    }
+
+    #[test]
+    fn test_tcp_config_creation() {
+        // Test that we can create a TCP config without issues
+        let tcp_config = DataSourceConfig::Tcp(crate::sources::tcp::TCPConfig {
+            target_addr: "127.0.0.1:8080".parse::<SocketAddr>().unwrap(),
+            device_id: 123,
+        });
+
+        // Verify the config was created correctly
+        match tcp_config {
+            DataSourceConfig::Tcp(config) => {
+                assert_eq!(config.target_addr.to_string(), "127.0.0.1:8080");
+                assert_eq!(config.device_id, 123);
+            }
+            _ => panic!("Expected TCP config"),
+        }
+    }
+
+    #[cfg(feature = "esp_tool")]
+    #[tokio::test]
+    async fn test_from_config_esp32() {
+        let esp32_config = DataSourceConfig::Esp32(crate::sources::esp32::Esp32SourceConfig {
+            port_name: "/dev/ttyUSB0".to_string(),
+            baud_rate: 115200,
+            csi_buffer_size: 100,
+            ack_timeout_ms: 2000,
+        });
+
+        let result = <dyn DataSourceT>::from_config(esp32_config).await;
+        assert!(result.is_ok());
+    }
+
+    #[cfg(feature = "csv")]
+    #[tokio::test]
+    async fn test_from_config_csv_invalid_path() {
+        let csv_config = DataSourceConfig::Csv(crate::sources::csv::CsvSourceConfig {
+            path: PathBuf::from("/nonexistent/file.csv"),
+            cell_delimiter: Some(b','),
+            row_delimiter: Some(b'\n'),
+            header: true,
+            delay: 100,
+        });
+
+        let result = <dyn DataSourceT>::from_config(csv_config).await;
+        assert!(result.is_err());
+        match result {
+            Err(TaskError::DataSourceError(_)) => {}
+            _ => panic!("Expected DataSourceError"),
+        }
+    }
+
+    #[test]
+    fn test_data_source_config_different_variants_not_equal() {
+        let tcp_config = DataSourceConfig::Tcp(crate::sources::tcp::TCPConfig {
+            target_addr: "127.0.0.1:8080".parse::<SocketAddr>().unwrap(),
+            device_id: 123,
+        });
+
+        #[cfg(feature = "esp_tool")]
+        {
+            let esp32_config = DataSourceConfig::Esp32(crate::sources::esp32::Esp32SourceConfig::default());
+            assert_ne!(tcp_config, esp32_config);
+        }
+
+        #[cfg(feature = "csv")]
+        {
+            let csv_config = DataSourceConfig::Csv(crate::sources::csv::CsvSourceConfig {
+                path: PathBuf::from("/tmp/test.csv"),
+                cell_delimiter: Some(b','),
+                row_delimiter: Some(b'\n'),
+                header: true,
+                delay: 100,
+            });
+            assert_ne!(tcp_config, csv_config);
+        }
+    }
+
+    #[test]
+    fn test_data_source_config_serde_roundtrip() {
+        let mut configs = vec![DataSourceConfig::Tcp(crate::sources::tcp::TCPConfig {
+            target_addr: "192.168.1.100:9000".parse::<SocketAddr>().unwrap(),
+            device_id: 999,
+        })];
+
+        #[cfg(feature = "esp_tool")]
+        {
+            configs.push(DataSourceConfig::Esp32(crate::sources::esp32::Esp32SourceConfig {
+                port_name: "/dev/ttyACM0".to_string(),
+                baud_rate: 3_000_000,
+                csi_buffer_size: 50,
+                ack_timeout_ms: 1000,
+            }));
+        }
+
+        #[cfg(feature = "csv")]
+        {
+            configs.push(DataSourceConfig::Csv(crate::sources::csv::CsvSourceConfig {
+                path: PathBuf::from("/data/measurements.csv"),
+                cell_delimiter: Some(b';'),
+                row_delimiter: Some(b'\r'),
+                header: false,
+                delay: 500,
+            }));
+        }
+
+        for config in configs {
+            let json = serde_json::to_string(&config).unwrap();
+            let deserialized: DataSourceConfig = serde_json::from_str(&json).unwrap();
+            assert_eq!(config, deserialized);
+        }
     }
 }

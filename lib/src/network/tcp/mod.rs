@@ -26,7 +26,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use log::{error, info, trace};
+use log::{debug, error, trace};
 use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::OwnedWriteHalf;
@@ -70,7 +70,7 @@ where
     let msg_length = match read_stream.read_exact(&mut length_buffer).await {
         Ok(_) => Ok(u32::from_be_bytes(length_buffer) as usize),
         Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-            info!("Stream closed by peer.");
+            debug!("Stream closed by peer.");
             Err(NetworkError::Closed)
         }
         Err(e) => Err(NetworkError::Io(e)), //TODO: better error handling
@@ -224,7 +224,9 @@ pub enum HostChannel {
     Shutdown,
     Disconnect,
     Subscribe { device_id: DeviceId },
+    SubscribeAll,
     Unsubscribe { device_id: DeviceId },
+    UnsubscribeAll,
     SubscribeTo { target_addr: SocketAddr, device_id: DeviceId },
     UnsubscribeFrom { target_addr: SocketAddr, device_id: DeviceId },
     ListenSubscribe { addr: SocketAddr },

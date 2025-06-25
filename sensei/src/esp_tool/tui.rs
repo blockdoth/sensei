@@ -304,4 +304,345 @@ mod tests {
             })
             .unwrap();
     }
+
+    #[test]
+    fn test_constants() {
+        assert_eq!(BASE_ESP_CONFIG_LINES, 6);
+        assert_eq!(SPAM_DETAILS_LINES, 4);
+    }
+
+    #[test]
+    fn test_ui_render_with_different_terminal_sizes() {
+        let sizes = vec![
+            (80, 24),  // Small terminal
+            (100, 50), // Medium terminal
+            (120, 30), // Wide but short
+            (200, 60), // Large terminal
+        ];
+
+        for (width, height) in sizes {
+            let backend = TestBackend::new(width, height);
+            let mut terminal = Terminal::new(backend).unwrap();
+            let tui_state = EspTuiState::new();
+
+            terminal
+                .draw(|f| {
+                    ui(f, &tui_state);
+                })
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn test_ui_render_with_different_connection_statuses() {
+        let statuses = vec![
+            "CONNECTED (Source Started)",
+            "CONNECTED (Data Flowing)",
+            "INITIALIZING",
+            "DISCONNECTED (Start Fail)",
+            "DISCONNECTED (Actor Stopped)",
+            "ERROR: Connection failed",
+        ];
+
+        for status in statuses {
+            let backend = TestBackend::new(100, 50);
+            let mut terminal = Terminal::new(backend).unwrap();
+            let mut tui_state = EspTuiState::new();
+            tui_state.connection_status = status.to_string();
+
+            terminal
+                .draw(|f| {
+                    ui(f, &tui_state);
+                })
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn test_ui_render_with_different_esp_modes() {
+        let modes = vec![
+            EspMode::SendingPaused,
+            EspMode::SendingBurst,
+            EspMode::SendingContinuous,
+            EspMode::Listening,
+        ];
+
+        for mode in modes {
+            let backend = TestBackend::new(100, 50);
+            let mut terminal = Terminal::new(backend).unwrap();
+            let mut tui_state = EspTuiState::new();
+            tui_state.esp_mode = mode;
+
+            terminal
+                .draw(|f| {
+                    ui(f, &tui_state);
+                })
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn test_ui_render_with_different_device_configurations() {
+        let configs = vec![
+            // Different channels
+            (1, EspBandwidth::Twenty, EspSecondaryChannel::None, EspCsiType::LegacyLTF, 0),
+            (6, EspBandwidth::Twenty, EspSecondaryChannel::None, EspCsiType::HighThroughputLTF, 1),
+            (11, EspBandwidth::Forty, EspSecondaryChannel::Above, EspCsiType::LegacyLTF, 2),
+            (7, EspBandwidth::Forty, EspSecondaryChannel::Below, EspCsiType::HighThroughputLTF, 3),
+        ];
+
+        for (channel, bandwidth, secondary_channel, csi_type, manual_scale) in configs {
+            let backend = TestBackend::new(100, 50);
+            let mut terminal = Terminal::new(backend).unwrap();
+            let mut tui_state = EspTuiState::new();
+
+            tui_state.unsaved_esp_config.channel = channel;
+            tui_state.unsaved_esp_config.bandwidth = bandwidth;
+            tui_state.unsaved_esp_config.secondary_channel = secondary_channel;
+            tui_state.unsaved_esp_config.csi_type = csi_type;
+            tui_state.unsaved_esp_config.manual_scale = manual_scale;
+
+            terminal
+                .draw(|f| {
+                    ui(f, &tui_state);
+                })
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn test_ui_render_with_sync_status() {
+        let sync_counts = vec![0, 1, 5, 10];
+
+        for sync_count in sync_counts {
+            let backend = TestBackend::new(100, 50);
+            let mut terminal = Terminal::new(backend).unwrap();
+            let mut tui_state = EspTuiState::new();
+            tui_state.synced = sync_count;
+
+            terminal
+                .draw(|f| {
+                    ui(f, &tui_state);
+                })
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn test_ui_render_with_populated_csi_data() {
+        let backend = TestBackend::new(100, 50);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut tui_state = EspTuiState::new();
+
+        // Add some mock CSI data
+        use lib::csi_types::{Complex, CsiData};
+
+        for i in 0..5 {
+            let csi_data = CsiData {
+                timestamp: 1000.0 + i as f64,
+                sequence_number: i as u16,
+                rssi: vec![50 + i as u16],
+                csi: vec![vec![vec![Complex::new(1.0 + i as f64, 0.5); 10]; 1]; 1],
+            };
+            tui_state.csi_data.push_back(csi_data);
+        }
+
+        terminal
+            .draw(|f| {
+                ui(f, &tui_state);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn test_ui_render_with_populated_logs() {
+        let backend = TestBackend::new(100, 50);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut tui_state = EspTuiState::new();
+
+        // Add some mock log entries
+        use chrono::Local;
+        use lib::tui::logs::LogEntry;
+        use log::Level;
+
+        let log_levels = [Level::Error, Level::Warn, Level::Info, Level::Debug];
+        for (i, level) in log_levels.iter().enumerate() {
+            let log_entry = LogEntry {
+                level: *level,
+                message: format!("Test log message {i}"),
+                timestamp: Local::now(),
+            };
+            tui_state.logs.push_back(log_entry);
+        }
+
+        terminal
+            .draw(|f| {
+                ui(f, &tui_state);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn test_ui_render_with_different_panel_focus() {
+        let panels = vec![FocusedPanel::Main, FocusedPanel::SpamConfig];
+
+        for panel in panels {
+            let backend = TestBackend::new(100, 50);
+            let mut terminal = Terminal::new(backend).unwrap();
+            let mut tui_state = EspTuiState::new();
+            tui_state.focused_panel = panel;
+
+            // Test both in Listen and Spam modes
+            for mode in [ToolMode::Listen, ToolMode::Spam] {
+                tui_state.tool_mode = mode;
+                terminal
+                    .draw(|f| {
+                        ui(f, &tui_state);
+                    })
+                    .unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn test_ui_render_with_long_error_message() {
+        let backend = TestBackend::new(100, 50);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut tui_state = EspTuiState::new();
+
+        tui_state.last_error_message = Some(
+            "This is a very long error message that should be wrapped properly in the footer area to test the wrapping functionality".to_string(),
+        );
+
+        terminal
+            .draw(|f| {
+                ui(f, &tui_state);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn test_ui_render_with_empty_data() {
+        let backend = TestBackend::new(100, 50);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut tui_state = EspTuiState::new();
+
+        // Ensure all collections are empty
+        tui_state.csi_data.clear();
+        tui_state.logs.clear();
+
+        terminal
+            .draw(|f| {
+                ui(f, &tui_state);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn test_ui_render_with_minimal_terminal_size() {
+        // Test with very small terminal
+        let backend = TestBackend::new(10, 5);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let tui_state = EspTuiState::new();
+
+        // Should not panic even with minimal space
+        terminal
+            .draw(|f| {
+                ui(f, &tui_state);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn test_ui_render_spam_mode_with_focused_input() {
+        let backend = TestBackend::new(100, 50);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut tui_state = EspTuiState::new();
+
+        tui_state.tool_mode = ToolMode::Spam;
+        tui_state.focused_panel = FocusedPanel::SpamConfig;
+
+        // Test with different focused inputs using the correct FocussedInput type
+        use crate::esp_tool::state::FocussedInput;
+        let focused_inputs = vec![
+            FocussedInput::SrcMac(0),
+            FocussedInput::DstMac(0),
+            FocussedInput::Reps(0),
+            FocussedInput::PauseMs(0),
+            FocussedInput::None,
+        ];
+
+        for focused_input in focused_inputs {
+            tui_state.focused_input = focused_input;
+            terminal
+                .draw(|f| {
+                    ui(f, &tui_state);
+                })
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn test_ui_render_with_maximum_csi_data() {
+        let backend = TestBackend::new(100, 50);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut tui_state = EspTuiState::new();
+
+        // Fill with maximum data to test performance
+        use lib::csi_types::{Complex, CsiData};
+
+        // Add many CSI frames (but not too many to avoid test timeout)
+        for i in 0..100 {
+            let csi_data = CsiData {
+                timestamp: i as f64,
+                sequence_number: i as u16,
+                rssi: vec![30 + (i % 50) as u16],
+                csi: vec![vec![vec![Complex::new(i as f64, 0.0); 20]; 2]; 1],
+            };
+            tui_state.csi_data.push_back(csi_data);
+        }
+
+        terminal
+            .draw(|f| {
+                ui(f, &tui_state);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn test_ui_layout_constraints() {
+        // Test that the layout constraints are reasonable
+        let backend = TestBackend::new(100, 50);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let tui_state = EspTuiState::new();
+
+        terminal
+            .draw(|f| {
+                ui(f, &tui_state);
+
+                // Verify that the frame area is reasonable
+                assert!(f.area().width > 0);
+                assert!(f.area().height > 0);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn test_ui_render_with_unsaved_changes() {
+        let backend = TestBackend::new(100, 50);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut tui_state = EspTuiState::new();
+
+        tui_state.tool_mode = ToolMode::Spam;
+
+        // Make spam settings different to show unsaved changes
+        tui_state.unsaved_spam_settings.n_reps = 999;
+        // Keep spam_settings at default to show difference
+
+        terminal
+            .draw(|f| {
+                ui(f, &tui_state);
+            })
+            .unwrap();
+    }
 }

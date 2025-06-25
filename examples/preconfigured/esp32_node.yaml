@@ -1,18 +1,17 @@
-addr: "127.0.0.1:6969"
-
+address: 127.0.0.1:6969
 host_id: 1
 
 sinks:
-  - id: "stdout"
+  - id: stdout
     config: !File
-      file: "/dev/stdout"
+      file: /dev/stdout
 
 device_configs:
   - device_id: 0
-    stype: ESP32
+    source_type: ESP32
 
     source: !Esp32
-      port_name: "/dev/cu.usbmodem101" # TODO: Update with actual port name
+      port_name: /dev/cu.usbmodem101 # TODO: Update with actual port name
       # baud_rate: 3000000
       # csi_buffer_size: 100
       # ack_timeout_ms: 2000
@@ -32,4 +31,4 @@ device_configs:
       scale_csi: false
 
     output_to:
-      - "stdout"
+      - stdout
