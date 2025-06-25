@@ -266,12 +266,12 @@ impl ConnectionHandler for Registry {
                 }) => self
                     .store_host_update(host_id, request.src_addr, device_status)
                     .await
-                    .map_err(|err| NetworkError::ProcessingError(err.to_string()))?,
+                    .map_err(|err| NetworkError::ProcessingError(Box::new(err)))?,
                 RegCtrl::HostStatuses { host_statuses } => {
                     for host_status in host_statuses {
                         self.store_host_update(host_status.host_id, request.src_addr, host_status.device_statuses)
                             .await
-                            .map_err(|err| NetworkError::ProcessingError(err.to_string()))?
+                            .map_err(|err| NetworkError::ProcessingError(Box::new(err)))?
                     }
                 }
                 #[allow(unreachable_patterns)]
@@ -312,7 +312,7 @@ impl ConnectionHandler for Registry {
                         let host_status = RegCtrl::from(
                             self.get_host_by_id(host_id)
                                 .await
-                                .map_err(|err| NetworkError::ProcessingError(err.to_string()))?,
+                                .map_err(|err| NetworkError::ProcessingError(Box::new(err)))?,
                         );
                         let msg = RpcMessageKind::RegCtrl(host_status);
                         send_message(&mut send_stream, msg).await?;

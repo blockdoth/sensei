@@ -600,7 +600,7 @@ impl ConnectionHandler for SystemNode {
                 Ok::<(), Box<dyn std::error::Error>>(())
             }
             .await
-            .map_err(|err| NetworkError::ProcessingError(err.to_string()))?,
+            .map_err(|_| NetworkError::Other)?,
             RpcMessageKind::RegCtrl(command) => match command {
                 RegCtrl::PollHostStatus { host_id: _ } => {
                     send_channel_msg_channel.send(ChannelMsg::RegChannel(RegChannel::SendHostStatus { host_id: self.host_id }))?

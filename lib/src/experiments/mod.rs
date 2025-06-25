@@ -10,7 +10,8 @@ use tokio::sync::mpsc::Sender;
 use tokio::sync::watch;
 use tokio::time::sleep;
 
-use crate::{errors::ExperimentError, network::rpc_message::{CfgType, DeviceId, HostId}};
+use crate::errors::ExperimentError;
+use crate::network::rpc_message::{CfgType, DeviceId, HostId};
 
 impl Experiment {
     pub fn from_yaml(file: PathBuf) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {

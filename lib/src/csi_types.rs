@@ -7,7 +7,7 @@ use std::fmt;
 use num_complex::Complex64;
 use serde::{Deserialize, Serialize};
 
-use crate::errors::{DataSourceError};
+use crate::errors::DataSourceError;
 
 /// Complex number type alias for CSI data representation.
 pub type Complex = Complex64;

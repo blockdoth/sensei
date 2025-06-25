@@ -1,5 +1,5 @@
-mod state;
-mod tui;
+pub mod state;
+pub mod tui;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::vec;
 
-use lib::errors::{NetworkError};
+use lib::errors::NetworkError;
 use lib::experiments::{ActiveExperiment, Command, ExperimentInfo, ExperimentSession, ExperimentStatus};
 use lib::network::rpc_message::RpcMessageKind::Data;
 use lib::network::rpc_message::{CfgType, DataMsg, DeviceId, HostCtrl, HostId, HostStatus, RegCtrl, RpcMessage, RpcMessageKind};
@@ -257,7 +257,7 @@ impl Orchestrator {
         mut registry_recv: Receiver<RegistryChannelMsg>,
         update_send: Sender<OrgUpdate>,
         polling_interval: u64,
-    ) -> Result<(), OrchestratorError<OrgUpdate>> {
+    ) -> Result<(), OrchestratorError> {
         let mut current_registry_addr: Option<SocketAddr> = None;
         let (poll_signal_send, mut poll_signal_recv) = watch::channel(false);
 
@@ -276,9 +276,7 @@ impl Orchestrator {
                 },
                 RegistryChannelMsg::Disconnect => {
                     if let Some(registry_addr) = current_registry_addr {
-                        poll_signal_send
-                            .send(true)
-                            .map_err(|_| OrchestratorError::<OrgUpdate>::GenericSendError)?;
+                        poll_signal_send.send(true)?;
                         if client.lock().await.disconnect(registry_addr).await.is_ok() {
                             update_send.send(OrgUpdate::RegistryIsConnected(false)).await?;
                             debug!("Disconnected registry");
@@ -294,13 +292,8 @@ impl Orchestrator {
                 }
                 RegistryChannelMsg::StartPolling => {
                     if let Some(registry_addr) = current_registry_addr {
-                        poll_signal_send
-                            .send(false)
-                            .map_err(|_| OrchestratorError::<OrgUpdate>::GenericSendError)?;
-                        poll_signal_recv
-                            .changed()
-                            .await
-                            .map_err(|_| OrchestratorError::<OrgUpdate>::GenericSendError)?; // Clear signals
+                        poll_signal_send.send(false)?;
+                        poll_signal_recv.changed().await?; // Clear signals
 
                         let mut poll_signal_recv = poll_signal_recv.clone();
                         let update_send = update_send.clone();
@@ -320,7 +313,7 @@ impl Orchestrator {
                                   sleep(Duration::from_secs(polling_interval)).await;
                                 }
                                 debug!("Stopped polling registry");
-                                Ok::<(), OrchestratorError<OrgUpdate>>(())
+                                Ok::<(), OrchestratorError>(())
                               } => {}
                               _ = poll_signal_recv.changed() => {
                                 if *poll_signal_recv.borrow() {
@@ -332,9 +325,7 @@ impl Orchestrator {
                     }
                 }
                 RegistryChannelMsg::StopPolling => {
-                    poll_signal_send
-                        .send(true)
-                        .map_err(|_| OrchestratorError::<OrgUpdate>::GenericSendError)?;
+                    poll_signal_send.send(true)?;
                 }
             }
         }
@@ -375,7 +366,7 @@ impl Orchestrator {
         experiment_config_path: PathBuf,
         mut experiment_recv: Receiver<ExperimentChannelMsg>,
         update_send: Sender<OrgUpdate>,
-    ) -> Result<(), OrchestratorError<OrgUpdate>> {
+    ) -> Result<(), OrchestratorError> {
         info!("Started experiment handler task");
         let (cancel_signal_send, cancel_signal_recv) = watch::channel(false);
         let mut session = ExperimentSession::new(update_send.clone(), cancel_signal_recv);
@@ -397,7 +388,7 @@ impl Orchestrator {
                                 debug!("Can't start experiment while another is running");
                             }
                             _ => {
-                                cancel_signal_send.send(false).map_err(|_| OrchestratorError::ExecutionError)?;
+                                cancel_signal_send.send(false)?;
                                 let mut session = session.clone();
                                 let client = client.clone();
                                 let update_send = update_send.clone();
@@ -436,9 +427,7 @@ impl Orchestrator {
                     }
                 }
                 ExperimentChannelMsg::Stop => {
-                    cancel_signal_send
-                        .send(true)
-                        .map_err(|_| OrchestratorError::<OrgUpdate>::ExecutionError)?;
+                    cancel_signal_send.send(true)?;
                 }
                 ExperimentChannelMsg::StopRemote(target_addr) => {
                     let msg = RpcMessageKind::HostCtrl(HostCtrl::StopExperiment);
@@ -488,7 +477,7 @@ impl Orchestrator {
         experiment_send: Sender<ExperimentChannelMsg>,
         registry_send: Sender<RegistryChannelMsg>,
         client: Arc<Mutex<TcpClient>>,
-    ) -> Result<(), OrchestratorError<ExperimentChannelMsg>> {
+    ) -> Result<(), OrchestratorError> {
         info!("Started stream handler task");
         let receiving = false;
         let targets: Vec<SocketAddr> = vec![];
@@ -536,7 +525,7 @@ impl Orchestrator {
         _update_send: Sender<OrgUpdate>,
         experiment_send: Option<Sender<ExperimentChannelMsg>>, // Option allows reuse of this function in experiment.rs
         registry_send: Option<Sender<RegistryChannelMsg>>,     // Option allows reuse of this function in experiment.rs
-    ) -> Result<(), OrchestratorError<ExperimentChannelMsg>> {
+    ) -> Result<(), OrchestratorError> {
         match msg {
             OrgChannelMsg::Connect(target_addr) => {
                 client.lock().await.connect(target_addr).await?;
@@ -682,42 +671,27 @@ impl Orchestrator {
             // Kinda inefficient, but tech debt
             OrgChannelMsg::ConnectRegistry(socket_addr) => {
                 if let Some(registry_send) = registry_send {
-                    registry_send
-                        .send(RegistryChannelMsg::Connect(socket_addr))
-                        .await
-                        .map_err(|_| OrchestratorError::ExecutionError)?;
+                    registry_send.send(RegistryChannelMsg::Connect(socket_addr)).await?;
                 }
             }
             OrgChannelMsg::DisconnectRegistry => {
                 if let Some(registry_send) = registry_send {
-                    registry_send
-                        .send(RegistryChannelMsg::Disconnect)
-                        .await
-                        .map_err(|_| OrchestratorError::ExecutionError)?;
+                    registry_send.send(RegistryChannelMsg::Disconnect).await?;
                 }
             }
             OrgChannelMsg::StartPolling => {
                 if let Some(registry_send) = registry_send {
-                    registry_send
-                        .send(RegistryChannelMsg::StartPolling)
-                        .await
-                        .map_err(|_| OrchestratorError::ExecutionError)?;
+                    registry_send.send(RegistryChannelMsg::StartPolling).await?;
                 }
             }
             OrgChannelMsg::StopPolling => {
                 if let Some(registry_send) = registry_send {
-                    registry_send
-                        .send(RegistryChannelMsg::StopPolling)
-                        .await
-                        .map_err(|_| OrchestratorError::ExecutionError)?;
+                    registry_send.send(RegistryChannelMsg::StopPolling).await?;
                 }
             }
             OrgChannelMsg::Poll => {
                 if let Some(registry_send) = registry_send {
-                    registry_send
-                        .send(RegistryChannelMsg::Poll)
-                        .await
-                        .map_err(|_| OrchestratorError::ExecutionError)?;
+                    registry_send.send(RegistryChannelMsg::Poll).await?;
                 }
             }
         };

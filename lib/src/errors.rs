@@ -29,8 +29,8 @@ pub enum NetworkError {
     Timeout(#[from] tokio::time::error::Elapsed),
 
     /// Processing Error
-    #[error("Processing Error: {0}")]
-    ProcessingError(String),
+    #[error("Processing Error")]
+    ProcessingError(#[from] Box<dyn std::error::Error + Send>),
 
     /// Failed during serialization or deserialization.
     #[error("Error during (De)Serialization")]
@@ -54,7 +54,7 @@ pub enum NetworkError {
 
     /// Other error type
     #[error("An error occurred")]
-    Other(#[from] Box<dyn std::error::Error + Send + Sync>),
+    Other,
 
     /// Thrown when a connection that does not exist is referenced
     #[error("That connection does not exist")]
@@ -400,7 +400,6 @@ pub enum ExperimentError {
     #[error("An error executing the tasks")]
     TaskError(#[from] TaskError),
 }
-
 
 // Allow conversion from Box<NetworkError> to NetworkError
 impl From<Box<NetworkError>> for NetworkError {
