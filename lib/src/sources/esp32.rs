@@ -44,19 +44,31 @@ fn default_ack_timeout_ms() -> u64 {
 // --- End Helper functions ---
 
 // --- Type Aliases for `ack_waiters` ---
+/// Result type for acknowledgment payloads from ESP32
 type AckPayload = Result<Vec<u8>, ControllerError>;
+/// Channel sender for acknowledgment responses
 type AckSender = Sender<AckPayload>;
+/// Map of command bytes to their corresponding acknowledgment senders
 type AckWaiterMap = HashMap<u8, AckSender>;
+/// Thread-safe shared map of acknowledgment waiters
 type SharedAckWaiters = Arc<Mutex<AckWaiterMap>>;
 // --- End Type Aliases ---
 
+/// Configuration for ESP32 serial data source.
+///
+/// Contains settings for serial port communication and data buffering.
+/// This struct can be deserialized from YAML configuration files.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
 pub struct Esp32SourceConfig {
+    /// Serial port device name (e.g., "/dev/ttyUSB0" on Linux, "COM3" on Windows)
     pub port_name: String,
+    /// Baud rate for serial communication (default: 3,000,000)
     #[serde(default = "default_baud_rate")]
     pub baud_rate: u32,
+    /// Size of the internal CSI data buffer channel (default: 100)
     #[serde(default = "default_csi_buffer_size")]
     pub csi_buffer_size: usize,
+    /// Timeout in milliseconds for waiting for command acknowledgments (default: 2000)
     #[serde(default = "default_ack_timeout_ms")]
     pub ack_timeout_ms: u64,
 }
@@ -83,18 +95,46 @@ impl std::fmt::Debug for Esp32Source {
     }
 }
 
+/// ESP32-based data source for Channel State Information (CSI) collection.
+///
+/// This data source communicates with ESP32 devices over serial port to:
+/// - Receive CSI data packets asynchronously
+/// - Send commands to the ESP32 and wait for acknowledgments
+/// - Parse ESP32 packet protocol with proper framing
+/// - Handle concurrent command/response and data streaming
+///
+/// The implementation uses a background reader thread for continuous data reception
+/// and supports command-response patterns with timeout handling.
 pub struct Esp32Source {
+    /// Configuration parameters for this source
     config: Esp32SourceConfig,
+    /// Thread-safe serial port handle
     pub port: Arc<Mutex<Option<Box<dyn SerialPort>>>>,
+    /// Atomic flag indicating if the source is actively running
     pub is_running: Arc<AtomicBool>,
+    /// Handle to the background reader thread
     reader_handle: Option<JoinHandle<()>>,
+    /// Channel receiver for CSI data packets
     csi_data_rx: Receiver<Vec<u8>>,
+    /// Channel sender for CSI data packets (used by reader thread)
     csi_data_tx: Sender<Vec<u8>>,
+    /// Map of pending acknowledgment waiters indexed by command byte
     ack_waiters: SharedAckWaiters,
 }
 
 #[cfg_attr(test, automock)]
 impl Esp32Source {
+    /// Creates a new ESP32 data source from the provided configuration.
+    ///
+    /// Initializes internal channels and validates configuration parameters.
+    /// The serial port is not opened until [`start`] is called.
+    ///
+    /// # Arguments
+    /// * `config` - Configuration specifying port, baud rate, and buffer settings
+    ///
+    /// # Returns
+    /// * `Ok(Esp32Source)` if construction succeeds
+    /// * `Err(DataSourceError)` if configuration is invalid (e.g., zero buffer size)
     pub fn new(config: Esp32SourceConfig) -> Result<Self, DataSourceError> {
         let buffer_size = config.csi_buffer_size;
         if buffer_size == 0 {
@@ -112,6 +152,23 @@ impl Esp32Source {
         })
     }
 
+    /// Sends a command to the ESP32 and waits for its acknowledgment.
+    ///
+    /// This method is called by the ESP32Controller to execute commands on the device.
+    /// It constructs a properly formatted command packet, sends it over the serial port,
+    /// and waits for the corresponding acknowledgment with timeout.
+    ///
+    /// # Arguments
+    /// * `cmd` - ESP32 command to execute
+    /// * `data` - Optional command payload data
+    ///
+    /// # Returns
+    /// * `Ok(Vec<u8>)` - Acknowledgment data received from ESP32
+    /// * `Err(ControllerError)` - If source not running, command fails, or timeout occurs
+    ///
+    /// # Errors
+    /// * `ControllerError::Execution` - ESP32 source not running or communication failure
+    /// * `ControllerError::InvalidParams` - Command data too large for packet
     // Method called by Esp32Controller
     pub async fn send_esp32_command(
         &mut self, // Changed to &mut self as it modifies ack_waiters
@@ -216,6 +273,22 @@ impl Esp32Source {
         }
     }
 
+    /// Background task loop for reading data from the ESP32 serial port.
+    ///
+    /// This function runs in a separate thread and continuously:
+    /// - Reads data from the serial port
+    /// - Parses ESP32 packet protocol (preamble, length, payload)
+    /// - Routes acknowledgments to waiting command senders
+    /// - Forwards CSI data to the data channel
+    /// - Handles packet framing and error recovery
+    ///
+    /// The loop continues until `is_running` is set to false.
+    ///
+    /// # Arguments
+    /// * `port_arc` - Shared serial port handle
+    /// * `is_running` - Shared atomic flag controlling the loop
+    /// * `csi_data_tx` - Channel for forwarding CSI data packets
+    /// * `ack_waiters` - Map of pending acknowledgment waiters
     fn reader_task_loop(
         port_arc: Arc<Mutex<Option<Box<dyn SerialPort>>>>,
         is_running: Arc<AtomicBool>,
@@ -424,6 +497,17 @@ impl Esp32Source {
 
 #[async_trait::async_trait]
 impl DataSourceT for Esp32Source {
+    /// Starts the ESP32 data source by opening the serial port and launching the reader thread.
+    ///
+    /// This method:
+    /// - Opens the configured serial port with specified baud rate and timeout
+    /// - Clears any existing data in the serial buffers
+    /// - Spawns a background reader thread for continuous data reception
+    /// - Sets the running state to active
+    ///
+    /// # Errors
+    /// * `DataSourceError::Serial` - Failed to open or configure the serial port
+    /// * `DataSourceError::Controller` - Failed to spawn the reader thread
     async fn start(&mut self) -> Result<(), DataSourceError> {
         if self.is_running.load(AtomicOrdering::SeqCst) {
             warn!("ESP32Source already running.");
@@ -465,6 +549,16 @@ impl DataSourceT for Esp32Source {
         Ok(())
     }
 
+    /// Stops the ESP32 data source and releases all resources.
+    ///
+    /// This method:
+    /// - Sets the running state to inactive
+    /// - Closes the serial port to interrupt any blocking reads
+    /// - Waits for the reader thread to terminate gracefully
+    /// - Clears any pending acknowledgment waiters
+    ///
+    /// # Errors
+    /// * `DataSourceError` - Generally should not fail, but logs errors if cleanup issues occur
     async fn stop(&mut self) -> Result<(), DataSourceError> {
         if !self.is_running.load(AtomicOrdering::SeqCst) && self.reader_handle.is_none() {
             info!("ESP32Source already stopped or never started.");
@@ -494,6 +588,18 @@ impl DataSourceT for Esp32Source {
         Ok(())
     }
 
+    /// Reads raw CSI data into the provided buffer.
+    ///
+    /// Attempts to receive one CSI data packet from the internal channel and copy it
+    /// into the user-provided buffer. If the packet is larger than the buffer, data
+    /// will be truncated with a warning.
+    ///
+    /// # Arguments
+    /// * `buf` - Destination buffer for the CSI data
+    ///
+    /// # Returns
+    /// * `Ok(usize)` - Number of bytes written to the buffer
+    /// * `Err(DataSourceError)` - If the data channel is disconnected or other errors occur
     async fn read_buf(&mut self, buf: &mut [u8]) -> Result<usize, DataSourceError> {
         if !self.is_running.load(AtomicOrdering::SeqCst) && self.csi_data_rx.is_empty() {
             // If explicitly stopped and no more data, could return a specific "EOS" or just Ok(0)
@@ -533,6 +639,15 @@ impl DataSourceT for Esp32Source {
         }
     }
 
+    /// Reads the next available CSI data message.
+    ///
+    /// Calls [`read_buf`] internally and wraps the result in a [`DataMsg::RawFrame`]
+    /// with timestamp and source type information.
+    ///
+    /// # Returns
+    /// * `Ok(Some(DataMsg))` - CSI data wrapped in a data message
+    /// * `Ok(None)` - No data currently available
+    /// * `Err(DataSourceError)` - If reading fails
     async fn read(&mut self) -> Result<Option<DataMsg>, DataSourceError> {
         let mut temp_buf = vec![0u8; BUFSIZE];
         match self.read_buf(&mut temp_buf).await? {
@@ -546,6 +661,11 @@ impl DataSourceT for Esp32Source {
     }
 }
 
+/// Automatic cleanup when the ESP32Source is dropped.
+///
+/// Ensures that the reader thread is signaled to stop and resources are released.
+/// This is a best-effort cleanup - joining the thread in drop could deadlock,
+/// so the thread is designed to self-terminate when `is_running` becomes false.
 impl Drop for Esp32Source {
     fn drop(&mut self) {
         // Best effort to stop the thread and release resources if not already stopped.
@@ -569,6 +689,7 @@ impl Drop for Esp32Source {
     }
 }
 
+/// Configuration conversion implementation for ESP32Source.
 #[async_trait::async_trait]
 impl ToConfig<DataSourceConfig> for Esp32Source {
     /// Converts the current `Esp32Source` instance into its configuration representation.
@@ -590,10 +711,6 @@ impl ToConfig<DataSourceConfig> for Esp32Source {
 mod tests {
     use super::*;
     use crate::sources::DataSourceConfig;
-
-    fn create_default_config() -> Esp32SourceConfig {
-        Esp32SourceConfig::default()
-    }
 
     fn create_test_config() -> Esp32SourceConfig {
         Esp32SourceConfig {
@@ -803,7 +920,6 @@ mod tests {
     #[test]
     fn test_data_too_large_for_command() {
         // Test validation logic for command data size
-        let cmd = Esp32Command::ApplyDeviceConfig;
         let cmd_byte_offset = CMD_PREAMBLE_HOST_TO_ESP.len();
         let data_offset = cmd_byte_offset + 1;
         let max_data_len = CMD_PACKET_TOTAL_SIZE_HOST_TO_ESP - data_offset;
