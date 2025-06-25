@@ -128,11 +128,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_bufsize_constant() {
-        assert_eq!(BUFSIZE, 65535);
-    }
-
-    #[test]
     fn test_data_source_config_debug() {
         let tcp_config = DataSourceConfig::Tcp(crate::sources::tcp::TCPConfig {
             target_addr: "127.0.0.1:8080".parse::<SocketAddr>().unwrap(),

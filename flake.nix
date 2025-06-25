@@ -126,7 +126,7 @@
             # For coverage tools
             LLVM_COV = "${pkgs.llvmPackages_latest.llvm}/bin/llvm-cov";
             LLVM_PROFDATA = "${pkgs.llvmPackages_latest.llvm}/bin/llvm-profdata";
-            
+
             # shell hook to install cargo-llvm-cov on macOS if not already installed
             shellHook = lib.optionalString pkgs.stdenv.isDarwin ''
               # Install cargo-llvm-cov via cargo on macOS if not already installed

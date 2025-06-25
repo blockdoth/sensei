@@ -323,7 +323,7 @@ mod tests {
         for (width, height) in sizes {
             let backend = TestBackend::new(width, height);
             let mut terminal = Terminal::new(backend).unwrap();
-            let tui_state = TuiState::new();
+            let tui_state = EspTuiState::new();
 
             terminal
                 .draw(|f| {
@@ -347,7 +347,7 @@ mod tests {
         for status in statuses {
             let backend = TestBackend::new(100, 50);
             let mut terminal = Terminal::new(backend).unwrap();
-            let mut tui_state = TuiState::new();
+            let mut tui_state = EspTuiState::new();
             tui_state.connection_status = status.to_string();
 
             terminal
@@ -370,7 +370,7 @@ mod tests {
         for mode in modes {
             let backend = TestBackend::new(100, 50);
             let mut terminal = Terminal::new(backend).unwrap();
-            let mut tui_state = TuiState::new();
+            let mut tui_state = EspTuiState::new();
             tui_state.esp_mode = mode;
 
             terminal
@@ -394,7 +394,7 @@ mod tests {
         for (channel, bandwidth, secondary_channel, csi_type, manual_scale) in configs {
             let backend = TestBackend::new(100, 50);
             let mut terminal = Terminal::new(backend).unwrap();
-            let mut tui_state = TuiState::new();
+            let mut tui_state = EspTuiState::new();
 
             tui_state.unsaved_esp_config.channel = channel;
             tui_state.unsaved_esp_config.bandwidth = bandwidth;
@@ -417,7 +417,7 @@ mod tests {
         for sync_count in sync_counts {
             let backend = TestBackend::new(100, 50);
             let mut terminal = Terminal::new(backend).unwrap();
-            let mut tui_state = TuiState::new();
+            let mut tui_state = EspTuiState::new();
             tui_state.synced = sync_count;
 
             terminal
@@ -432,7 +432,7 @@ mod tests {
     fn test_ui_render_with_populated_csi_data() {
         let backend = TestBackend::new(100, 50);
         let mut terminal = Terminal::new(backend).unwrap();
-        let mut tui_state = TuiState::new();
+        let mut tui_state = EspTuiState::new();
 
         // Add some mock CSI data
         use lib::csi_types::{Complex, CsiData};
@@ -458,7 +458,7 @@ mod tests {
     fn test_ui_render_with_populated_logs() {
         let backend = TestBackend::new(100, 50);
         let mut terminal = Terminal::new(backend).unwrap();
-        let mut tui_state = TuiState::new();
+        let mut tui_state = EspTuiState::new();
 
         // Add some mock log entries
         use chrono::Local;
@@ -489,7 +489,7 @@ mod tests {
         for panel in panels {
             let backend = TestBackend::new(100, 50);
             let mut terminal = Terminal::new(backend).unwrap();
-            let mut tui_state = TuiState::new();
+            let mut tui_state = EspTuiState::new();
             tui_state.focused_panel = panel;
 
             // Test both in Listen and Spam modes
@@ -508,7 +508,7 @@ mod tests {
     fn test_ui_render_with_long_error_message() {
         let backend = TestBackend::new(100, 50);
         let mut terminal = Terminal::new(backend).unwrap();
-        let mut tui_state = TuiState::new();
+        let mut tui_state = EspTuiState::new();
 
         tui_state.last_error_message = Some(
             "This is a very long error message that should be wrapped properly in the footer area to test the wrapping functionality".to_string(),
@@ -525,7 +525,7 @@ mod tests {
     fn test_ui_render_with_empty_data() {
         let backend = TestBackend::new(100, 50);
         let mut terminal = Terminal::new(backend).unwrap();
-        let mut tui_state = TuiState::new();
+        let mut tui_state = EspTuiState::new();
 
         // Ensure all collections are empty
         tui_state.csi_data.clear();
@@ -543,7 +543,7 @@ mod tests {
         // Test with very small terminal
         let backend = TestBackend::new(10, 5);
         let mut terminal = Terminal::new(backend).unwrap();
-        let tui_state = TuiState::new();
+        let tui_state = EspTuiState::new();
 
         // Should not panic even with minimal space
         terminal
@@ -557,7 +557,7 @@ mod tests {
     fn test_ui_render_spam_mode_with_focused_input() {
         let backend = TestBackend::new(100, 50);
         let mut terminal = Terminal::new(backend).unwrap();
-        let mut tui_state = TuiState::new();
+        let mut tui_state = EspTuiState::new();
 
         tui_state.tool_mode = ToolMode::Spam;
         tui_state.focused_panel = FocusedPanel::SpamConfig;
@@ -586,7 +586,7 @@ mod tests {
     fn test_ui_render_with_maximum_csi_data() {
         let backend = TestBackend::new(100, 50);
         let mut terminal = Terminal::new(backend).unwrap();
-        let mut tui_state = TuiState::new();
+        let mut tui_state = EspTuiState::new();
 
         // Fill with maximum data to test performance
         use lib::csi_types::{Complex, CsiData};
@@ -614,7 +614,7 @@ mod tests {
         // Test that the layout constraints are reasonable
         let backend = TestBackend::new(100, 50);
         let mut terminal = Terminal::new(backend).unwrap();
-        let tui_state = TuiState::new();
+        let tui_state = EspTuiState::new();
 
         terminal
             .draw(|f| {
@@ -631,7 +631,7 @@ mod tests {
     fn test_ui_render_with_unsaved_changes() {
         let backend = TestBackend::new(100, 50);
         let mut terminal = Terminal::new(backend).unwrap();
-        let mut tui_state = TuiState::new();
+        let mut tui_state = EspTuiState::new();
 
         tui_state.tool_mode = ToolMode::Spam;
 
