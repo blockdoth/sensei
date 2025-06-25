@@ -88,7 +88,7 @@ mod tests {
 
     const NUM_SUBCARRIER: usize = 64;
 
-    fn make_csi_msg(rssi: Vec<i8>) -> DataMsg {
+    fn make_csi_msg() -> DataMsg {
         DataMsg::CsiFrame {
             csi: CsiData {
                 timestamp: 123.456,
@@ -102,7 +102,7 @@ mod tests {
     #[tokio::test]
     async fn test_passthrough_csi_frame() {
         let mut adapter = TCPAdapter::new(true);
-        let input = make_csi_msg(vec![99]);
+        let input = make_csi_msg();
 
         let result = adapter.produce(input.clone()).await.unwrap();
         assert_eq!(result, Some(input));

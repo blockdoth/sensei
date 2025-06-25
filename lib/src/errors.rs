@@ -29,9 +29,9 @@ pub enum NetworkError {
     #[error("Communication timed out")]
     Timeout(#[from] tokio::time::error::Elapsed),
 
-    /// There's a problem that originated from the App
-    #[error("There's an error in the App")]
-    App(#[from] AppError),
+    /// Processing Error
+    #[error("Processing Error: {0}")]
+    ProcessingError(String),
 
     /// Failed during serialization or deserialization.
     #[error("Error during (De)Serialization")]
@@ -52,10 +52,6 @@ pub enum NetworkError {
     /// The response could not be parsed.
     #[error("Message could not be parsed")]
     MessageError,
-
-    /// Registry error
-    #[error("The registry produced an error")]
-    RegistryError(#[from] RegistryError),
 
     /// Other error type
     #[error("An error occurred")]
@@ -145,6 +141,22 @@ pub enum AppError {
     /// No such host
     #[error("No such host exists")]
     NoSuchHost,
+
+    /// Experiment error
+    #[error("Experiment Error")]
+    ExperimentError(#[from] ExperimentError),
+
+    /// Tokio was unable to send the message
+    #[error("Message could not be sent due to a broadcast error")]
+    TokioBroadcastSendingError(#[from] tokio::sync::broadcast::error::SendError<(DataMsg, HostId)>),
+
+    /// Tokio was unable to send the message
+    #[error("Message could not be sent due to a Watch error")]
+    TokioWatchSendingError(#[from] tokio::sync::watch::error::SendError<ChannelMsg>),
+
+    /// TaskError
+    #[error("An error executing the tasks")]
+    TaskError(#[from] TaskError),
 }
 
 /// Common error enum for all CSI adapters (IWL, ESP32, Csv).
@@ -414,9 +426,12 @@ pub enum RegistryError {
     #[error("No such host")]
     NoSuchHost,
 
+    // /// Netowrk Error
+    // #[error("Network Error")]
+    // NetworkError(#[from] Box<NetworkError>),
     /// Netowrk Error
     #[error("Network Error")]
-    NetworkError(#[from] Box<NetworkError>),
+    NetworkError(#[from] NetworkError),
 
     /// No Standalone
     #[error("The registry cannot be ran as a standalone process.")]
@@ -451,6 +466,36 @@ pub enum ConfigError {
     // Error when you trying to serialie
     #[error("Seriliazation error: {0}")]
     Serde(#[from] serde_yaml::Error),
+}
+
+#[derive(Error, Debug)]
+pub enum ExperimentError {
+    /// Could not execute experiment
+    #[error("Execution Error")]
+    ExecutionError,
+
+    /// TaskError
+    #[error("An error executing the tasks")]
+    TaskError(#[from] TaskError),
+}
+
+#[derive(Error, Debug)]
+pub enum OrchestratorError<T> {
+    /// Could not execute something.
+    #[error("Execution Error")]
+    ExecutionError,
+
+    /// Network Error
+    #[error("Network Error")]
+    NetworkError(#[from] NetworkError),
+
+    /// Send Error
+    #[error("An error caused by Tokio")]
+    GenericSendError,
+
+    /// Mpsc error
+    #[error("Error caused by Tokio mpsc")]
+    MpscError(#[from] tokio::sync::mpsc::error::SendError<T>),
 }
 
 // Allow conversion from Box<NetworkError> to NetworkError

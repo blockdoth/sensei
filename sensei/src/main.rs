@@ -20,6 +20,7 @@ mod cli;
 mod esp_tool;
 #[cfg(feature = "orchestrator")]
 mod orchestrator;
+#[cfg(feature = "registry")]
 mod registry;
 mod services;
 #[cfg(feature = "sys_node")]
@@ -36,6 +37,7 @@ use lib::tui::example::run_example;
 use log::*;
 #[cfg(feature = "sys_node")]
 use services::FromYaml;
+#[cfg(any(feature = "esp_tool", feature = "sys_node", feature = "orchestrator", feature = "visualiser"))]
 use services::Run;
 #[cfg(feature = "sys_node")]
 use services::SystemNodeConfig;
@@ -44,6 +46,8 @@ use tokio::runtime::Builder;
 
 #[cfg(feature = "orchestrator")]
 use crate::orchestrator::*;
+#[cfg(feature = "registry")]
+use crate::registry::Registry;
 #[cfg(feature = "sys_node")]
 use crate::system_node::*;
 #[cfg(feature = "visualiser")]
@@ -52,18 +56,29 @@ use crate::visualiser::*;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Args = argh::from_env();
 
-    let is_esp_tool = {
-        #[cfg(feature = "esp_tool")]
+    let tui_enabled = {
+        #[cfg(all(feature = "esp_tool", feature = "orchestrator"))]
+        {
+            matches!(
+                &args.subcommand,
+                Some(SubCommandsArgs::EspTool(_)) | Some(SubCommandsArgs::Orchestrator(_))
+            )
+        }
+        #[cfg(all(feature = "esp_tool", not(feature = "orchestrator")))]
         {
             matches!(&args.subcommand, Some(SubCommandsArgs::EspTool(_)))
         }
-        #[cfg(not(feature = "esp_tool"))]
+        #[cfg(all(not(feature = "esp_tool"), feature = "orchestrator"))]
+        {
+            matches!(&args.subcommand, Some(SubCommandsArgs::Orchestrator(_)))
+        }
+        #[cfg(all(not(feature = "esp_tool"), not(feature = "orchestrator")))]
         {
             false
         }
     };
 
-    if args.subcommand.is_some() && !is_esp_tool {
+    if args.subcommand.is_some() && !tui_enabled {
         CombinedLogger::init(vec![
             TermLogger::new(
                 args.level,
@@ -108,6 +123,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             SubCommandsArgs::Visualiser(args) => runtime.block_on(Visualiser::new(global_args, args.parse()?).run())?,
             #[cfg(feature = "esp_tool")]
             SubCommandsArgs::EspTool(args) => runtime.block_on(EspTool::new(global_args, args.parse()?).run())?,
+            #[cfg(feature = "registry")]
+            SubCommandsArgs::Registry(args) => runtime.block_on(Registry::new(global_args, args.parse()?).run())?,
+            #[allow(unreachable_patterns)] // this case is only needed when doing a compile with 0 features
+            _ => panic!("Unknown option."),
         },
     }
     Ok(())
@@ -176,8 +195,9 @@ stages: []";
 
         let args = Args {
             subcommand: Some(SubCommandsArgs::Orchestrator(OrchestratorSubcommandArgs {
-                experiment_config: exp_path.clone(),
+                experiments_folder: exp_path.clone(),
                 tui: false, // Default tui setting for test
+                polling_interval: 5,
             })),
             level: LevelFilter::Error,
             num_workers: 4,

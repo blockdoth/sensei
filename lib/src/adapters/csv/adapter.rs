@@ -278,7 +278,7 @@ mod tests {
         let mut adapter = CsvAdapter::default();
         // Split a valid Csv row into two parts
         let part1 = b"9457616.210305953,45040,1,1,1,97,(";
-        let part2 = b"0.4907193796689|-0.68406335243899j)\n";
+        let _part2 = b"0.4907193796689|-0.68406335243899j)\n";
 
         // First, send the incomplete part
         let msg1 = DataMsg::RawFrame {

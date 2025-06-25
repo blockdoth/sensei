@@ -59,13 +59,13 @@ impl log::Log for TuiLogger {
                 message: format!("{}", record.args()),
             };
             if self.log_sender.try_send(log_entry.clone()).is_err() {
-                // eprintln!(
-                //     "[TUI_LOG_FALLBACK] {}: {} [{}] - {}",
-                //     Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
-                //     std::thread::current().name().unwrap_or("unknown_thread"),
-                //     record.level(),
-                //     record.args()
-                // );
+                eprintln!(
+                    "[TUI_LOG_FALLBACK] {}: {} [{}] - {}",
+                    Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
+                    std::thread::current().name().unwrap_or("unknown_thread"),
+                    record.level(),
+                    record.args()
+                );
             }
         }
     }

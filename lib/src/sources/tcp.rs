@@ -8,7 +8,7 @@ use mockall_double::double;
 
 use crate::ToConfig;
 use crate::errors::{DataSourceError, TaskError};
-use crate::network::rpc_message::{DataMsg, RpcMessage, RpcMessageKind};
+use crate::network::rpc_message::{DataMsg, DeviceId, RpcMessage, RpcMessageKind};
 #[cfg_attr(test, double)]
 use crate::network::tcp::client::TcpClient;
 use crate::sources::{DataSourceConfig, DataSourceT};
@@ -22,7 +22,7 @@ pub struct TCPConfig {
     pub target_addr: SocketAddr,
 
     /// device id to which this is relevant
-    pub device_id: u64,
+    pub device_id: DeviceId,
 }
 
 /// TCP-based data source for receiving `DataMsg` payloads over a network.
@@ -108,7 +108,7 @@ impl DataSourceT for TCPSource {
     async fn read(&mut self) -> Result<Option<DataMsg>, DataSourceError> {
         let rpcmsg: RpcMessage = self
             .client
-            .read_message(self.config.target_addr)
+            .wait_for_read_message(self.config.target_addr)
             .await
             .map_err(|e| DataSourceError::from(Box::new(e)))?;
         match rpcmsg.msg {
@@ -171,7 +171,7 @@ mod tests {
         let ctx = TcpClient::new_context();
         ctx.expect().returning(TcpClient::default);
 
-        let mut source = TCPSource::new(config.clone());
+        let source = TCPSource::new(config.clone());
         assert!(source.is_ok());
 
         let source = source.unwrap();
@@ -239,7 +239,9 @@ mod tests {
             target_addr: test_addr(),
         };
 
-        mock.expect_read_message().with(eq(config.target_addr)).return_once(move |_| Ok(message));
+        mock.expect_wait_for_read_message()
+            .with(eq(config.target_addr))
+            .return_once(move |_| Ok(message));
 
         let mut source = TCPSource { client: mock, config };
 
@@ -266,7 +268,7 @@ mod tests {
             target_addr: test_addr(),
         };
 
-        mock.expect_read_message().returning(move |_| Ok(message.clone()));
+        mock.expect_wait_for_read_message().returning(move |_| Ok(message.clone()));
 
         let mut source = TCPSource {
             client: mock,
@@ -281,7 +283,7 @@ mod tests {
         let config = make_config();
 
         let mut mock = TcpClient::default();
-        mock.expect_read_message().returning(|_| {
+        mock.expect_wait_for_read_message().returning(|_| {
             Ok(RpcMessage {
                 msg: RpcMessageKind::HostCtrl(HostCtrl::Connect),
                 src_addr: test_addr(),

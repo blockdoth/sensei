@@ -1,0 +1,24 @@
+experiment:
+metadata:
+  name: Delays
+  output_path: "/dev/null"
+  remote_host: "127.0.0.1:6969"
+stages:
+  - name: "slow"
+    blocks:
+        - commands:
+          delays:
+            init_delay: 2000
+            delay_type: !NotRecurring
+  - name: "slower"
+    blocks:
+      - commands:
+        delays:
+          init_delay: 5000
+          delay_type: !NotRecurring
+  - name: "slowest"
+    blocks:
+      - commands:
+        delays:
+          init_delay: 8000
+          delay_type: !NotRecurring 

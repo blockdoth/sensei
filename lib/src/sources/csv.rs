@@ -11,6 +11,7 @@ use crate::network::rpc_message::SourceType;
 use crate::sources::{BUFSIZE, DataMsg, DataSourceConfig, DataSourceT};
 
 const DEFAULT_ROW_DELIM: u8 = b'\n';
+#[allow(unused)]
 const DEFAULT_CELL_DELIM: u8 = b',';
 
 /// Config struct which can be parsed from a toml config
@@ -31,13 +32,11 @@ pub struct CsvSourceConfig {
 pub struct CsvSource {
     config: CsvSourceConfig,
     reader: BufReader<File>,
-    cell_delimiter: u8,
     row_delimiter: u8,
 }
 
 impl CsvSource {
     pub fn new(config: CsvSourceConfig) -> Result<Self, DataSourceError> {
-        let cell_delimiter = config.cell_delimiter.unwrap_or(DEFAULT_CELL_DELIM);
         let row_delimiter = config.row_delimiter.unwrap_or(DEFAULT_ROW_DELIM);
         trace!("Creating new Csv source (path: {})", config.path.display());
         let file = File::open(&config.path)
@@ -55,7 +54,6 @@ impl CsvSource {
         Ok(Self {
             config,
             reader,
-            cell_delimiter,
             row_delimiter,
         })
     }

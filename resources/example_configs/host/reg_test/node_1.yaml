@@ -1,18 +1,14 @@
-addr: "127.0.0.1:6969"
+addr: "127.0.0.1:6966"
 host_id: 1
-
+registries:
+ - "127.0.0.1:6969"
 sinks:
   - id: "stdout"
-<<<<<<< HEAD
     config: !File
       file: "/dev/null"
-=======
-    config: !Csv
-      path: "/dev/stdout"
->>>>>>> dev
 
 device_configs:
-  - device_id: 0
+  - device_id: 1
     stype: Csv
 
     source: !Csv
@@ -20,9 +16,7 @@ device_configs:
       cell_delimiter: 44
       row_delimiter: 10
       header: true
-      delay: 1000
-    
-    adapter: !Csv
+      delay: 100
       
     output_to:
       - "stdout"

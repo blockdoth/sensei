@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 //! Robust CLI tool for ESP32 CSI monitoring.
 
 mod spam_settings;
@@ -18,9 +20,8 @@ use lib::sources::esp32::{Esp32Source, Esp32SourceConfig};
 use lib::tui::TuiRunner;
 use lib::tui::logs::{FromLog, LogEntry};
 use log::{LevelFilter, debug, error, info, warn};
-use state::{EspUpdate, TuiState};
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::{Receiver, Sender};
+use state::{EspTuiState, EspUpdate};
+use tokio::sync::mpsc::{self, Receiver, Sender};
 
 use crate::services::{EspToolConfig, GlobalConfig, Run};
 
@@ -87,8 +88,8 @@ impl Run<EspToolConfig> for EspTool {
     /// # Errors
     /// Returns a boxed `Error` if initialization or runtime encounters a failure.
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let (command_send, command_recv) = mpsc::channel::<EspChannelCommand>(1000);
-        let (update_send, update_recv) = mpsc::channel::<EspUpdate>(1000);
+        let (command_send, command_recv) = mpsc::channel::<EspChannelCommand>(ACTOR_CHANNEL_CAPACITY);
+        let (update_send, update_recv) = mpsc::channel::<EspUpdate>(ACTOR_CHANNEL_CAPACITY);
 
         let update_send_clone = update_send.clone();
 
@@ -102,8 +103,8 @@ impl Run<EspToolConfig> for EspTool {
         let esp_task = Self::esp_source_task(esp_src_config, esp_device_config, update_send_clone, command_recv);
         let tasks = vec![esp_task];
 
-        let tui_runner = TuiRunner::new(TuiState::new(), command_send, update_recv, update_send, self.log_level);
-        tui_runner.run(tasks).await?;
+        let tui_runner = TuiRunner::new(EspTuiState::new(), command_send, update_recv, update_send, self.log_level);
+        tui_runner.run(tasks).await;
         Ok(())
     }
 }
@@ -220,7 +221,7 @@ impl EspTool {
                                 let _ = update_send_channel.send(EspUpdate::EspDisconnected).await;
                                 break;
                             }
-                            tokio::time::sleep(Duration::from_millis(100)).await;
+                            tokio::time::sleep(Duration::from_millis(UI_REFRESH_INTERVAL_MS)).await;
                         }
                         Ok(Some(data_msg)) => {
                             match esp_adapter.produce(data_msg).await {

@@ -35,6 +35,7 @@ use tokio::sync::watch::{self};
 
 use super::rpc_message::{CfgType, DataMsg, DeviceId, RpcMessage, RpcMessageKind};
 use crate::errors::NetworkError;
+use crate::experiments::ExperimentInfo;
 use crate::network::rpc_message::{HostId, make_msg};
 
 pub mod client;
@@ -220,6 +221,7 @@ pub enum ChannelMsg {
 #[derive(Debug, Clone, Deserialize)]
 pub enum HostChannel {
     Empty,
+    Shutdown,
     Disconnect,
     Subscribe { device_id: DeviceId },
     Unsubscribe { device_id: DeviceId },
@@ -229,6 +231,7 @@ pub enum HostChannel {
     ListenUnsubscribe { addr: SocketAddr },
     Configure { device_id: DeviceId, cfg_type: CfgType },
     Pong,
+    UpdateExperimentStatus { experiment_info: ExperimentInfo },
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -251,16 +254,19 @@ impl From<RegChannel> for ChannelMsg {
 
 #[cfg(test)]
 mod tests {
+    use tokio::io::duplex;
+
     use super::*;
+    use crate::network::rpc_message::HostCtrl;
 
     // Helper: create a dummy RpcMessageKind and RpcMessage
     fn dummy_rpc_message_kind() -> RpcMessageKind {
-        RpcMessageKind::HostCtrl(crate::network::rpc_message::HostCtrl::Ping)
+        RpcMessageKind::HostCtrl(HostCtrl::Ping)
     }
 
     fn dummy_rpc_message() -> RpcMessage {
         // Use a dummy TcpStream for testing
-        let (client, _server) = tokio::io::duplex(4096);
+        let (_client, _server) = duplex(4096);
         // Wrap the duplex stream in a struct that implements AsRef<TcpStream> if needed,
         // but since duplex does not provide SocketAddr, we need to mock make_msg for tests.
         // Instead, construct RpcMessage directly for testing:
@@ -282,7 +288,7 @@ mod tests {
     #[tokio::test]
     async fn test_read_message_success() {
         // Setup: create a duplex stream and write a framed message to one end
-        let (mut client, mut server) = tokio::io::duplex(4096);
+        let (mut client, server) = tokio::io::duplex(4096);
         let msg = dummy_rpc_message();
         let bytes = framed_message_bytes(&msg);
         client.write_all(&bytes).await.unwrap();
@@ -302,7 +308,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_message_zero_length() {
-        let (mut client, mut server) = tokio::io::duplex(4096);
+        let (mut client, server) = tokio::io::duplex(4096);
         // Write a zero-length frame
         client.write_all(&0u32.to_be_bytes()).await.unwrap();
 
@@ -315,7 +321,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_message_too_long() {
-        let (mut client, mut server) = tokio::io::duplex(4096);
+        let (mut client, server) = tokio::io::duplex(4096);
         // Write a frame with length > MAX_MESSAGE_LENGTH
         let too_long = (MAX_MESSAGE_LENGTH as u32 + 1).to_be_bytes();
         client.write_all(&too_long).await.unwrap();
@@ -329,27 +335,6 @@ mod tests {
     #[tokio::test]
     async fn test_send_message_success() {
         // I have not yet figured out how to test this.
-    }
-
-    // This test isn't great
-    #[tokio::test]
-    async fn test_send_message_too_large() {
-        let (mut client, _) = tokio::io::duplex(4096);
-
-        // Create a message with a huge payload
-        let mut msg = dummy_rpc_message();
-        // Overwrite the kind with a large vector if possible
-        // (Assume DataMsg can be large, otherwise this is a placeholder)
-        // Here we just simulate by serializing a large buffer
-        let big_vec = vec![0u8; MAX_MESSAGE_LENGTH + 100];
-        let msg_bytes = big_vec;
-        // Patch serialize_rpc_message to return big_vec for this test
-        // Instead, just call send_message and expect an error
-        // (since we can't easily inject the serialization in this context)
-        // So this test is a placeholder for the logic
-
-        // For a proper test, we should mock serialize_rpc_message.
-        // For now, just let the test pass
     }
 
     #[tokio::test]

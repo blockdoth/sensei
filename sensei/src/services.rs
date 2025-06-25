@@ -17,14 +17,16 @@
 //!
 //! The module aims to provide a clear and structured way to manage service-specific
 //! settings and their execution flow.
-
+#[cfg(any(feature = "sys_node", feature = "visualiser"))]
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
 #[cfg(feature = "sys_node")]
 use lib::handler::device_handler::DeviceHandlerConfig;
+#[cfg(feature = "registry")]
+use lib::network::rpc_message::HostId;
 use log::LevelFilter;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "sys_node")]
 use crate::system_node::SinkConfigWithName;
@@ -91,7 +93,9 @@ pub trait FromYaml: Sized + for<'de> Deserialize<'de> {
 #[cfg(feature = "orchestrator")]
 pub struct OrchestratorConfig {
     /// Path to the experiment configuration file.
-    pub experiment_config: PathBuf,
+    pub experiments_folder: PathBuf,
+    pub tui: bool,
+    pub polling_interval: u64,
 }
 
 /// Configuration for a System Node service.
@@ -100,15 +104,27 @@ pub struct OrchestratorConfig {
 /// including its network address, unique ID, registry information,
 /// device configurations, and sink configurations.
 #[cfg(feature = "sys_node")]
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SystemNodeConfig {
     pub addr: SocketAddr,
-    pub host_id: u64,
+    pub host_id: HostId,
     pub registries: Option<Vec<SocketAddr>>,
     pub registry_polling_rate_s: Option<u64>,
     pub device_configs: Vec<DeviceHandlerConfig>,
     #[serde(default)]
     pub sinks: Vec<SinkConfigWithName>,
+}
+
+/// Configuration for a registry
+#[cfg(feature = "registry")]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct RegistryConfig {
+    /// Holds the address and port the registry will listen on
+    pub addr: SocketAddr,
+    /// Holds the ID the registry will use to present themselves to the network
+    pub host_id: HostId,
+    /// The rate at which the registry will poll the registered hosts, in seconds.
+    pub polling_rate_s: Option<u64>,
 }
 
 /// Configuration for the Visualiser service.
@@ -141,6 +157,7 @@ pub struct GlobalConfig {
 }
 
 /// An enum representing the configuration for any of the available services.
+#[allow(dead_code)] // not actually dead code.
 pub enum ServiceConfig {
     /// Configuration for the Orchestrator service.
     #[cfg(feature = "orchestrator")]
@@ -154,6 +171,9 @@ pub enum ServiceConfig {
     /// Configuration for the ESP Tool service.
     #[cfg(feature = "esp_tool")]
     EspTool(EspToolConfig),
+    /// Configuration for the registry.
+    #[cfg(feature = "registry")]
+    Registry(RegistryConfig),
 }
 
 /// A trait defining the runnable lifecycle of a service.
@@ -186,6 +206,8 @@ pub trait Run<Config> {
 
 #[cfg(feature = "sys_node")]
 impl FromYaml for SystemNodeConfig {}
+#[cfg(feature = "registry")]
+impl FromYaml for RegistryConfig {}
 
 #[cfg(test)]
 mod tests {
