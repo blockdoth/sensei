@@ -17,6 +17,7 @@ device_configs:
       row_delimiter: 10
       header: true
       delay: 100
+    adapter: !Csv
       
     output_to:
       - "stdout"
