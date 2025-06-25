@@ -112,11 +112,12 @@
                 rust-analyzer-unwrapped
                 mprocs
                 pkg-config
+                pkgs.llvmPackages_latest.llvm
               ]
-              ++ lib.optionals isLinux [
-                pkgs.glibc
-                udev
-                cargo-llvm-cov
+              ++ lib.optionals pkgs.stdenv.isLinux [
+                pkgs.udev
+                valgrind
+                pkgs.cargo-llvm-cov
               ];
 
             RUST_SRC_PATH = "${toolchain}/lib/rustlib/src/rust/library";
@@ -125,6 +126,15 @@
             # For coverage tools
             LLVM_COV = "${pkgs.llvmPackages_latest.llvm}/bin/llvm-cov";
             LLVM_PROFDATA = "${pkgs.llvmPackages_latest.llvm}/bin/llvm-profdata";
+
+            # shell hook to install cargo-llvm-cov on macOS if not already installed
+            shellHook = lib.optionalString pkgs.stdenv.isDarwin ''
+              # Install cargo-llvm-cov via cargo on macOS if not already installed
+              if ! command -v cargo-llvm-cov &> /dev/null; then
+                echo "Installing cargo-llvm-cov via cargo..."
+                cargo install cargo-llvm-cov
+              fi
+            '';
           };
 
           packages.cross-aarch64 =
