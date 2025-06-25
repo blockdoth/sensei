@@ -1,0 +1,6 @@
+address: 127.0.0.1:6969
+host_id: 4
+polling_interval: 1
+
+sinks:
+device_configs:

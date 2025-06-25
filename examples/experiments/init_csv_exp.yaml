@@ -1,38 +1,32 @@
 experiment:
 metadata:
-  name: Experiment1
+  name: Init CSV Source
   output_path: /dev/null
 stages:
-  - name: "init"
+  - name: init
     blocks:
       - commands:
           - !Connect
-            target_addr: "127.0.0.1:6966"
-          - !Connect
-            target_addr: "127.0.0.1:6967"
+            target_addr: 127.0.0.1:6966
           - !Configure
-            target_addr: "127.0.0.1:6966"
+            target_addr: 127.0.0.1:6966
             device_id: 0
             cfg_type: !Create
               cfg:
                 device_id: 0
-                stype: !Csv
+                source_type: !Csv
                 source: !Csv
-                  path: "resources/test_data/csv/csi_data.csv"
+                  path: ../../../resources/test_data/csv/csi_data.csv
                   header: true
                   delay: 500
                   adapter: !Csv
                   output_to:
           - !StartAll
-            target_addr: "127.0.0.1:6966"
-          - !SubscribeTo
-            target_addr: "127.0.0.1:6967"
-            device_id: 0
-            source_addr: "127.0.0.1:6966"
+            target_addr: 127.0.0.1:6966
           - !Delay
             delay: 5000
           - !StopAll
-            target_addr: "127.0.0.1:6966"
+            target_addr: 127.0.0.1:6966
         delays:
           init_delay: 2000
           command_delay: 1000

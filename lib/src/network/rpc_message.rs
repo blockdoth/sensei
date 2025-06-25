@@ -143,7 +143,7 @@ impl From<&DeviceHandlerConfig> for DeviceInfo {
     fn from(value: &DeviceHandlerConfig) -> Self {
         DeviceInfo {
             id: value.device_id,
-            dev_type: value.stype,
+            dev_type: value.source_type,
         }
     }
 }

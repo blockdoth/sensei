@@ -30,6 +30,7 @@ use std::path::PathBuf;
 use argh::FromArgs;
 #[cfg(feature = "sys_node")]
 use lib::handler::device_handler::DeviceHandlerConfig;
+use lib::network::rpc_message::DEFAULT_ADDRESS;
 #[cfg(feature = "sys_node")]
 use log::debug;
 use simplelog::LevelFilter;
@@ -46,6 +47,14 @@ use crate::services::SystemNodeConfig;
 #[cfg(feature = "visualiser")]
 use crate::services::VisualiserConfig;
 
+/// Default path to the host configuration YAML file.
+pub static DEFAULT_HOST_CONFIG: &str = "examples/default/node.yaml";
+/// Default path to the orchestrator configuration YAML file.
+pub static DEFAULT_ORCHESTRATOR_CONFIG: &str = "examples/default/orchestrator.yaml";
+pub static DEFAULT_REGISTRY_CONFIG: &str = "examples/default/registry.yaml";
+pub static DEFAULT_EXPERIMENT_CONFIGS: &str = "examples/experiments/";
+pub static DEFAULT_ORG_POLL_INTERVAL: u64 = 5;
+
 /// A trait for overlaying subcommand arguments onto an existing configuration.
 ///
 /// This trait allows reads the config from the YAML file specified in the subcommand arguments,
@@ -60,20 +69,13 @@ use crate::services::VisualiserConfig;
 ///
 /// # Returns
 /// A new configuration object with subcommand arguments applied.
-pub trait OverlaySubcommandArgs<T> {
+pub trait MergeWithConfig<T> {
     /// Overlays fields from subcommand arguments onto a configuration loaded from a YAML file.
     ///
     /// If a field is specified in the subcommand arguments, it will override the corresponding
     /// value from the YAML configuration. Otherwise, the YAML configuration value is retained.
-    fn overlay_subcommand_args(&self, full_config: T) -> Result<T, Box<dyn std::error::Error>>;
+    fn merge_with_config(&self, config_file: T) -> T;
 }
-
-/// Default path to the host configuration YAML file.
-pub static DEFAULT_HOST_CONFIG: &str = "resources/testing_configs/minimal.yaml";
-/// Default path to the orchestrator configuration YAML file.
-pub static DEFAULT_ORCHESTRATOR_CONFIG: &str = "resources/example_configs/orchestrator";
-/// Default path for registry config.
-pub static DEFAULT_REGISTRY_CONFIG: &str = "resources/example_configs/registry/registry_config.yaml";
 
 /// A simple app to perform collection from configured sources
 #[derive(FromArgs)]
@@ -138,7 +140,7 @@ const DEFAULT_IP_CLI: &str = "127.0.0.1";
 pub struct SystemNodeSubcommandArgs {
     /// server address (default: 127.0.0.1)
     #[argh(option, default = "DEFAULT_IP_CLI.to_owned()")]
-    pub addr: String,
+    pub address: String,
 
     /// server port (default: 6969)
     #[argh(option, default = "DEFAULT_PORT_CLI")]
@@ -150,38 +152,38 @@ pub struct SystemNodeSubcommandArgs {
 }
 
 #[cfg(feature = "sys_node")]
-impl ConfigFromCli<SystemNodeConfig> for SystemNodeSubcommandArgs {
+impl From<&SystemNodeSubcommandArgs> for SystemNodeConfig {
     /// Parses system node subcommand arguments into a `SystemNodeConfig`.
     ///
     /// This involves constructing an address from `addr` and `port` fields,
     /// and loading device configurations from the specified `config_path`.
     /// Default values are used for fields not directly provided by arguments.
-    fn parse(&self) -> Result<SystemNodeConfig, Box<dyn std::error::Error>> {
-        Ok(SystemNodeConfig {
-            addr: format!("{}:{}", self.addr, self.port).parse()?,
-            device_configs: DeviceHandlerConfig::from_yaml(self.config_path.clone())?,
-            host_id: 0,                    // Default host_id, might be overwritten by YAML or other logic
-            registries: None,              // Default, might be overwritten by YAML
-            registry_polling_rate_s: None, // Default, might be overwritten by YAML
-            sinks: Vec::new(),             // Initialize with an empty Vec, to be populated from YAML
-        })
+    fn from(args: &SystemNodeSubcommandArgs) -> Self {
+        SystemNodeConfig {
+            address: format!("{}:{}", args.address, args.port).parse().unwrap_or(DEFAULT_ADDRESS),
+            device_configs: DeviceHandlerConfig::from_yaml(args.config_path.clone()).unwrap_or_default(),
+            host_id: 0,                      // Default host_id, might be overwritten by YAML or other logic
+            registry: None,                  // Default, might be overwritten by YAML
+            registry_polling_interval: None, // Default, might be overwritten by YAML
+            sinks: Vec::new(),               // Initialize with an empty Vec, to be populated from YAML
+        }
     }
 }
 
 #[cfg(feature = "sys_node")]
 /// Overlays subcommand arguments onto a SystemNodeConfig, overriding fields if provided.
-impl OverlaySubcommandArgs<SystemNodeConfig> for SystemNodeSubcommandArgs {
-    fn overlay_subcommand_args(&self, mut full_config: SystemNodeConfig) -> Result<SystemNodeConfig, Box<dyn std::error::Error>> {
+impl MergeWithConfig<SystemNodeConfig> for SystemNodeSubcommandArgs {
+    fn merge_with_config(&self, mut device_config: SystemNodeConfig) -> SystemNodeConfig {
         // Because of the default value we expact that there's always a file to read
         debug!("Loading system node configuration from YAML file: {}", self.config_path.display());
-        // overwrite fields when provided by the subcommand
-        if self.addr != DEFAULT_IP_CLI {
-            full_config.addr.set_ip(self.addr.parse().unwrap_or(full_config.addr.ip()));
+        // overwrite fields when set by the CLI while keeping CLI defaults
+        if self.address != DEFAULT_IP_CLI {
+            device_config.address.set_ip(self.address.parse().unwrap_or(device_config.address.ip()));
         }
         if self.port != DEFAULT_PORT_CLI {
-            full_config.addr.set_port(self.port);
+            device_config.address.set_port(self.port);
         }
-        Ok(full_config)
+        device_config
     }
 }
 
@@ -195,26 +197,46 @@ pub struct OrchestratorSubcommandArgs {
     pub tui: bool,
 
     /// file path of the experiment config
-    #[argh(option, default = "DEFAULT_ORCHESTRATOR_CONFIG.parse().unwrap()")]
-    pub experiments_folder: PathBuf,
+    #[argh(option, default = "DEFAULT_EXPERIMENT_CONFIGS.parse().unwrap()")]
+    pub experiments_dir: PathBuf,
 
     /// polling interval of the registry
-    #[argh(option, default = "5")]
+    #[argh(option, default = "DEFAULT_ORG_POLL_INTERVAL")]
     pub polling_interval: u64,
+
+    /// file path of the experiment config
+    #[argh(option, default = "DEFAULT_ORCHESTRATOR_CONFIG.parse().unwrap()")]
+    pub config_path: PathBuf,
 }
 
 #[cfg(feature = "orchestrator")]
-impl ConfigFromCli<OrchestratorConfig> for OrchestratorSubcommandArgs {
-    /// Parses orchestrator subcommand arguments into an `OrchestratorConfig`.
-    ///
-    /// This primarily involves setting the path to the experiment configuration file.
-    fn parse(&self) -> Result<OrchestratorConfig, Box<dyn std::error::Error>> {
-        // TODO input validation
-        Ok(OrchestratorConfig {
-            experiments_folder: self.experiments_folder.clone(),
-            tui: self.tui,
-            polling_interval: self.polling_interval,
-        })
+impl From<&OrchestratorSubcommandArgs> for OrchestratorConfig {
+    fn from(args: &OrchestratorSubcommandArgs) -> Self {
+        OrchestratorConfig {
+            experiments_dir: args.experiments_dir.clone(),
+            tui: Some(args.tui),
+            polling_interval: args.polling_interval,
+            default_hosts: Vec::new(),
+        }
+    }
+}
+
+#[cfg(feature = "orchestrator")]
+/// Overlays subcommand arguments onto a SystemNodeConfig, overriding fields if provided.
+impl MergeWithConfig<OrchestratorConfig> for OrchestratorSubcommandArgs {
+    fn merge_with_config(&self, mut device_config: OrchestratorConfig) -> OrchestratorConfig {
+        // Because of the default value we expact that there's always a file to read
+        debug!("Loading orchestrator node configuration from YAML file: {:?}", self.config_path);
+        // overwrite fields when set by the CLI while keeping CLI defaults
+        if self.polling_interval != DEFAULT_ORG_POLL_INTERVAL {
+            device_config.polling_interval = self.polling_interval;
+        }
+
+        if self.experiments_dir != DEFAULT_EXPERIMENT_CONFIGS.parse::<PathBuf>().unwrap() {
+            device_config.experiments_dir = self.experiments_dir.clone();
+        }
+
+        device_config
     }
 }
 
@@ -275,11 +297,15 @@ impl ConfigFromCli<EspToolConfig> for EspToolSubcommandArgs {
 pub struct RegistrySubcommandArgs {
     /// registry address (default: 127.0.0.1:9000)
     #[argh(option, default = "String::from(\"127.0.0.1:9000\")")]
-    pub addr: String,
+    pub address: String,
 
     /// server port (default: 6969)
-    #[argh(option, default = "0")]
+    #[argh(option, default = "6969")]
     pub port: u16,
+
+    /// polling_interval (default: 5 sec)
+    #[argh(option, default = "5")]
+    pub polling_interval: u64,
 
     /// path to registry config file
     #[argh(option, default = "PathBuf::from(DEFAULT_REGISTRY_CONFIG)")]
@@ -296,15 +322,22 @@ impl ConfigFromCli<RegistryConfig> for RegistrySubcommandArgs {
 
 #[cfg(feature = "sys_node")]
 /// Overlays subcommand arguments onto a SystemNodeConfig, overriding fields if provided.
-impl OverlaySubcommandArgs<RegistryConfig> for RegistrySubcommandArgs {
-    fn overlay_subcommand_args(&self, full_config: RegistryConfig) -> Result<RegistryConfig, Box<dyn std::error::Error>> {
+impl MergeWithConfig<RegistryConfig> for RegistrySubcommandArgs {
+    fn merge_with_config(&self, mut full_config: RegistryConfig) -> RegistryConfig {
         // Because of the default value we expact that there's always a file to read
         debug!("Loading system node configuration from YAML file: {}", self.config_path.display());
-        let mut config = full_config.clone();
-        // overwrite fields when provided by the subcommand
-        config.addr = format!("{}:{}", self.addr, self.port).parse().unwrap_or(config.addr);
+        if self.polling_interval != DEFAULT_ORG_POLL_INTERVAL {
+            full_config.polling_interval = self.polling_interval;
+        }
 
-        Ok(config)
+        if self.address != DEFAULT_IP_CLI {
+            full_config.address.set_ip(self.address.parse().unwrap_or(full_config.address.ip()));
+        }
+        if self.port != DEFAULT_PORT_CLI {
+            full_config.address.set_port(self.port);
+        }
+
+        full_config
     }
 }
 
@@ -318,11 +351,11 @@ mod tests {
 
     fn create_testing_config() -> SystemNodeConfig {
         SystemNodeConfig {
-            addr: SocketAddr::new(IpAddr::V4(DEFAULT_IP_CLI.parse().unwrap()), DEFAULT_PORT_CLI),
+            address: SocketAddr::new(IpAddr::V4(DEFAULT_IP_CLI.parse().unwrap()), DEFAULT_PORT_CLI),
             host_id: 1,
-            registries: Option::None,
+            registry: Option::None,
             device_configs: vec![],
-            registry_polling_rate_s: Option::None,
+            registry_polling_interval: Option::None,
             sinks: Vec::new(), // Add sinks field
         }
     }
@@ -330,20 +363,20 @@ mod tests {
     #[test]
     fn test_overlay_subcommand_args_overwrites_addr_and_port() {
         let args = SystemNodeSubcommandArgs {
-            addr: "10.0.0.1".to_string(),
+            address: "10.0.0.1".to_string(),
             port: 4321,
             config_path: PathBuf::from("does_not_matter.yaml"), // This will not be used
         };
 
         let base_cfg = create_testing_config();
-        let config = args.overlay_subcommand_args(base_cfg).unwrap();
-        assert_eq!(config.addr, "10.0.0.1:4321".parse().unwrap());
+        let config = args.merge_with_config(base_cfg);
+        assert_eq!(config.address, "10.0.0.1:4321".parse().unwrap());
     }
 
     #[test]
     fn test_overlay_subcommand_args_uses_yaml_when_no_override() {
         let args = SystemNodeSubcommandArgs {
-            addr: DEFAULT_IP_CLI.to_string(),
+            address: DEFAULT_IP_CLI.to_string(),
             port: DEFAULT_PORT_CLI,
             config_path: PathBuf::from("does_not_matter.yaml"), // This will not be used
         };
@@ -351,22 +384,22 @@ mod tests {
         // If addr is empty and port is 0, overlay will parse ":0" which is invalid,
         // so we expect it to fallback to the YAML value.
         let base_cfg = create_testing_config();
-        let config = args.overlay_subcommand_args(base_cfg.clone()).unwrap();
-        assert_eq!(config.addr, base_cfg.addr);
+        let config = args.merge_with_config(base_cfg.clone());
+        assert_eq!(config.address, base_cfg.address);
     }
 
     #[test]
     fn test_overlay_subcommand_args_invalid_addr_falls_back_to_yaml() {
         let args = SystemNodeSubcommandArgs {
-            addr: "invalid_addr".to_string(),
+            address: "invalid_addr".to_string(),
             port: 1234,
             config_path: PathBuf::from("does_not_matter.yaml"), // This will not be used
         };
 
         // "invalid_addr:1234" is not a valid SocketAddr, so should fallback to YAML
         let mut base_cfg = create_testing_config();
-        let config = args.overlay_subcommand_args(base_cfg.clone()).unwrap();
-        base_cfg.addr.set_port(1234); // Port is always valid
-        assert_eq!(config.addr, base_cfg.addr);
+        let config = args.merge_with_config(base_cfg.clone());
+        base_cfg.address.set_port(1234); // Port is always valid
+        assert_eq!(config.address, base_cfg.address);
     }
 }

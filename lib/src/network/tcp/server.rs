@@ -62,7 +62,7 @@ impl TcpServer {
     where
         H: ConnectionHandler + SubscribeDataChannel + Clone + 'static,
     {
-        info!("Starting node on address {addr}");
+        info!("Started node on address {addr}");
 
         let socket = match addr {
             std::net::SocketAddr::V4(_) => TcpSocket::new_v4()?,
@@ -123,7 +123,7 @@ impl TcpServer {
         ));
 
         let _ = tokio::join!(read_task, write_task);
-        info!("Gracefully closed connection with {local_peer_addr:?}");
+        debug!("Cleaned up all resources for connection {local_peer_addr:?}");
         Ok(())
     }
 
@@ -148,7 +148,7 @@ impl TcpServer {
                     break;
                 }
                 Err(e) => {
-                    warn!("Connection with {local_peer_addr:?} closed abruptly {e}");
+                    debug!("Connection with {local_peer_addr:?} closed abruptly {e}");
                     break;
                 }
             }

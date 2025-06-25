@@ -1,6 +1,0 @@
-addr: "127.0.0.1:6969"
-host_id: 1
-registries:
-registry_polling_rate_s:
-device_configs:
-  
