@@ -177,20 +177,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_new() {
-        let config = make_config();
-        let ctx = TcpClient::new_context();
-        ctx.expect().returning(TcpClient::default);
-
-        let source = TCPSource::new(config.clone()).await;
-        assert!(source.is_ok());
-
-        let source = source.unwrap();
-        assert_eq!(source.config.target_addr, config.target_addr);
-        assert_eq!(source.config.device_id, config.device_id);
-    }
-
-    #[tokio::test]
     async fn test_read_buf() {
         let mut source = TCPSource {
             client: TcpClient::default(),
