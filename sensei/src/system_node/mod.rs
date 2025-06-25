@@ -64,7 +64,7 @@ pub struct SystemNode {
     sinks: Arc<Mutex<HashMap<String, Box<dyn Sink>>>>,
     addr: SocketAddr,
     host_id: HostId,
-    registry_addrs: Option<Vec<SocketAddr>>,
+    registry_addr: Option<SocketAddr>,
     device_configs: Vec<DeviceHandlerConfig>,
     sink_configs: Vec<SinkConfigWithName>,
 }
@@ -98,9 +98,9 @@ impl Run<SystemNodeConfig> for SystemNode {
             experiment_recv: Arc::new(Mutex::new(experiment_recv)),
             handlers: Arc::new(Mutex::new(HashMap::new())),
             sinks: Arc::new(Mutex::new(HashMap::new())), // Initialize sinks map
-            addr: config.addr,
+            addr: config.address,
             host_id: config.host_id,
-            registry_addrs: config.registries,
+            registry_addr: config.registry,
             device_configs: config.device_configs,
             sink_configs: config.sinks, // Store sink configurations from SystemNodeConfig
         }
@@ -131,27 +131,6 @@ impl Run<SystemNodeConfig> for SystemNode {
         }
         drop(handlers_map); // Release lock
 
-        // Register at provided registries. When a single registry refuses, the client exits.
-        if let Some(registries) = &self.registry_addrs {
-            let mut client = TcpClient::new();
-            for registry in registries {
-                if *registry == self.addr {
-                    continue;
-                }
-                info!("Connecting to registry at {registry}");
-                let registry_addr: SocketAddr = *registry;
-                let heartbeat_msg = RpcMessageKind::RegCtrl(RegCtrl::AnnouncePresence {
-                    host_id: self.host_id,
-                    host_address: self.addr,
-                });
-                client.connect(registry_addr).await?;
-                client.send_message(registry_addr, heartbeat_msg).await?;
-                client.disconnect(registry_addr).await?;
-                info!("Presence announced to registry at {registry_addr}");
-            }
-        }
-        // Create a TCP host server task
-        info!("Starting TCP server on {}...", self.addr);
         let connection_handler = Arc::new(self.clone());
         let tcp_server_task: JoinHandle<()> = task::spawn(async move {
             match TcpServer::serve(connection_handler.addr, connection_handler).await {
@@ -175,6 +154,12 @@ impl Run<SystemNodeConfig> for SystemNode {
             self.local_data_tx.clone(),
         );
 
+        if let Some(registry_addr) = self.registry_addr {
+            let self_addr = self.addr;
+            let self_id = self.host_id;
+            task::spawn(Self::announce_presence_to_registry(registry_addr, self_addr, self_id));
+        }
+
         // Run all tasks concurrently
         tokio::try_join!(tcp_server_task, local_data_processing_task, experiment_task)?;
         Ok(())
@@ -190,6 +175,21 @@ pub enum ExperimentChannelMsg {
 
 impl SystemNode {
     // Continuously running task responsible for managing experiment related functionality
+
+    async fn announce_presence_to_registry(registry_addr: SocketAddr, self_addr: SocketAddr, self_id: HostId) -> Result<(), NetworkError> {
+        let mut client = TcpClient::new();
+        let msg = RpcMessageKind::RegCtrl(RegCtrl::AnnouncePresence {
+            host_id: self_id,
+            host_address: self_addr,
+        });
+        debug!("Connecting to registry at {registry_addr}");
+        client.connect(registry_addr).await?;
+        client.send_message(registry_addr, msg).await?;
+        info!("Presence announced to registry at {registry_addr}");
+        client.disconnect(registry_addr).await?;
+        Ok(())
+    }
+
     fn experiment_handler(
         handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
         experiment_send: Sender<ExperimentChannelMsg>,
@@ -305,14 +305,17 @@ impl SystemNode {
         }
     }
 
-    async fn connect(src_addr: SocketAddr) -> Result<(), AppError> {
-        info!("Started connection with {src_addr}");
+    async fn connect(src_addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
+        info!("Connected with {src_addr}");
+
         Ok(())
     }
 
     async fn disconnect(src_addr: SocketAddr, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), AppError> {
         send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Disconnect))?;
-        info!("Disconnecting from the connection with {src_addr}");
+
+        info!("Disconnected from {src_addr}");
+
         Ok(())
     }
 
@@ -323,9 +326,23 @@ impl SystemNode {
         Ok(())
     }
 
+    async fn subscribe_all(src_addr: SocketAddr, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), AppError> {
+        send_channel_msg_channel.send(ChannelMsg::from(HostChannel::SubscribeAll))?;
+        info!("Client {src_addr} subscribed to data stream for all devices");
+
+        Ok(())
+    }
+
     async fn unsubscribe(src_addr: SocketAddr, device_id: DeviceId, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), AppError> {
         send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Unsubscribe { device_id }))?;
         info!("Client {src_addr} unsubscribed from data stream for device_id: {device_id}");
+
+        Ok(())
+    }
+
+    async fn unsubscribe_all(src_addr: SocketAddr, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), AppError> {
+        send_channel_msg_channel.send(ChannelMsg::from(HostChannel::UnsubscribeAll))?;
+        info!("Client {src_addr} unsubscribed from all devices");
 
         Ok(())
     }
@@ -347,7 +364,7 @@ impl SystemNode {
         // For now, we assume it might output to a default or pre-configured sink if necessary.
         let new_handler_config = DeviceHandlerConfig {
             device_id,
-            stype: TCP,
+            source_type: TCP,
             source,
             controller,
             adapter,
@@ -492,7 +509,7 @@ impl SystemNode {
     /// Task to process data from local device handlers.
     async fn process_local_data(&self) {
         let mut rx = self.local_data_rx.lock().await;
-        info!("Starting local data processing task.");
+        info!("Started local stream handler task");
         while let Some((data_msg, device_id)) = rx.recv().await {
             trace!("SystemNode received local data for device_id: {device_id}");
             // 1. Broadcast to connected TCP clients
@@ -534,17 +551,13 @@ impl ConnectionHandler for SystemNode {
                         Self::subscribe(request.src_addr, *device_id, send_channel_msg_channel).await?;
                     }
                     HostCtrl::SubscribeAll => {
-                        for device_id in self.handlers.lock().await.keys() {
-                            Self::subscribe(request.src_addr, *device_id, send_channel_msg_channel.clone()).await?;
-                        }
+                        Self::subscribe_all(request.src_addr, send_channel_msg_channel).await?;
                     }
                     HostCtrl::Unsubscribe { device_id } => {
                         Self::unsubscribe(request.src_addr, *device_id, send_channel_msg_channel).await?;
                     }
                     HostCtrl::UnsubscribeAll => {
-                        for device_id in self.handlers.lock().await.keys() {
-                            Self::unsubscribe(request.src_addr, *device_id, send_channel_msg_channel.clone()).await?;
-                        }
+                        Self::unsubscribe_all(request.src_addr, send_channel_msg_channel).await?;
                     }
                     HostCtrl::SubscribeTo { target_addr, device_id } => {
                         Self::subscribe_to(*target_addr, *device_id, self.handlers.clone(), self.local_data_tx.clone()).await?;
@@ -622,6 +635,7 @@ impl ConnectionHandler for SystemNode {
         mut send_stream: OwnedWriteHalf,
     ) -> Result<(), NetworkError> {
         let mut subscribed_ids: HashSet<HostId> = HashSet::new();
+        let mut is_all_subscribed: bool = false;
         loop {
             // This loop continues execution untill a client disconnects.
             // Since tokio only yiels execution back to the scheduler once a task finishes
@@ -641,8 +655,14 @@ impl ConnectionHandler for SystemNode {
                         HostChannel::Subscribe { device_id } => {
                             subscribed_ids.insert(device_id);
                         }
+                        HostChannel::SubscribeAll => {
+                            is_all_subscribed = true;
+                        }
                         HostChannel::Unsubscribe { device_id } => {
                             subscribed_ids.remove(&device_id);
+                        }
+                        HostChannel::UnsubscribeAll => {
+                            is_all_subscribed = false;
                         }
                         HostChannel::Pong => {
                             debug!("Sending pong...");
@@ -661,7 +681,7 @@ impl ConnectionHandler for SystemNode {
 
             if !recv_data_channel.is_empty() {
                 let (data_msg, device_id) = recv_data_channel.recv().await.unwrap();
-                if subscribed_ids.contains(&device_id) {
+                if is_all_subscribed || subscribed_ids.contains(&device_id) {
                     debug!("Sending data {data_msg:?} for {device_id} to {send_stream:?}");
                     let msg = RpcMessageKind::Data { data_msg, device_id };
                     send_message(&mut send_stream, msg).await?;
@@ -679,10 +699,10 @@ mod tests {
 
     fn create_system_node_config(addr: SocketAddr, host_id: u64) -> SystemNodeConfig {
         SystemNodeConfig {
-            addr,
+            address: addr,
             host_id,
-            registries: None,
-            registry_polling_rate_s: None,
+            registry: None,
+            registry_polling_interval: None,
             device_configs: vec![],
             sinks: vec![],
         }

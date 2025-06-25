@@ -89,13 +89,24 @@ pub trait FromYaml: Sized + for<'de> Deserialize<'de> {
     }
 }
 
+#[cfg(feature = "sys_node")]
+impl FromYaml for SystemNodeConfig {}
+
+#[cfg(feature = "orchestrator")]
+impl FromYaml for OrchestratorConfig {}
+
+#[cfg(feature = "registry")]
+impl FromYaml for RegistryConfig {}
+
 /// Configuration for the Orchestrator service.
 #[cfg(feature = "orchestrator")]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct OrchestratorConfig {
     /// Path to the experiment configuration file.
-    pub experiments_folder: PathBuf,
-    pub tui: bool,
+    pub experiments_dir: PathBuf,
+    pub tui: Option<bool>,
     pub polling_interval: u64,
+    pub default_hosts: Vec<SocketAddr>,
 }
 
 /// Configuration for a System Node service.
@@ -106,10 +117,10 @@ pub struct OrchestratorConfig {
 #[cfg(feature = "sys_node")]
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SystemNodeConfig {
-    pub addr: SocketAddr,
+    pub address: SocketAddr,
     pub host_id: HostId,
-    pub registries: Option<Vec<SocketAddr>>,
-    pub registry_polling_rate_s: Option<u64>,
+    pub registry: Option<SocketAddr>,
+    pub registry_polling_interval: Option<u64>,
     pub device_configs: Vec<DeviceHandlerConfig>,
     #[serde(default)]
     pub sinks: Vec<SinkConfigWithName>,
@@ -120,11 +131,9 @@ pub struct SystemNodeConfig {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RegistryConfig {
     /// Holds the address and port the registry will listen on
-    pub addr: SocketAddr,
-    /// Holds the ID the registry will use to present themselves to the network
-    pub host_id: HostId,
+    pub address: SocketAddr,
     /// The rate at which the registry will poll the registered hosts, in seconds.
-    pub polling_rate_s: Option<u64>,
+    pub polling_interval: u64,
 }
 
 /// Configuration for the Visualiser service.
@@ -204,11 +213,6 @@ pub trait Run<Config> {
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>>;
 }
 
-#[cfg(feature = "sys_node")]
-impl FromYaml for SystemNodeConfig {}
-#[cfg(feature = "registry")]
-impl FromYaml for RegistryConfig {}
-
 #[cfg(test)]
 mod tests {
     use std::fs::File;
@@ -268,7 +272,7 @@ mod tests {
         writeln!(
             file,
             r#"
-addr: "127.0.0.1:8080"
+address: "127.0.0.1:8080"
 host_id: 1
 device_configs: []
 "#
@@ -276,8 +280,8 @@ device_configs: []
         .unwrap();
 
         let config = SystemNodeConfig::from_yaml(file_path).unwrap();
-        assert_eq!(config.addr, "127.0.0.1:8080".parse().unwrap());
+        assert_eq!(config.address, "127.0.0.1:8080".parse().unwrap());
         assert_eq!(config.host_id, 1);
-        assert!(config.registries.is_none()); // Ensure default is handled
+        assert!(config.registry.is_none()); // Ensure default is handled
     }
 }

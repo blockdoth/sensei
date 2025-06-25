@@ -1,21 +1,20 @@
-addr: "127.0.0.1:6969"
-
+address: 127.0.0.1:6969
 host_id: 1
 
 sinks:
-  - id: "stdout"
+  - id: stdout
     config: !File
-      file: "/dev/stdout"
+      file: /dev/stdout
       
 device_configs:
   - device_id: 0
-    stype: IWL5300 # TODO: Update with the appropriate SourceType for your Netlink device.
+    source_type: IWL5300 # TODO: Update with the appropriate SourceType for your Netlink device.
 
     source: !Netlink
       group: 11 # TODO: Update with actual Netlink connector group
 
     controller: !Netlink
-      interface: "wlp1s0" # TODO: Update with actual interface name
+      interface: wlp1s0 # TODO: Update with actual interface name
       center_freq_mhz: 5180
       bandwidth_mhz: 20
 
@@ -23,4 +22,4 @@ device_configs:
       scale_csi: true
 
     output_to:
-      - "stdout"
+      - stdout

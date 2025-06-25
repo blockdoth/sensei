@@ -3,7 +3,7 @@ metadata:
   name: Ping Hosts
   output_path: "/dev/null"
 stages:
-  - name: "init"
+  - name: init
     blocks:
         - commands:
             - !Connect
@@ -17,7 +17,7 @@ stages:
           delays:
             init_delay: 10
             delay_type: !NotRecurring
-  - name: "main"
+  - name: main
     blocks:
       - commands:
           - !Connect
@@ -34,7 +34,7 @@ stages:
           delay_type: !Recurring
             recurrence_delay: 1000
             iterations: 100
-  - name: "endstage"
+  - name: endstage
     blocks:
       - commands:
         delays:

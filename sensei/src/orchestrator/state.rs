@@ -7,7 +7,7 @@ use lib::experiments::{ActiveExperiment, ExperimentStatus, Metadata};
 use lib::network::rpc_message::{DEFAULT_ADDRESS, HostId, HostStatus as RegHostStatus, Responsiveness, SourceType};
 use lib::tui::Tui;
 use lib::tui::logs::{FromLog, LogEntry};
-use log::info;
+use log::{debug, info};
 use ratatui::Frame;
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -422,7 +422,7 @@ impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
             OrgUpdate::FocusChange(focused_panel) => self.focussed_panel = focused_panel,
             OrgUpdate::AddHost(status) => {
                 if !self.known_hosts.iter().any(|h| h.id == status.id || h.addr == status.addr) {
-                    info!("Added host from registry");
+                    debug!("Added host from registry");
                     self.known_hosts.push(status)
                 } else {
                     info!("Host already known");
