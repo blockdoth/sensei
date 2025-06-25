@@ -6,27 +6,10 @@ stages:
   - name: init
     blocks:
       - commands:
-          - !Connect
+          - !SubscribeTo
             target_addr: 127.0.0.1:6966
-          - !Configure
-            target_addr: 127.0.0.1:6966
-            device_id: 0
-            cfg_type: !Create
-              cfg:
-                device_id: 0
-                source_type: !Csv
-                source: !Csv
-                  path: ../../../resources/test_data/csv/csi_data.csv
-                  header: true
-                  delay: 500
-                  adapter: !Csv
-                  output_to:
-          - !StartAll
-            target_addr: 127.0.0.1:6966
-          - !Delay
-            delay: 5000
-          - !StopAll
-            target_addr: 127.0.0.1:6966
+            device_id: 4
+            source_addr: 145.94.122.239:6969
         delays:
           init_delay: 2000
           command_delay: 1000

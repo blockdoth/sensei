@@ -536,6 +536,8 @@ impl Orchestrator {
         experiment_send: Option<Sender<ExperimentChannelMsg>>, // Option allows reuse of this function in experiment.rs
         registry_send: Option<Sender<RegistryChannelMsg>>,     // Option allows reuse of this function in experiment.rs
     ) -> Result<(), OrchestratorError<ExperimentChannelMsg>> {
+        info!("{msg:?}");
+
         match msg {
             OrgChannelMsg::Connect(target_addr) => {
                 client.lock().await.connect(target_addr).await?;
@@ -543,22 +545,26 @@ impl Orchestrator {
             OrgChannelMsg::Disconnect(target_addr) => {
                 client.lock().await.disconnect(target_addr).await?;
             }
-            OrgChannelMsg::Subscribe(target_addr, msg_origin_addr, device_id) => {
-                if let Some(msg_origin_addr) = msg_origin_addr {
-                    info!("Subscribing to {target_addr} for device id {device_id}");
-                    let msg = HostCtrl::SubscribeTo { target_addr, device_id };
-                    client.lock().await.send_message(msg_origin_addr, RpcMessageKind::HostCtrl(msg)).await?;
-                } else {
-                    info!("Subscribing to {target_addr} for device id {device_id}");
-                    let msg = HostCtrl::Subscribe { device_id };
-                    client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?;
+            OrgChannelMsg::Subscribe(target_addr, source_addr, device_id) => {
+                info!("alnhgfoadnsgf");
+                match source_addr {
+                    Some(src_addr) => {
+                        info!("Subscribing to {src_addr} for device id {device_id}");
+                        let msg = HostCtrl::SubscribeTo { target_addr: src_addr, device_id };
+                        client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?;
+                    }
+                    _ => {
+                        info!("Subscribing to {target_addr} for device id {device_id}");
+                        let msg = HostCtrl::Subscribe { device_id };
+                        client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?;
+                    }
                 }
             }
-            OrgChannelMsg::Unsubscribe(target_addr, msg_origin_addr, device_id) => {
-                if let Some(msg_origin_addr) = msg_origin_addr {
+            OrgChannelMsg::Unsubscribe(target_addr, source_addr, device_id) => {
+                if let Some(source_addr) = source_addr {
                     info!("Unsubscribing from {target_addr} for device id {device_id}");
-                    let msg = HostCtrl::UnsubscribeFrom { target_addr, device_id };
-                    client.lock().await.send_message(msg_origin_addr, RpcMessageKind::HostCtrl(msg)).await?;
+                    let msg = HostCtrl::UnsubscribeFrom { target_addr: source_addr, device_id };
+                    client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?;
                 } else {
                     info!("Unsubscribing from {target_addr} for device id {device_id}");
                     let msg = HostCtrl::Unsubscribe { device_id };
