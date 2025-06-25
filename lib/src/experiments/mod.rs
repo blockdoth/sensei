@@ -266,6 +266,12 @@ where
                 .map_err(|_| ExperimentError::ExecutionError)?;
             info!("Running experiment {}", active_exp.experiment.metadata.name);
 
+            // active_exp.status = ExperimentStatus::Stopped;
+            // update_send.send(OrgUpdate::ActiveExperiment(active_exp.clone())).await;
+            //       self.active_experiment = Some(active_exp);
+            //       debug!("Finished experiment");
+            //       return;
+            //   }
             self.cancel_signal.changed().await.map_err(|_| ExperimentError::ExecutionError)?; // Clear reset value
             let cancel_signal_task = self.cancel_signal.clone();
             let mut cancel_signal_cancel = self.cancel_signal.clone();

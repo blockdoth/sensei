@@ -12,7 +12,7 @@ use ratatui::Frame;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use super::tui::ui;
-use crate::orchestrator::OrchChannelMsg;
+use crate::orchestrator::OrgChannelMsg;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Host {
@@ -90,7 +90,7 @@ type DeviceID = u64;
 /// Enum representing different types of updates/events in the TUI state.
 #[derive(Debug, Clone)]
 #[allow(unused)] // Updates might get used in the future
-pub enum OrchUpdate {
+pub enum OrgUpdate {
     // === Hosts ===
     Connect(SocketAddr),
     Disconnect(SocketAddr),
@@ -138,14 +138,14 @@ pub enum OrchUpdate {
     Enter(Focus),
 }
 
-impl FromLog for OrchUpdate {
+impl FromLog for OrgUpdate {
     fn from_log(log: LogEntry) -> Self {
-        OrchUpdate::Log(log)
+        OrgUpdate::Log(log)
     }
 }
 
 /// Holds the entire state of the TUI, including configurations, logs, and mode information.
-pub struct OrchTuiState {
+pub struct OrgTuiState {
     pub should_quit: bool,
     pub registry_hosts: Vec<Host>,
     pub registry_addr: Option<SocketAddr>,
@@ -163,9 +163,9 @@ pub struct OrchTuiState {
     pub csi_scroll_offset: usize,
 }
 
-impl OrchTuiState {
+impl OrgTuiState {
     pub fn new() -> Self {
-        OrchTuiState {
+        OrgTuiState {
             should_quit: false,
             registry_hosts: vec![],
             registry_addr: Some(DEFAULT_ADDRESS),
@@ -188,34 +188,34 @@ impl OrchTuiState {
 }
 
 #[async_trait]
-impl Tui<OrchUpdate, OrchChannelMsg> for OrchTuiState {
+impl Tui<OrgUpdate, OrgChannelMsg> for OrgTuiState {
     /// Draws the UI layout and content.
     fn draw_ui(&self, frame: &mut Frame) {
         ui(frame, self);
     }
 
     /// Handles keyboard input events and maps them to updates.
-    fn handle_keyboard_event(&self, key_event: KeyEvent) -> Option<OrchUpdate> {
+    fn handle_keyboard_event(&self, key_event: KeyEvent) -> Option<OrgUpdate> {
         let key = key_event.code;
         match key {
-            KeyCode::Char('q') | KeyCode::Char('Q') => return Some(OrchUpdate::Exit),
-            KeyCode::Char('.') => return Some(OrchUpdate::ClearLogs),
-            KeyCode::Char(',') => return Some(OrchUpdate::ClearCsi),
-            KeyCode::Esc => return Some(OrchUpdate::FocusChange(Focus::Main)),
+            KeyCode::Char('q') | KeyCode::Char('Q') => return Some(OrgUpdate::Exit),
+            KeyCode::Char('.') => return Some(OrgUpdate::ClearLogs),
+            KeyCode::Char(',') => return Some(OrgUpdate::ClearCsi),
+            KeyCode::Esc => return Some(OrgUpdate::FocusChange(Focus::Main)),
             _ => {}
         };
         let focus = self.focussed_panel.clone();
         match &focus {
             Focus::Main => match key {
-                KeyCode::Char('l') | KeyCode::Char('L') => Some(OrchUpdate::FocusChange(Focus::Logs)),
-                KeyCode::Char('c') | KeyCode::Char('C') => Some(OrchUpdate::FocusChange(Focus::Csi)),
-                KeyCode::Char('r') | KeyCode::Char('R') => Some(OrchUpdate::FocusChange(Focus::Registry(FocusReg::RegistryAddress))),
-                KeyCode::Char('e') | KeyCode::Char('E') => Some(OrchUpdate::FocusChange(Focus::Experiments(FocusExp::Select(0)))),
+                KeyCode::Char('l') | KeyCode::Char('L') => Some(OrgUpdate::FocusChange(Focus::Logs)),
+                KeyCode::Char('c') | KeyCode::Char('C') => Some(OrgUpdate::FocusChange(Focus::Csi)),
+                KeyCode::Char('r') | KeyCode::Char('R') => Some(OrgUpdate::FocusChange(Focus::Registry(FocusReg::RegistryAddress))),
+                KeyCode::Char('e') | KeyCode::Char('E') => Some(OrgUpdate::FocusChange(Focus::Experiments(FocusExp::Select(0)))),
                 KeyCode::Char('h') | KeyCode::Char('H') => {
                     if !self.known_hosts.is_empty() {
-                        Some(OrchUpdate::FocusChange(Focus::Hosts(FocusHost::HostTree(0, 0))))
+                        Some(OrgUpdate::FocusChange(Focus::Hosts(FocusHost::HostTree(0, 0))))
                     } else {
-                        Some(OrchUpdate::FocusChange(Focus::Hosts(FocusHost::None)))
+                        Some(OrgUpdate::FocusChange(Focus::Hosts(FocusHost::None)))
                     }
                 }
                 _ => None,
@@ -223,57 +223,57 @@ impl Tui<OrchUpdate, OrchChannelMsg> for OrchTuiState {
 
             Focus::Registry(focused_registry_panel) => match focused_registry_panel {
                 FocusReg::RegistryAddress => match key {
-                    KeyCode::Tab => Some(OrchUpdate::Tab(focus)),
-                    KeyCode::Down => Some(OrchUpdate::Down(focus)),
-                    KeyCode::Char('c') | KeyCode::Char('C') => Some(OrchUpdate::ConnectRegistry),
-                    KeyCode::Char('d') | KeyCode::Char('D') => Some(OrchUpdate::DisconnectRegistry),
-                    KeyCode::Char('s') | KeyCode::Char('S') => Some(OrchUpdate::TogglePolling),
-                    KeyCode::Char('p') | KeyCode::Char('P') => Some(OrchUpdate::Poll),
-                    KeyCode::Char('a') | KeyCode::Char('A') => Some(OrchUpdate::AddAllHosts),
-                    KeyCode::Char('m') | KeyCode::Char('M') => Some(OrchUpdate::FocusChange(Focus::Registry(FocusReg::AddHost(0)))),
+                    KeyCode::Tab => Some(OrgUpdate::Tab(focus)),
+                    KeyCode::Down => Some(OrgUpdate::Down(focus)),
+                    KeyCode::Char('c') | KeyCode::Char('C') => Some(OrgUpdate::ConnectRegistry),
+                    KeyCode::Char('d') | KeyCode::Char('D') => Some(OrgUpdate::DisconnectRegistry),
+                    KeyCode::Char('s') | KeyCode::Char('S') => Some(OrgUpdate::TogglePolling),
+                    KeyCode::Char('p') | KeyCode::Char('P') => Some(OrgUpdate::Poll),
+                    KeyCode::Char('a') | KeyCode::Char('A') => Some(OrgUpdate::AddAllHosts),
+                    KeyCode::Char('m') | KeyCode::Char('M') => Some(OrgUpdate::FocusChange(Focus::Registry(FocusReg::AddHost(0)))),
                     _ => None,
                 },
                 FocusReg::AvailableHosts(host_idx) => match key {
-                    KeyCode::Up => Some(OrchUpdate::Up(focus)),
-                    KeyCode::Down => Some(OrchUpdate::Down(focus)),
-                    KeyCode::Tab => Some(OrchUpdate::Tab(focus)),
-                    KeyCode::BackTab => Some(OrchUpdate::BackTab(focus)),
-                    KeyCode::Char('a') | KeyCode::Char('A') => self.registry_hosts.get(*host_idx).map(|host| OrchUpdate::AddHost((*host).clone())),
-                    KeyCode::Char('m') | KeyCode::Char('M') => Some(OrchUpdate::FocusChange(Focus::Registry(FocusReg::AddHost(0)))),
+                    KeyCode::Up => Some(OrgUpdate::Up(focus)),
+                    KeyCode::Down => Some(OrgUpdate::Down(focus)),
+                    KeyCode::Tab => Some(OrgUpdate::Tab(focus)),
+                    KeyCode::BackTab => Some(OrgUpdate::BackTab(focus)),
+                    KeyCode::Char('a') | KeyCode::Char('A') => self.registry_hosts.get(*host_idx).map(|host| OrgUpdate::AddHost((*host).clone())),
+                    KeyCode::Char('m') | KeyCode::Char('M') => Some(OrgUpdate::FocusChange(Focus::Registry(FocusReg::AddHost(0)))),
                     _ => None,
                 },
                 FocusReg::AddHost(_) => match key {
-                    KeyCode::Up => Some(OrchUpdate::Up(focus)),
-                    KeyCode::Down => Some(OrchUpdate::Down(focus)),
-                    KeyCode::Right => Some(OrchUpdate::Right(focus)),
-                    KeyCode::Left => Some(OrchUpdate::Left(focus)),
-                    KeyCode::Tab => Some(OrchUpdate::Tab(focus)),
-                    KeyCode::BackTab => Some(OrchUpdate::BackTab(focus)),
-                    KeyCode::Backspace => Some(OrchUpdate::Backspace(focus)),
-                    KeyCode::Enter => Some(OrchUpdate::Enter(focus)),
-                    KeyCode::Char(chr) => Some(OrchUpdate::Edit(chr, focus)),
+                    KeyCode::Up => Some(OrgUpdate::Up(focus)),
+                    KeyCode::Down => Some(OrgUpdate::Down(focus)),
+                    KeyCode::Right => Some(OrgUpdate::Right(focus)),
+                    KeyCode::Left => Some(OrgUpdate::Left(focus)),
+                    KeyCode::Tab => Some(OrgUpdate::Tab(focus)),
+                    KeyCode::BackTab => Some(OrgUpdate::BackTab(focus)),
+                    KeyCode::Backspace => Some(OrgUpdate::Backspace(focus)),
+                    KeyCode::Enter => Some(OrgUpdate::Enter(focus)),
+                    KeyCode::Char(chr) => Some(OrgUpdate::Edit(chr, focus)),
                     _ => None,
                 },
             },
             Focus::Hosts(focused_hosts_panel) => match focused_hosts_panel {
                 FocusHost::None => None,
                 FocusHost::HostTree(host_idx, 0) => match key {
-                    KeyCode::Char('c') | KeyCode::Char('C') => self.known_hosts.get(*host_idx).map(|host| OrchUpdate::Connect(host.addr)),
-                    KeyCode::Char('d') | KeyCode::Char('D') => self.known_hosts.get(*host_idx).map(|host| OrchUpdate::Disconnect(host.addr)),
-                    KeyCode::Char('e') | KeyCode::Char('E') => self.known_hosts.get(*host_idx).map(|host| OrchUpdate::SelectHost(host.addr)),
+                    KeyCode::Char('c') | KeyCode::Char('C') => self.known_hosts.get(*host_idx).map(|host| OrgUpdate::Connect(host.addr)),
+                    KeyCode::Char('d') | KeyCode::Char('D') => self.known_hosts.get(*host_idx).map(|host| OrgUpdate::Disconnect(host.addr)),
+                    KeyCode::Char('e') | KeyCode::Char('E') => self.known_hosts.get(*host_idx).map(|host| OrgUpdate::SelectHost(host.addr)),
 
                     KeyCode::Char('s') | KeyCode::Char('S') => self
                         .known_hosts
                         .get(*host_idx)
-                        .map(|host| OrchUpdate::SubscribeAll(host.addr, self.selected_host)),
+                        .map(|host| OrgUpdate::SubscribeAll(host.addr, self.selected_host)),
                     KeyCode::Char('u') | KeyCode::Char('U') => self
                         .known_hosts
                         .get(*host_idx)
-                        .map(|host| OrchUpdate::UnsubscribeAll(host.addr, self.selected_host)),
-                    KeyCode::Up => Some(OrchUpdate::Up(focus)),
-                    KeyCode::Down => Some(OrchUpdate::Down(focus)),
-                    KeyCode::Tab => Some(OrchUpdate::Tab(focus)),
-                    KeyCode::BackTab => Some(OrchUpdate::BackTab(focus)),
+                        .map(|host| OrgUpdate::UnsubscribeAll(host.addr, self.selected_host)),
+                    KeyCode::Up => Some(OrgUpdate::Up(focus)),
+                    KeyCode::Down => Some(OrgUpdate::Down(focus)),
+                    KeyCode::Tab => Some(OrgUpdate::Tab(focus)),
+                    KeyCode::BackTab => Some(OrgUpdate::BackTab(focus)),
                     _ => None,
                 },
                 FocusHost::HostTree(host_idx, device_idx) => match key {
@@ -282,7 +282,7 @@ impl Tui<OrchUpdate, OrchChannelMsg> for OrchTuiState {
                         if let Some(host) = self.known_hosts.get(*host_idx) {
                             host.devices
                                 .get(device_idx - 1)
-                                .map(|device| OrchUpdate::Subscribe(host.addr, self.selected_host, device.id))
+                                .map(|device| OrgUpdate::Subscribe(host.addr, self.selected_host, device.id))
                         } else {
                             None
                         }
@@ -291,26 +291,26 @@ impl Tui<OrchUpdate, OrchChannelMsg> for OrchTuiState {
                         if let Some(host) = self.known_hosts.get(*host_idx) {
                             host.devices
                                 .get(device_idx - 1)
-                                .map(|device| OrchUpdate::Unsubscribe(host.addr, self.selected_host, device.id))
+                                .map(|device| OrgUpdate::Unsubscribe(host.addr, self.selected_host, device.id))
                         } else {
                             None
                         }
                     }
-                    KeyCode::Up => Some(OrchUpdate::Up(focus)),
-                    KeyCode::Down => Some(OrchUpdate::Down(focus)),
-                    KeyCode::Tab => Some(OrchUpdate::Tab(focus)),
-                    KeyCode::BackTab => Some(OrchUpdate::BackTab(focus)),
+                    KeyCode::Up => Some(OrgUpdate::Up(focus)),
+                    KeyCode::Down => Some(OrgUpdate::Down(focus)),
+                    KeyCode::Tab => Some(OrgUpdate::Tab(focus)),
+                    KeyCode::BackTab => Some(OrgUpdate::BackTab(focus)),
                     _ => None,
                 },
             },
             Focus::Experiments(FocusExp::Select(i)) => match key {
-                KeyCode::Up => Some(OrchUpdate::Up(focus)),
-                KeyCode::Down => Some(OrchUpdate::Down(focus)),
-                KeyCode::Char('r') | KeyCode::Char('R') => Some(OrchUpdate::ReloadExperimentConfigs),
+                KeyCode::Up => Some(OrgUpdate::Up(focus)),
+                KeyCode::Down => Some(OrgUpdate::Down(focus)),
+                KeyCode::Char('r') | KeyCode::Char('R') => Some(OrgUpdate::ReloadExperimentConfigs),
                 KeyCode::Char('e') | KeyCode::Char('E') => {
                     if let Some(exp) = &self.active_experiment {
                         match exp.info.status {
-                            ExperimentStatus::Running => Some(OrchUpdate::StopExperiment(self.selected_host)),
+                            ExperimentStatus::Running => Some(OrgUpdate::StopExperiment(self.selected_host)),
                             _ => None,
                         }
                     } else {
@@ -321,7 +321,7 @@ impl Tui<OrchUpdate, OrchChannelMsg> for OrchTuiState {
                     if let Some(exp) = &self.active_experiment {
                         match exp.info.status {
                             ExperimentStatus::Done | ExperimentStatus::Ready | ExperimentStatus::Stopped => {
-                                Some(OrchUpdate::StartExperiment(exp.experiment.metadata.remote_host))
+                                Some(OrgUpdate::StartExperiment(exp.experiment.metadata.remote_host))
                             }
                             _ => None,
                         }
@@ -332,95 +332,95 @@ impl Tui<OrchUpdate, OrchChannelMsg> for OrchTuiState {
                 KeyCode::Char('s') | KeyCode::Char('S') => {
                     if let Some(exp) = &self.active_experiment {
                         match exp.info.status {
-                            ExperimentStatus::Done | ExperimentStatus::Ready | ExperimentStatus::Stopped => Some(OrchUpdate::SelectExperiment(*i)),
+                            ExperimentStatus::Done | ExperimentStatus::Ready | ExperimentStatus::Stopped => Some(OrgUpdate::SelectExperiment(*i)),
                             _ => None,
                         }
                     } else {
-                        Some(OrchUpdate::SelectExperiment(*i))
+                        Some(OrgUpdate::SelectExperiment(*i))
                     }
                 }
                 _ => None,
             },
             Focus::Logs | Focus::Csi => match key {
-                KeyCode::Up => Some(OrchUpdate::Up(focus)),
-                KeyCode::Down => Some(OrchUpdate::Down(focus)),
+                KeyCode::Up => Some(OrgUpdate::Up(focus)),
+                KeyCode::Down => Some(OrgUpdate::Down(focus)),
                 _ => None,
             },
         }
     }
 
     /// Applies updates and potentially sends commands to background tasks.
-    async fn handle_update(&mut self, update: OrchUpdate, command_send: &Sender<OrchChannelMsg>, _update_recv: &mut Receiver<OrchUpdate>) {
+    async fn handle_update(&mut self, update: OrgUpdate, command_send: &Sender<OrgChannelMsg>, _update_recv: &mut Receiver<OrgUpdate>) {
         #[allow(unused_variables, unused_must_use)] // Not touching this monstrous match. TODO
         match update {
-            OrchUpdate::Exit => {
+            OrgUpdate::Exit => {
                 self.should_quit = true;
-                command_send.send(OrchChannelMsg::Shutdown).await; // Graceful shutdown
+                command_send.send(OrgChannelMsg::Shutdown).await; // Graceful shutdown
             }
-            OrchUpdate::Log(entry) => {
+            OrgUpdate::Log(entry) => {
                 self.logs.push(entry);
             }
-            OrchUpdate::CsiData(data) => {
+            OrgUpdate::CsiData(data) => {
                 self.csi.push(data);
             }
-            OrchUpdate::Connect(to_addr) => {
-                command_send.send(OrchChannelMsg::Connect(to_addr)).await;
+            OrgUpdate::Connect(to_addr) => {
+                command_send.send(OrgChannelMsg::Connect(to_addr)).await;
                 self.known_hosts.iter_mut().find(|a| a.addr == to_addr).unwrap().status = HostStatus::Connected;
             }
-            OrchUpdate::Disconnect(from_addr) => {
-                command_send.send(OrchChannelMsg::Disconnect(from_addr)).await;
+            OrgUpdate::Disconnect(from_addr) => {
+                command_send.send(OrgChannelMsg::Disconnect(from_addr)).await;
                 self.known_hosts.iter_mut().find(|a| a.addr == from_addr).unwrap().status = HostStatus::Disconnected;
             }
-            OrchUpdate::Subscribe(to_addr, msg_origin_addr, device_id) => {
-                command_send.send(OrchChannelMsg::Subscribe(to_addr, msg_origin_addr, device_id)).await;
+            OrgUpdate::Subscribe(to_addr, msg_origin_addr, device_id) => {
+                command_send.send(OrgChannelMsg::Subscribe(to_addr, msg_origin_addr, device_id)).await;
             }
-            OrchUpdate::Unsubscribe(to_addr, msg_origin_addr, device_id) => {
-                command_send.send(OrchChannelMsg::Unsubscribe(to_addr, msg_origin_addr, device_id)).await;
+            OrgUpdate::Unsubscribe(to_addr, msg_origin_addr, device_id) => {
+                command_send.send(OrgChannelMsg::Unsubscribe(to_addr, msg_origin_addr, device_id)).await;
             }
-            OrchUpdate::SubscribeAll(to_addr, msg_origin_addr) => {
-                command_send.send(OrchChannelMsg::SubscribeAll(to_addr, msg_origin_addr)).await;
+            OrgUpdate::SubscribeAll(to_addr, msg_origin_addr) => {
+                command_send.send(OrgChannelMsg::SubscribeAll(to_addr, msg_origin_addr)).await;
             }
-            OrchUpdate::UnsubscribeAll(to_addr, msg_origin_addr) => {
-                command_send.send(OrchChannelMsg::UnsubscribeAll(to_addr, msg_origin_addr)).await;
+            OrgUpdate::UnsubscribeAll(to_addr, msg_origin_addr) => {
+                command_send.send(OrgChannelMsg::UnsubscribeAll(to_addr, msg_origin_addr)).await;
             }
-            OrchUpdate::SelectHost(selected_addr) => {
+            OrgUpdate::SelectHost(selected_addr) => {
                 self.selected_host = match self.selected_host {
                     None => Some(selected_addr),
                     Some(prev) if prev != selected_addr => Some(selected_addr),
                     _ => None,
                 }
             }
-            OrchUpdate::StartExperiment(addr_opt) => {
+            OrgUpdate::StartExperiment(addr_opt) => {
                 if let Some(addr) = addr_opt {
-                    command_send.send(OrchChannelMsg::StartRemoteExperiment(addr)).await;
+                    command_send.send(OrgChannelMsg::StartRemoteExperiment(addr)).await;
                 } else {
-                    command_send.send(OrchChannelMsg::StartExperiment).await;
+                    command_send.send(OrgChannelMsg::StartExperiment).await;
                 }
             }
-            OrchUpdate::StopExperiment(addr_opt) => {
+            OrgUpdate::StopExperiment(addr_opt) => {
                 if let Some(addr) = addr_opt {
-                    command_send.send(OrchChannelMsg::StopRemoteExperiment(addr)).await;
+                    command_send.send(OrgChannelMsg::StopRemoteExperiment(addr)).await;
                 } else {
-                    command_send.send(OrchChannelMsg::StopExperiment).await;
+                    command_send.send(OrgChannelMsg::StopExperiment).await;
                 }
             }
-            OrchUpdate::SelectExperiment(idx) => {
-                command_send.send(OrchChannelMsg::SelectExperiment(idx)).await;
+            OrgUpdate::SelectExperiment(idx) => {
+                command_send.send(OrgChannelMsg::SelectExperiment(idx)).await;
             }
-            OrchUpdate::ActiveExperiment(active_experiment) => {
+            OrgUpdate::ActiveExperiment(active_experiment) => {
                 // info!("Received experiment with status {:?}", active_experiment.status);
                 self.active_experiment = Some(active_experiment);
             }
-            OrchUpdate::UpdateExperimentList(experiments) => {
+            OrgUpdate::UpdateExperimentList(experiments) => {
                 self.experiments = experiments;
             }
-            OrchUpdate::ReloadExperimentConfigs => {
-                command_send.send(OrchChannelMsg::ReloadExperimentConfigs).await;
+            OrgUpdate::ReloadExperimentConfigs => {
+                command_send.send(OrgChannelMsg::ReloadExperimentConfigs).await;
             }
-            OrchUpdate::ClearLogs => self.logs.clear(),
-            OrchUpdate::ClearCsi => self.csi.clear(),
-            OrchUpdate::FocusChange(focused_panel) => self.focussed_panel = focused_panel,
-            OrchUpdate::AddHost(status) => {
+            OrgUpdate::ClearLogs => self.logs.clear(),
+            OrgUpdate::ClearCsi => self.csi.clear(),
+            OrgUpdate::FocusChange(focused_panel) => self.focussed_panel = focused_panel,
+            OrgUpdate::AddHost(status) => {
                 if !self.known_hosts.iter().any(|h| h.id == status.id || h.addr == status.addr) {
                     debug!("Added host from registry");
                     self.known_hosts.push(status)
@@ -429,15 +429,15 @@ impl Tui<OrchUpdate, OrchChannelMsg> for OrchTuiState {
                 }
             }
             // Registry
-            OrchUpdate::ConnectRegistry => {
+            OrgUpdate::ConnectRegistry => {
                 if self.registry_status == RegistryStatus::Disconnected {
                     if let Some(registry_addr) = self.registry_addr {
-                        command_send.send(OrchChannelMsg::ConnectRegistry(registry_addr)).await;
+                        command_send.send(OrgChannelMsg::ConnectRegistry(registry_addr)).await;
                         self.registry_status = RegistryStatus::Connected;
                     }
                 }
             }
-            OrchUpdate::AddAllHosts => {
+            OrgUpdate::AddAllHosts => {
                 self.known_hosts = self
                     .registry_hosts
                     .iter()
@@ -445,7 +445,7 @@ impl Tui<OrchUpdate, OrchChannelMsg> for OrchTuiState {
                     .cloned()
                     .collect();
             }
-            OrchUpdate::RegistryIsConnected(is_connected) => {
+            OrgUpdate::RegistryIsConnected(is_connected) => {
                 self.registry_status = if is_connected {
                     RegistryStatus::Connected
                 } else {
@@ -470,22 +470,22 @@ impl Tui<OrchUpdate, OrchChannelMsg> for OrchTuiState {
                     RegistryStatus::Disconnected
                 }
             }
-            OrchUpdate::DisconnectRegistry => match self.registry_status {
+            OrgUpdate::DisconnectRegistry => match self.registry_status {
                 RegistryStatus::Polling | RegistryStatus::Connected | RegistryStatus::WaitingForConnection => {
-                    command_send.send(OrchChannelMsg::DisconnectRegistry).await;
+                    command_send.send(OrgChannelMsg::DisconnectRegistry).await;
                 }
                 _ => {}
             },
-            OrchUpdate::TogglePolling => match self.registry_status {
+            OrgUpdate::TogglePolling => match self.registry_status {
                 RegistryStatus::Connected | RegistryStatus::Polling => {
                     self.registry_status = if self.is_polling {
                         self.is_polling = false;
-                        if command_send.send(OrchChannelMsg::StopPolling).await.is_ok() {
+                        if command_send.send(OrgChannelMsg::StopPolling).await.is_ok() {
                             RegistryStatus::Connected
                         } else {
                             RegistryStatus::Disconnected
                         }
-                    } else if command_send.send(OrchChannelMsg::StartPolling).await.is_ok() {
+                    } else if command_send.send(OrgChannelMsg::StartPolling).await.is_ok() {
                         self.is_polling = true;
                         RegistryStatus::Polling
                     } else {
@@ -494,13 +494,13 @@ impl Tui<OrchUpdate, OrchChannelMsg> for OrchTuiState {
                 }
                 _ => {}
             },
-            OrchUpdate::Poll => {
+            OrgUpdate::Poll => {
                 if self.registry_status == RegistryStatus::Connected {
-                    command_send.send(OrchChannelMsg::Poll).await;
+                    command_send.send(OrgChannelMsg::Poll).await;
                 }
             }
 
-            OrchUpdate::UpdateHostStatuses(statuses) => {
+            OrgUpdate::UpdateHostStatuses(statuses) => {
                 // Couldnt get Into() to work
                 self.registry_hosts = statuses
                     .iter()
@@ -525,13 +525,13 @@ impl Tui<OrchUpdate, OrchChannelMsg> for OrchTuiState {
                     .collect();
             }
 
-            OrchUpdate::Backspace(Focus::Registry(focus)) => {
+            OrgUpdate::Backspace(Focus::Registry(focus)) => {
                 if let FocusReg::AddHost(idx) = focus {
                     self.add_host_input_socket[idx] = '_';
                     self.focussed_panel = Focus::Registry(focus.cursor_left());
                 }
             }
-            OrchUpdate::Enter(Focus::Registry(_)) => {
+            OrgUpdate::Enter(Focus::Registry(_)) => {
                 let ip_string = self.add_host_input_socket.iter().collect::<String>().replace("_", "");
                 if let Ok(socket_addr) = ip_string.parse::<SocketAddr>() {
                     if self.known_hosts.iter().any(|a| a.addr == socket_addr) {
@@ -550,7 +550,7 @@ impl Tui<OrchUpdate, OrchChannelMsg> for OrchTuiState {
                     info!("Failed to parse socket address {ip_string}");
                 }
             }
-            OrchUpdate::Edit(chr, Focus::Registry(focus)) => match focus {
+            OrgUpdate::Edit(chr, Focus::Registry(focus)) => match focus {
                 FocusReg::AddHost(idx) if chr.is_numeric() => {
                     self.add_host_input_socket[idx] = chr;
                     self.focussed_panel = Focus::Registry(focus.cursor_right());
@@ -558,28 +558,28 @@ impl Tui<OrchUpdate, OrchChannelMsg> for OrchTuiState {
                 _ => {}
             },
 
-            OrchUpdate::Up(Focus::Hosts(focus)) => self.focussed_panel = Focus::Hosts(focus.cursor_up(&self.known_hosts)),
-            OrchUpdate::Down(Focus::Hosts(focus)) => self.focussed_panel = Focus::Hosts(focus.cursor_down(&self.known_hosts)),
-            OrchUpdate::Tab(Focus::Hosts(focus)) => self.focussed_panel = Focus::Hosts(focus.tab(&self.known_hosts)),
-            OrchUpdate::BackTab(Focus::Hosts(focus)) => self.focussed_panel = Focus::Hosts(focus.back_tab(&self.known_hosts)),
+            OrgUpdate::Up(Focus::Hosts(focus)) => self.focussed_panel = Focus::Hosts(focus.cursor_up(&self.known_hosts)),
+            OrgUpdate::Down(Focus::Hosts(focus)) => self.focussed_panel = Focus::Hosts(focus.cursor_down(&self.known_hosts)),
+            OrgUpdate::Tab(Focus::Hosts(focus)) => self.focussed_panel = Focus::Hosts(focus.tab(&self.known_hosts)),
+            OrgUpdate::BackTab(Focus::Hosts(focus)) => self.focussed_panel = Focus::Hosts(focus.back_tab(&self.known_hosts)),
 
             // Key logic for the experiment panel
-            OrchUpdate::Up(Focus::Experiments(focus)) => self.focussed_panel = Focus::Experiments(focus.up()),
-            OrchUpdate::Down(Focus::Experiments(focus)) => self.focussed_panel = Focus::Experiments(focus.down(self.experiments.len())),
+            OrgUpdate::Up(Focus::Experiments(focus)) => self.focussed_panel = Focus::Experiments(focus.up()),
+            OrgUpdate::Down(Focus::Experiments(focus)) => self.focussed_panel = Focus::Experiments(focus.down(self.experiments.len())),
 
             // Key logic for the registry panel
-            OrchUpdate::Up(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.cursor_up(self.registry_hosts.len())),
-            OrchUpdate::Down(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.cursor_down(self.registry_hosts.len())),
-            OrchUpdate::Tab(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.tab(self.registry_hosts.len())),
-            OrchUpdate::BackTab(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.back_tab(self.registry_hosts.len())),
-            OrchUpdate::Left(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.cursor_left()),
-            OrchUpdate::Right(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.cursor_right()),
+            OrgUpdate::Up(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.cursor_up(self.registry_hosts.len())),
+            OrgUpdate::Down(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.cursor_down(self.registry_hosts.len())),
+            OrgUpdate::Tab(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.tab(self.registry_hosts.len())),
+            OrgUpdate::BackTab(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.back_tab(self.registry_hosts.len())),
+            OrgUpdate::Left(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.cursor_left()),
+            OrgUpdate::Right(Focus::Registry(focus)) => self.focussed_panel = Focus::Registry(focus.cursor_right()),
 
             // Scoll logic for logs / csi
-            OrchUpdate::Up(Focus::Logs) => self.logs_scroll_offset += 1,
-            OrchUpdate::Up(Focus::Csi) => self.csi_scroll_offset += 1,
-            OrchUpdate::Down(Focus::Logs) => self.logs_scroll_offset = self.logs_scroll_offset.saturating_sub(1),
-            OrchUpdate::Down(Focus::Csi) => self.csi_scroll_offset = self.csi_scroll_offset.saturating_sub(1),
+            OrgUpdate::Up(Focus::Logs) => self.logs_scroll_offset += 1,
+            OrgUpdate::Up(Focus::Csi) => self.csi_scroll_offset += 1,
+            OrgUpdate::Down(Focus::Logs) => self.logs_scroll_offset = self.logs_scroll_offset.saturating_sub(1),
+            OrgUpdate::Down(Focus::Csi) => self.csi_scroll_offset = self.csi_scroll_offset.saturating_sub(1),
 
             _ => {}
         }

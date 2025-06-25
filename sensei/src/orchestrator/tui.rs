@@ -6,7 +6,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Padding, Paragraph, Wrap};
 
-use super::state::OrchTuiState;
+use super::state::OrgTuiState;
 use crate::orchestrator::state::{DeviceStatus, Focus, FocusExp, FocusHost, FocusReg, HostStatus, RegistryStatus};
 
 const HEADER_STYLE: Style = Style {
@@ -19,7 +19,7 @@ const HEADER_STYLE: Style = Style {
 
 const PADDING: Padding = Padding::new(1, 1, 0, 0);
 
-pub fn ui(f: &mut Frame, tui_state: &OrchTuiState) {
+pub fn ui(f: &mut Frame, tui_state: &OrgTuiState) {
     let (main_area, footer_area) = split_main_footer(f);
     let (info_area, config_area) = split_info_config(main_area);
     let (log_area, csi_area) = split_log_csi(info_area);
@@ -116,7 +116,7 @@ fn divider(area: Rect) -> Line<'static> {
 
 /// Renders the logs panel in the TUI.
 /// Displays formatted log entries with scroll support and highlights the panel if focused.
-fn render_logs(f: &mut Frame, tui_state: &OrchTuiState, area: Rect) {
+fn render_logs(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     let current_log_count = tui_state.logs.len();
     let start_index = current_log_count
         .saturating_sub(area.height.saturating_sub(2) as usize)
@@ -141,7 +141,7 @@ fn render_logs(f: &mut Frame, tui_state: &OrchTuiState, area: Rect) {
 
 /// Renders the CSI (Channel State Information) panel in the TUI.
 /// Displays a timestamped list of CSI entries with basic metadata and subcarrier counts.
-fn render_csi(f: &mut Frame, tui_state: &OrchTuiState, area: Rect) {
+fn render_csi(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     let current_log_count = tui_state.logs.len();
     let start_index = current_log_count
         .saturating_sub(area.height.saturating_sub(2) as usize)
@@ -191,7 +191,7 @@ fn render_csi(f: &mut Frame, tui_state: &OrchTuiState, area: Rect) {
 
 /// Renders the registry panel in the TUI.
 /// Shows the registry address, status, list of available hosts, and input for manually adding hosts.
-fn render_registry(f: &mut Frame, tui_state: &OrchTuiState, area: Rect) {
+fn render_registry(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     let registry_addr_text = match tui_state.registry_addr {
         Some(addr) => format!("Address: {addr:?}"),
         None => "No registry specified".to_owned(),
@@ -265,7 +265,7 @@ fn render_registry(f: &mut Frame, tui_state: &OrchTuiState, area: Rect) {
 
 /// Renders the hosts panel in the TUI.
 /// Displays a tree of known hosts and their associated devices, with connection and subscription statuses.
-fn render_hosts(f: &mut Frame, tui_state: &OrchTuiState, area: Rect) {
+fn render_hosts(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     let mut lines: Vec<Line> = vec![];
     lines.push(Line::from("ID  Address/Device  Status"));
     lines.push(divider(area));
@@ -348,7 +348,7 @@ fn render_hosts(f: &mut Frame, tui_state: &OrchTuiState, area: Rect) {
 
 /// Renders the experiments panel in the TUI.
 /// Displays current experiment status and metadata, as well as a list of selectable experiments.
-fn render_experiments(f: &mut Frame, tui_state: &OrchTuiState, area: Rect) {
+fn render_experiments(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     let mut lines = if let Some(active_exp) = &tui_state.active_experiment {
         let status_color = match active_exp.info.status {
             ExperimentStatus::Running => Color::Yellow,
@@ -437,7 +437,7 @@ fn render_experiments(f: &mut Frame, tui_state: &OrchTuiState, area: Rect) {
 }
 
 /// Renders the footer panel with keybindings or contextual help based on the current focused panel.
-fn render_footer(f: &mut Frame, tui_state: &OrchTuiState, area: Rect) {
+fn render_footer(f: &mut Frame, tui_state: &OrgTuiState, area: Rect) {
     let widget = Paragraph::new(footer_text(tui_state)).wrap(Wrap { trim: true }).block(
         Block::default()
             .borders(Borders::ALL)
@@ -449,7 +449,7 @@ fn render_footer(f: &mut Frame, tui_state: &OrchTuiState, area: Rect) {
 }
 
 /// Returns a footer string with keybinds/help based on the currently focused panel.
-fn footer_text(tui_state: &OrchTuiState) -> String {
+fn footer_text(tui_state: &OrgTuiState) -> String {
     match &tui_state.focussed_panel {
         Focus::Main => "[R]egistry | [H]osts  | [E]xperiment | [L]ogs | [C]si | [.] Clear Logs | [,] Clear CSI | [Q]uit",
         Focus::Hosts(focused_hosts_panel) => match focused_hosts_panel {
