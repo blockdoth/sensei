@@ -180,36 +180,6 @@ mod tests {
         assert_eq!(source.config.device_id, config.device_id);
     }
 
-    // #[tokio::test]
-    // async fn test_start() {
-    //     let mut mock = TcpClient::default();
-    //     let config = make_config();
-    //
-    //     mock.expect_connect().with(eq(config.target_addr)).returning(|_| Ok(()));
-    //
-    //     let mut source = TCPSource {
-    //         client: mock,
-    //         config: make_config(),
-    //     };
-    //     let ret = source.start().await;
-    //     assert!(ret.is_ok());
-    // }
-
-    // #[tokio::test]
-    // async fn test_stop() {
-    //     let mut mock = TcpClient::default();
-    //     let config = make_config();
-    //
-    //     mock.expect_disconnect().with(eq(config.target_addr)).returning(|_| Ok(()));
-    //
-    //     let mut source = TCPSource {
-    //         client: mock,
-    //         config: make_config(),
-    //     };
-    //     let ret = source.stop().await;
-    //     assert!(ret.is_ok());
-    // }
-
     #[tokio::test]
     async fn test_read_buf() {
         let mut source = TCPSource {
