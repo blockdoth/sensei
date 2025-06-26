@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use lib::FromConfig;
-use lib::errors::{AppError, ExperimentError, NetworkError};
+use lib::errors::{ExperimentError, NetworkError};
 use lib::experiments::{ActiveExperiment, Command, Experiment, ExperimentInfo, ExperimentSession, ExperimentStatus};
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
 use lib::network::rpc_message::CfgType::{Create, Delete, Edit};
@@ -34,6 +34,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{Mutex, broadcast, mpsc, watch};
 use tokio::task::{self, JoinHandle};
 
+use crate::errors::AppError;
 use crate::services::{GlobalConfig, Run, SystemNodeConfig};
 
 /// The System Node is a sender and a receiver in the network of Sensei.
@@ -272,7 +273,7 @@ impl SystemNode {
     ) -> Result<(), AppError> {
         match command {
             Command::Subscribe { target_addr, device_id } => Ok(Self::subscribe_to(target_addr, device_id, handlers, local_data_tx).await?),
-            Command::Unsubscribe { target_addr: _, device_id } => Ok(Self::unsubscribe_from(device_id, handlers).await?),
+            Command::Unsubscribe { target_addr, device_id } => Ok(Self::unsubscribe_from(target_addr, device_id, handlers).await?),
             Command::Configure {
                 target_addr: _,
                 device_id,
@@ -324,9 +325,23 @@ impl SystemNode {
         Ok(())
     }
 
+    async fn subscribe_all(src_addr: SocketAddr, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), AppError> {
+        send_channel_msg_channel.send(ChannelMsg::from(HostChannel::SubscribeAll))?;
+        info!("Client {src_addr} subscribed to data stream for all devices");
+
+        Ok(())
+    }
+
     async fn unsubscribe(src_addr: SocketAddr, device_id: DeviceId, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), AppError> {
         send_channel_msg_channel.send(ChannelMsg::from(HostChannel::Unsubscribe { device_id }))?;
         info!("Client {src_addr} unsubscribed from data stream for device_id: {device_id}");
+
+        Ok(())
+    }
+
+    async fn unsubscribe_all(src_addr: SocketAddr, send_channel_msg_channel: watch::Sender<ChannelMsg>) -> Result<(), AppError> {
+        send_channel_msg_channel.send(ChannelMsg::from(HostChannel::UnsubscribeAll))?;
+        info!("Client {src_addr} unsubscribed from all devices");
 
         Ok(())
     }
@@ -355,8 +370,8 @@ impl SystemNode {
             output_to: vec![],
         };
 
-        // This can be allowed to unwrap, as it will literally always succeed
-        let mut new_handler = DeviceHandler::from_config(new_handler_config).await.unwrap();
+        info!("Trying to connect to {target_addr}");
+        let mut new_handler = DeviceHandler::from_config(new_handler_config).await?;
 
         new_handler.start(local_data_tx).await?;
 
@@ -367,14 +382,23 @@ impl SystemNode {
         Ok(())
     }
 
-    async fn unsubscribe_from(device_id: DeviceId, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), AppError> {
-        // TODO: Make it target specific, but for now removing based on device id should be fine.
-        // Would require extracting the source itself from the device handler
+    async fn unsubscribe_from(
+        target_addr: SocketAddr,
+        device_id: DeviceId,
+        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+    ) -> Result<(), AppError> {
         info!("Removing handler subscribing to {device_id}");
         match handlers.lock().await.remove(&device_id) {
-            Some(mut handler) => {
-                handler.stop().await?;
-            }
+            Some(mut handler) => match handler.config().source {
+                DataSourceConfig::Tcp(config) => {
+                    if config.target_addr == target_addr {
+                        handler.stop().await?;
+                    }
+                }
+                _ => {
+                    info!("This device_id {device_id} is not a subscription")
+                }
+            },
             _ => info!("This handler does not exist."),
         }
 
@@ -535,23 +559,20 @@ impl ConnectionHandler for SystemNode {
                         Self::subscribe(request.src_addr, *device_id, send_channel_msg_channel).await?;
                     }
                     HostCtrl::SubscribeAll => {
-                        for device_id in self.handlers.lock().await.keys() {
-                            Self::subscribe(request.src_addr, *device_id, send_channel_msg_channel.clone()).await?;
-                        }
+                        Self::subscribe_all(request.src_addr, send_channel_msg_channel).await?;
                     }
                     HostCtrl::Unsubscribe { device_id } => {
                         Self::unsubscribe(request.src_addr, *device_id, send_channel_msg_channel).await?;
                     }
                     HostCtrl::UnsubscribeAll => {
-                        for device_id in self.handlers.lock().await.keys() {
-                            Self::unsubscribe(request.src_addr, *device_id, send_channel_msg_channel.clone()).await?;
-                        }
+                        Self::unsubscribe_all(request.src_addr, send_channel_msg_channel).await?;
                     }
                     HostCtrl::SubscribeTo { target_addr, device_id } => {
+                        debug!("SBUSapfga");
                         Self::subscribe_to(*target_addr, *device_id, self.handlers.clone(), self.local_data_tx.clone()).await?;
                     }
-                    HostCtrl::UnsubscribeFrom { target_addr: _, device_id } => {
-                        Self::unsubscribe(request.src_addr, *device_id, send_channel_msg_channel).await?;
+                    HostCtrl::UnsubscribeFrom { target_addr, device_id } => {
+                        Self::unsubscribe_from(*target_addr, *device_id, self.handlers.clone()).await?;
                     }
                     HostCtrl::StartExperiment { experiment } => {
                         self.experiment_send
@@ -587,7 +608,7 @@ impl ConnectionHandler for SystemNode {
                 Ok::<(), Box<dyn std::error::Error>>(())
             }
             .await
-            .map_err(|err| NetworkError::ProcessingError(err.to_string()))?,
+            .map_err(|_| NetworkError::Other)?,
             RpcMessageKind::RegCtrl(command) => match command {
                 RegCtrl::PollHostStatus { host_id: _ } => {
                     send_channel_msg_channel.send(ChannelMsg::RegChannel(RegChannel::SendHostStatus { host_id: self.host_id }))?
@@ -623,6 +644,7 @@ impl ConnectionHandler for SystemNode {
         mut send_stream: OwnedWriteHalf,
     ) -> Result<(), NetworkError> {
         let mut subscribed_ids: HashSet<HostId> = HashSet::new();
+        let mut is_all_subscribed: bool = false;
         loop {
             // This loop continues execution untill a client disconnects.
             // Since tokio only yiels execution back to the scheduler once a task finishes
@@ -642,8 +664,14 @@ impl ConnectionHandler for SystemNode {
                         HostChannel::Subscribe { device_id } => {
                             subscribed_ids.insert(device_id);
                         }
+                        HostChannel::SubscribeAll => {
+                            is_all_subscribed = true;
+                        }
                         HostChannel::Unsubscribe { device_id } => {
                             subscribed_ids.remove(&device_id);
+                        }
+                        HostChannel::UnsubscribeAll => {
+                            is_all_subscribed = false;
                         }
                         HostChannel::Pong => {
                             debug!("Sending pong...");
@@ -662,7 +690,7 @@ impl ConnectionHandler for SystemNode {
 
             if !recv_data_channel.is_empty() {
                 let (data_msg, device_id) = recv_data_channel.recv().await.unwrap();
-                if subscribed_ids.contains(&device_id) {
+                if is_all_subscribed || subscribed_ids.contains(&device_id) {
                     debug!("Sending data {data_msg:?} for {device_id} to {send_stream:?}");
                     let msg = RpcMessageKind::Data { data_msg, device_id };
                     send_message(&mut send_stream, msg).await?;

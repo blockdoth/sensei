@@ -57,7 +57,7 @@ pub static DEFAULT_ORCHESTRATOR_CONFIG: &str = "examples/default/orchestrator.ya
 pub static DEFAULT_REGISTRY_CONFIG: &str = "examples/default/registry.yaml";
 pub static DEFAULT_VISUALIZER_CONFIG: &str = "examples/default/visualiser.yaml";
 pub static DEFAULT_EXPERIMENT_CONFIGS: &str = "examples/experiments/";
-pub static DEFAULT_ORG_POLL_INTERVAL: u64 = 5;
+pub static DEFAULT_ORCH_POLL_INTERVAL: u64 = 5;
 
 /// A trait for overlaying subcommand arguments onto an existing configuration.
 ///
@@ -195,7 +195,7 @@ pub struct OrchestratorSubcommandArgs {
     pub experiments_dir: PathBuf,
 
     /// polling interval of the registry
-    #[argh(option, default = "DEFAULT_ORG_POLL_INTERVAL")]
+    #[argh(option, default = "DEFAULT_ORCH_POLL_INTERVAL")]
     pub polling_interval: u64,
 
     /// file path of the experiment config
@@ -222,7 +222,7 @@ impl MergeWithConfig<OrchestratorConfig> for OrchestratorSubcommandArgs {
         // Because of the default value we expact that there's always a file to read
         debug!("Loading orchestrator node configuration from YAML file: {:?}", self.config_path);
         // overwrite fields when set by the CLI while keeping CLI defaults
-        if self.polling_interval != DEFAULT_ORG_POLL_INTERVAL {
+        if self.polling_interval != DEFAULT_ORCH_POLL_INTERVAL {
             device_config.polling_interval = self.polling_interval;
         }
 
@@ -395,7 +395,7 @@ impl MergeWithConfig<RegistryConfig> for RegistrySubcommandArgs {
     fn merge_with_config(&self, mut full_config: RegistryConfig) -> RegistryConfig {
         // Because of the default value we expact that there's always a file to read
         debug!("Loading system node configuration from YAML file: {}", self.config_path.display());
-        if self.polling_interval != DEFAULT_ORG_POLL_INTERVAL {
+        if self.polling_interval != DEFAULT_ORCH_POLL_INTERVAL {
             full_config.polling_interval = self.polling_interval;
         }
 

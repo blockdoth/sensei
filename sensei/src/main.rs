@@ -16,6 +16,7 @@
 //! - `visualiser`: Visualization tools for representing system status and logs.
 
 mod cli;
+mod errors;
 #[cfg(feature = "esp_tool")]
 mod esp_tool;
 #[cfg(feature = "orchestrator")]
@@ -48,7 +49,10 @@ use tokio::runtime::Builder;
 use crate::orchestrator::*;
 #[cfg(feature = "registry")]
 use crate::registry::Registry;
-use crate::services::{OrchestratorConfig, VisualiserConfig};
+#[cfg(feature = "orchestrator")]
+use crate::services::OrchestratorConfig;
+#[cfg(feature = "visualiser")]
+use crate::services::VisualiserConfig;
 #[cfg(feature = "sys_node")]
 use crate::system_node::*;
 #[cfg(feature = "visualiser")]
@@ -160,6 +164,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 SubCommandsArgs::Registry(args) => {
                     Registry::new(global_config, args.into()).run().await?;
                 }
+                #[allow(unreachable_patterns)]
+                _ => todo!("Here in case the cross compile features do funny"),
             },
         }
 
