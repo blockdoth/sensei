@@ -1,9 +1,0 @@
-procs:
-  node_1:
-    cmd: ["sh", "-c", "sleep 1 && cargo run -- --level TRACE node --config-path resources/example_configs/host/reg_test/node_1.yaml"]
-  node_2:
-    cmd: ["sh", "-c", "sleep 1 && cargo run -- --level TRACE node --config-path resources/example_configs/host/reg_test/node_2.yaml"]
-  node_3:
-    cmd: ["sh", "-c", "sleep 1 && cargo run -- --level TRACE node --config-path resources/example_configs/host/reg_test/node_3.yaml"]
-  reg:
-    cmd: ["cargo", "run", "--", "--level", "TRACE", "registry"]

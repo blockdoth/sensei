@@ -508,6 +508,7 @@ mod tests {
         let config_result = controller.to_config().await;
         assert!(config_result.is_ok());
 
+        #[allow(unreachable_patterns)] // mac/linux feature distinction
         match config_result.unwrap() {
             ControllerParams::Esp32(params) => {
                 assert_eq!(params, controller);

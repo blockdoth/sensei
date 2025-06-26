@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use lib::FromConfig;
-use lib::errors::{AppError, ExperimentError, NetworkError};
+use lib::errors::{ExperimentError, NetworkError};
 use lib::experiments::{ActiveExperiment, Command, Experiment, ExperimentInfo, ExperimentSession, ExperimentStatus};
 use lib::handler::device_handler::{DeviceHandler, DeviceHandlerConfig};
 use lib::network::rpc_message::CfgType::{Create, Delete, Edit};
@@ -34,6 +34,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{Mutex, broadcast, mpsc, watch};
 use tokio::task::{self, JoinHandle};
 
+use crate::errors::AppError;
 use crate::services::{GlobalConfig, Run, SystemNodeConfig};
 
 /// The System Node is a sender and a receiver in the network of Sensei.
@@ -383,19 +384,23 @@ impl SystemNode {
         Ok(())
     }
 
-    async fn unsubscribe_from(target_addr: SocketAddr, device_id: DeviceId, handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>) -> Result<(), AppError> {
+    async fn unsubscribe_from(
+        target_addr: SocketAddr,
+        device_id: DeviceId,
+        handlers: Arc<Mutex<HashMap<u64, Box<DeviceHandler>>>>,
+    ) -> Result<(), AppError> {
         info!("Removing handler subscribing to {device_id}");
         match handlers.lock().await.remove(&device_id) {
-            Some(mut handler) => {
-                match handler.config().source {
-                    DataSourceConfig::Tcp(config) => {
-                        if config.target_addr == target_addr {
-                            handler.stop().await?;
-                        }
+            Some(mut handler) => match handler.config().source {
+                DataSourceConfig::Tcp(config) => {
+                    if config.target_addr == target_addr {
+                        handler.stop().await?;
                     }
-                    _ => { info!("This device_id {device_id} is not a subscription")}
                 }
-            }
+                _ => {
+                    info!("This device_id {device_id} is not a subscription")
+                }
+            },
             _ => info!("This handler does not exist."),
         }
 
@@ -604,7 +609,7 @@ impl ConnectionHandler for SystemNode {
                 Ok::<(), Box<dyn std::error::Error>>(())
             }
             .await
-            .map_err(|err| NetworkError::ProcessingError(err.to_string()))?,
+            .map_err(|_| NetworkError::Other)?,
             RpcMessageKind::RegCtrl(command) => match command {
                 RegCtrl::PollHostStatus { host_id: _ } => {
                     send_channel_msg_channel.send(ChannelMsg::RegChannel(RegChannel::SendHostStatus { host_id: self.host_id }))?
