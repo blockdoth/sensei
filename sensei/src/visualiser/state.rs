@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use crossterm::event::{KeyCode, KeyEvent};
 use lib::csi_types::CsiData;
-use lib::network::rpc_message::DeviceId;
+use lib::network::rpc_message::{DeviceId, HostId};
 use lib::tui::Tui;
 use lib::tui::logs::{FromLog, LogEntry};
 use log::{error, info};
@@ -27,16 +27,8 @@ pub const MIN_POWER_THRESHOLD: f64 = 0.015;
 #[derive(Debug, Clone)]
 pub struct Graph {
     pub gtype: GraphConfig,
-    pub target_addr: SocketAddr,
     pub device_id: DeviceId,
     pub data: Vec<(f64, f64)>,
-}
-
-#[derive(Clone, Debug)]
-pub struct GraphDisplayState {
-    pub data_points: Vec<(f64, f64)>,
-    pub csi_timestamp: f64,             // Timestamp of the CsiData this state is based on
-    pub last_loop_update_time: Instant, // When this state was last updated or checked in the tui_loop
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -80,10 +72,14 @@ pub struct PDPConfig {
 #[derive(Debug, Clone, PartialEq)]
 pub enum VisUpdate {
     Log(LogEntry),
+    Edit(char),
+    Delete,
+    Connect,
     Quit,
     ClearGraphs,
     AddGraph,
     SetInterval(usize, u64),
+    UpdateConnectionStatus(ConnectionStatus),
     RemoveGraph,
     Up,
     Down,
@@ -126,6 +122,13 @@ pub enum AmpFocusField {
     Subcarriers,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConnectionStatus {
+    Connected,
+    NotConnected,
+    Unknown,
+}
+
 pub struct VisState {
     pub should_quit: bool,
     pub logs: Vec<LogEntry>,
@@ -133,16 +136,17 @@ pub struct VisState {
     pub graph_update_interval: Duration,
     pub logs_scroll_offset: usize,
     pub focus: Focus,
+    pub connection_status: ConnectionStatus,
 
     #[allow(clippy::type_complexity)]
-    pub csi_data: Arc<Mutex<HashMap<SocketAddr, HashMap<u64, Vec<CsiData>>>>>,
+    pub csi_data: Arc<Mutex<HashMap<u64, Vec<CsiData>>>>,
     pub graphs: Vec<Graph>,
 
     // Fields
     pub graph_type_input: GraphType,
-    pub target_addr_input: String,
 
-    pub device_id_input: u64,
+    pub addr_input: String,
+    pub device_id_input: String,
     pub core_input: usize,
     pub subcarrier_input: usize,
     pub stream_input: usize,
@@ -161,17 +165,23 @@ impl VisState {
             graph_update_interval: Duration::from_millis(200),
 
             graph_type_input: GraphType::Amplitude,
-            target_addr_input: "127.0.0.1:6969".to_owned(),
-            device_id_input: 0,
+            device_id_input: "0".to_owned(),
+            addr_input: "127.0.0.1:6969".to_owned(),
             core_input: 0,
             subcarrier_input: 0,
             stream_input: 0,
-            focus: Focus::GraphType,
+            focus: Focus::DeviceID,
+            connection_status: ConnectionStatus::Unknown,
         }
     }
 }
-
-pub enum VisCommand {}
+#[derive(Debug)]
+pub enum VisCommand {
+    Connect(SocketAddr),
+    Subscribe(HostId),
+    Unsubscribe(HostId),
+    UnsubscribeAll,
+}
 
 #[async_trait]
 impl Tui<VisUpdate, VisCommand> for VisState {
@@ -183,12 +193,17 @@ impl Tui<VisUpdate, VisCommand> for VisState {
     /// Handles keyboard input events and maps them to updates.
     fn handle_keyboard_event(&self, key_event: KeyEvent) -> Option<VisUpdate> {
         match key_event.code {
+            KeyCode::Char(chr) if self.focus == Focus::Address => Some(VisUpdate::Edit(chr)),
+            KeyCode::Enter if self.focus == Focus::Address => Some(VisUpdate::Connect),
+            KeyCode::Backspace if self.focus == Focus::Address || self.focus == Focus::DeviceID => Some(VisUpdate::Delete),
             KeyCode::Char('q') | KeyCode::Char('Q') => Some(VisUpdate::Quit),
-            KeyCode::Char('c') | KeyCode::Char('C') => Some(VisUpdate::ClearGraphs),
+            KeyCode::Char('.') => Some(VisUpdate::ClearGraphs),
             KeyCode::Up => Some(VisUpdate::Up),
             KeyCode::Down => Some(VisUpdate::Down),
             KeyCode::Left => Some(VisUpdate::Left),
+            KeyCode::BackTab => Some(VisUpdate::Left),
             KeyCode::Right => Some(VisUpdate::Right),
+            KeyCode::Tab => Some(VisUpdate::Right),
             KeyCode::Enter => Some(VisUpdate::AddGraph),
             KeyCode::Char('d') | KeyCode::Char('C') => Some(VisUpdate::RemoveGraph),
             _ => None,
@@ -205,11 +220,9 @@ impl Tui<VisUpdate, VisCommand> for VisState {
             let csi_data_snapshot = self.csi_data.lock().await;
 
             for graph in self.graphs.iter_mut() {
-                if let Some(host_data) = csi_data_snapshot.get(&graph.target_addr) {
-                    if let Some(device_data) = host_data.get(&graph.device_id) {
-                        let (data, timestamp) = Visualiser::process_data(device_data, graph.gtype);
-                        graph.data = data.into();
-                    }
+                if let Some(device_data) = csi_data_snapshot.get(&graph.device_id) {
+                    let (data, timestamp) = Visualiser::process_data(device_data, graph.gtype);
+                    graph.data = data.into();
                 }
             }
         }
@@ -226,8 +239,18 @@ impl Tui<VisUpdate, VisCommand> for VisState {
             VisUpdate::Quit => {
                 self.should_quit = true;
             }
-            VisUpdate::ClearGraphs => {}
-            VisUpdate::AddGraph=> {
+            VisUpdate::ClearGraphs => {
+                self.graphs.clear();
+            }
+            VisUpdate::Connect => {
+                if let Ok(addr) = self.addr_input.parse() {
+                    command_send.send(VisCommand::Connect(addr)).await;
+                } else {
+                    error!("Unable to parse address {:?}", self.addr_input);
+                }
+            }
+            VisUpdate::UpdateConnectionStatus(status) => self.connection_status = status,
+            VisUpdate::AddGraph => {
                 let graph_type = match self.graph_type_input {
                     GraphType::Amplitude => GraphConfig::Amplitude(
                         (AmplitudeConfig {
@@ -245,24 +268,44 @@ impl Tui<VisUpdate, VisCommand> for VisState {
                         }),
                     ),
                 };
-                if let Ok(target_addr) = self.target_addr_input.parse() {
+                if let Ok(device_id) = self.device_id_input.parse() {
                     let graph = Graph {
                         gtype: graph_type,
-                        target_addr: target_addr,
-                        device_id: self.device_id_input,
+                        device_id: device_id,
                         data: vec![],
                     };
-
-                    self.graphs.push(graph);
-                }else {
-                  error!("Failed to parse target address {}", self.target_addr_input);
+                    if command_send.send(VisCommand::Subscribe(device_id)).await.is_ok() {
+                        self.graphs.push(graph);
+                    };
                 }
             }
             VisUpdate::RemoveGraph => {
-                if let Focus::Graph(idx) = self.focus {
-                  self.graphs.remove(idx);
+                if let Focus::Graph(idx) = self.focus
+                    && let Some(graph) = self.graphs.get(idx)
+                {
+                    if command_send.send(VisCommand::Unsubscribe(graph.device_id)).await.is_ok() {
+                        self.graphs.remove(idx);
+                    };
                 }
             }
+            VisUpdate::Delete => match self.focus {
+                Focus::DeviceID => {
+                    self.device_id_input.pop();
+                }
+                Focus::Address => {
+                    self.addr_input.pop();
+                }
+                _ => {}
+            },
+            VisUpdate::Edit(chr) => match self.focus {
+                Focus::DeviceID if chr.is_numeric() => {
+                    self.device_id_input.push(chr);
+                }
+                Focus::Address if chr.is_numeric() => {
+                    self.addr_input.push(chr);
+                }
+                _ => {}
+            },
             VisUpdate::SetInterval(idx, interval) => {
                 if let Some(mut graph_to_modify) = self.graphs.get_mut(idx) {
                     match graph_to_modify.gtype {
@@ -288,6 +331,12 @@ impl Tui<VisUpdate, VisCommand> for VisState {
                     },
                 },
                 Focus::GraphType => self.graph_type_input = self.graph_type_input.next(),
+                Focus::Address => {
+                    if self.graphs.len() > 0 {
+                        self.focus = Focus::Graph(0)
+                    }
+                }
+                Focus::DeviceID => self.focus = Focus::Address,
                 _ => {}
             },
             VisUpdate::Down => match &self.focus {
@@ -303,10 +352,19 @@ impl Tui<VisUpdate, VisCommand> for VisState {
                     },
                 },
                 Focus::GraphType => self.graph_type_input = self.graph_type_input.prev(),
+                Focus::Address => self.focus = Focus::DeviceID,
+                Focus::DeviceID => self.focus = Focus::GraphType,
+                Focus::Graph(0) => self.focus = Focus::Address,
                 _ => {}
             },
-            VisUpdate::Right => self.focus = self.focus.right(self.graph_type_input, self.graphs.len()),
-            VisUpdate::Left => self.focus = self.focus.left(),
+            VisUpdate::Right => match self.focus {
+                Focus::Graph(i) => self.focus = Focus::Graph(i + 1),
+                _ => self.focus = self.focus.right(self.graph_type_input, self.graphs.len()),
+            },
+            VisUpdate::Left => match self.focus {
+                Focus::Graph(i) if i > 0 => self.focus = Focus::Graph(i - 1),
+                _ => self.focus = self.focus.left(),
+            },
         }
     }
 }
@@ -315,20 +373,20 @@ impl Focus {
     fn right(&self, graph_type: GraphType, graph_count: usize) -> Self {
         match self {
             Focus::AddGraph(focus_field) => match focus_field {
-                        AddGraphFocus::PDPFocus(pdpfocus_field) => match pdpfocus_field {
-                            PDPFocusField::Core => Focus::AddGraph(AddGraphFocus::PDPFocus(PDPFocusField::Stream)),
-                            PDPFocusField::Stream => Focus::AddGraph(AddGraphFocus::PDPFocus(PDPFocusField::Stream)),
-                        },
-                        AddGraphFocus::AmpFocus(amp_focus_field) => match amp_focus_field {
-                            AmpFocusField::Core => Focus::AddGraph(AddGraphFocus::AmpFocus(AmpFocusField::Stream)),
-                            AmpFocusField::Stream => Focus::AddGraph(AddGraphFocus::AmpFocus(AmpFocusField::Subcarriers)),
-                            AmpFocusField::Subcarriers => Focus::AddGraph(AddGraphFocus::AmpFocus(AmpFocusField::Subcarriers)),
-                        },
-                    },
+                AddGraphFocus::PDPFocus(pdpfocus_field) => match pdpfocus_field {
+                    PDPFocusField::Core => Focus::AddGraph(AddGraphFocus::PDPFocus(PDPFocusField::Stream)),
+                    PDPFocusField::Stream => Focus::AddGraph(AddGraphFocus::PDPFocus(PDPFocusField::Stream)),
+                },
+                AddGraphFocus::AmpFocus(amp_focus_field) => match amp_focus_field {
+                    AmpFocusField::Core => Focus::AddGraph(AddGraphFocus::AmpFocus(AmpFocusField::Stream)),
+                    AmpFocusField::Stream => Focus::AddGraph(AddGraphFocus::AmpFocus(AmpFocusField::Subcarriers)),
+                    AmpFocusField::Subcarriers => Focus::AddGraph(AddGraphFocus::AmpFocus(AmpFocusField::Subcarriers)),
+                },
+            },
             Focus::GraphType => match graph_type {
-                        GraphType::PDP => Focus::AddGraph(AddGraphFocus::PDPFocus(PDPFocusField::Core)),
-                        GraphType::Amplitude => Focus::AddGraph(AddGraphFocus::AmpFocus(AmpFocusField::Core)),
-                    },
+                GraphType::PDP => Focus::AddGraph(AddGraphFocus::PDPFocus(PDPFocusField::Core)),
+                GraphType::Amplitude => Focus::AddGraph(AddGraphFocus::AmpFocus(AmpFocusField::Core)),
+            },
             Focus::Address => Focus::DeviceID,
             Focus::DeviceID => Focus::GraphType,
             Focus::Graph(i) if *i < graph_count => Focus::Graph(i + 1),
@@ -353,7 +411,7 @@ impl Focus {
             Focus::DeviceID => Focus::Address,
             Focus::Address => Focus::Address,
             Focus::Graph(i) if *i > 0 => Focus::Graph(i - 1),
-            Focus::Graph(i) => Focus::Graph(*i),            
+            Focus::Graph(i) => Focus::Graph(*i),
         }
     }
 }

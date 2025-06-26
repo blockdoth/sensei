@@ -6,6 +6,8 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use futures::SinkExt;
+use lib::adapters::tcp::TCPAdapter;
 // Alias for charming::Chart
 use lib::csi_types::Complex as LibComplex; // Alias to avoid confusion
 use lib::csi_types::CsiData;
@@ -18,8 +20,11 @@ use log::{LevelFilter, error, info};
 use rustfft::FftPlanner;
 use rustfft::num_complex::Complex as FftComplex;
 use tokio::sync::Mutex;
-use tokio::sync::mpsc::{self};
+use tokio::sync::mpsc::{
+    Receiver, Sender, {self},
+};
 
+use crate::cli;
 use crate::services::{GlobalConfig, Run, VisualiserConfig};
 use crate::visualiser::state::{AmplitudeConfig, DECAY_RATE, GraphConfig, MIN_POWER_THRESHOLD, PDPConfig, VisCommand, VisState, VisUpdate};
 
@@ -48,7 +53,10 @@ impl Run<VisualiserConfig> for Visualiser {
 
         let vis_state = VisState::new();
 
-        let tasks: Vec<Pin<Box<dyn Future<Output = ()> + Send>>> = vec![Box::pin(Self::listen_task(vis_state.csi_data.clone(), self.target))];
+        let tasks: Vec<Pin<Box<dyn Future<Output = ()> + Send>>> = vec![
+            Box::pin(Self::listen_task(vis_state.csi_data.clone(), command_recv, update_send.clone())),
+            Box::pin(Self::init(command_send.clone(), self.target)),
+        ];
 
         let tui_runner = TuiRunner::new(vis_state, command_send, update_recv, update_send, self.log_level);
         tui_runner.run(tasks).await;
@@ -58,53 +66,101 @@ impl Run<VisualiserConfig> for Visualiser {
 }
 
 impl Visualiser {
+    async fn init(mut command_send: Sender<VisCommand>, target_addr: SocketAddr) {
+        command_send.send(VisCommand::Connect(target_addr)).await;
+    }
     #[allow(clippy::type_complexity)]
-    async fn listen_task(data: Arc<Mutex<HashMap<SocketAddr, HashMap<u64, Vec<CsiData>>>>>, target_addr: SocketAddr) {
+    async fn listen_task(data: Arc<Mutex<HashMap<u64, Vec<CsiData>>>>, mut command_recv: Receiver<VisCommand>, mut update_send: Sender<VisUpdate>) {
         let mut client = TcpClient::new();
-        if client.connect(target_addr).await.is_err() {
-            error!("Failed to connect to {target_addr:?}");
-            return;
-        };
-
-        let msg = HostCtrl::Subscribe { device_id: 0 };
-        if client.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await.is_err() {
-            error!("Failed to send message to {target_addr:?}");
-            return;
-        };
-        info!("Subscribed to node {target_addr}");
+        let mut connected_addr: Option<SocketAddr> = None;
 
         loop {
-            match client.read_message(target_addr).await {
-                Ok(RpcMessage {
-                    msg: Data {
-                        data_msg: CsiFrame { csi },
-                        device_id,
+            let command = command_recv.recv().await;
+            info!("Received command {command:?}");
+            match command {
+                Some(command) => match command {
+                    VisCommand::Connect(target_addr) => match connected_addr {
+                        Some(connected_addr) => {
+                            if connected_addr == target_addr {
+                                info!("Already connected to {:?}", target_addr);
+                            } else {
+                                client.disconnect(target_addr).await;
+                                info!("Disconnected from {:?}", target_addr);
+                            }
+                        }
+                        None => {
+                            if client.connect(target_addr).await.is_ok() {
+                                connected_addr = Some(target_addr);
+                                update_send
+                                    .send(VisUpdate::UpdateConnectionStatus(state::ConnectionStatus::Connected))
+                                    .await;
+                            } else {
+                                info!("Failed to connect to {:?}", target_addr);
+                                update_send
+                                    .send(VisUpdate::UpdateConnectionStatus(state::ConnectionStatus::NotConnected))
+                                    .await;
+                            }
+                        }
                     },
-                    src_addr,
-                    target_addr: _,
-                }) => {
-                    data.lock()
-                        .await
-                        .entry(src_addr)
-                        .and_modify(|devices| {
-                            devices
-                                .entry(device_id)
-                                .and_modify(|csi_data| csi_data.push(csi.clone()))
-                                .or_insert(vec![csi.clone()]);
-                        })
-                        .or_insert(HashMap::new());
-                }
-                _ => {
-                    error!("Some shit is fucked up");
-                    break;
-                }
+                    VisCommand::Subscribe(device_id) => {
+                        if let Some(connected_addr) = connected_addr {
+                            let msg = RpcMessageKind::HostCtrl(HostCtrl::Subscribe { device_id: device_id });
+                            client.send_message(connected_addr, msg).await;
+                            info!("Attempting to subscribe to {} on {}", device_id, connected_addr);
+                        } else {
+                            error!("Not connected");
+                        }
+                    }
+                    VisCommand::Unsubscribe(device_id) => {
+                        if let Some(connected_addr) = connected_addr {
+                            let msg = RpcMessageKind::HostCtrl(HostCtrl::Subscribe { device_id: device_id });
+                            client.send_message(connected_addr, msg).await;
+                            info!("Attempting to unsubscribe from {} on {}", device_id, connected_addr);
+                        } else {
+                            error!("Not connected");
+                        }
+                    }
+                    VisCommand::UnsubscribeAll => {
+                        if let Some(connected_addr) = connected_addr {
+                            let msg = RpcMessageKind::HostCtrl(HostCtrl::UnsubscribeAll);
+                            client.send_message(connected_addr, msg).await;
+                            info!("Attempting to unsubscribe from all on {}", connected_addr);
+                        } else {
+                            error!("Not connected");
+                        }
+                    }
+                },
+                None => {}
+            };
+            if let Some(target_addr) = connected_addr {
+                match client.wait_for_read_message(target_addr).await {
+                    Ok(RpcMessage {
+                        msg:
+                            Data {
+                                data_msg: CsiFrame { csi },
+                                device_id,
+                            },
+                        src_addr: _,
+                        target_addr: _,
+                    }) => {
+                        data.lock().await.entry(device_id).and_modify(|devices| {
+                            devices.push(csi);
+                        });
+                    }
+                    Ok(m) => {
+                        error!("Received weird message {m:?}");
+                    }
+                    Err(e) => {
+                        error!("Some shit is fucked up. Error: {e:?}");
+                    }
+                };
             }
         }
     }
 }
 
 impl Visualiser {
-    /// Processing data turns each data point into a vec of tuples (timestamp, datapoint), such that it can be charted easily.
+    /// Processing data turns each data point into a vec of tuples (taimestamp, datapoint), such that it can be charted easily.
     /// For PDP, it returns (delay_bin, power) for the latest CSI packet.
     /// Returns the processed data and an Option containing the timestamp of the CSI data used.
     fn process_data(csi_data: &[CsiData], graph_type: GraphConfig) -> (Vec<(f64, f64)>, Option<f64>) {
