@@ -1,24 +1,24 @@
-use std::cmp::{max, min};
+use std::cmp::max;
 use std::usize;
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Axis, Block, Borders, Chart, Dataset, Paragraph, Wrap};
+use ratatui::widgets::{Axis, Block, Borders, Chart, Dataset, Padding, Paragraph, Wrap};
 
-use crate::visualiser::state::{Graph, GraphConfig, VisState};
+use crate::visualiser::state::{AddGraphFocus, AmpFocusField, Focus, Graph, GraphConfig, GraphType, PDPFocusField, VisState};
+
+const PADDING: Padding = Padding::new(1, 1, 0, 0);
 
 pub fn ui(f: &mut Frame, tui_state: &VisState) {
     let (charts_area, control_area) = split_chart_logs(f);
-    let (config_area, log_area) = split_config_logs(control_area);
+    let (config_area, log_area, footer_area) = split_config_logs_footer(control_area);
 
     render_graphs(f, charts_area, tui_state);
-
     render_logs(f, log_area, tui_state);
-
-    let input = Paragraph::new("balls").block(Block::default().title("Command (add <type> <addr> <dev_id> <core> <stream> <subcarrier_or_ignored_for_pdp> | remove <idx> | interval <idx> <value> | clear)").borders(Borders::ALL));
-    f.render_widget(input, config_area);
+    render_input(f, config_area, tui_state);
+    render_footer(f, footer_area, tui_state);
 }
 
 fn split_chart_logs(f: &Frame) -> (Rect, Rect) {
@@ -26,23 +26,24 @@ fn split_chart_logs(f: &Frame) -> (Rect, Rect) {
         .direction(Direction::Vertical)
         .margin(1)
         .constraints([
-            Constraint::Percentage(70),    // Chart content area
+            Constraint::Percentage(70), // Chart content area
             Constraint::Percentage(30), // Log area
         ])
         .split(f.area());
     (chunks[0], chunks[1])
 }
 
-fn split_config_logs(area: Rect) -> (Rect, Rect) {
+fn split_config_logs_footer(area: Rect) -> (Rect, Rect, Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .margin(1)
         .constraints([
-            Constraint::Length(3), // Log area
-            Constraint::Min(0), // Config area
+            Constraint::Length(4), // Config area
+            Constraint::Min(0),    // Log area
+            Constraint::Length(3), // Footer area
         ])
         .split(area);
-    (chunks[0], chunks[1])
+    (chunks[0], chunks[1], chunks[2])
 }
 
 fn split_charts(area: Rect, graph_count: usize) -> Vec<Rect> {
@@ -65,6 +66,7 @@ fn render_logs(f: &mut Frame, area: Rect, tui_state: &VisState) {
     let widget = Paragraph::new(Text::from(logs)).wrap(Wrap { trim: true }).block(
         Block::default()
             .borders(Borders::ALL)
+            .padding(PADDING)
             .title(Span::from(format!(" Log ({current_log_count})"))),
     );
     f.render_widget(widget, area);
@@ -72,7 +74,6 @@ fn render_logs(f: &mut Frame, area: Rect, tui_state: &VisState) {
 
 fn render_graphs(f: &mut Frame, area: Rect, tui_state: &VisState) {
     let graph_count = max(1, tui_state.graphs.len());
-
 
     let charts_area = split_charts(area, graph_count);
     for (i, (graph, area)) in tui_state.graphs.iter().zip(charts_area).enumerate() {
@@ -108,10 +109,101 @@ fn render_graph(f: &mut Frame, area: Rect, graph: &Graph, i: usize) {
     };
 
     let chart = Chart::new(vec![dataset])
-        .block(Block::default().title(chart_block_title).borders(Borders::ALL))
+        .block(Block::default().title(chart_block_title).borders(Borders::ALL).padding(PADDING))
         .x_axis(Axis::default().title(x_axis_title_str).bounds(x_bounds_arr).labels(x_labels_vec))
         .y_axis(Axis::default().title(y_axis_title_str).bounds(y_bounds_to_use).labels(y_labels_vec));
     f.render_widget(chart, area);
+}
+
+fn render_input(f: &mut Frame, area: Rect, tui_state: &VisState) {
+    // "Command (add <type> <addr> <dev_id> <core> <stream> <subcarrier_or_ignored_for_pdp>"
+
+    let mut lines: Vec<Line> = vec![];
+
+    let selected = |field: Focus, focus: &Focus| {
+        if field == *focus {
+            Style::default().bg(Color::Gray).fg(Color::Black)
+        } else {
+            Style::default()
+        }
+    };
+    let connection = vec![
+        Span::from("Address: "),
+        Span::styled(format!("[{:?}]", tui_state.target_addr_input), selected(Focus::Address, &tui_state.focus)),
+        Span::from(" Device ID: "),
+        Span::styled(format!("[{:?}]", tui_state.device_id_input), selected(Focus::DeviceID, &tui_state.focus)),
+    ];
+
+    lines.push(Line::from(connection));
+
+    let mut add_graph = vec![
+        Span::from("Type: "),
+        Span::styled(format!("[{}]", tui_state.graph_type_input), selected(Focus::GraphType, &tui_state.focus)),
+    ];
+    let add_graph_config = match tui_state.graph_type_input {
+        GraphType::Amplitude => {
+            vec![
+                Span::from(" | Core: "),
+                Span::styled(
+                    format!("[{}]", tui_state.core_input),
+                    selected(Focus::AddGraph(AddGraphFocus::AmpFocus(AmpFocusField::Core)), &tui_state.focus),
+                ),
+                Span::from(" | Stream: "),
+                Span::styled(
+                    format!("[{}]", tui_state.stream_input),
+                    selected(Focus::AddGraph(AddGraphFocus::AmpFocus(AmpFocusField::Stream)), &tui_state.focus),
+                ),
+                Span::from(" | Subcarriers: "),
+                Span::styled(
+                    format!("[{}]", tui_state.subcarrier_input),
+                    selected(Focus::AddGraph(AddGraphFocus::AmpFocus(AmpFocusField::Subcarriers)), &tui_state.focus),
+                ),
+            ]
+        }
+        GraphType::PDP => {
+            vec![
+                Span::from(" | Core: "),
+                Span::styled(
+                    format!("[{}]", tui_state.core_input),
+                    selected(Focus::AddGraph(AddGraphFocus::AmpFocus(AmpFocusField::Core)), &tui_state.focus),
+                ),
+                Span::from(" | Stream: "),
+                Span::styled(
+                    format!("[{}]", tui_state.stream_input),
+                    selected(Focus::AddGraph(AddGraphFocus::AmpFocus(AmpFocusField::Stream)), &tui_state.focus),
+                ),
+            ]
+        }
+    };
+    add_graph.extend(add_graph_config);
+
+    lines.push(Line::from(add_graph));
+
+    let input = Paragraph::new(Text::from(lines)).block(Block::default().title("Add graph").borders(Borders::ALL).padding(PADDING));
+
+    f.render_widget(input, area);
+}
+
+fn render_footer(f: &mut Frame, area: Rect, tui_state: &VisState) {
+    let widget = Paragraph::new(footer_text(tui_state))
+        .wrap(Wrap { trim: true })
+        .block(Block::default().borders(Borders::ALL).padding(PADDING).title(Span::from("Keybinds")));
+
+    f.render_widget(widget, area);
+}
+
+fn footer_text(tui_state: &VisState) -> String {
+    match &tui_state.focus {
+        Focus::AddGraph(add_graph_focus) => match add_graph_focus {
+                        AddGraphFocus::PDPFocus(_) => "[↑↓] increase/decrease | [Enter] Add Graph | [Q]uit",
+                        AddGraphFocus::AmpFocus(_) => "[↑↓] increase/decrease | [Enter] Add Graph | [Q]uit",
+            },
+        Focus::GraphType => "[↑↓] Change type | [Enter] Add Graph | [Q]uit",
+        Focus::Address => "[Enter] Add Graph | [Q]uit",
+        Focus::DeviceID => "[Enter] Add Graph | [Q]uit",
+        Focus::Graph(_) => "[Enter] Add Graph | [D]elete graph | [Q]uit",
+    }
+    .to_owned()
 }
 
 fn get_x_axis_config(graph_type: GraphConfig, data_points: &[(f64, f64)]) -> (String, [f64; 2], Vec<Span>) {

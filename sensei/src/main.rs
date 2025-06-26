@@ -62,7 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         {
             matches!(
                 &args.subcommand,
-                Some(SubCommandsArgs::EspTool(_)) | Some(SubCommandsArgs::Orchestrator(_))  | Some(SubCommandsArgs::Visualiser(_))
+                Some(SubCommandsArgs::EspTool(_)) | Some(SubCommandsArgs::Orchestrator(_)) | Some(SubCommandsArgs::Visualiser(_))
             )
         }
         #[cfg(all(feature = "esp_tool", not(feature = "orchestrator")))]

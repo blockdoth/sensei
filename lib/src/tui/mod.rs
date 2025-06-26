@@ -79,7 +79,6 @@ where
         Self::log_handler_task(self.log_recv, self.update_send).await;
         init_logger(self.log_level, self.log_send.clone())?;
 
-
         let mut handles: Vec<JoinHandle<()>> = vec![];
         for task in tasks {
             handles.push(tokio::spawn(task));

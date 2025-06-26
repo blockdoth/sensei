@@ -1,4 +1,6 @@
+use core::fmt;
 use std::collections::HashMap;
+use std::ffi::os_str::Display;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -9,10 +11,11 @@ use lib::csi_types::CsiData;
 use lib::network::rpc_message::DeviceId;
 use lib::tui::Tui;
 use lib::tui::logs::{FromLog, LogEntry};
-use log::info;
+use log::{error, info};
 use ratatui::Frame;
 use tokio::sync::Mutex;
 use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::time::Sleep;
 
 use crate::visualiser::Visualiser;
 use crate::visualiser::tui::ui;
@@ -50,6 +53,15 @@ pub enum GraphType {
     PDP,
 }
 
+impl fmt::Display for GraphType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            GraphType::Amplitude => write!(f, "AMP"),
+            GraphType::PDP => write!(f, "PDP"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AmplitudeConfig {
     pub core: usize,
@@ -60,9 +72,9 @@ pub struct AmplitudeConfig {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PDPConfig {
-  pub core: usize,
-  pub stream: usize,
-  pub y_axis_bounds: Option<[f64; 2]>,
+    pub core: usize,
+    pub stream: usize,
+    pub y_axis_bounds: Option<[f64; 2]>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -70,9 +82,13 @@ pub enum VisUpdate {
     Log(LogEntry),
     Quit,
     ClearGraphs,
-    AddGraph(GraphType),
+    AddGraph,
     SetInterval(usize, u64),
-    RemoveGraph(usize),
+    RemoveGraph,
+    Up,
+    Down,
+    Left,
+    Right,
 }
 
 impl FromLog for VisUpdate {
@@ -82,12 +98,41 @@ impl FromLog for VisUpdate {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum Focus {
+    Graph(usize),
+    AddGraph(AddGraphFocus),
+    GraphType,
+    Address,
+    DeviceID,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AddGraphFocus {
+    PDPFocus(PDPFocusField),
+    AmpFocus(AmpFocusField),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PDPFocusField {
+    Core,
+    Stream,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AmpFocusField {
+    Core,
+    Stream,
+    Subcarriers,
+}
+
 pub struct VisState {
     pub should_quit: bool,
     pub logs: Vec<LogEntry>,
     pub last_tick: Instant,
     pub graph_update_interval: Duration,
     pub logs_scroll_offset: usize,
+    pub focus: Focus,
 
     #[allow(clippy::type_complexity)]
     pub csi_data: Arc<Mutex<HashMap<SocketAddr, HashMap<u64, Vec<CsiData>>>>>,
@@ -116,11 +161,12 @@ impl VisState {
             graph_update_interval: Duration::from_millis(200),
 
             graph_type_input: GraphType::Amplitude,
-            target_addr_input: "".to_owned(),
+            target_addr_input: "127.0.0.1:6969".to_owned(),
             device_id_input: 0,
             core_input: 0,
             subcarrier_input: 0,
             stream_input: 0,
+            focus: Focus::GraphType,
         }
     }
 }
@@ -139,7 +185,12 @@ impl Tui<VisUpdate, VisCommand> for VisState {
         match key_event.code {
             KeyCode::Char('q') | KeyCode::Char('Q') => Some(VisUpdate::Quit),
             KeyCode::Char('c') | KeyCode::Char('C') => Some(VisUpdate::ClearGraphs),
-            KeyCode::Char('a') | KeyCode::Char('A') => Some(VisUpdate::AddGraph(self.graph_type_input)),
+            KeyCode::Up => Some(VisUpdate::Up),
+            KeyCode::Down => Some(VisUpdate::Down),
+            KeyCode::Left => Some(VisUpdate::Left),
+            KeyCode::Right => Some(VisUpdate::Right),
+            KeyCode::Enter => Some(VisUpdate::AddGraph),
+            KeyCode::Char('d') | KeyCode::Char('C') => Some(VisUpdate::RemoveGraph),
             _ => None,
         }
     }
@@ -176,8 +227,8 @@ impl Tui<VisUpdate, VisCommand> for VisState {
                 self.should_quit = true;
             }
             VisUpdate::ClearGraphs => {}
-            VisUpdate::AddGraph(graph_type) => {
-                let graph_type = match graph_type {
+            VisUpdate::AddGraph=> {
+                let graph_type = match self.graph_type_input {
                     GraphType::Amplitude => GraphConfig::Amplitude(
                         (AmplitudeConfig {
                             core: self.core_input,
@@ -203,10 +254,14 @@ impl Tui<VisUpdate, VisCommand> for VisState {
                     };
 
                     self.graphs.push(graph);
+                }else {
+                  error!("Failed to parse target address {}", self.target_addr_input);
                 }
             }
-            VisUpdate::RemoveGraph(idx) => {
-                self.graphs.remove(idx);
+            VisUpdate::RemoveGraph => {
+                if let Focus::Graph(idx) = self.focus {
+                  self.graphs.remove(idx);
+                }
             }
             VisUpdate::SetInterval(idx, interval) => {
                 if let Some(mut graph_to_modify) = self.graphs.get_mut(idx) {
@@ -220,6 +275,100 @@ impl Tui<VisUpdate, VisCommand> for VisState {
                     }
                 }
             }
+            VisUpdate::Up => match &self.focus {
+                Focus::AddGraph(focus_field) => match focus_field {
+                    AddGraphFocus::PDPFocus(pdpfocus_field) => match pdpfocus_field {
+                        PDPFocusField::Core => self.core_input += 1,
+                        PDPFocusField::Stream => self.stream_input += 1,
+                    },
+                    AddGraphFocus::AmpFocus(amp_focus_field) => match amp_focus_field {
+                        AmpFocusField::Core => self.core_input += 1,
+                        AmpFocusField::Stream => self.stream_input += 1,
+                        AmpFocusField::Subcarriers => self.subcarrier_input += 1,
+                    },
+                },
+                Focus::GraphType => self.graph_type_input = self.graph_type_input.next(),
+                _ => {}
+            },
+            VisUpdate::Down => match &self.focus {
+                Focus::AddGraph(focus_field) => match focus_field {
+                    AddGraphFocus::PDPFocus(pdpfocus_field) => match pdpfocus_field {
+                        PDPFocusField::Core => self.core_input = self.core_input.saturating_sub(1),
+                        PDPFocusField::Stream => self.stream_input = self.stream_input.saturating_sub(1),
+                    },
+                    AddGraphFocus::AmpFocus(amp_focus_field) => match amp_focus_field {
+                        AmpFocusField::Core => self.core_input = self.core_input.saturating_sub(1),
+                        AmpFocusField::Stream => self.stream_input = self.stream_input.saturating_sub(1),
+                        AmpFocusField::Subcarriers => self.subcarrier_input = self.subcarrier_input.saturating_sub(1),
+                    },
+                },
+                Focus::GraphType => self.graph_type_input = self.graph_type_input.prev(),
+                _ => {}
+            },
+            VisUpdate::Right => self.focus = self.focus.right(self.graph_type_input, self.graphs.len()),
+            VisUpdate::Left => self.focus = self.focus.left(),
+        }
+    }
+}
+
+impl Focus {
+    fn right(&self, graph_type: GraphType, graph_count: usize) -> Self {
+        match self {
+            Focus::AddGraph(focus_field) => match focus_field {
+                        AddGraphFocus::PDPFocus(pdpfocus_field) => match pdpfocus_field {
+                            PDPFocusField::Core => Focus::AddGraph(AddGraphFocus::PDPFocus(PDPFocusField::Stream)),
+                            PDPFocusField::Stream => Focus::AddGraph(AddGraphFocus::PDPFocus(PDPFocusField::Stream)),
+                        },
+                        AddGraphFocus::AmpFocus(amp_focus_field) => match amp_focus_field {
+                            AmpFocusField::Core => Focus::AddGraph(AddGraphFocus::AmpFocus(AmpFocusField::Stream)),
+                            AmpFocusField::Stream => Focus::AddGraph(AddGraphFocus::AmpFocus(AmpFocusField::Subcarriers)),
+                            AmpFocusField::Subcarriers => Focus::AddGraph(AddGraphFocus::AmpFocus(AmpFocusField::Subcarriers)),
+                        },
+                    },
+            Focus::GraphType => match graph_type {
+                        GraphType::PDP => Focus::AddGraph(AddGraphFocus::PDPFocus(PDPFocusField::Core)),
+                        GraphType::Amplitude => Focus::AddGraph(AddGraphFocus::AmpFocus(AmpFocusField::Core)),
+                    },
+            Focus::Address => Focus::DeviceID,
+            Focus::DeviceID => Focus::GraphType,
+            Focus::Graph(i) if *i < graph_count => Focus::Graph(i + 1),
+            Focus::Graph(i) => Focus::Graph(*i),
+        }
+    }
+
+    fn left(&self) -> Self {
+        match self {
+            Focus::AddGraph(focus_field) => match focus_field {
+                AddGraphFocus::PDPFocus(pdpfocus_field) => match pdpfocus_field {
+                    PDPFocusField::Core => Focus::GraphType,
+                    PDPFocusField::Stream => Focus::AddGraph(AddGraphFocus::PDPFocus(PDPFocusField::Core)),
+                },
+                AddGraphFocus::AmpFocus(amp_focus_field) => match amp_focus_field {
+                    AmpFocusField::Core => Focus::GraphType,
+                    AmpFocusField::Stream => Focus::AddGraph(AddGraphFocus::AmpFocus(AmpFocusField::Core)),
+                    AmpFocusField::Subcarriers => Focus::AddGraph(AddGraphFocus::AmpFocus(AmpFocusField::Stream)),
+                },
+            },
+            Focus::GraphType => Focus::DeviceID,
+            Focus::DeviceID => Focus::Address,
+            Focus::Address => Focus::Address,
+            Focus::Graph(i) if *i > 0 => Focus::Graph(i - 1),
+            Focus::Graph(i) => Focus::Graph(*i),            
+        }
+    }
+}
+
+impl GraphType {
+    fn next(&self) -> Self {
+        match self {
+            GraphType::Amplitude => GraphType::PDP,
+            GraphType::PDP => GraphType::Amplitude,
+        }
+    }
+    fn prev(&self) -> Self {
+        match self {
+            GraphType::Amplitude => GraphType::PDP,
+            GraphType::PDP => GraphType::Amplitude,
         }
     }
 }

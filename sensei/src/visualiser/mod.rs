@@ -21,10 +21,7 @@ use tokio::sync::Mutex;
 use tokio::sync::mpsc::{self};
 
 use crate::services::{GlobalConfig, Run, VisualiserConfig};
-use crate::visualiser::state::{
-    AmplitudeConfig, DECAY_RATE, GraphConfig, MIN_POWER_THRESHOLD, PDPConfig, VisCommand, VisState,
-    VisUpdate,
-};
+use crate::visualiser::state::{AmplitudeConfig, DECAY_RATE, GraphConfig, MIN_POWER_THRESHOLD, PDPConfig, VisCommand, VisState, VisUpdate};
 
 const ACTOR_CHANNEL_CAPACITY: usize = 100;
 
