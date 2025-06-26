@@ -404,7 +404,6 @@ impl Orchestrator {
                                 let handler = Arc::new(move |command: Command, update_send: Sender<OrgUpdate>| {
                                     let client = client.clone(); // clone *inside* closure body
                                     async move {
-                                        info!("{command:?}");
                                         match Orchestrator::handle_msg(client, command.into(), update_send, None, None).await {
                                             Ok(_) => {}
                                             Err(e) => error!("{e}"),
@@ -536,7 +535,6 @@ impl Orchestrator {
         experiment_send: Option<Sender<ExperimentChannelMsg>>, // Option allows reuse of this function in experiment.rs
         registry_send: Option<Sender<RegistryChannelMsg>>,     // Option allows reuse of this function in experiment.rs
     ) -> Result<(), OrchestratorError<ExperimentChannelMsg>> {
-        info!("{msg:?}");
 
         match msg {
             OrgChannelMsg::Connect(target_addr) => {
@@ -546,7 +544,6 @@ impl Orchestrator {
                 client.lock().await.disconnect(target_addr).await?;
             }
             OrgChannelMsg::Subscribe(target_addr, source_addr, device_id) => {
-                info!("alnhgfoadnsgf");
                 match source_addr {
                     Some(src_addr) => {
                         info!("Subscribing to {src_addr} for device id {device_id}");

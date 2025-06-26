@@ -370,9 +370,9 @@ impl SystemNode {
             adapter,
             output_to: vec![],
         };
-
-        // This can be allowed to unwrap, as it will literally always succeed
-        let mut new_handler = DeviceHandler::from_config(new_handler_config).await.unwrap();
+        
+        info!("Trying to connect to {target_addr}");
+        let mut new_handler = DeviceHandler::from_config(new_handler_config).await?;
 
         new_handler.start(local_data_tx).await?;
 
@@ -565,6 +565,7 @@ impl ConnectionHandler for SystemNode {
                         Self::unsubscribe_all(request.src_addr, send_channel_msg_channel).await?;
                     }
                     HostCtrl::SubscribeTo { target_addr, device_id } => {
+                        debug!("SBUSapfga");
                         Self::subscribe_to(*target_addr, *device_id, self.handlers.clone(), self.local_data_tx.clone()).await?;
                     }
                     HostCtrl::UnsubscribeFrom { target_addr, device_id } => {
