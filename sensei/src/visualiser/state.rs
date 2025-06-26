@@ -1,6 +1,6 @@
 use core::fmt;
+use std::cmp::max;
 use std::collections::HashMap;
-use std::ffi::os_str::Display;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -11,31 +11,22 @@ use lib::csi_types::CsiData;
 use lib::network::rpc_message::{DeviceId, HostId};
 use lib::tui::Tui;
 use lib::tui::logs::{FromLog, LogEntry};
-use log::{error, info};
+use log::error;
 use ratatui::Frame;
+use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use tokio::sync::mpsc::{Receiver, Sender};
-use tokio::time::Sleep;
 
 use crate::visualiser::Visualiser;
 use crate::visualiser::tui::ui;
 
-pub const DECAY_RATE: f64 = 0.9;
-pub const STALE_THRESHOLD: Duration = Duration::from_millis(200);
-pub const MIN_POWER_THRESHOLD: f64 = 0.015;
+const INTERVAL_CHANGE_STEP: i64 = 5;
 
 #[derive(Debug, Clone)]
 pub struct Graph {
     pub gtype: GraphConfig,
     pub device_id: DeviceId,
     pub data: Vec<(f64, f64)>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum GraphConfig {
-    Amplitude(AmplitudeConfig),
-    #[allow(clippy::upper_case_acronyms)]
-    PDP(PDPConfig),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -53,8 +44,14 @@ impl fmt::Display for GraphType {
         }
     }
 }
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
+pub enum GraphConfig {
+    Amplitude(AmplitudeConfig),
+    #[allow(clippy::upper_case_acronyms)]
+    PDP(PDPConfig),
+}
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
 pub struct AmplitudeConfig {
     pub core: usize,
     pub stream: usize,
@@ -62,11 +59,11 @@ pub struct AmplitudeConfig {
     pub time_range: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
 pub struct PDPConfig {
     pub core: usize,
     pub stream: usize,
-    pub y_axis_bounds: Option<[f64; 2]>,
+    pub y_axis_bounds: [f64; 2],
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -78,7 +75,7 @@ pub enum VisUpdate {
     Quit,
     ClearGraphs,
     AddGraph,
-    SetInterval(usize, u64),
+    ChangeInterval(usize, i64),
     UpdateConnectionStatus(ConnectionStatus),
     RemoveGraph,
     Up,
@@ -138,7 +135,6 @@ pub struct VisState {
     pub focus: Focus,
     pub connection_status: ConnectionStatus,
 
-    #[allow(clippy::type_complexity)]
     pub csi_data: Arc<Mutex<HashMap<u64, Vec<CsiData>>>>,
     pub graphs: Vec<Graph>,
 
@@ -154,7 +150,7 @@ pub struct VisState {
 
 impl VisState {
     /// Constructs a new `TuiState` with default configurations.
-    pub fn new() -> Self {
+    pub fn new(update_interval: usize) -> Self {
         Self {
             should_quit: false,
             logs: vec![],
@@ -162,7 +158,7 @@ impl VisState {
             csi_data: Arc::new(Default::default()),
             graphs: vec![],
             last_tick: Instant::now(),
-            graph_update_interval: Duration::from_millis(200),
+            graph_update_interval: Duration::from_millis(update_interval.try_into().unwrap()),
 
             graph_type_input: GraphType::Amplitude,
             device_id_input: "0".to_owned(),
@@ -194,10 +190,19 @@ impl Tui<VisUpdate, VisCommand> for VisState {
     fn handle_keyboard_event(&self, key_event: KeyEvent) -> Option<VisUpdate> {
         match key_event.code {
             KeyCode::Char(chr) if self.focus == Focus::Address => Some(VisUpdate::Edit(chr)),
+            KeyCode::Char(chr) if self.focus == Focus::DeviceID && chr.is_numeric() => Some(VisUpdate::Edit(chr)),
             KeyCode::Enter if self.focus == Focus::Address => Some(VisUpdate::Connect),
             KeyCode::Backspace if self.focus == Focus::Address || self.focus == Focus::DeviceID => Some(VisUpdate::Delete),
             KeyCode::Char('q') | KeyCode::Char('Q') => Some(VisUpdate::Quit),
             KeyCode::Char('.') => Some(VisUpdate::ClearGraphs),
+            KeyCode::Char('+') | KeyCode::Char('=') => match self.focus {
+                Focus::Graph(i) => Some(VisUpdate::ChangeInterval(i, INTERVAL_CHANGE_STEP)),
+                _ => None,
+            },
+            KeyCode::Char('-') => match self.focus {
+                Focus::Graph(i) => Some(VisUpdate::ChangeInterval(i, -INTERVAL_CHANGE_STEP)),
+                _ => None,
+            },
             KeyCode::Up => Some(VisUpdate::Up),
             KeyCode::Down => Some(VisUpdate::Down),
             KeyCode::Left => Some(VisUpdate::Left),
@@ -218,20 +223,18 @@ impl Tui<VisUpdate, VisCommand> for VisState {
         let now = Instant::now();
         if now.duration_since(self.last_tick) > self.graph_update_interval {
             let csi_data_snapshot = self.csi_data.lock().await;
-
             for graph in self.graphs.iter_mut() {
                 if let Some(device_data) = csi_data_snapshot.get(&graph.device_id) {
-                    let (data, timestamp) = Visualiser::process_data(device_data, graph.gtype);
-                    graph.data = data.into();
+                    let (data, _) = Visualiser::process_data(device_data, graph.gtype);
+                    graph.data = data;
                 }
             }
+            self.last_tick = now;
         }
-
-        self.last_tick = now;
     }
 
     /// Applies updates and potentially sends commands to background tasks.
-    async fn handle_update(&mut self, update: VisUpdate, command_send: &Sender<VisCommand>, update_recv: &mut Receiver<VisUpdate>) {
+    async fn handle_update(&mut self, update: VisUpdate, command_send: &Sender<VisCommand>, _update_recv: &mut Receiver<VisUpdate>) {
         match update {
             VisUpdate::Log(entry) => {
                 self.logs.push(entry);
@@ -240,11 +243,12 @@ impl Tui<VisUpdate, VisCommand> for VisState {
                 self.should_quit = true;
             }
             VisUpdate::ClearGraphs => {
+                let _ = command_send.send(VisCommand::UnsubscribeAll).await;
                 self.graphs.clear();
             }
             VisUpdate::Connect => {
                 if let Ok(addr) = self.addr_input.parse() {
-                    command_send.send(VisCommand::Connect(addr)).await;
+                    let _ = command_send.send(VisCommand::Connect(addr)).await;
                 } else {
                     error!("Unable to parse address {:?}", self.addr_input);
                 }
@@ -252,26 +256,22 @@ impl Tui<VisUpdate, VisCommand> for VisState {
             VisUpdate::UpdateConnectionStatus(status) => self.connection_status = status,
             VisUpdate::AddGraph => {
                 let graph_type = match self.graph_type_input {
-                    GraphType::Amplitude => GraphConfig::Amplitude(
-                        (AmplitudeConfig {
-                            core: self.core_input,
-                            stream: self.stream_input,
-                            subcarrier: self.subcarrier_input,
-                            time_range: 100,
-                        }),
-                    ),
-                    GraphType::PDP => GraphConfig::PDP(
-                        (PDPConfig {
-                            core: self.core_input,
-                            stream: self.stream_input,
-                            y_axis_bounds: None,
-                        }),
-                    ),
+                    GraphType::Amplitude => GraphConfig::Amplitude(AmplitudeConfig {
+                        core: self.core_input,
+                        stream: self.stream_input,
+                        subcarrier: self.subcarrier_input,
+                        time_range: 100,
+                    }),
+                    GraphType::PDP => GraphConfig::PDP(PDPConfig {
+                        core: self.core_input,
+                        stream: self.stream_input,
+                        y_axis_bounds: [0.0, 10.0],
+                    }),
                 };
                 if let Ok(device_id) = self.device_id_input.parse() {
                     let graph = Graph {
                         gtype: graph_type,
-                        device_id: device_id,
+                        device_id,
                         data: vec![],
                     };
                     if command_send.send(VisCommand::Subscribe(device_id)).await.is_ok() {
@@ -282,11 +282,10 @@ impl Tui<VisUpdate, VisCommand> for VisState {
             VisUpdate::RemoveGraph => {
                 if let Focus::Graph(idx) = self.focus
                     && let Some(graph) = self.graphs.get(idx)
+                    && command_send.send(VisCommand::Unsubscribe(graph.device_id)).await.is_ok()
                 {
-                    if command_send.send(VisCommand::Unsubscribe(graph.device_id)).await.is_ok() {
-                        self.graphs.remove(idx);
-                    };
-                }
+                    self.graphs.remove(idx);
+                };
             }
             VisUpdate::Delete => match self.focus {
                 Focus::DeviceID => {
@@ -306,14 +305,16 @@ impl Tui<VisUpdate, VisCommand> for VisState {
                 }
                 _ => {}
             },
-            VisUpdate::SetInterval(idx, interval) => {
-                if let Some(mut graph_to_modify) = self.graphs.get_mut(idx) {
-                    match graph_to_modify.gtype {
-                        GraphConfig::PDP(mut config) => {
-                            config.y_axis_bounds = Some([0.0, interval as f64]);
+            VisUpdate::ChangeInterval(idx, step) => {
+                if let Some(graph_to_modify) = self.graphs.get_mut(idx) {
+                    match &mut graph_to_modify.gtype {
+                        GraphConfig::PDP(config) => {
+                            let new_bound = config.y_axis_bounds[1] + (step as f64);
+
+                            config.y_axis_bounds = [0.0, new_bound.clamp(0.0, 10000.0)];
                         }
-                        GraphConfig::Amplitude(mut config) => {
-                            config.time_range = interval as usize;
+                        GraphConfig::Amplitude(config) => {
+                            config.time_range = max(0, (config.time_range as i64) + step) as usize;
                         }
                     }
                 }
@@ -332,7 +333,7 @@ impl Tui<VisUpdate, VisCommand> for VisState {
                 },
                 Focus::GraphType => self.graph_type_input = self.graph_type_input.next(),
                 Focus::Address => {
-                    if self.graphs.len() > 0 {
+                    if !self.graphs.is_empty() {
                         self.focus = Focus::Graph(0)
                     }
                 }

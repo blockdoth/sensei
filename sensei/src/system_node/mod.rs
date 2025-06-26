@@ -240,7 +240,7 @@ impl SystemNode {
                         });
 
                         tokio::spawn(async move {
-                            session.run(experiment_send, converter, handler).await; // TOOD error handling
+                            let _ = session.run(experiment_send, converter, handler).await; // TOOD error handling
                         });
                     }
                     ExperimentChannelMsg::Start(_, _) => {

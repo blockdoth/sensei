@@ -26,13 +26,15 @@
 #[cfg(feature = "registry")]
 #[cfg(feature = "sys_node")]
 use std::path::PathBuf;
+use std::vec;
 
 use argh::FromArgs;
 #[cfg(feature = "sys_node")]
 use lib::handler::device_handler::DeviceHandlerConfig;
-use lib::network::rpc_message::DEFAULT_ADDRESS;
+use lib::network::rpc_message::{DEFAULT_ADDRESS, DeviceId};
 #[cfg(feature = "sys_node")]
 use log::debug;
+use serde::{Deserialize, Serialize};
 use simplelog::LevelFilter;
 
 #[cfg(feature = "esp_tool")]
@@ -46,6 +48,7 @@ use crate::services::RegistryConfig;
 use crate::services::SystemNodeConfig;
 #[cfg(feature = "visualiser")]
 use crate::services::VisualiserConfig;
+use crate::visualiser::state::{AmplitudeConfig, Graph, GraphConfig, PDPConfig};
 
 /// Default path to the host configuration YAML file.
 pub static DEFAULT_HOST_CONFIG: &str = "examples/default/node.yaml";
@@ -240,6 +243,10 @@ pub struct VisualiserSubcommandArgs {
     #[argh(option, default = "String::from(\"127.0.0.1:6969\")")]
     pub target: String,
 
+    /// graph update interval (default: 6969)
+    #[argh(option, default = "100")]
+    pub update_interval: usize,
+
     /// file path of the visualiser config
     #[argh(option, default = "DEFAULT_VISUALIZER_CONFIG.parse().unwrap()")]
     pub config_path: PathBuf,
@@ -250,6 +257,8 @@ impl From<&VisualiserSubcommandArgs> for VisualiserConfig {
     fn from(args: &VisualiserSubcommandArgs) -> Self {
         VisualiserConfig {
             target: args.target.parse().unwrap_or(DEFAULT_ADDRESS),
+            graphs: vec![],
+            update_interval: args.update_interval,
         }
     }
 }
@@ -268,6 +277,64 @@ impl MergeWithConfig<VisualiserConfig> for VisualiserSubcommandArgs {
         }
 
         full_config
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
+pub enum GraphConfigWithId {
+    Amplitude(AmplitudeConfigWithId),
+    #[allow(clippy::upper_case_acronyms)]
+    PDP(PDPConfigWithId),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
+pub struct AmplitudeConfigWithId {
+    pub device_id: DeviceId,
+    pub core: usize,
+    pub stream: usize,
+    pub subcarrier: usize,
+    pub time_range: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
+pub struct PDPConfigWithId {
+    pub device_id: DeviceId,
+    pub core: usize,
+    pub stream: usize,
+    pub y_axis_bounds: [f64; 2],
+}
+
+impl From<GraphConfigWithId> for Graph {
+    fn from(graph_with_id: GraphConfigWithId) -> Self {
+        match graph_with_id {
+            GraphConfigWithId::Amplitude(AmplitudeConfigWithId {
+                device_id,
+                core,
+                stream,
+                subcarrier,
+                time_range,
+            }) => Graph {
+                gtype: GraphConfig::Amplitude(AmplitudeConfig {
+                    core,
+                    stream,
+                    subcarrier,
+                    time_range,
+                }),
+                device_id,
+                data: vec![],
+            },
+
+            GraphConfigWithId::PDP(PDPConfigWithId {
+                device_id,
+                core,
+                stream,
+                y_axis_bounds,
+            }) => Graph {
+                gtype: GraphConfig::PDP(PDPConfig { core, stream, y_axis_bounds }),
+                device_id,
+                data: vec![],
+            },
+        }
     }
 }
 

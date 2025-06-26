@@ -1,1 +1,15 @@
 target: 127.0.0.1:6969
+update_interval: 5
+graphs:
+  - !Amplitude
+      device_id: 0
+      core: 0
+      stream: 0
+      subcarrier: 0
+      time_range: 500
+  
+  - !PDP
+      device_id: 0
+      core: 0
+      stream: 0
+      y_axis_bounds: [0.0, 1.0]

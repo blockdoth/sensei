@@ -1,5 +1,4 @@
 use std::cmp::max;
-use std::{usize, vec};
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -26,8 +25,8 @@ fn split_chart_logs(f: &Frame) -> (Rect, Rect) {
         .direction(Direction::Vertical)
         .margin(1)
         .constraints([
-            Constraint::Percentage(70), // Chart content SocketAddrarea
-            Constraint::Percentage(30), // Log area
+            Constraint::Percentage(60), // Chart content SocketAddrarea
+            Constraint::Percentage(40), // Log area
         ])
         .split(f.area());
     (chunks[0], chunks[1])
@@ -144,7 +143,7 @@ fn render_config(f: &mut Frame, area: Rect, tui_state: &VisState) {
 
     let connection = vec![
         Span::from("Address: "),
-        Span::styled(format!("{}", tui_state.addr_input), selected(Focus::Address, &tui_state.focus)),
+        Span::styled(tui_state.addr_input.to_string(), selected(Focus::Address, &tui_state.focus)),
         Span::from(format!(" [{:?}]", tui_state.connection_status)),
     ];
 
@@ -152,7 +151,7 @@ fn render_config(f: &mut Frame, area: Rect, tui_state: &VisState) {
 
     let mut add_graph = vec![
         Span::from("Device ID: "),
-        Span::styled(format!("{}", tui_state.device_id_input), selected(Focus::DeviceID, &tui_state.focus)),
+        Span::styled(tui_state.device_id_input.to_string(), selected(Focus::DeviceID, &tui_state.focus)),
         Span::from(" | Type: "),
         Span::styled(format!("[{}]", tui_state.graph_type_input), selected(Focus::GraphType, &tui_state.focus)),
     ];
@@ -227,7 +226,7 @@ fn footer_text(tui_state: &VisState) -> String {
         Focus::GraphType => "[↑↓] Change type | [Enter] Add Graph | [Q]uit",
         Focus::Address => "[Enter] Connect | [Q]uit",
         Focus::DeviceID => "[Enter] Add Graph | [Q]uit",
-        Focus::Graph(_) => "[D]elete graph | [Q]uit",
+        Focus::Graph(_) => "[-+] Change Interval | [D]elete graph | [Q]uit",
     }
     .to_owned()
 }
@@ -279,10 +278,8 @@ fn calculate_dynamic_bounds(data_points: &[(f64, f64)]) -> [f64; 2] {
 }
 
 fn get_y_axis_config(graph_type: GraphConfig, data_points: &[(f64, f64)]) -> (String, [f64; 2], Vec<Span>) {
-    let y_bounds_to_use = if let GraphConfig::PDP(config) = graph_type
-        && let Some(bounds) = config.y_axis_bounds
-    {
-        bounds
+    let y_bounds_to_use = if let GraphConfig::PDP(config) = graph_type {
+        config.y_axis_bounds
     } else {
         calculate_dynamic_bounds(data_points)
     };
