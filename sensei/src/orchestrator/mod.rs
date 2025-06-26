@@ -396,7 +396,6 @@ impl Orchestrator {
                                 let handler = Arc::new(move |command: Command, update_send: Sender<OrchUpdate>| {
                                     let client = client.clone(); // clone *inside* closure body
                                     async move {
-                                        info!("{command:?}");
                                         match Orchestrator::handle_msg(client, command.into(), update_send, None, None).await {
                                             Ok(_) => {}
                                             Err(e) => error!("{e}"),
@@ -533,22 +532,25 @@ impl Orchestrator {
             OrchChannelMsg::Disconnect(target_addr) => {
                 client.lock().await.disconnect(target_addr).await?;
             }
-            OrchChannelMsg::Subscribe(target_addr, msg_origin_addr, device_id) => {
-                if let Some(msg_origin_addr) = msg_origin_addr {
-                    info!("Subscribing to {target_addr} for device id {device_id}");
-                    let msg = HostCtrl::SubscribeTo { target_addr, device_id };
-                    client.lock().await.send_message(msg_origin_addr, RpcMessageKind::HostCtrl(msg)).await?;
-                } else {
-                    info!("Subscribing to {target_addr} for device id {device_id}");
-                    let msg = HostCtrl::Subscribe { device_id };
-                    client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?;
+            OrchChannelMsg::Subscribe(target_addr, source_addr, device_id) => {
+                match source_addr {
+                    Some(src_addr) => {
+                        info!("Subscribing to {src_addr} for device id {device_id}");
+                        let msg = HostCtrl::SubscribeTo { target_addr: src_addr, device_id };
+                        client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?;
+                    }
+                    _ => {
+                        info!("Subscribing to {target_addr} for device id {device_id}");
+                        let msg = HostCtrl::Subscribe { device_id };
+                        client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?;
+                    }
                 }
             }
-            OrchChannelMsg::Unsubscribe(target_addr, msg_origin_addr, device_id) => {
-                if let Some(msg_origin_addr) = msg_origin_addr {
+            OrchChannelMsg::Unsubscribe(target_addr, source_addr, device_id) => {
+                if let Some(source_addr) = source_addr {
                     info!("Unsubscribing from {target_addr} for device id {device_id}");
-                    let msg = HostCtrl::UnsubscribeFrom { target_addr, device_id };
-                    client.lock().await.send_message(msg_origin_addr, RpcMessageKind::HostCtrl(msg)).await?;
+                    let msg = HostCtrl::UnsubscribeFrom { target_addr: source_addr, device_id };
+                    client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?;
                 } else {
                     info!("Unsubscribing from {target_addr} for device id {device_id}");
                     let msg = HostCtrl::Unsubscribe { device_id };
