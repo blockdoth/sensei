@@ -259,7 +259,7 @@ impl From<&VisualiserSubcommandArgs> for VisualiserConfig {
 impl MergeWithConfig<VisualiserConfig> for VisualiserSubcommandArgs {
     fn merge_with_config(&self, mut full_config: VisualiserConfig) -> VisualiserConfig {
         // Because of the default value we expact that there's always a file to read
-        debug!("Loading system node configuration from YAML file: {}", self.config_path.display());
+        debug!("Loading visualizer configuration from YAML file: {}", self.config_path.display());
 
         if self.target != DEFAULT_ADDRESS.to_string()
             && let Ok(target) = self.target.parse()

@@ -1,50 +1,32 @@
-use core::fmt;
+use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use crossterm::event::{KeyCode, KeyEvent};
 use lib::csi_types::CsiData;
+use lib::network::rpc_message::DeviceId;
 use lib::tui::Tui;
-use lib::tui::example::Update;
 use lib::tui::logs::{FromLog, LogEntry};
 use log::info;
 use ratatui::Frame;
-use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::Mutex;
-use std::collections::HashMap;
+use tokio::sync::mpsc::{Receiver, Sender};
 
+use crate::visualiser::Visualiser;
 use crate::visualiser::tui::ui;
 
-const DECAY_RATE: f64 = 0.9;
-const STALE_THRESHOLD: Duration = Duration::from_millis(200);
-const MIN_POWER_THRESHOLD: f64 = 0.015;
+pub const DECAY_RATE: f64 = 0.9;
+pub const STALE_THRESHOLD: Duration = Duration::from_millis(200);
+pub const MIN_POWER_THRESHOLD: f64 = 0.015;
 
-#[derive(Debug, Clone, Copy)]
-pub struct GraphState {
-    pub graph_type: GraphType,
+#[derive(Debug, Clone)]
+pub struct Graph {
+    pub gtype: GraphConfig,
     pub target_addr: SocketAddr,
-    pub device: u64,
-    pub core: usize,
-    pub stream: usize,
-    pub subcarrier: usize,
-    pub time_interval: usize,            // For Amplitude plots: x-axis time window in ms
-    pub y_axis_bounds: Option<[f64; 2]>, // For PDP plots: fixed y-axis bounds [min, max]
-}
-
-impl PartialEq for GraphState {
-    fn eq(&self, other: &Self) -> bool {
-        self.graph_type == other.graph_type
-            && self.target_addr == other.target_addr
-            && self.device == other.device
-            && self.core == other.core
-            && self.stream == other.stream
-            && self.subcarrier == other.subcarrier
-        // time_interval is intentionally omitted for robust state tracking against graph spec changes
-        // y_axis_bounds is also omitted for the same reason
-    }
+    pub device_id: DeviceId,
+    pub data: Vec<(f64, f64)>,
 }
 
 #[derive(Clone, Debug)]
@@ -54,41 +36,43 @@ pub struct GraphDisplayState {
     pub last_loop_update_time: Instant, // When this state was last updated or checked in the tui_loop
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum GraphConfig {
+    Amplitude(AmplitudeConfig),
+    #[allow(clippy::upper_case_acronyms)]
+    PDP(PDPConfig),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GraphType {
     Amplitude,
     #[allow(clippy::upper_case_acronyms)]
     PDP,
 }
 
-impl FromStr for GraphType {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "amp" => Ok(GraphType::Amplitude),
-            "amplitude" => Ok(GraphType::Amplitude),
-            "pdp" => Ok(GraphType::PDP),
-            _ => Err(()),
-        }
-    }
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AmplitudeConfig {
+    pub core: usize,
+    pub stream: usize,
+    pub subcarrier: usize,
+    pub time_range: usize,
 }
 
-impl fmt::Display for GraphType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{self:?}")
-    }
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PDPConfig {
+  pub core: usize,
+  pub stream: usize,
+  pub y_axis_bounds: Option<[f64; 2]>,
 }
 
-impl PartialEq for GraphType {
-    fn eq(&self, other: &Self) -> bool {
-        self.to_string() == other.to_string()
-    }
-}
-
+#[derive(Debug, Clone, PartialEq)]
 pub enum VisUpdate {
     Log(LogEntry),
     Quit,
+    ClearGraphs,
+    AddGraph(GraphType),
+    SetInterval(usize, u64),
+    RemoveGraph(usize),
 }
 
 impl FromLog for VisUpdate {
@@ -101,14 +85,23 @@ impl FromLog for VisUpdate {
 pub struct VisState {
     pub should_quit: bool,
     pub logs: Vec<LogEntry>,
-    #[allow(clippy::type_complexity)]
-    pub data: Arc<Mutex<HashMap<SocketAddr, HashMap<u64, Vec<CsiData>>>>>,
-    pub graph_display_states: Arc<Mutex<Vec<Option<GraphDisplayState>>>>,    
-    pub graph_data: Vec<Vec<(f64, f64)>>,
-    pub graph_state: GraphState,
-    
-}
+    pub last_tick: Instant,
+    pub graph_update_interval: Duration,
+    pub logs_scroll_offset: usize,
 
+    #[allow(clippy::type_complexity)]
+    pub csi_data: Arc<Mutex<HashMap<SocketAddr, HashMap<u64, Vec<CsiData>>>>>,
+    pub graphs: Vec<Graph>,
+
+    // Fields
+    pub graph_type_input: GraphType,
+    pub target_addr_input: String,
+
+    pub device_id_input: u64,
+    pub core_input: usize,
+    pub subcarrier_input: usize,
+    pub stream_input: usize,
+}
 
 impl VisState {
     /// Constructs a new `TuiState` with default configurations.
@@ -116,13 +109,21 @@ impl VisState {
         Self {
             should_quit: false,
             logs: vec![],
-            data: Arc::new(Default::default()),
-            graph_display_states: Arc::new(Mutex::new(Vec::new())),            
+            logs_scroll_offset: 0,
+            csi_data: Arc::new(Default::default()),
+            graphs: vec![],
+            last_tick: Instant::now(),
+            graph_update_interval: Duration::from_millis(200),
+
+            graph_type_input: GraphType::Amplitude,
+            target_addr_input: "".to_owned(),
+            device_id_input: 0,
+            core_input: 0,
+            subcarrier_input: 0,
+            stream_input: 0,
         }
     }
 }
-
-
 
 pub enum VisCommand {}
 
@@ -136,7 +137,9 @@ impl Tui<VisUpdate, VisCommand> for VisState {
     /// Handles keyboard input events and maps them to updates.
     fn handle_keyboard_event(&self, key_event: KeyEvent) -> Option<VisUpdate> {
         match key_event.code {
-            KeyCode::Char('q') => Some(VisUpdate::Quit),
+            KeyCode::Char('q') | KeyCode::Char('Q') => Some(VisUpdate::Quit),
+            KeyCode::Char('c') | KeyCode::Char('C') => Some(VisUpdate::ClearGraphs),
+            KeyCode::Char('a') | KeyCode::Char('A') => Some(VisUpdate::AddGraph(self.graph_type_input)),
             _ => None,
         }
     }
@@ -146,7 +149,21 @@ impl Tui<VisUpdate, VisCommand> for VisState {
     }
 
     async fn on_tick(&mut self) {
-        self.graph_data;
+        let now = Instant::now();
+        if now.duration_since(self.last_tick) > self.graph_update_interval {
+            let csi_data_snapshot = self.csi_data.lock().await;
+
+            for graph in self.graphs.iter_mut() {
+                if let Some(host_data) = csi_data_snapshot.get(&graph.target_addr) {
+                    if let Some(device_data) = host_data.get(&graph.device_id) {
+                        let (data, timestamp) = Visualiser::process_data(device_data, graph.gtype);
+                        graph.data = data.into();
+                    }
+                }
+            }
+        }
+
+        self.last_tick = now;
     }
 
     /// Applies updates and potentially sends commands to background tasks.
@@ -155,7 +172,54 @@ impl Tui<VisUpdate, VisCommand> for VisState {
             VisUpdate::Log(entry) => {
                 self.logs.push(entry);
             }
-            VisUpdate::Quit => todo!(),
+            VisUpdate::Quit => {
+                self.should_quit = true;
+            }
+            VisUpdate::ClearGraphs => {}
+            VisUpdate::AddGraph(graph_type) => {
+                let graph_type = match graph_type {
+                    GraphType::Amplitude => GraphConfig::Amplitude(
+                        (AmplitudeConfig {
+                            core: self.core_input,
+                            stream: self.stream_input,
+                            subcarrier: self.subcarrier_input,
+                            time_range: 100,
+                        }),
+                    ),
+                    GraphType::PDP => GraphConfig::PDP(
+                        (PDPConfig {
+                            core: self.core_input,
+                            stream: self.stream_input,
+                            y_axis_bounds: None,
+                        }),
+                    ),
+                };
+                if let Ok(target_addr) = self.target_addr_input.parse() {
+                    let graph = Graph {
+                        gtype: graph_type,
+                        target_addr: target_addr,
+                        device_id: self.device_id_input,
+                        data: vec![],
+                    };
+
+                    self.graphs.push(graph);
+                }
+            }
+            VisUpdate::RemoveGraph(idx) => {
+                self.graphs.remove(idx);
+            }
+            VisUpdate::SetInterval(idx, interval) => {
+                if let Some(mut graph_to_modify) = self.graphs.get_mut(idx) {
+                    match graph_to_modify.gtype {
+                        GraphConfig::PDP(mut config) => {
+                            config.y_axis_bounds = Some([0.0, interval as f64]);
+                        }
+                        GraphConfig::Amplitude(mut config) => {
+                            config.time_range = interval as usize;
+                        }
+                    }
+                }
+            }
         }
     }
 }

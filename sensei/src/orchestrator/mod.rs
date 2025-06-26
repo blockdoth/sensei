@@ -415,10 +415,7 @@ impl Orchestrator {
                                 let converter = |exp| OrgUpdate::ActiveExperiment(exp);
 
                                 tokio::spawn(async move {
-                                    match session.run(update_send, converter, handler).await {
-                                        Ok(_) => {}
-                                        Err(e) => panic!("{e}"),
-                                    };
+                                    session.run(update_send, converter, handler).await // TODO error handling
                                 });
                             }
                         }

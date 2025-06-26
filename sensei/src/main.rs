@@ -62,7 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         {
             matches!(
                 &args.subcommand,
-                Some(SubCommandsArgs::EspTool(_)) | Some(SubCommandsArgs::Orchestrator(_))
+                Some(SubCommandsArgs::EspTool(_)) | Some(SubCommandsArgs::Orchestrator(_))  | Some(SubCommandsArgs::Visualiser(_))
             )
         }
         #[cfg(all(feature = "esp_tool", not(feature = "orchestrator")))]
@@ -144,7 +144,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let config = match VisualiserConfig::from_yaml(args.config_path.clone()) {
                         Ok(config_yaml) => args.merge_with_config(config_yaml),
                         Err(e) => {
-                            error!("Unable to parse orchestrator node config file: {e}");
+                            error!("Unable to parse visualizer config file: {e}");
                             args.into()
                         }
                     };
