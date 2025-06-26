@@ -5,10 +5,13 @@ use lib::network::rpc_message::{DataMsg, HostId};
 use lib::network::tcp::ChannelMsg;
 use thiserror::Error;
 
+#[cfg(feature = "orchestrator")]
 use crate::orchestrator::state::OrchUpdate;
+#[cfg(feature = "orchestrator")]
 use crate::orchestrator::{ExperimentChannelMsg, RegistryChannelMsg};
 
 #[derive(Error, Debug)]
+#[cfg(feature = "orchestrator")]
 pub enum OrchestratorError {
     /// Network Error
     #[error("Network Error")]
