@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::try_join;
-use lib::errors::{ConfigError, NetworkError, RegistryError};
+use lib::errors::{ConfigError, NetworkError};
 use lib::network::rpc_message::{DataMsg, DeviceId, DeviceInfo, HostCtrl, HostId, HostStatus, RegCtrl, Responsiveness, RpcMessage, RpcMessageKind};
 use lib::network::tcp::client::TcpClient;
 use lib::network::tcp::server::TcpServer;
@@ -23,6 +23,7 @@ use tokio::sync::{Mutex, broadcast};
 use tokio::task::{self, JoinHandle};
 use tokio::time::{Duration, interval};
 
+use crate::errors::RegistryError;
 use crate::services::{GlobalConfig, RegistryConfig, Run};
 
 /// The `Registry` struct manages a collection of hosts, providing asynchronous methods to poll their status,
@@ -265,12 +266,12 @@ impl ConnectionHandler for Registry {
                 }) => self
                     .store_host_update(host_id, request.src_addr, device_status)
                     .await
-                    .map_err(|err| NetworkError::ProcessingError(err.to_string()))?,
+                    .map_err(|err| NetworkError::ProcessingError(Box::new(err)))?,
                 RegCtrl::HostStatuses { host_statuses } => {
                     for host_status in host_statuses {
                         self.store_host_update(host_status.host_id, request.src_addr, host_status.device_statuses)
                             .await
-                            .map_err(|err| NetworkError::ProcessingError(err.to_string()))?
+                            .map_err(|err| NetworkError::ProcessingError(Box::new(err)))?
                     }
                 }
                 #[allow(unreachable_patterns)]
@@ -311,7 +312,7 @@ impl ConnectionHandler for Registry {
                         let host_status = RegCtrl::from(
                             self.get_host_by_id(host_id)
                                 .await
-                                .map_err(|err| NetworkError::ProcessingError(err.to_string()))?,
+                                .map_err(|err| NetworkError::ProcessingError(Box::new(err)))?,
                         );
                         let msg = RpcMessageKind::RegCtrl(host_status);
                         send_message(&mut send_stream, msg).await?;

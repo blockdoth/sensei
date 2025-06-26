@@ -3,12 +3,11 @@
 //! Originally authored by: Fabian Portner
 
 use std::fmt;
-use std::str::FromStr;
 
 use num_complex::Complex64;
 use serde::{Deserialize, Serialize};
 
-use crate::errors::{AppError, DataSourceError};
+use crate::errors::DataSourceError;
 
 /// Complex number type alias for CSI data representation.
 pub type Complex = Complex64;
@@ -105,68 +104,5 @@ impl FrameEncoding {
 impl std::fmt::Display for FrameEncoding {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt::Debug::fmt(self, f)
-    }
-}
-
-// #[cfg_attr(feature = "docs", derive(schemars::JsonSchema))]
-/// Represents a MAC address
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MacAddr([u8; 6]);
-
-impl MacAddr {
-    /// Construct a new `MacAddr` from a byte array
-    pub fn new(bytes: [u8; 6]) -> Self {
-        MacAddr(bytes)
-    }
-}
-
-impl Serialize for MacAddr {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mac_str = format!(
-            "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-            self.0[0], self.0[1], self.0[2], self.0[3], self.0[4], self.0[5]
-        );
-        serializer.serialize_str(&mac_str)
-    }
-}
-
-/// Parse a `MacAddr` from a colon-separated string
-/// NOTE: This also provides Deserialize
-impl FromStr for MacAddr {
-    type Err = AppError;
-
-    fn from_str(s: &str) -> Result<Self, AppError> {
-        let bytes: Vec<&str> = s.split(':').collect();
-        if bytes.len() != 6 {
-            return Err(AppError::ConfigError("Invalid MAC address format".into()));
-        }
-        let mut arr = [0u8; 6];
-        for (i, byte) in bytes.iter().enumerate() {
-            arr[i] = u8::from_str_radix(byte, 16).map_err(|_| AppError::ConfigError("Invalid byte in MAC address".into()))?;
-        }
-        Ok(MacAddr(arr))
-    }
-}
-
-impl fmt::Display for MacAddr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-            self.0[0], self.0[1], self.0[2], self.0[3], self.0[4], self.0[5]
-        )
-    }
-}
-
-impl<'de> Deserialize<'de> for MacAddr {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s: &str = Deserialize::deserialize(deserializer)?;
-        MacAddr::from_str(s).map_err(serde::de::Error::custom)
     }
 }
