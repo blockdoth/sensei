@@ -532,7 +532,7 @@ impl Orchestrator {
             OrchChannelMsg::Disconnect(target_addr) => {
                 client.lock().await.disconnect(target_addr).await?;
             }
-            OrgChannelMsg::Subscribe(target_addr, source_addr, device_id) => {
+            OrchChannelMsg::Subscribe(target_addr, source_addr, device_id) => {
                 match source_addr {
                     Some(src_addr) => {
                         info!("Subscribing to {src_addr} for device id {device_id}");
@@ -546,7 +546,7 @@ impl Orchestrator {
                     }
                 }
             }
-            OrgChannelMsg::Unsubscribe(target_addr, source_addr, device_id) => {
+            OrchChannelMsg::Unsubscribe(target_addr, source_addr, device_id) => {
                 if let Some(source_addr) = source_addr {
                     info!("Unsubscribing from {target_addr} for device id {device_id}");
                     let msg = HostCtrl::UnsubscribeFrom { target_addr: source_addr, device_id };
