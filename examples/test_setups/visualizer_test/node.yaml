@@ -1,13 +1,13 @@
-address: 127.0.0.1:6967
-host_id: 2
-registry: 127.0.0.1:6969
+address: 127.0.0.1:6969
+host_id: 1
+
 sinks:
   - id: stdout
     config: !File
       file: /dev/null
 
 device_configs:
-  - device_id: 1
+  - device_id: 0
     source_type: Csv
 
     source: !Csv
@@ -15,7 +15,9 @@ device_configs:
       cell_delimiter: 44
       row_delimiter: 10
       header: true
-      delay: 100
+      delay: 10
+
+    adapter: !Csv
       
     output_to:
       - stdout

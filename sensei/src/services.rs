@@ -112,6 +112,7 @@ pub struct OrchestratorConfig {
     pub tui: Option<bool>,
     pub polling_interval: u64,
     pub default_hosts: Vec<SocketAddr>,
+    pub registry: SocketAddr,
 }
 
 /// Configuration for a System Node service.

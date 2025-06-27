@@ -1,0 +1,5 @@
+procs:
+  node_1:
+    cmd: ["sh", "-c", "sleep 1 && cargo run node --config-path node.yaml"]
+  vizualizer:
+    cmd: ["sh", "-c", "sleep 4 && cargo run visualiser --config-path visualiser.yaml"]

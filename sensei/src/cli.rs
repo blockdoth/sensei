@@ -201,6 +201,7 @@ pub struct OrchestratorSubcommandArgs {
     /// file path of the experiment config
     #[argh(option, default = "DEFAULT_ORCHESTRATOR_CONFIG.parse().unwrap()")]
     pub config_path: PathBuf,
+
 }
 
 #[cfg(feature = "orchestrator")]
@@ -211,6 +212,7 @@ impl From<&OrchestratorSubcommandArgs> for OrchestratorConfig {
             tui: Some(args.tui),
             polling_interval: args.polling_interval,
             default_hosts: Vec::new(),
+            registry: DEFAULT_ADDRESS
         }
     }
 }
@@ -225,7 +227,6 @@ impl MergeWithConfig<OrchestratorConfig> for OrchestratorSubcommandArgs {
         if self.polling_interval != DEFAULT_ORCH_POLL_INTERVAL {
             device_config.polling_interval = self.polling_interval;
         }
-
         if self.experiments_dir != DEFAULT_EXPERIMENT_CONFIGS.parse::<PathBuf>().unwrap() {
             device_config.experiments_dir = self.experiments_dir.clone();
         }
@@ -362,8 +363,8 @@ impl From<&EspToolSubcommandArgs> for EspToolConfig {
 #[derive(FromArgs)]
 #[argh(subcommand, name = "registry")]
 pub struct RegistrySubcommandArgs {
-    /// registry address (default: 127.0.0.1:9000)
-    #[argh(option, default = "String::from(\"127.0.0.1:9000\")")]
+    /// registry address (default: 127.0.0.1:6969)
+    #[argh(option, default = "format!(\"{DEFAULT_IP_CLI}:{DEFAULT_PORT_CLI}\")")]
     pub address: String,
 
     /// server port (default: 6969)

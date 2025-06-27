@@ -1,6 +1,8 @@
 address: 127.0.0.1:6969
+registry: 127.0.0.1:6960
 host_id: 4
 polling_interval: 1
+
 
 sinks:
 device_configs:

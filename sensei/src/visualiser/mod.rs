@@ -59,7 +59,7 @@ impl Run<VisualiserConfig> for Visualiser {
 
         let mut vis_state = VisState::new(self.graph_update_interval);
         vis_state.graphs.extend(self.graph_configs.iter().cloned().map(Graph::from));
-
+        vis_state.addr_input = self.target.to_string();
         let tasks: Vec<Pin<Box<dyn Future<Output = ()> + Send>>> = vec![
             Box::pin(Self::listen_task(vis_state.csi_data.clone(), command_recv, update_send.clone())),
             Box::pin(Self::init(command_send.clone(), self.target, self.graph_configs.clone())),
