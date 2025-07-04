@@ -26,13 +26,15 @@
 #[cfg(feature = "registry")]
 #[cfg(feature = "sys_node")]
 use std::path::PathBuf;
+use std::vec;
 
 use argh::FromArgs;
 #[cfg(feature = "sys_node")]
 use lib::handler::device_handler::DeviceHandlerConfig;
-use lib::network::rpc_message::DEFAULT_ADDRESS;
+use lib::network::rpc_message::{DEFAULT_ADDRESS, DeviceId};
 #[cfg(feature = "sys_node")]
 use log::debug;
+use serde::{Deserialize, Serialize};
 use simplelog::LevelFilter;
 
 #[cfg(feature = "esp_tool")]
@@ -46,12 +48,14 @@ use crate::services::RegistryConfig;
 use crate::services::SystemNodeConfig;
 #[cfg(feature = "visualiser")]
 use crate::services::VisualiserConfig;
+use crate::visualiser::state::{AmplitudeConfig, Graph, GraphConfig, PDPConfig};
 
 /// Default path to the host configuration YAML file.
 pub static DEFAULT_HOST_CONFIG: &str = "examples/default/node.yaml";
 /// Default path to the orchestrator configuration YAML file.
 pub static DEFAULT_ORCHESTRATOR_CONFIG: &str = "examples/default/orchestrator.yaml";
 pub static DEFAULT_REGISTRY_CONFIG: &str = "examples/default/registry.yaml";
+pub static DEFAULT_VISUALIZER_CONFIG: &str = "examples/default/visualiser.yaml";
 pub static DEFAULT_EXPERIMENT_CONFIGS: &str = "examples/experiments/";
 pub static DEFAULT_ORCH_POLL_INTERVAL: u64 = 5;
 
@@ -103,16 +107,6 @@ impl Args {
             num_workers: self.num_workers,
         })
     }
-}
-
-/// A trait for parsing command-line arguments into a specific configuration type.
-///
-/// Implementors of this trait define how to convert raw command-line arguments
-/// (typically a dedicated struct derived with `argh::FromArgs`) into a structured
-/// configuration object (e.g., `SystemNodeConfig`, `OrchestratorConfig`).
-pub trait ConfigFromCli<Config> {
-    /// Parses the command-line arguments into a configuration object.
-    fn parse(&self) -> Result<Config, Box<dyn std::error::Error>>;
 }
 
 #[derive(FromArgs)]
@@ -207,6 +201,7 @@ pub struct OrchestratorSubcommandArgs {
     /// file path of the experiment config
     #[argh(option, default = "DEFAULT_ORCHESTRATOR_CONFIG.parse().unwrap()")]
     pub config_path: PathBuf,
+
 }
 
 #[cfg(feature = "orchestrator")]
@@ -217,6 +212,7 @@ impl From<&OrchestratorSubcommandArgs> for OrchestratorConfig {
             tui: Some(args.tui),
             polling_interval: args.polling_interval,
             default_hosts: Vec::new(),
+            registry: DEFAULT_ADDRESS
         }
     }
 }
@@ -231,7 +227,6 @@ impl MergeWithConfig<OrchestratorConfig> for OrchestratorSubcommandArgs {
         if self.polling_interval != DEFAULT_ORCH_POLL_INTERVAL {
             device_config.polling_interval = self.polling_interval;
         }
-
         if self.experiments_dir != DEFAULT_EXPERIMENT_CONFIGS.parse::<PathBuf>().unwrap() {
             device_config.experiments_dir = self.experiments_dir.clone();
         }
@@ -249,22 +244,98 @@ pub struct VisualiserSubcommandArgs {
     #[argh(option, default = "String::from(\"127.0.0.1:6969\")")]
     pub target: String,
 
-    /// using tui (ratatui, default) or gui (plotters, minifb)
-    #[argh(option, default = "String::from(\"tui\")")]
-    pub ui_type: String,
+    /// graph update interval (default: 6969)
+    #[argh(option, default = "100")]
+    pub update_interval: usize,
+
+    /// file path of the visualiser config
+    #[argh(option, default = "DEFAULT_VISUALIZER_CONFIG.parse().unwrap()")]
+    pub config_path: PathBuf,
 }
 
 #[cfg(feature = "visualiser")]
-impl ConfigFromCli<VisualiserConfig> for VisualiserSubcommandArgs {
-    /// Parses visualiser subcommand arguments into a `VisualiserConfig`.
-    ///
-    /// This involves setting the target address and UI type for the visualiser.
-    fn parse(&self) -> Result<VisualiserConfig, Box<dyn std::error::Error>> {
-        // TODO input validation
-        Ok(VisualiserConfig {
-            target: self.target.parse()?,
-            ui_type: self.ui_type.clone(),
-        })
+impl From<&VisualiserSubcommandArgs> for VisualiserConfig {
+    fn from(args: &VisualiserSubcommandArgs) -> Self {
+        VisualiserConfig {
+            target: args.target.parse().unwrap_or(DEFAULT_ADDRESS),
+            graphs: vec![],
+            update_interval: args.update_interval,
+        }
+    }
+}
+
+#[cfg(feature = "visualiser")]
+/// Overlays subcommand arguments onto a VisualiserConfig, overriding fields if provided.
+impl MergeWithConfig<VisualiserConfig> for VisualiserSubcommandArgs {
+    fn merge_with_config(&self, mut full_config: VisualiserConfig) -> VisualiserConfig {
+        // Because of the default value we expact that there's always a file to read
+        debug!("Loading visualizer configuration from YAML file: {}", self.config_path.display());
+
+        if self.target != DEFAULT_ADDRESS.to_string()
+            && let Ok(target) = self.target.parse()
+        {
+            full_config.target = target
+        }
+
+        full_config
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
+pub enum GraphConfigWithId {
+    Amplitude(AmplitudeConfigWithId),
+    #[allow(clippy::upper_case_acronyms)]
+    PDP(PDPConfigWithId),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
+pub struct AmplitudeConfigWithId {
+    pub device_id: DeviceId,
+    pub core: usize,
+    pub stream: usize,
+    pub subcarrier: usize,
+    pub time_range: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
+pub struct PDPConfigWithId {
+    pub device_id: DeviceId,
+    pub core: usize,
+    pub stream: usize,
+    pub y_axis_bounds: [f64; 2],
+}
+
+impl From<GraphConfigWithId> for Graph {
+    fn from(graph_with_id: GraphConfigWithId) -> Self {
+        match graph_with_id {
+            GraphConfigWithId::Amplitude(AmplitudeConfigWithId {
+                device_id,
+                core,
+                stream,
+                subcarrier,
+                time_range,
+            }) => Graph {
+                gtype: GraphConfig::Amplitude(AmplitudeConfig {
+                    core,
+                    stream,
+                    subcarrier,
+                    time_range,
+                }),
+                device_id,
+                data: vec![],
+            },
+
+            GraphConfigWithId::PDP(PDPConfigWithId {
+                device_id,
+                core,
+                stream,
+                y_axis_bounds,
+            }) => Graph {
+                gtype: GraphConfig::PDP(PDPConfig { core, stream, y_axis_bounds }),
+                device_id,
+                data: vec![],
+            },
+        }
     }
 }
 
@@ -278,15 +349,12 @@ pub struct EspToolSubcommandArgs {
     pub serial_port: String,
 }
 
-#[cfg(feature = "esp_tool")]
-impl ConfigFromCli<EspToolConfig> for EspToolSubcommandArgs {
-    /// Parses ESP tool subcommand arguments into an `EspToolConfig`.
-    ///
-    /// This involves setting the serial port for communication with the ESP device.
-    fn parse(&self) -> Result<EspToolConfig, Box<dyn std::error::Error>> {
-        Ok(EspToolConfig {
-            serial_port: self.serial_port.clone(), // TODO remove clone
-        })
+#[cfg(feature = "registry")]
+impl From<&EspToolSubcommandArgs> for EspToolConfig {
+    fn from(args: &EspToolSubcommandArgs) -> Self {
+        EspToolConfig {
+            serial_port: args.serial_port.clone(),
+        }
     }
 }
 
@@ -295,8 +363,8 @@ impl ConfigFromCli<EspToolConfig> for EspToolSubcommandArgs {
 #[derive(FromArgs)]
 #[argh(subcommand, name = "registry")]
 pub struct RegistrySubcommandArgs {
-    /// registry address (default: 127.0.0.1:9000)
-    #[argh(option, default = "String::from(\"127.0.0.1:9000\")")]
+    /// registry address (default: 127.0.0.1:6969)
+    #[argh(option, default = "format!(\"{DEFAULT_IP_CLI}:{DEFAULT_PORT_CLI}\")")]
     pub address: String,
 
     /// server port (default: 6969)
@@ -313,10 +381,12 @@ pub struct RegistrySubcommandArgs {
 }
 
 #[cfg(feature = "registry")]
-impl ConfigFromCli<RegistryConfig> for RegistrySubcommandArgs {
-    fn parse(&self) -> Result<RegistryConfig, Box<dyn std::error::Error>> {
-        use crate::services::FromYaml;
-        RegistryConfig::from_yaml(self.config_path.clone())
+impl From<&RegistrySubcommandArgs> for RegistryConfig {
+    fn from(args: &RegistrySubcommandArgs) -> Self {
+        RegistryConfig {
+            address: args.address.parse().unwrap_or(DEFAULT_ADDRESS),
+            polling_interval: args.polling_interval,
+        }
     }
 }
 

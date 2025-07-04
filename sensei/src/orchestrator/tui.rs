@@ -464,7 +464,7 @@ fn footer_text(tui_state: &OrchTuiState) -> String {
               RegistryStatus::Connected => "[D]isconnect | [A]add all hosts | [S]tart Polling | [P]oll once | [M]anual Add | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit",
               RegistryStatus::Polling => "[D]isconnect | [A]add all hosts | [S]top Polling | [M]anual Add | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit",
             },
-            FocusReg::AvailableHosts(_) => "[M]anual Add | [Tab] Next | [Shft+Tab] Prev | [↑↓] Move | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit",
+            FocusReg::AvailableHosts(_) => "[A]dd host | [M]anual Add | [Tab] Next | [Shft+Tab] Prev | [↑↓] Move | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit",
             FocusReg::AddHost(_) => "[Tab] Next | [Shft+Tab] Prev | [←→↑↓] Move | [Enter] | [.] Clear Logs | [,] Clear CSI | [ESC]ape | [Q]uit",
         },
 

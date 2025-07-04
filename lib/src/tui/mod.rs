@@ -76,7 +76,6 @@ where
         F: Future<Output = ()> + Send + 'static,
     {
         let mut terminal = Self::setup_terminal().unwrap(); //TODO remove unwrap
-
         Self::log_handler_task(self.log_recv, self.update_send).await;
         init_logger(self.log_level, self.log_send.clone())?;
 

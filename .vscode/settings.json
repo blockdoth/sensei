@@ -2,6 +2,7 @@
     "coverage-gutters.coverageBaseDir": "target/llvm-cov/lcov",
     "coverage-gutters.coverageReportFileName": "target/llvm-cov/html/**/index.html",
     "cSpell.words": [
-      "ochestrator"
+      "ochestrator",
+      "pdpfocus"
     ]
 }

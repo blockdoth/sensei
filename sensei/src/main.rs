@@ -51,6 +51,8 @@ use crate::orchestrator::*;
 use crate::registry::Registry;
 #[cfg(feature = "orchestrator")]
 use crate::services::OrchestratorConfig;
+#[cfg(feature = "visualiser")]
+use crate::services::VisualiserConfig;
 #[cfg(feature = "sys_node")]
 use crate::system_node::*;
 #[cfg(feature = "visualiser")]
@@ -64,7 +66,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         {
             matches!(
                 &args.subcommand,
-                Some(SubCommandsArgs::EspTool(_)) | Some(SubCommandsArgs::Orchestrator(_))
+                Some(SubCommandsArgs::EspTool(_)) | Some(SubCommandsArgs::Orchestrator(_)) | Some(SubCommandsArgs::Visualiser(_))
             )
         }
         #[cfg(all(feature = "esp_tool", not(feature = "orchestrator")))]
@@ -143,17 +145,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 #[cfg(feature = "visualiser")]
                 SubCommandsArgs::Visualiser(args) => {
-                    Visualiser::new(global_config, args.parse()?).run().await?;
+                    let config = match VisualiserConfig::from_yaml(args.config_path.clone()) {
+                        Ok(config_yaml) => args.merge_with_config(config_yaml),
+                        Err(e) => {
+                            error!("Unable to parse visualizer config file: {e}");
+                            args.into()
+                        }
+                    };
+                    Visualiser::new(global_config, config).run().await?;
                 }
 
                 #[cfg(feature = "esp_tool")]
                 SubCommandsArgs::EspTool(args) => {
-                    EspTool::new(global_config, args.parse()?).run().await?;
+                    EspTool::new(global_config, args.into()).run().await?;
                 }
 
                 #[cfg(feature = "registry")]
                 SubCommandsArgs::Registry(args) => {
-                    Registry::new(global_config, args.parse()?).run().await?;
+                    Registry::new(global_config, args.into()).run().await?;
                 }
                 #[allow(unreachable_patterns)]
                 _ => todo!("Here in case the cross compile features do funny"),

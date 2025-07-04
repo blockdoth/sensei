@@ -1,0 +1,48 @@
+address: 127.0.0.1:6965
+host_id: 4
+registry: 127.0.0.1:6969
+
+sinks:
+  - id: stdout
+    config: !File
+      file: /dev/null
+
+device_configs:
+  - device_id: 0
+    source_type: ESP32
+
+    source: !Esp32
+      port_name: /dev/ttyACM0 # TODO: Update with actual port name
+      # baud_rate: 3000000
+      # csi_buffer_size: 100
+      # ack_timeout_ms: 2000
+
+    controller: !Esp32
+      mode: Listening
+      # device_config:
+      #   channel: 1
+      #   mode: Receive
+      #   bandwidth: Twenty
+      #   secondary_channel: None
+      #   csi_type: HighThroughputLTF
+      #   manual_scale: 0
+      # synchronize_time: true
+
+    adapter: !Esp32
+      scale_csi: false
+
+    output_to:
+      - stdout
+  - device_id: 1
+    source_type: Csv
+
+    source: !Csv
+      path: ../../../resources/test_data/csv/csi_data.csv # Change this line to use different input data.
+      cell_delimiter: 44
+      row_delimiter: 10
+      header: true
+      delay: 200
+    adapter: !Csv
+    
+    output_to:
+      - stdout

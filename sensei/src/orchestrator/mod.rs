@@ -129,6 +129,7 @@ pub struct Orchestrator {
     reg_polling_interval: u64,
     #[allow(unused)]
     default_hosts: Vec<SocketAddr>,
+    registry: SocketAddr,
 }
 
 impl Run<OrchestratorConfig> for Orchestrator {
@@ -139,6 +140,7 @@ impl Run<OrchestratorConfig> for Orchestrator {
             tui: config.tui.unwrap_or(true),
             reg_polling_interval: config.polling_interval,
             default_hosts: config.default_hosts,
+            registry: config.registry
         }
     }
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -195,7 +197,8 @@ impl Run<OrchestratorConfig> for Orchestrator {
         ];
 
         if self.tui {
-            let tui = OrchTuiState::new();
+            let mut tui = OrchTuiState::new();
+            tui.registry_addr = Some(self.registry);
             let tui_runner = TuiRunner::new(tui, command_send, update_recv, update_send, self.log_level);
 
             tui_runner.run(tasks).await?;
@@ -229,8 +232,8 @@ impl Orchestrator {
             update_send.send(OrchUpdate::ConnectRegistry).await?;
             sleep(Duration::from_millis(100)).await;
             update_send.send(OrchUpdate::TogglePolling).await?;
-            sleep(Duration::from_millis(100)).await;
-            update_send.send(OrchUpdate::AddAllHosts).await?;
+            // sleep(Duration::from_millis(100)).await;
+            // update_send.send(OrchUpdate::AddAllHosts).await?;
 
             for (i, addr) in default_hosts.into_iter().enumerate() {
                 let host = Host {
@@ -371,7 +374,10 @@ impl Orchestrator {
         let (cancel_signal_send, cancel_signal_recv) = watch::channel(false);
         let mut session = ExperimentSession::new(update_send.clone(), cancel_signal_recv);
 
-        session.load_experiments(experiment_config_path.clone()).unwrap(); // idk what that error is supposed to do
+        if let Err(err) = session.load_experiments(experiment_config_path.clone()) {
+          error!("Failed to load experiments {err}");
+          // return Err(err);
+        } 
         info!("Loaded {} experiments from {experiment_config_path:?}", session.experiments.len());
         update_send
             .send(OrchUpdate::UpdateExperimentList(
@@ -406,10 +412,7 @@ impl Orchestrator {
                                 let converter = |exp| OrchUpdate::ActiveExperiment(exp);
 
                                 tokio::spawn(async move {
-                                    match session.run(update_send, converter, handler).await {
-                                        Ok(_) => {}
-                                        Err(e) => panic!("{e}"),
-                                    };
+                                    session.run(update_send, converter, handler).await // TODO error handling
                                 });
                             }
                         }
@@ -494,6 +497,7 @@ impl Orchestrator {
                 _ = async {
                     if receiving {
                         for target_addr in &targets {
+                            info!("got data");
                             if let Ok(msg) = client.lock().await.wait_for_read_message(*target_addr).await {
                                 match msg.msg {
                                     Data { data_msg: DataMsg::CsiFrame { csi }, .. } => {
@@ -532,24 +536,28 @@ impl Orchestrator {
             OrchChannelMsg::Disconnect(target_addr) => {
                 client.lock().await.disconnect(target_addr).await?;
             }
-            OrchChannelMsg::Subscribe(target_addr, source_addr, device_id) => {
-                match source_addr {
-                    Some(src_addr) => {
-                        info!("Subscribing to {src_addr} for device id {device_id}");
-                        let msg = HostCtrl::SubscribeTo { target_addr: src_addr, device_id };
-                        client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?;
-                    }
-                    _ => {
-                        info!("Subscribing to {target_addr} for device id {device_id}");
-                        let msg = HostCtrl::Subscribe { device_id };
-                        client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?;
-                    }
+            OrchChannelMsg::Subscribe(target_addr, source_addr, device_id) => match source_addr {
+                Some(src_addr) => {
+                    info!("Subscribing to {src_addr} for device id {device_id}");
+                    let msg = HostCtrl::SubscribeTo {
+                        target_addr: src_addr,
+                        device_id,
+                    };
+                    client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?;
                 }
-            }
+                _ => {
+                    info!("Subscribing to {target_addr} for device id {device_id}");
+                    let msg = HostCtrl::Subscribe { device_id };
+                    client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?;
+                }
+            },
             OrchChannelMsg::Unsubscribe(target_addr, source_addr, device_id) => {
                 if let Some(source_addr) = source_addr {
                     info!("Unsubscribing from {target_addr} for device id {device_id}");
-                    let msg = HostCtrl::UnsubscribeFrom { target_addr: source_addr, device_id };
+                    let msg = HostCtrl::UnsubscribeFrom {
+                        target_addr: source_addr,
+                        device_id,
+                    };
                     client.lock().await.send_message(target_addr, RpcMessageKind::HostCtrl(msg)).await?;
                 } else {
                     info!("Unsubscribing from {target_addr} for device id {device_id}");

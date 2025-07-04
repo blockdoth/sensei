@@ -158,7 +158,7 @@ impl Run<SystemNodeConfig> for SystemNode {
         if let Some(registry_addr) = self.registry_addr {
             let self_addr = self.addr;
             let self_id = self.host_id;
-            task::spawn(Self::announce_presence_to_registry(registry_addr, self_addr, self_id));
+            Self::announce_presence_to_registry(registry_addr, self_addr, self_id).await?;
         }
 
         // Run all tasks concurrently
@@ -177,13 +177,13 @@ pub enum ExperimentChannelMsg {
 impl SystemNode {
     // Continuously running task responsible for managing experiment related functionality
 
-    async fn announce_presence_to_registry(registry_addr: SocketAddr, self_addr: SocketAddr, self_id: HostId) -> Result<(), NetworkError> {
+    async fn announce_presence_to_registry(registry_addr: SocketAddr, self_addr: SocketAddr, self_id: HostId) -> Result<(), NetworkError> {    
         let mut client = TcpClient::new();
         let msg = RpcMessageKind::RegCtrl(RegCtrl::AnnouncePresence {
             host_id: self_id,
             host_address: self_addr,
         });
-        debug!("Connecting to registry at {registry_addr}");
+        info!("Connecting to registry at {registry_addr}");
         client.connect(registry_addr).await?;
         client.send_message(registry_addr, msg).await?;
         info!("Presence announced to registry at {registry_addr}");
@@ -241,9 +241,7 @@ impl SystemNode {
                         });
 
                         tokio::spawn(async move {
-                            if let Err(err) = session.run(experiment_send, converter, handler).await {
-                                panic!("{err}");
-                            };
+                            let _ = session.run(experiment_send, converter, handler).await; // TOOD error handling
                         });
                     }
                     ExperimentChannelMsg::Start(_, _) => {
@@ -371,7 +369,7 @@ impl SystemNode {
             adapter,
             output_to: vec![],
         };
-        
+
         info!("Trying to connect to {target_addr}");
         let mut new_handler = DeviceHandler::from_config(new_handler_config).await?;
 

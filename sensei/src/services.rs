@@ -28,6 +28,7 @@ use lib::network::rpc_message::HostId;
 use log::LevelFilter;
 use serde::{Deserialize, Serialize};
 
+use crate::cli::GraphConfigWithId;
 #[cfg(feature = "sys_node")]
 use crate::system_node::SinkConfigWithName;
 
@@ -52,7 +53,7 @@ use crate::system_node::SinkConfigWithName;
 /// # Example
 ///
 /// ```rust,ignore
-/// use std::path::PathBuf;
+/// use std::path::PathBuf;            ui_type: self.ui_type.clone(),
 /// use serde::Deserialize;
 /// use sensei::services::FromYaml; // Assuming FromYaml is in a crate named sensei
 ///
@@ -85,6 +86,7 @@ pub trait FromYaml: Sized + for<'de> Deserialize<'de> {
     /// This function will panic if the file cannot be read.
     fn from_yaml(file: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
         let yaml = std::fs::read_to_string(file.clone()).map_err(|e| format!("Failed to read YAML file: {}\n{}", file.display(), e))?;
+
         Ok(serde_yaml::from_str(&yaml)?)
     }
 }
@@ -98,6 +100,9 @@ impl FromYaml for OrchestratorConfig {}
 #[cfg(feature = "registry")]
 impl FromYaml for RegistryConfig {}
 
+#[cfg(feature = "visualiser")]
+impl FromYaml for VisualiserConfig {}
+
 /// Configuration for the Orchestrator service.
 #[cfg(feature = "orchestrator")]
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
@@ -107,6 +112,7 @@ pub struct OrchestratorConfig {
     pub tui: Option<bool>,
     pub polling_interval: u64,
     pub default_hosts: Vec<SocketAddr>,
+    pub registry: SocketAddr,
 }
 
 /// Configuration for a System Node service.
@@ -138,12 +144,14 @@ pub struct RegistryConfig {
 
 /// Configuration for the Visualiser service.
 #[cfg(feature = "visualiser")]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VisualiserConfig {
     /// The network address of the target service (e.g., a System Node or Orchestrator)
     /// from which the visualiser will fetch data.
     pub target: SocketAddr,
-    /// The type of user interface to use for visualization (e.g., "tui", "gui").
-    pub ui_type: String,
+    pub update_interval: usize,
+
+    pub graphs: Vec<GraphConfigWithId>,
 }
 
 /// Configuration for the ESP Tool service.

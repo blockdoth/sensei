@@ -15,7 +15,7 @@ device_configs:
       cell_delimiter: 44
       row_delimiter: 10
       header: true
-      delay: 1000
+      delay: 10
     
     adapter: !Csv
       

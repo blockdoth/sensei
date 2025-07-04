@@ -423,7 +423,8 @@ impl Tui<OrchUpdate, OrchChannelMsg> for OrchTuiState {
             OrchUpdate::AddHost(status) => {
                 if !self.known_hosts.iter().any(|h| h.id == status.id || h.addr == status.addr) {
                     debug!("Added host from registry");
-                    self.known_hosts.push(status)
+                    let _ = command_send.send(OrchChannelMsg::Connect(status.addr)).await;
+                    self.known_hosts.push(status);
                 } else {
                     info!("Host already known");
                 }

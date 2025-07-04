@@ -1,0 +1,19 @@
+procs:
+  registry:
+    cmd: ["sh", "-c", "cargo run registry --config-path registry.yaml"]
+  orchestrator:
+    cmd: ["sh", "-c", "sleep 3 && cargo run orchestrator --experiments-dir ../../../examples/experiments/"]    
+  vizualizer:
+    cmd: ["sh", "-c", "sleep 4 && cargo run visualiser --config-path visualiser.yaml"]
+  node_1:
+    cmd: ["sh", "-c", "sleep 3 && cargo run node --config-path node_1.yaml"]
+  node_2:
+    cmd: ["sh", "-c", "sleep 3 && cargo run node --config-path node_2.yaml"]
+  node_3:
+    cmd: ["sh", "-c", "sleep 3 && cargo run node --config-path node_3.yaml"]
+  node_esp:
+    cmd: ["sh", "-c", "sleep 3 && cargo run node --config-path node_esp.yaml"]
+  
+  esp-tool:
+    cmd: ["sh", "-c", "cargo run esp-tool --serial-port /dev/ttyACM0"]
+    autostart: false
